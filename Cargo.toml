@@ -1,0 +1,7 @@
+[package]
+name = "rtop"
+description = "A Rust clone of the BTOP (linux system monitor) for Windows"
+version = "0.0.1"
+edition = "2024"
+
+[dependencies]
