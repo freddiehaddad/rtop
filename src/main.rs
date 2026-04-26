@@ -95,6 +95,14 @@ fn main() {
         config.set_string("shown_boxes", &boxes.join(" "));
     }
 
+    // Auto-add disk box to shown_boxes if not already present
+    {
+        let shown = config.get_string("shown_boxes").to_string();
+        if !shown.split_whitespace().any(|b| b == "disk") {
+            config.set_string("shown_boxes", &format!("{shown} disk"));
+        }
+    }
+
     app::run(&mut config, &mut terminal, &mut theme, &mut runner);
 }
 
