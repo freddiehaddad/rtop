@@ -229,7 +229,7 @@ fn main() {
                                 options_selected -= 1;
                             }
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
-                            let _ = terminal.write_raw(&menu_out);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "down" | "j" => {
                             let entries = build_options_entries(&config);
@@ -237,7 +237,7 @@ fn main() {
                                 options_selected += 1;
                             }
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
-                            let _ = terminal.write_raw(&menu_out);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "enter" | "space" => {
                             // Toggle the selected option
@@ -250,7 +250,7 @@ fn main() {
                                 }
                             }
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
-                            let _ = terminal.write_raw(&menu_out);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         _ => {}
                     },
