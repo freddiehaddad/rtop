@@ -425,11 +425,8 @@ fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, current_preset: 
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
 
-    let preset_label = if current_preset >= 0 {
-        format!("p{}reset *{}", fg, current_preset)
-    } else {
-        format!("p{}reset", fg)
-    };
+    let preset_num = if current_preset >= 0 { current_preset } else { 0 };
+    let preset_label = format!("p{}reset *{}", fg, preset_num);
     let rate_label = format!("{}ms", update_ms);
     let hints = format!(
         "{}{}{}m{}enu{}{}{}{}{}{}{}{}{}{}{}─ {}{} {}+{}{}",

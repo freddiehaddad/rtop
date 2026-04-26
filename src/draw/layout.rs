@@ -93,18 +93,27 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Top section height (CPU + GPU boxes)
     let top_section = cpu_height + total_gpu_height;
 
-    // Proc box width (right side, ~55%)
+    // Whether there are any left-column boxes
+    let has_left = has_mem || has_net || has_disk;
+
+    // Proc box width (right side, ~55% — or full width if no left-column boxes)
     let proc_width = if has_proc {
-        (term_width * PROC_WIDTH_PCT / 100).max(MIN_PROC_WIDTH).min(term_width)
+        if has_left {
+            (term_width * PROC_WIDTH_PCT / 100).max(MIN_PROC_WIDTH).min(term_width)
+        } else {
+            term_width
+        }
     } else {
         0
     };
 
-    // Left column width (MEM + NET)
-    let left_width = if has_proc {
+    // Left column width (MEM + NET + DISK)
+    let left_width = if has_proc && has_left {
         term_width - proc_width
-    } else {
+    } else if has_left {
         term_width
+    } else {
+        0
     };
 
     // Remaining height after CPU + GPU
