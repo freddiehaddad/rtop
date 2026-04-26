@@ -140,7 +140,7 @@ fn main() {
         }
 
         // Full redraw: collect data + render all boxes
-        if menu_state == MenuState::None && needs_full_redraw {
+        if (menu_state == MenuState::None || menu_state == MenuState::Filter) && needs_full_redraw {
             needs_full_redraw = false;
             needs_proc_redraw = false;
 
@@ -241,25 +241,31 @@ fn main() {
                     &view,
                     &theme,
                 ));
-                // Show filter input if in filter mode or if filter is active
+                // Show filter input on the bottom border when in filter mode or filter is active
                 let pf = config.get_string("proc_filter").to_string();
-                if menu_state == MenuState::Filter || !pf.is_empty() {
+                let is_filtering = menu_state == MenuState::Filter;
+                if is_filtering || !pf.is_empty() {
+                    let box_color = theme.c("proc_box");
+                    let hi = theme.c("hi_fg");
+                    let title_c = theme.c("title");
+                    let fg = theme.c("main_fg");
+                    let cursor = if is_filtering { "\x1b[4m \x1b[24m" } else { "" };
+                    // Position after the existing bottom border labels (they end around x+30)
+                    // Find a good spot — put it after select/info/terminate (roughly 30 chars in)
+                    let filter_x = proc_dim.x + 32;
                     let filter_label = format!(
-                        "{}{}{}f{}ilter: {}{}{}{}",
-                        theme.c("proc_box"),
-                        crate::draw::box_drawing::title_syms::TITLE_LEFT_DOWN,
-                        theme.c("hi_fg"),
-                        theme.c("title"),
-                        theme.c("main_fg"),
-                        pf,
-                        if menu_state == MenuState::Filter { "\x1b[4m \x1b[24m" } else { "" },
-                        crate::draw::box_drawing::title_syms::TITLE_RIGHT_DOWN,
+                        "{}{}{}f{}ilter: {}{}{}{}{}",
+                        box_color, crate::draw::box_drawing::title_syms::TITLE_LEFT_DOWN,
+                        hi, title_c,
+                        fg, pf, cursor,
+                        box_color, crate::draw::box_drawing::title_syms::TITLE_RIGHT_DOWN,
                     );
-                    output.push_str(&format!(
-                        "\x1b[{};{}H{}{}",
-                        proc_dim.y + proc_dim.height, proc_dim.x + 3,
-                        theme.c("proc_box"), filter_label
-                    ));
+                    if filter_x < proc_dim.x + proc_dim.width - 15 {
+                        output.push_str(&format!(
+                            "\x1b[{};{}H{}",
+                            proc_dim.y + proc_dim.height, filter_x, filter_label
+                        ));
+                    }
                 }
             }
 
@@ -269,7 +275,7 @@ fn main() {
         }
 
         // Proc-only redraw: just re-render the proc box without collecting data
-        if menu_state == MenuState::None && needs_proc_redraw {
+        if (menu_state == MenuState::None || menu_state == MenuState::Filter) && needs_proc_redraw {
             needs_proc_redraw = false;
             let sort_by = config.get_string("proc_sorting").to_string();
             let reversed = config.get_bool("proc_reversed");
