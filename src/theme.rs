@@ -27,6 +27,8 @@ const DEFAULT_THEME: &[(&str, &str)] = &[
     ("mem_box", "#6c6c4b"),
     ("net_box", "#5c588d"),
     ("proc_box", "#805252"),
+    ("gpu_box", "#6b5673"),
+    ("disk_box", "#5e7a5e"),
     ("div_line", "#30"),
     ("temp_start", "#4897d4"),
     ("temp_mid", "#5474e8"),

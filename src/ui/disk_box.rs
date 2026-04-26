@@ -26,7 +26,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("mem_box"); // same color family as mem
+    let box_color = theme.c("disk_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
     let hi = theme.c("hi_fg");

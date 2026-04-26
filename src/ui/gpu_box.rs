@@ -36,7 +36,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("cpu_box");
+    let box_color = theme.c("gpu_box");
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
     let title_color = theme.c("title");
@@ -65,13 +65,13 @@ pub fn draw(
     if !name_trunc.is_empty() {
         let name_x = x + title.len() + 6;
         out.push_str(&format!(
-            "{}{}{} {} {}{}",
+            "{}{}{}{}{}{}{}",
             term::mv(name_x, y + 1),
             box_color,
             box_drawing::title_syms::TITLE_LEFT,
-            name_trunc,
+            title_color, name_trunc,
+            box_color,
             box_drawing::title_syms::TITLE_RIGHT,
-            "\x1b[0m",
         ));
     }
 
