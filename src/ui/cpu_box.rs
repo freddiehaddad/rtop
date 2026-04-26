@@ -79,12 +79,38 @@ pub fn draw(
             "\x1b[{};{}H{}{}",
             y + height, div_x + 1, box_color, symbols::DIV_DOWN
         ));
+
+        // CPU frequency title inset on the top border of the core panel
+        // btop: ──── 5.80GHz ──┤
+        if !cpu.cpu_hz.is_empty() {
+            let hz_str = &cpu.cpu_hz;
+            let hz_title = format!(
+                " {} ",
+                hz_str
+            );
+            let hz_vis_len = hz_title.len();
+            let avail = core_panel_w.saturating_sub(1); // -1 for the DIV_UP we already placed
+            if hz_vis_len + 2 <= avail {
+                let dashes = avail.saturating_sub(hz_vis_len + 1); // -1 for DIV_RIGHT
+                let hz_x = div_x + 2; // start after the DIV_UP
+                out.push_str(&format!(
+                    "\x1b[{};{}H{}{}{}{}{}{}{}",
+                    y + 1, hz_x,
+                    box_color,
+                    symbols::H_LINE.repeat(dashes),
+                    symbols::DIV_LEFT,
+                    title_color, hz_str,
+                    box_color,
+                    symbols::DIV_RIGHT,
+                ));
+            }
+        }
     }
 
     // Upper graph (normal orientation)
     if upper_h > 0 {
         if let Some(total) = cpu.cpu_percent.get("total") {
-            let mut graph = Graph::new(graph_width, upper_h, GraphSymbol::Braille, false, false, 100, 0);
+            let mut graph = Graph::new(graph_width, upper_h, GraphSymbol::Braille, false, true, 100, 0);
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
@@ -123,7 +149,7 @@ pub fn draw(
     if lower_h > 0 {
         if let Some(total) = cpu.cpu_percent.get("total") {
             let lower_start_y = y + 2 + divider_row + 1;
-            let mut graph = Graph::new(graph_width, lower_h, GraphSymbol::Braille, true, false, 100, 0);
+            let mut graph = Graph::new(graph_width, lower_h, GraphSymbol::Braille, true, true, 100, 0);
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
@@ -136,14 +162,15 @@ pub fn draw(
     if core_panel_w > 0 {
         let panel_x = x + width - core_panel_w;
         let panel_inner_w = core_panel_w.saturating_sub(1); // -1 for right border
+        let right_border_x = x + width; // position of the right border │
 
-        // Row 1: CPU total meter "CPU ■■■■░░ ##%"
+        // Row 1: CPU total meter "CPU ■■■■░░ ##%" followed by │
+        // btop: "CPU " + meter + rjust(pct,4) + "%" + div_line + v_line
         if let Some(total) = cpu.cpu_percent.get("total") {
             if let Some(&pct) = total.back() {
                 let label_len = 4; // "CPU "
-                let pct_str = format!("{}%", pct);
-                let pct_len = pct_str.len() + 1; // " ##%"
-                let meter_w = panel_inner_w.saturating_sub(label_len + pct_len).max(3);
+                // meter width: panel_inner_w - "CPU " - rjust(pct,4) - "%" = panel_inner_w - 4 - 5
+                let meter_w = panel_inner_w.saturating_sub(label_len + 5).max(3);
                 let meter_bg = theme.c("meter_bg");
                 let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
                 let pct_color = if !cpu_gradient.is_empty() {
@@ -152,11 +179,17 @@ pub fn draw(
                     fg
                 };
                 out.push_str(&format!(
-                    "\x1b[{};{}H{}CPU {}{}{}{}",
+                    "\x1b[{};{}H{}CPU {}{}{}{}{}{}",
                     y + 2, panel_x + 1,
-                    title_color, pct_color, meter.render(pct as i32),
-                    pct_color,
-                    tools::rjust(&format!("{}%", pct), 4, false)
+                    title_color,
+                    pct_color, meter.render(pct as i32),
+                    pct_color, tools::rjust(&pct.to_string(), 4, false),
+                    fg, "%",
+                ));
+                // Place │ at the right border
+                out.push_str(&format!(
+                    "\x1b[{};{}H{}{}",
+                    y + 2, right_border_x, div_color, symbols::V_LINE
                 ));
             }
         }
@@ -185,37 +218,33 @@ pub fn draw(
             let mut mini_graph = Graph::new(mini_graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
             let mini_str = mini_graph.render_row_colored(core_data, cpu_gradient);
 
-            // Percentage right-aligned
-            let pct_str = format!("{}%", pct);
-
+            // btop: C# + graph + rjust(pct,4) + "%" + div_line + v_line
             out.push_str(&format!(
-                "\x1b[{};{}H{}{:<3}{} {}{}",
+                "\x1b[{};{}H{}{:<3}{}{}{}{}",
                 cy, panel_x + 1,
                 fg, core_label,
                 mini_str,
                 pct_color,
-                tools::rjust(&pct_str, 4, false),
+                tools::rjust(&pct.to_string(), 4, false),
+                "%",
+            ));
+            // Place │ at the right border
+            out.push_str(&format!(
+                "\x1b[{};{}H{}{}",
+                cy, right_border_x, div_color, symbols::V_LINE
             ));
         }
     }
 
     // Uptime overlaid on lower-left of graph area
+    // btop: placed at row 1 (just below top border) for normal orientation
     let uptime = tools::sec_to_dhms(cpu.uptime_seconds, false, true);
     let up_str = format!("up {}", uptime);
-    let up_y = y + height - 1;
+    let up_y = y + 2; // row just below top border, like btop
     if !uptime.is_empty() {
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
             up_y, x + 2, graph_text_color, up_str
-        ));
-    }
-
-    // Frequency on the bottom border
-    if !cpu.cpu_hz.is_empty() {
-        let hz_x = x + up_str.len() + 4;
-        out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            up_y, hz_x, graph_text_color, cpu.cpu_hz
         ));
     }
 

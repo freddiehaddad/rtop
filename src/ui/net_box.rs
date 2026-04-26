@@ -49,7 +49,7 @@ pub fn draw(
     // Download graph (normal orientation, top half)
     if let Some(dl_bw) = net.bandwidth.get("download") {
         if dl_rows > 0 {
-            let mut graph = Graph::new(graph_width, dl_rows, GraphSymbol::Braille, false, false, 0, 0);
+            let mut graph = Graph::new(graph_width, dl_rows, GraphSymbol::Braille, false, true, 0, 0);
             let max_val = dl_bw.iter().copied().max().unwrap_or(1).max(1);
             graph.max_value = max_val;
             graph.create(dl_bw);
@@ -83,7 +83,7 @@ pub fn draw(
         if ul_rows > 0 {
             let ul_start_y = y + 2 + dl_rows;
             let mut graph =
-                Graph::new(graph_width, ul_rows, GraphSymbol::Braille, true, false, 0, 0);
+                Graph::new(graph_width, ul_rows, GraphSymbol::Braille, true, true, 0, 0);
             let max_val = ul_bw.iter().copied().max().unwrap_or(1).max(1);
             graph.max_value = max_val;
             graph.create(ul_bw);

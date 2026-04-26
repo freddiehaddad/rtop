@@ -30,6 +30,70 @@ pub const TTY_UP: [&str; 25] = [
     "█", "█", "█", "█", "█", "█", "█",
 ];
 
+/// Skip the first visual graph element in a row string.
+/// Elements can be either a single Unicode character or an ANSI escape sequence like `\x1b[1C`.
+fn skip_first_graph_element(s: &str) -> &str {
+    if s.starts_with('\x1b') {
+        // Find the end of the escape sequence (letter terminates CSI sequences)
+        if let Some(pos) = s[1..].find(|c: char| c.is_ascii_alphabetic()) {
+            return &s[1 + pos + 1..];
+        }
+        return s;
+    }
+    // Skip one Unicode character
+    let mut chars = s.chars();
+    if chars.next().is_some() {
+        return chars.as_str();
+    }
+    s
+}
+
+/// Parse a graph buffer row into individual visual elements.
+/// Each element is either a cursor-right escape sequence or a single graph character.
+fn parse_graph_elements(s: &str) -> Vec<&str> {
+    let mut elements = Vec::new();
+    let mut remaining = s;
+    while !remaining.is_empty() {
+        if remaining.starts_with('\x1b') {
+            // Cursor-right escape: \x1b[<digits>C or similar CSI sequence
+            if let Some(pos) = remaining[1..].find(|c: char| c.is_ascii_alphabetic()) {
+                let end = 1 + pos + 1;
+                // A padding escape like \x1b[5C represents 5 columns; expand to 5 elements
+                if remaining.as_bytes().get(end - 1) == Some(&b'C') {
+                    // Parse the number between '[' and 'C'
+                    if let Some(num_str) = remaining.get(2..end - 1) {
+                        if let Ok(count) = num_str.parse::<usize>() {
+                            let esc = &remaining[..end];
+                            // For multi-column cursor-right, emit individual \x1b[1C elements
+                            if count > 1 {
+                                for _ in 0..count {
+                                    elements.push("\x1b[1C" as &str);
+                                }
+                            } else {
+                                elements.push(esc);
+                            }
+                            remaining = &remaining[end..];
+                            continue;
+                        }
+                    }
+                }
+                elements.push(&remaining[..end]);
+                remaining = &remaining[end..];
+            } else {
+                elements.push(remaining);
+                break;
+            }
+        } else {
+            // Single Unicode character
+            let ch = remaining.chars().next().unwrap();
+            let ch_len = ch.len_utf8();
+            elements.push(&remaining[..ch_len]);
+            remaining = &remaining[ch_len..];
+        }
+    }
+    elements
+}
+
 /// A multi-row terminal graph that renders data as braille/block/tty characters.
 ///
 /// Matches btop's Graph architecture: double-buffered, multi-row with vertical
@@ -145,21 +209,16 @@ impl Graph {
             return;
         }
 
-        // If less data than width, pad left with spaces
+        // If less data than width, pad left with cursor-right moves (like btop's Mv::r)
         let pad_cols = if len < self.width { self.width - len } else { 0 };
-        for row_str in self.graphs[self.current as usize].iter_mut() {
-            row_str.push_str(&" ".repeat(pad_cols));
+        if pad_cols > 0 {
+            let pad = format!("\x1b[{}C", pad_cols);
+            for row_str in self.graphs[self.current as usize].iter_mut() {
+                row_str.push_str(&pad);
+            }
         }
 
         if len == 0 {
-            // Fill remaining with spaces
-            for buf in &mut self.graphs {
-                for row_str in buf.iter_mut() {
-                    while row_str.chars().count() < self.width {
-                        row_str.push(' ');
-                    }
-                }
-            }
             let other = !self.current;
             self.graphs[other as usize] = self.graphs[self.current as usize].clone();
             return;
@@ -179,11 +238,23 @@ impl Graph {
             };
 
             for row in 0..h {
-                let prev_level = self.value_to_level(prev, row);
-                let curr_level = self.value_to_level(curr, row);
-                let idx = prev_level * 5 + curr_level;
-                let sym = self.table()[idx.min(24)];
-                self.graphs[self.current as usize][row].push_str(sym);
+                let mut prev_level = self.value_to_level(prev, row);
+                let mut curr_level = self.value_to_level(curr, row);
+
+                // btop line 425: no_zero clamps the bottom row's minimum to 1
+                if self.no_zero && row == h - 1 {
+                    if prev_level == 0 { prev_level = 1; }
+                    if curr_level == 0 { curr_level = 1; }
+                }
+
+                // btop line 436: single-height with both 0 → cursor right instead of space
+                if h == 1 && prev_level + curr_level == 0 {
+                    self.graphs[self.current as usize][row].push_str("\x1b[1C");
+                } else {
+                    let idx = prev_level * 5 + curr_level;
+                    let sym = self.table()[idx.min(24)];
+                    self.graphs[self.current as usize][row].push_str(sym);
+                }
             }
 
             self.last = curr;
@@ -208,20 +279,31 @@ impl Graph {
 
         let curr = *data.back().unwrap_or(&0);
         let prev = if len >= 2 { data[len - 2] } else { self.last };
+        let h = self.height;
 
-        for row in 0..self.height {
-            let prev_level = self.value_to_level(prev, row);
-            let curr_level = self.value_to_level(curr, row);
-            let idx = prev_level * 5 + curr_level;
-            let sym = self.table()[idx.min(24)];
+        for row in 0..h {
+            let mut prev_level = self.value_to_level(prev, row);
+            let mut curr_level = self.value_to_level(curr, row);
 
-            // Start from the other buffer, remove first char, append new char
+            if self.no_zero && row == h - 1 {
+                if prev_level == 0 { prev_level = 1; }
+                if curr_level == 0 { curr_level = 1; }
+            }
+
+            let new_sym = if h == 1 && prev_level + curr_level == 0 {
+                "\x1b[1C"
+            } else {
+                let idx = prev_level * 5 + curr_level;
+                self.table()[idx.min(24)]
+            };
+
+            // Start from the other buffer, remove first visible element, append new
             let other_row = &self.graphs[other as usize][row];
             let mut new_row = String::with_capacity(self.width * 4);
-            let mut chars = other_row.chars();
-            chars.next(); // Remove first character (shift left)
-            new_row.push_str(chars.as_str());
-            new_row.push_str(sym);
+            // Skip the first visual element (could be a char or an escape sequence like \x1b[1C)
+            let trimmed = skip_first_graph_element(other_row);
+            new_row.push_str(trimmed);
+            new_row.push_str(new_sym);
             self.graphs[self.current as usize][row] = new_row;
         }
 
@@ -237,21 +319,23 @@ impl Graph {
         let mut rows = Vec::with_capacity(h);
 
         if h == 1 {
-            // Single-height: color per column based on data value
+            // Single-height: color per column based on data value.
+            // The buffer now contains a mix of escape sequences (\x1b[...C for cursor-right)
+            // and graph characters. We iterate over "graph elements" instead of chars.
             let mut row_str = String::with_capacity(self.width * 20);
             let len = data.len();
-            let chars: Vec<char> = buf.get(0).map(|s| s.chars().collect()).unwrap_or_default();
+            let raw = buf.get(0).map(|s| s.as_str()).unwrap_or("");
 
-            // The graph buffer may have left-padding spaces when data < width.
-            // Padding columns are spaces and get no color. Data columns start
-            // after the padding.
+            // Parse the buffer into visual elements
+            let elements = parse_graph_elements(raw);
+
             let pad_cols = if len < self.width { self.width - len } else { 0 };
             let data_start = if len > self.width { len - self.width } else { 0 };
 
-            for (col, ch) in chars.iter().enumerate() {
+            for (col, elem) in elements.iter().enumerate() {
                 if col < pad_cols {
-                    // Padding column — no color, just space
-                    row_str.push(*ch);
+                    // Padding column — emit as-is (cursor-right escape)
+                    row_str.push_str(elem);
                     continue;
                 }
                 let data_idx = data_start + (col - pad_cols);
@@ -262,12 +346,14 @@ impl Graph {
                     0
                 };
                 let max_val = curr.max(prev);
-                if !gradient.is_empty() {
+                // Only apply color to actual graph symbols, not cursor-right escapes
+                let is_escape = elem.starts_with('\x1b');
+                if !is_escape && !gradient.is_empty() {
                     let max = self.max_value.max(1);
                     let pct = ((max_val - self.offset).clamp(0, max) * 100 / max) as usize;
                     row_str.push_str(&gradient[pct.min(100)]);
                 }
-                row_str.push(*ch);
+                row_str.push_str(elem);
             }
             row_str.push_str("\x1b[0m");
             rows.push(row_str);
@@ -369,7 +455,8 @@ mod tests {
         let mut graph = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 0);
         let data: VecDeque<i64> = vec![0].into();
         let result = graph.render_row(&data);
-        assert_eq!(result, " ");
+        // Single-height with both prev and curr 0 outputs cursor-right escape
+        assert_eq!(result, "\x1b[1C");
     }
 
     #[test]
@@ -386,7 +473,9 @@ mod tests {
         let mut graph = Graph::new(5, 1, GraphSymbol::Block, false, false, 100, 0);
         let data: VecDeque<i64> = vec![10, 20, 30, 40, 50].into();
         let result = graph.render_row(&data);
-        assert_eq!(result.chars().count(), 5);
+        // All non-zero, so no cursor-right escapes; should be 5 visible chars
+        let elems = parse_graph_elements(&result);
+        assert_eq!(elems.len(), 5);
     }
 
     #[test]
@@ -408,6 +497,7 @@ mod tests {
         let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
         graph.create(&data);
         assert_eq!(graph.rows().len(), 3);
+        // No padding (10 data points for width 10), each row has 10 graph chars
         for row in graph.rows() {
             assert_eq!(row.chars().count(), 10);
         }
@@ -446,7 +536,8 @@ mod tests {
         let row_after = graph.rows()[0].clone();
 
         assert_ne!(row_before, row_after);
-        assert_eq!(row_after.chars().count(), 5);
+        let elems = parse_graph_elements(&row_after);
+        assert_eq!(elems.len(), 5);
     }
 
     #[test]

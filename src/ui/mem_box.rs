@@ -40,37 +40,57 @@ pub fn draw(
 
     // Split width between mem section and disks section
     let (mem_w, disk_w) = if has_disks && width > 50 {
-        let dw = (width / 2).max(24);
-        (width - dw, dw)
+        // btop: mem_width = ceil((width-3)/2), rounded to even; disks_width = width - mem_width - 2
+        let mw = ((width.saturating_sub(3) + 1) / 2 + 1) & !1; // ceil + round to even
+        let dw = width.saturating_sub(mw + 2);
+        (mw, dw)
     } else {
-        (width, 0)
+        (width.saturating_sub(1), 0)
     };
+    let divider_col = if disk_w > 0 { x + mem_w } else { 0 };
 
-    // Draw mem box
+    // Draw one full-width box with "mem" title
     let mut out =
-        box_drawing::create_box(x, y, mem_w, height, box_color, false, "mem", "", 0, rounded);
+        box_drawing::create_box(x, y, width, height, box_color, false, "mem", "", 0, rounded);
 
-    // Draw disk box if present
+    // Draw disk divider and title inside the single box
     if disk_w > 0 {
-        out.push_str(&box_drawing::create_box(
-            x + mem_w, y, disk_w, height, box_color, false, "disks", "", 0, rounded,
-        ));
-        // Where the two boxes share a wall, use T-junction characters
-        // Top: the right border of mem box meets the top of disk box → ┬
+        // Top junction: ┬
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
             y + 1,
-            x + mem_w + 1,
+            divider_col + 1,
             box_color,
             symbols::DIV_UP
         ));
-        // Bottom: same position → ┴
+        // Bottom junction: ┴
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
             y + height,
-            x + mem_w + 1,
+            divider_col + 1,
             box_color,
             symbols::DIV_DOWN
+        ));
+        // Vertical divider lines between top and bottom
+        for row_i in 1..height.saturating_sub(1) {
+            out.push_str(&format!(
+                "\x1b[{};{}H{}{}",
+                y + 1 + row_i,
+                divider_col + 1,
+                div_color,
+                symbols::V_LINE
+            ));
+        }
+        // "disks" title on top border after divider
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{} {} {}{}",
+            y + 1,
+            divider_col + 2,
+            box_color,
+            symbols::H_LINE,
+            "disks",
+            symbols::H_LINE.repeat(disk_w.saturating_sub(9)),
+            "",
         ));
     }
 
@@ -211,10 +231,10 @@ pub fn draw(
         }
     }
 
-    // Disks section (right panel)
+    // Disks section (right panel, after the divider)
     if disk_w > 0 {
-        let disk_x = x + mem_w + 1; // inside disk box
-        let disk_inner_w = disk_w.saturating_sub(3);
+        let disk_x = divider_col + 1; // column after the vertical divider
+        let disk_inner_w = disk_w.saturating_sub(1); // -1 for the right border
         let disk_meter_w = disk_inner_w.saturating_sub(16).max(5);
         let disk_meter = Meter::new(disk_meter_w, avail_grad, meter_bg);
         let mut drow = 0;
