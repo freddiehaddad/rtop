@@ -141,28 +141,39 @@ impl Graph {
             *buf = vec![String::new(); h];
         }
 
-        // We need at least 1 data point
-        if len == 0 || self.width == 0 {
-            for buf in &mut self.graphs {
-                for row_str in buf.iter_mut() {
-                    *row_str = " ".repeat(self.width);
-                }
-            }
+        if self.width == 0 {
             return;
         }
 
-        // Determine the data range we'll render (the last `width` values,
-        // or pad with zeros if less data than width)
-        let start = if len > self.width { len - self.width } else { 0 };
+        // If less data than width, pad left with spaces
+        let pad_cols = if len < self.width { self.width - len } else { 0 };
+        for row_str in self.graphs[self.current as usize].iter_mut() {
+            row_str.push_str(&" ".repeat(pad_cols));
+        }
 
-        for col in 0..self.width {
-            let data_idx = start + col;
-            let curr = if data_idx < len { data[data_idx] } else { 0 };
-            let prev = if data_idx > 0 && data_idx - 1 < len {
+        if len == 0 {
+            // Fill remaining with spaces
+            for buf in &mut self.graphs {
+                for row_str in buf.iter_mut() {
+                    while row_str.chars().count() < self.width {
+                        row_str.push(' ');
+                    }
+                }
+            }
+            let other = !self.current;
+            self.graphs[other as usize] = self.graphs[self.current as usize].clone();
+            return;
+        }
+
+        // Render the actual data columns (last `width` values, or all if less)
+        let data_start = if len > self.width { len - self.width } else { 0 };
+        let data_cols = len.min(self.width);
+
+        for di in 0..data_cols {
+            let data_idx = data_start + di;
+            let curr = data[data_idx];
+            let prev = if data_idx > 0 {
                 data[data_idx - 1]
-            } else if data_idx == 0 && col > 0 {
-                // If we're at col > 0 but data_idx is 0, prev is 0
-                0
             } else {
                 0
             };

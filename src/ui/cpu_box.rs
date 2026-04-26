@@ -63,10 +63,10 @@ pub fn draw(
     // Draw the vertical divider for core panel
     if core_panel_w > 0 {
         let div_x = x + width - core_panel_w - 1;
-        for row_i in 1..=inner_h {
+        for row_i in 1..height.saturating_sub(1) {
             out.push_str(&format!(
                 "\x1b[{};{}H{}{}",
-                y + row_i, div_x + 1, div_color, symbols::V_LINE
+                y + 1 + row_i, div_x + 1, div_color, symbols::V_LINE
             ));
         }
         // T-junction at top border
@@ -88,14 +88,14 @@ pub fn draw(
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", y + 1 + i, x + 2, row));
+                out.push_str(&format!("\x1b[{};{}H{}", y + 2 + i, x + 2, row));
             }
         }
     }
 
     // Divider line with ▲▼
     if has_lower {
-        let div_y = y + 1 + divider_row;
+        let div_y = y + 2 + divider_row;
         let mid_label = format!(" {}▲▼{} ", hi, div_color);
         let label_vis_len = 4; // " ▲▼ "
         let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
@@ -122,7 +122,7 @@ pub fn draw(
     // Lower graph (inverted orientation)
     if lower_h > 0 {
         if let Some(total) = cpu.cpu_percent.get("total") {
-            let lower_start_y = y + 1 + divider_row + 1;
+            let lower_start_y = y + 2 + divider_row + 1;
             let mut graph = Graph::new(graph_width, lower_h, GraphSymbol::Braille, true, false, 100, 0);
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);

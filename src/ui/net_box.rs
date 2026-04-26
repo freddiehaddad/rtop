@@ -55,7 +55,7 @@ pub fn draw(
             graph.create(dl_bw);
             let rows = graph.render_rows_colored(dl_bw, dl_grad);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", y + 1 + i, x + 2, row));
+                out.push_str(&format!("\x1b[{};{}H{}", y + 2 + i, x + 2, row));
             }
         }
     }
@@ -81,7 +81,7 @@ pub fn draw(
     // Upload graph (inverted orientation, bottom half)
     if let Some(ul_bw) = net.bandwidth.get("upload") {
         if ul_rows > 0 {
-            let ul_start_y = y + 1 + dl_rows;
+            let ul_start_y = y + 2 + dl_rows;
             let mut graph =
                 Graph::new(graph_width, ul_rows, GraphSymbol::Braille, true, false, 0, 0);
             let max_val = ul_bw.iter().copied().max().unwrap_or(1).max(1);
