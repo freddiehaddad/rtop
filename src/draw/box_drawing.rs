@@ -111,19 +111,20 @@ pub fn create_box(
     out.push_str(&format!("\x1b[{};{}H{}", y + height, x + width, br));
 
     // Step 4: Draw title at (y, x+2) if defined — matching btop format:
-    // title_left + bold + numbering + title_color + title + unbold + line_color + title_right
+    // title_left + bold + hi_fg_numbering + title_color + title + unbold + line_color + title_right
     if !title.is_empty() {
         let numbering = if num > 0 && (num as usize) < symbols::SUPERSCRIPT.len() {
             symbols::SUPERSCRIPT[num as usize]
         } else {
             ""
         };
+        // btop uses: hi_fg for number, title color for text, bold for both
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}",
+            "\x1b[{};{}H{}\x1b[1m{}{}\x1b[22m{}{}",
             y + 1, x + 3,
             title_syms::TITLE_LEFT,
-            numbering,
-            title,
+            numbering,  // number in current color (line_color which is box color)
+            title,       // title text
             color,
             title_syms::TITLE_RIGHT,
         ));

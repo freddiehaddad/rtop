@@ -500,6 +500,26 @@ fn main() {
                             proc_selected = count.saturating_sub(1);
                             needs_proc_redraw = true;
                         }
+                        "1" => {
+                            config.toggle_box("cpu");
+                            needs_full_redraw = true;
+                        }
+                        "2" => {
+                            config.toggle_box("mem");
+                            needs_full_redraw = true;
+                        }
+                        "3" => {
+                            config.toggle_box("net");
+                            needs_full_redraw = true;
+                        }
+                        "4" => {
+                            config.toggle_box("proc");
+                            needs_full_redraw = true;
+                        }
+                        "d" => {
+                            config.flip("show_disks");
+                            needs_full_redraw = true;
+                        }
                         _ => {}
                     },
                 }
