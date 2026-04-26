@@ -396,21 +396,25 @@ impl CpuCollector {
         };
 
         let mut package_temp: Option<i64> = None;
-        let mut core_temps: Vec<(usize, i64)> = Vec::new();
+        let mut raw_cores: Vec<(String, i64)> = Vec::new(); // (name, temp)
 
         // Walk the tree looking for "Temperatures" parent nodes
-        fn walk(node: &serde_json::Value, in_temps: bool, pkg: &mut Option<i64>, cores: &mut Vec<(usize, i64)>) {
+        fn walk(node: &serde_json::Value, in_temps: bool, pkg: &mut Option<i64>, cores: &mut Vec<(String, i64)>) {
             let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
             let is_temps = text == "Temperatures";
 
             if in_temps {
-                // This node is a direct child of a "Temperatures" parent
                 if let Some(val_str) = node.get("Value").and_then(|v| v.as_str()) {
                     if let Some(temp) = parse_temp_value(val_str) {
-                        if text == "CPU Package" || text == "CPU" {
-                            *pkg = Some(temp);
-                        } else if let Some(n) = parse_core_index(text) {
-                            cores.push((n, temp));
+                        if text == "CPU Package" || text == "CPU" || text == "Core Max" {
+                            if pkg.is_none() || text == "CPU Package" {
+                                *pkg = Some(temp);
+                            }
+                        } else if text.contains("Core #") || text.starts_with("P-Core") || text.starts_with("E-Core") {
+                            // Skip "Distance to TjMax" entries
+                            if !text.contains("Distance") {
+                                cores.push((text.to_string(), temp));
+                            }
                         }
                     }
                 }
@@ -423,7 +427,15 @@ impl CpuCollector {
             }
         }
 
-        walk(&json, false, &mut package_temp, &mut core_temps);
+        walk(&json, false, &mut package_temp, &mut raw_cores);
+
+        // Count P-Cores so E-Core indices offset correctly
+        let p_core_count = raw_cores.iter().filter(|(name, _)| name.starts_with("P-Core")).count();
+
+        // Parse names into indexed temps
+        let mut core_temps: Vec<(usize, i64)> = raw_cores.iter()
+            .filter_map(|(name, temp)| parse_core_index(name, p_core_count).map(|idx| (idx, *temp)))
+            .collect();
 
         // Sort core temps by index
         core_temps.sort_by_key(|&(idx, _)| idx);
@@ -486,10 +498,24 @@ fn parse_temp_value(s: &str) -> Option<i64> {
     num_part.parse::<f64>().ok().map(|v| v as i64)
 }
 
-/// Parse "CPU Core #N" → Some(N-1), zero-indexed. Returns None for non-core labels.
-fn parse_core_index(text: &str) -> Option<usize> {
-    let rest = text.strip_prefix("CPU Core #")?;
-    rest.parse::<usize>().ok().map(|n| n.saturating_sub(1))
+/// Parse core temperature sensor names to a zero-indexed core number.
+/// Handles: "CPU Core #N", "P-Core #N", "E-Core #N", "Core #N"
+/// P-Cores are indexed first (0-based), E-Cores continue after P-Cores.
+/// `p_core_count` tracks how many P-Cores were seen so E-Cores offset correctly.
+fn parse_core_index(text: &str, p_core_count: usize) -> Option<usize> {
+    if let Some(rest) = text.strip_prefix("CPU Core #") {
+        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
+    }
+    if let Some(rest) = text.strip_prefix("P-Core #") {
+        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
+    }
+    if let Some(rest) = text.strip_prefix("E-Core #") {
+        return rest.parse::<usize>().ok().map(|n| p_core_count + n.saturating_sub(1));
+    }
+    if let Some(rest) = text.strip_prefix("Core #") {
+        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
+    }
+    None
 }
 
 fn get_cpu_name() -> String {
@@ -630,15 +656,21 @@ mod tests {
 
     #[test]
     fn parse_core_index_valid() {
-        assert_eq!(parse_core_index("CPU Core #1"), Some(0));
-        assert_eq!(parse_core_index("CPU Core #8"), Some(7));
-        assert_eq!(parse_core_index("CPU Core #16"), Some(15));
+        assert_eq!(parse_core_index("CPU Core #1", 0), Some(0));
+        assert_eq!(parse_core_index("CPU Core #8", 0), Some(7));
+        assert_eq!(parse_core_index("CPU Core #16", 0), Some(15));
+        assert_eq!(parse_core_index("P-Core #1", 0), Some(0));
+        assert_eq!(parse_core_index("P-Core #8", 0), Some(7));
+        assert_eq!(parse_core_index("E-Core #1", 8), Some(8));
+        assert_eq!(parse_core_index("E-Core #16", 8), Some(23));
+        assert_eq!(parse_core_index("Core #1", 0), Some(0));
     }
 
     #[test]
     fn parse_core_index_non_core() {
-        assert_eq!(parse_core_index("CPU Package"), None);
-        assert_eq!(parse_core_index("GPU Core"), None);
-        assert_eq!(parse_core_index(""), None);
+        assert_eq!(parse_core_index("CPU Package", 0), None);
+        assert_eq!(parse_core_index("GPU Core", 0), None);
+        assert_eq!(parse_core_index("", 0), None);
+        assert_eq!(parse_core_index("P-Core #1 Distance to TjMax", 0), None);
     }
 }
