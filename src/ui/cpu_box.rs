@@ -297,7 +297,16 @@ pub fn draw(
 
             // Per-core temperature
             if has_temp {
-                let core_temp = cpu.temp.get(i + 1)
+                // cpu.temp: index 0 = package, 1+ = per physical core
+                // If more logical cores than temp sensors (hyperthreading),
+                // map back to the physical core's temperature.
+                let num_core_temps = cpu.temp.len().saturating_sub(1); // exclude package
+                let temp_idx = if num_core_temps > 0 {
+                    (i % num_core_temps) + 1
+                } else {
+                    0
+                };
+                let core_temp = cpu.temp.get(temp_idx)
                     .and_then(|dq| dq.back())
                     .copied()
                     .unwrap_or(0);
