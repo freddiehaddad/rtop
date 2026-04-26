@@ -189,8 +189,11 @@ impl Graph {
                 let mut prev_level = self.value_to_level(prev, row);
                 let mut curr_level = self.value_to_level(curr, row);
 
-                // btop line 425: no_zero clamps the bottom row's minimum to 1
-                if self.no_zero && row == h - 1 {
+                // btop line 425: no_zero clamps the baseline row's minimum to 1
+                // For non-inverted: baseline is row h-1 (bottom)
+                // For inverted: baseline is row 0 (top, since horizon is flipped)
+                let is_baseline = if self.invert { row == 0 } else { row == h - 1 };
+                if self.no_zero && is_baseline {
                     if prev_level == 0 { prev_level = 1; }
                     if curr_level == 0 { curr_level = 1; }
                 }
