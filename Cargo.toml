@@ -11,6 +11,7 @@ rust-version = "1.85"
 default = []
 
 [dependencies]
+bitflags = "2.11.1"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.28"
 directories = "6"

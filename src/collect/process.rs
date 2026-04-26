@@ -3,7 +3,11 @@ use std::collections::HashMap;
 
 /// Process data collector using Windows APIs.
 pub struct ProcCollector {
+    /// Raw collected process data — never sorted/filtered in place.
     pub procs: Vec<ProcInfo>,
+    /// Derived display list — sorted, filtered, tree-prefixed.
+    /// Rebuilt from `procs` whenever PROC_LIST dirty flag is set.
+    pub display_procs: Vec<ProcInfo>,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
 }
@@ -12,8 +16,23 @@ impl ProcCollector {
     pub fn new() -> Self {
         Self {
             procs: Vec::new(),
+            display_procs: Vec::new(),
             prev_times: HashMap::new(),
             last_collect: std::time::Instant::now(),
+        }
+    }
+
+    /// Rebuild `display_procs` from raw `procs` by sorting, filtering, and
+    /// optionally building tree prefixes.
+    pub fn rebuild_display(&mut self, sort_by: &str, reversed: bool, filter: &str, tree_mode: bool) {
+        self.display_procs = self.procs.clone();
+        sort_procs(&mut self.display_procs, sort_by, reversed);
+        if !filter.is_empty() {
+            self.display_procs.retain(|p| matches_filter(p, filter));
+        }
+        if tree_mode {
+            let children = build_tree(&self.display_procs);
+            generate_tree_prefixes(&mut self.display_procs, &children);
         }
     }
 

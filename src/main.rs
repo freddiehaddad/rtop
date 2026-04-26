@@ -2,6 +2,7 @@ mod banner;
 mod cli;
 mod collect;
 mod config;
+mod dirty;
 mod domain;
 mod draw;
 mod input;
@@ -115,177 +116,148 @@ fn main() {
     let mut proc_selected: usize = 0;
     let mut filter_text = String::new();
 
-    // Main event loop — timer-based like btop.
-    // Collection runs on a wall-clock deadline, input never blocks it.
-    let mut needs_full_redraw = true;
-    let mut needs_proc_redraw = false;
+    // Main event loop — timer-based collection with per-box dirty tracking.
+    use dirty::Dirty;
+    let mut dirty = Dirty::FULL;
     let mut cached_layout: Option<draw::layout::Layout> = None;
-
     let mut next_update = std::time::Instant::now();
 
     loop {
-        // Check resize
+        // ── Phase 1: Detect what's dirty ──────────────────────────────────
+
+        // Terminal resize
         if terminal.refresh() {
-            needs_full_redraw = true;
+            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
         }
         let (tw, th) = terminal.size();
         let tw = tw as usize;
         let th = th as usize;
 
-        // Check if it's time for a full collection cycle (wall-clock deadline)
+        // Wall-clock collection deadline
         let now = std::time::Instant::now();
         if now >= next_update {
-            needs_full_redraw = true;
+            dirty |= Dirty::COLLECT | Dirty::ALL_BOXES | Dirty::PROC_LIST;
             next_update = now + std::time::Duration::from_millis(update_ms);
         }
 
-        // Full redraw: collect data + render all boxes
-        if (menu_state == MenuState::None || menu_state == MenuState::Filter) && needs_full_redraw {
-            needs_full_redraw = false;
-            needs_proc_redraw = false;
+        // ── Phase 2: Execute dirty work (skip if menu overlay is active) ──
 
-            // Collect data
-            runner.collect_all();
+        let render_ui = menu_state == MenuState::None || menu_state == MenuState::Filter;
 
-            // Sort processes by configured column
-            let sort_by = config.get_string("proc_sorting").to_string();
-            let reversed = config.get_bool("proc_reversed");
-            collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
-
-            // Filter processes if filter is active
-            let proc_filter = config.get_string("proc_filter").to_string();
-            if !proc_filter.is_empty() {
-                runner.proc_collector.procs.retain(|p| collect::process::matches_filter(p, &proc_filter));
+        if render_ui && !dirty.is_empty() {
+            // Collect data from OS
+            if dirty.contains(Dirty::COLLECT) {
+                runner.collect_all();
             }
 
-            // Build tree if tree mode is enabled
-            let tree_mode = config.get_bool("proc_tree");
-            if tree_mode {
-                let children = collect::process::build_tree(&runner.proc_collector.procs);
-                collect::process::generate_tree_prefixes(&mut runner.proc_collector.procs, &children);
+            // Rebuild derived process display list
+            if dirty.contains(Dirty::PROC_LIST) {
+                let sort_by = config.get_string("proc_sorting").to_string();
+                let reversed = config.get_bool("proc_reversed");
+                let filter = config.get_string("proc_filter").to_string();
+                let tree_mode = config.get_bool("proc_tree");
+                runner.proc_collector.rebuild_display(&sort_by, reversed, &filter, tree_mode);
             }
 
-            // Calculate layout
-            let shown: Vec<String> = config
-                .get_string("shown_boxes")
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
-            let layout = draw::layout::calc_sizes(&draw::layout::LayoutConfig {
-                term_width: tw,
-                term_height: th,
-                shown_boxes: &shown,
-                cpu_bottom: config.get_bool("cpu_bottom"),
-                mem_below_net: config.get_bool("mem_below_net"),
-                proc_left: config.get_bool("proc_left"),
-                core_count: runner.cpu.info.core_count,
-                gpu_count: runner.gpu.gpu_count(),
-            });
+            // Calculate layout (or reuse cached)
+            let layout = if dirty.contains(Dirty::LAYOUT) || cached_layout.is_none() {
+                let shown: Vec<String> = config
+                    .get_string("shown_boxes")
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect();
+                let l = draw::layout::calc_sizes(&draw::layout::LayoutConfig {
+                    term_width: tw,
+                    term_height: th,
+                    shown_boxes: &shown,
+                    cpu_bottom: config.get_bool("cpu_bottom"),
+                    mem_below_net: config.get_bool("mem_below_net"),
+                    proc_left: config.get_bool("proc_left"),
+                    core_count: runner.cpu.info.core_count,
+                    gpu_count: runner.gpu.gpu_count(),
+                });
+                cached_layout = Some(l.clone());
+                l
+            } else if let Some(ref l) = cached_layout {
+                l.clone()
+            } else {
+                unreachable!("cached_layout is None but LAYOUT flag was not set");
+            };
 
-            // Build output
+            // ── Phase 3: Render dirty boxes ───────────────────────────────
+
             let mut output = String::new();
             output.push_str(term::SYNC_START);
-            output.push_str("\x1b[2J");
 
-            if let Some(ref cpu_dim) = layout.cpu {
-                let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
-                output.push_str(&ui::cpu_box::draw(
-                    &runner.cpu.info,
-                    &area,
-                    &theme,
-                    update_ms,
-                ));
+            // Full screen clear only when layout changed
+            if dirty.contains(Dirty::LAYOUT) {
+                output.push_str("\x1b[2J");
             }
-            for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
-                if gi < runner.gpu.gpus.len() {
-                    let area = ui::BoxArea { x: gpu_dim.x, y: gpu_dim.y, width: gpu_dim.width, height: gpu_dim.height, rounded };
-                    output.push_str(&ui::gpu_box::draw(
-                        &runner.gpu.gpus[gi],
-                        gi,
-                        &area,
-                        &theme,
+
+            if dirty.intersects(Dirty::CPU_BOX) {
+                if let Some(ref cpu_dim) = layout.cpu {
+                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
+                    output.push_str(&ui::cpu_box::draw(
+                        &runner.cpu.info, &area, &theme, update_ms,
                     ));
                 }
             }
-            if let Some(ref mem_dim) = layout.mem {
-                let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
-                output.push_str(&ui::mem_box::draw(
-                    &runner.mem.info,
-                    &area,
-                    &theme,
-                ));
+
+            if dirty.intersects(Dirty::GPU_BOX) {
+                for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
+                    if gi < runner.gpu.gpus.len() {
+                        let area = ui::BoxArea { x: gpu_dim.x, y: gpu_dim.y, width: gpu_dim.width, height: gpu_dim.height, rounded };
+                        output.push_str(&ui::gpu_box::draw(
+                            &runner.gpu.gpus[gi], gi, &area, &theme,
+                        ));
+                    }
+                }
             }
-            if let Some(ref net_dim) = layout.net {
-                let iface = &runner.net.selected_iface;
-                let net_info = runner
-                    .net
-                    .current_net
-                    .get(iface)
-                    .cloned()
-                    .unwrap_or_default();
-                let area = ui::BoxArea { x: net_dim.x, y: net_dim.y, width: net_dim.width, height: net_dim.height, rounded };
-                output.push_str(&ui::net_box::draw(
-                    &net_info,
-                    iface,
-                    &area,
-                    &theme,
-                ));
+
+            if dirty.intersects(Dirty::MEM_BOX) {
+                if let Some(ref mem_dim) = layout.mem {
+                    let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
+                    output.push_str(&ui::mem_box::draw(
+                        &runner.mem.info, &area, &theme,
+                    ));
+                }
             }
-            if let Some(ref proc_dim) = layout.proc_box {
-                clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
-                let detailed_pid = config.get_int("detailed_pid") as u32;
-                let pf = config.get_string("proc_filter").to_string();
-                let is_filtering = menu_state == MenuState::Filter;
-                let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
-                let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid, filter: &pf, filtering: is_filtering };
-                output.push_str(&ui::proc_box::draw_with_sort(
-                    &runner.proc_collector.procs,
-                    &area,
-                    &view,
-                    &theme,
-                ));
+
+            if dirty.intersects(Dirty::NET_BOX) {
+                if let Some(ref net_dim) = layout.net {
+                    let iface = &runner.net.selected_iface;
+                    let net_info = runner.net.current_net.get(iface).cloned().unwrap_or_default();
+                    let area = ui::BoxArea { x: net_dim.x, y: net_dim.y, width: net_dim.width, height: net_dim.height, rounded };
+                    output.push_str(&ui::net_box::draw(
+                        &net_info, iface, &area, &theme,
+                    ));
+                }
+            }
+
+            if dirty.intersects(Dirty::PROC_BOX) {
+                if let Some(ref proc_dim) = layout.proc_box {
+                    let procs = &runner.proc_collector.display_procs;
+                    clamp_proc_selection(procs, proc_dim.height, &mut proc_selected, &mut proc_start);
+                    let sort_by = config.get_string("proc_sorting").to_string();
+                    let reversed = config.get_bool("proc_reversed");
+                    let tree_mode = config.get_bool("proc_tree");
+                    let detailed_pid = config.get_int("detailed_pid") as u32;
+                    let pf = config.get_string("proc_filter").to_string();
+                    let is_filtering = menu_state == MenuState::Filter;
+                    let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
+                    let view = ui::ProcView {
+                        start: proc_start, selected: proc_selected,
+                        sort_by: &sort_by, sort_reversed: reversed,
+                        tree_mode, detailed_pid, filter: &pf, filtering: is_filtering,
+                    };
+                    output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, &theme));
+                }
             }
 
             output.push_str(term::SYNC_END);
             let _ = terminal.write_raw(&output);
-            cached_layout = Some(layout);
-        }
 
-        // Proc-only redraw: just re-render the proc box without collecting data
-        if (menu_state == MenuState::None || menu_state == MenuState::Filter) && needs_proc_redraw {
-            needs_proc_redraw = false;
-            let sort_by = config.get_string("proc_sorting").to_string();
-            let reversed = config.get_bool("proc_reversed");
-            let tree_mode = config.get_bool("proc_tree");
-            collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
-            let proc_filter = config.get_string("proc_filter").to_string();
-            if !proc_filter.is_empty() {
-                runner.proc_collector.procs.retain(|p| collect::process::matches_filter(p, &proc_filter));
-            }
-            if tree_mode {
-                let children = collect::process::build_tree(&runner.proc_collector.procs);
-                collect::process::generate_tree_prefixes(&mut runner.proc_collector.procs, &children);
-            }
-            if let Some(ref layout) = cached_layout {
-                if let Some(ref proc_dim) = layout.proc_box {
-                    clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
-                    let detailed_pid = config.get_int("detailed_pid") as u32;
-                    let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
-                    let pf = config.get_string("proc_filter").to_string();
-                    let is_filtering = menu_state == MenuState::Filter;
-                    let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid, filter: &pf, filtering: is_filtering };
-                    let mut output = String::new();
-                    output.push_str(term::SYNC_START);
-                    output.push_str(&ui::proc_box::draw_with_sort(
-                        &runner.proc_collector.procs,
-                        &area,
-                        &view,
-                        &theme,
-                    ));
-                    output.push_str(term::SYNC_END);
-                    let _ = terminal.write_raw(&output);
-                }
-            }
+            dirty = Dirty::empty();
         }
 
         // Poll for input — wait at most until the next update deadline
@@ -301,7 +273,7 @@ fn main() {
                     || key == "resize"
                 {
                     if key == "resize" {
-                        needs_full_redraw = true;
+                        dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                     }
                     continue;
                 }
@@ -310,7 +282,7 @@ fn main() {
                         "q" => break,
                         "escape" | "m" => {
                             menu_state = MenuState::None;
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "up" | "k" | "shift_tab" => {
                             main_menu_selected = if main_menu_selected == 0 { 2 } else { main_menu_selected - 1 };
@@ -366,7 +338,7 @@ fn main() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
                             menu_state = MenuState::None;
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         _ => {}
                     },
@@ -374,7 +346,7 @@ fn main() {
                         "q" => break,
                         "escape" | "backspace" => {
                             menu_state = MenuState::None;
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "tab" => {
                             options_cat = (options_cat + 1) % 5;
@@ -499,35 +471,35 @@ fn main() {
                     MenuState::Filter => match key.as_str() {
                         "escape" => {
                             menu_state = MenuState::None;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "enter" => {
                             config.set_string("proc_filter", &filter_text);
                             menu_state = MenuState::None;
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "backspace" => {
                             filter_text.pop();
                             config.set_string("proc_filter", &filter_text);
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "delete" => {
                             filter_text.clear();
                             config.set_string("proc_filter", "");
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         s if s.len() == 1 && !s.starts_with('\x1b') => {
                             filter_text.push_str(s);
                             config.set_string("proc_filter", &filter_text);
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         _ => {}
                     },
@@ -564,7 +536,7 @@ fn main() {
                                 };
                                 config.set_int("current_preset", next);
                                 config.apply_preset(&presets[next as usize]);
-                                needs_full_redraw = true;
+                                dirty |= Dirty::FULL;
                             }
                         }
                         "P" => {
@@ -578,7 +550,7 @@ fn main() {
                                 };
                                 config.set_int("current_preset", next);
                                 config.apply_preset(&presets[next as usize]);
-                                needs_full_redraw = true;
+                                dirty |= Dirty::FULL;
                             }
                         }
                         // Config reload
@@ -598,89 +570,89 @@ fn main() {
                             let _ = terminal.write_raw(&base);
                             rounded = config.get_bool("rounded_corners");
                             update_ms = config.get_int("update_ms") as u64;
-                            needs_full_redraw = true;
+                            dirty |= Dirty::FULL;
                         }
                         "up" | "k"
                             if proc_selected > 0 => {
                                 proc_selected -= 1;
-                                needs_proc_redraw = true;
+                                dirty |= Dirty::PROC_BOX;
                             }
                         "down" | "j" => {
-                            let count = runner.proc_collector.procs.len();
+                            let count = runner.proc_collector.display_procs.len();
                             if proc_selected + 1 < count {
                                 proc_selected += 1;
-                                needs_proc_redraw = true;
+                                dirty |= Dirty::PROC_BOX;
                             }
                         }
                         "page_up" => {
                             let page = th.saturating_sub(10);
                             proc_selected = proc_selected.saturating_sub(page);
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_BOX;
                         }
                         "page_down" => {
                             let page = th.saturating_sub(10);
-                            let count = runner.proc_collector.procs.len();
+                            let count = runner.proc_collector.display_procs.len();
                             proc_selected = (proc_selected + page).min(count.saturating_sub(1));
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_BOX;
                         }
                         "home" | "g" => {
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_BOX;
                         }
                         "end" | "G" => {
-                            let count = runner.proc_collector.procs.len();
+                            let count = runner.proc_collector.display_procs.len();
                             proc_selected = count.saturating_sub(1);
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_BOX;
                         }
                         "1" => {
                             config.toggle_box("cpu");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "2" => {
                             config.toggle_box("mem");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "3" => {
                             config.toggle_box("net");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "4" => {
                             config.toggle_box("proc");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "5" => {
                             // Toggle all detected GPU boxes
                             for i in 0..runner.gpu.gpu_count() {
                                 config.toggle_box(&format!("gpu{i}"));
                             }
-                            needs_full_redraw = true;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "d" => {
                             config.flip("show_disks");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::MEM_BOX;
                         }
                         // Process keybinds
                         "f" | "/" => {
                             menu_state = MenuState::Filter;
                             filter_text = config.get_string("proc_filter").to_string();
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_BOX;
                         }
                         "e" => {
                             config.flip("proc_tree");
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "r" => {
                             config.flip("proc_reversed");
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "c" => {
                             config.flip("proc_per_core");
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "i" => {
                             config.flip("io_mode");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
                         }
                         "left" => {
                             let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
@@ -688,7 +660,7 @@ fn main() {
                             let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
                             let new_idx = if idx == 0 { sort_opts.len() - 1 } else { idx - 1 };
                             config.set_string("proc_sorting", sort_opts[new_idx]);
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "right" => {
                             let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
@@ -696,27 +668,26 @@ fn main() {
                             let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
                             let new_idx = (idx + 1) % sort_opts.len();
                             config.set_string("proc_sorting", sort_opts[new_idx]);
-                            needs_proc_redraw = true;
+                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "t"
                             // Terminate selected process
-                            if proc_selected < runner.proc_collector.procs.len() => {
-                                let pid = runner.proc_collector.procs[proc_selected].pid;
+                            if proc_selected < runner.proc_collector.display_procs.len() => {
+                                let pid = runner.proc_collector.display_procs[proc_selected].pid;
                                 terminate_process(pid);
-                                needs_proc_redraw = true;
+                                dirty |= Dirty::PROC_BOX;
                             }
                         "enter"
                             // Toggle process detailed view
-                            if proc_selected < runner.proc_collector.procs.len() => {
-                                let pid = runner.proc_collector.procs[proc_selected].pid;
+                            if proc_selected < runner.proc_collector.display_procs.len() => {
+                                let pid = runner.proc_collector.display_procs[proc_selected].pid;
                                 let current_detailed = config.get_int("detailed_pid");
                                 if current_detailed == pid as i64 {
-                                    // Close detail panel
                                     config.set_int("detailed_pid", 0);
                                 } else {
                                     config.set_int("detailed_pid", pid as i64);
                                 }
-                                needs_proc_redraw = true;
+                                dirty |= Dirty::PROC_BOX;
                             }
                         // Network keybinds
                         "b"
@@ -726,7 +697,7 @@ fn main() {
                                     .unwrap_or(0);
                                 let new_idx = if idx == 0 { runner.net.interfaces.len() - 1 } else { idx - 1 };
                                 runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
-                                needs_full_redraw = true;
+                                dirty |= Dirty::NET_BOX;
                             }
                         "n"
                             if !runner.net.interfaces.is_empty() => {
@@ -735,15 +706,15 @@ fn main() {
                                     .unwrap_or(0);
                                 let new_idx = (idx + 1) % runner.net.interfaces.len();
                                 runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
-                                needs_full_redraw = true;
+                                dirty |= Dirty::NET_BOX;
                             }
                         "a" => {
                             config.flip("net_auto");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::NET_BOX;
                         }
                         "y" => {
                             config.flip("net_sync");
-                            needs_full_redraw = true;
+                            dirty |= Dirty::NET_BOX;
                         }
                         // Network zero reset
                         "z" => {
@@ -752,7 +723,6 @@ fn main() {
                                 let dl = net_info.stat.get("download").cloned().unwrap_or_default();
                                 let ul = net_info.stat.get("upload").cloned().unwrap_or_default();
                                 if dl.offset + ul.offset > 0 {
-                                    // Already offset — clear it
                                     if let Some(d) = net_info.stat.get_mut("download") {
                                         d.offset = 0;
                                     }
@@ -760,7 +730,6 @@ fn main() {
                                         u.offset = 0;
                                     }
                                 } else {
-                                    // Set offset to current last + rollover
                                     if let Some(d) = net_info.stat.get_mut("download") {
                                         d.offset = d.last + d.rollover;
                                     }
@@ -768,7 +737,7 @@ fn main() {
                                         u.offset = u.last + u.rollover;
                                     }
                                 }
-                                needs_full_redraw = true;
+                                dirty |= Dirty::NET_BOX;
                             }
                         }
                         // Update rate keybinds
@@ -777,24 +746,14 @@ fn main() {
                             let new_ms = (update_ms as i64 + step).min(86_400_000);
                             config.set_int("update_ms", new_ms);
                             update_ms = config.get_int("update_ms") as u64;
-                            if let Some(ref layout) = cached_layout {
-                                if let Some(ref cpu_dim) = layout.cpu {
-                                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
-                                    let _ = terminal.write_raw(&ui::cpu_box::draw_rate_label(&area, &theme, update_ms));
-                                }
-                            }
+                            dirty |= Dirty::CPU_BOX;
                         }
                         "-" => {
                             let step = if update_ms > 2000 { 1000 } else { 100 };
                             let new_ms = (update_ms as i64 - step).max(100);
                             config.set_int("update_ms", new_ms);
                             update_ms = config.get_int("update_ms") as u64;
-                            if let Some(ref layout) = cached_layout {
-                                if let Some(ref cpu_dim) = layout.cpu {
-                                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
-                                    let _ = terminal.write_raw(&ui::cpu_box::draw_rate_label(&area, &theme, update_ms));
-                                }
-                            }
+                            dirty |= Dirty::CPU_BOX;
                         }
                         _ => {}
                     },
