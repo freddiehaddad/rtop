@@ -426,7 +426,7 @@ fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, theme: &Theme) -
 
     let rate_label = format!("{}ms", update_ms);
     let hints = format!(
-        "{}{}{}m{}enu{}{} {}{}{}p{}reset{}{} {}{}{}─ {}{} {}+{}{}",
+        "{}{}{}m{}enu{}{}{}{}{}p{}reset{}{}{}{}{}─ {}{} {}+{}{}",
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
