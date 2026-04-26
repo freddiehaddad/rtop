@@ -28,7 +28,7 @@ impl Config {
         // String defaults
         let string_defaults: &[(&str, &str)] = &[
             ("color_theme", "Default"),
-            ("shown_boxes", "cpu mem net proc"),
+            ("shown_boxes", "cpu mem net proc disk"),
             ("graph_symbol", "braille"),
             ("graph_symbol_cpu", "default"),
             ("graph_symbol_gpu", "default"),

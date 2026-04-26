@@ -49,8 +49,6 @@ pub struct LayoutConfig<'a> {
     pub proc_left: bool,
     pub core_count: usize,
     pub gpu_count: usize,
-    /// Whether the disk box is visible.
-    pub show_disks: bool,
 }
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
@@ -67,7 +65,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let has_mem = shown_boxes.iter().any(|b| b == "mem");
     let has_net = shown_boxes.iter().any(|b| b == "net");
     let has_proc = shown_boxes.iter().any(|b| b == "proc");
-    let has_disk = cfg.show_disks;
+    let has_disk = shown_boxes.iter().any(|b| b == "disk");
 
     // Count how many gpu boxes are shown
     let gpu_shown: Vec<usize> = (0..gpu_count)
@@ -230,7 +228,7 @@ mod tests {
     }
 
     fn lc(tw: usize, th: usize, shown: &[String]) -> LayoutConfig<'_> {
-        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0, show_disks: false }
+        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0 }
     }
 
     #[test]
@@ -313,9 +311,9 @@ mod tests {
     }
 
     #[test]
-    fn calc_sizes_disk_box_when_show_disks() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { show_disks: true, core_count: 8, ..lc(120, 50, &b) });
+    fn calc_sizes_disk_box_when_shown() {
+        let b = boxes(&["cpu", "mem", "net", "proc", "disk"]);
+        let layout = calc_sizes(&LayoutConfig { core_count: 8, ..lc(120, 50, &b) });
         assert!(layout.disk.is_some(), "disk box should be present");
         let disk = layout.disk.as_ref().unwrap();
         assert!(disk.height >= MIN_DISK_HEIGHT);
@@ -328,7 +326,7 @@ mod tests {
     #[test]
     fn calc_sizes_no_disk_box_when_hidden() {
         let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { show_disks: false, ..lc(120, 50, &b) });
+        let layout = calc_sizes(&lc(120, 50, &b));
         assert!(layout.disk.is_none(), "disk box should be absent");
     }
 }

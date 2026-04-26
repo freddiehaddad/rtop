@@ -87,7 +87,6 @@ pub fn run(
                     proc_left: config.get_bool("proc_left"),
                     core_count: runner.cpu.info.core_count,
                     gpu_count: runner.gpu.gpu_count(),
-                    show_disks: config.get_bool("show_disks"),
                 }));
             }
             let layout = cached_layout.as_ref().unwrap();
@@ -545,8 +544,8 @@ pub fn run(
                             }
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
-                        "d" | "6" => {
-                            config.flip("show_disks");
+                        "6" => {
+                            config.toggle_box("disk");
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         // Process keybinds
