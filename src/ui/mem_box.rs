@@ -55,18 +55,22 @@ pub fn draw(
         out.push_str(&box_drawing::create_box(
             x + mem_w, y, disk_w, height, box_color, false, "disks", "", 0, rounded,
         ));
-        // The left border of disk box overlaps the right border of mem box
-        // Use junction characters at corners
+        // Where the two boxes share a wall, use T-junction characters
+        // Top: the right border of mem box meets the top of disk box → ┬
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
             y + 1,
             x + mem_w + 1,
             box_color,
-            if rounded {
-                symbols::ROUND_RIGHT_UP
-            } else {
-                symbols::RIGHT_UP
-            }
+            symbols::DIV_UP
+        ));
+        // Bottom: same position → ┴
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}",
+            y + height,
+            x + mem_w + 1,
+            box_color,
+            symbols::DIV_DOWN
         ));
     }
 

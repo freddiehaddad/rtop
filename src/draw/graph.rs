@@ -240,13 +240,23 @@ impl Graph {
             // Single-height: color per column based on data value
             let mut row_str = String::with_capacity(self.width * 20);
             let len = data.len();
-            let start = if len > self.width { len - self.width } else { 0 };
             let chars: Vec<char> = buf.get(0).map(|s| s.chars().collect()).unwrap_or_default();
 
+            // The graph buffer may have left-padding spaces when data < width.
+            // Padding columns are spaces and get no color. Data columns start
+            // after the padding.
+            let pad_cols = if len < self.width { self.width - len } else { 0 };
+            let data_start = if len > self.width { len - self.width } else { 0 };
+
             for (col, ch) in chars.iter().enumerate() {
-                let data_idx = start + col;
+                if col < pad_cols {
+                    // Padding column — no color, just space
+                    row_str.push(*ch);
+                    continue;
+                }
+                let data_idx = data_start + (col - pad_cols);
                 let curr = if data_idx < len { data[data_idx] } else { 0 };
-                let prev = if data_idx > 0 && data_idx.checked_sub(1).map(|i| i < len).unwrap_or(false) {
+                let prev = if data_idx > 0 && data_idx < len {
                     data[data_idx - 1]
                 } else {
                     0

@@ -90,8 +90,9 @@ fn main() {
 
     let mut menu_state = MenuState::None;
 
-    let mut menu_active = false;
     let mut options_selected: usize = 0;
+    let mut proc_start: usize = 0;
+    let mut proc_selected: usize = 0;
 
     // Main event loop
     let mut needs_redraw = true;
@@ -175,6 +176,19 @@ fn main() {
                 ));
             }
             if let Some(ref proc_dim) = layout.proc_box {
+                // Clamp selection to valid range
+                let proc_count = runner.proc_collector.procs.len();
+                let max_visible = proc_dim.height.saturating_sub(5);
+                if proc_selected >= proc_count {
+                    proc_selected = proc_count.saturating_sub(1);
+                }
+                // Auto-scroll to keep selection visible
+                if proc_selected >= proc_start + max_visible {
+                    proc_start = proc_selected.saturating_sub(max_visible) + 1;
+                }
+                if proc_selected < proc_start {
+                    proc_start = proc_selected;
+                }
                 output.push_str(&ui::proc_box::draw(
                     &runner.proc_collector.procs,
                     proc_dim.x,
@@ -182,8 +196,8 @@ fn main() {
                     proc_dim.width,
                     proc_dim.height,
                     rounded,
-                    0,
-                    0,
+                    proc_start,
+                    proc_selected,
                     &theme,
                 ));
             }
@@ -326,6 +340,40 @@ fn main() {
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
+                        }
+                        "up" | "k" => {
+                            if proc_selected > 0 {
+                                proc_selected -= 1;
+                                needs_redraw = true;
+                            }
+                        }
+                        "down" | "j" => {
+                            let count = runner.proc_collector.procs.len();
+                            if proc_selected + 1 < count {
+                                proc_selected += 1;
+                                needs_redraw = true;
+                            }
+                        }
+                        "page_up" => {
+                            let page = th.saturating_sub(10);
+                            proc_selected = proc_selected.saturating_sub(page);
+                            needs_redraw = true;
+                        }
+                        "page_down" => {
+                            let page = th.saturating_sub(10);
+                            let count = runner.proc_collector.procs.len();
+                            proc_selected = (proc_selected + page).min(count.saturating_sub(1));
+                            needs_redraw = true;
+                        }
+                        "home" | "g" => {
+                            proc_selected = 0;
+                            proc_start = 0;
+                            needs_redraw = true;
+                        }
+                        "end" | "G" => {
+                            let count = runner.proc_collector.procs.len();
+                            proc_selected = count.saturating_sub(1);
+                            needs_redraw = true;
                         }
                         _ => {}
                     },

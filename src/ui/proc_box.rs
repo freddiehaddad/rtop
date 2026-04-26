@@ -72,15 +72,12 @@ pub fn draw(
 
     // Divider line under header
     out.push_str(&format!(
-        "\x1b[{};{}H{}{}{}{}",
+        "\x1b[{};{}H{}{}{}{}{}{}",
         y + 3,
         x + 1,
         box_color, symbols::DIV_LEFT,
         inactive,
-        symbols::H_LINE.repeat(width.saturating_sub(4))
-    ));
-    out.push_str(&format!(
-        "{}{}",
+        symbols::H_LINE.repeat(width.saturating_sub(2)),
         box_color, symbols::DIV_RIGHT
     ));
 
