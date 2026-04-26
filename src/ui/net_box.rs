@@ -117,13 +117,11 @@ pub fn draw(
     // Interface name and keybind hints at bottom border
     let iface_label = format!("{}< {}{}{} >", fg, hi, iface, fg);
     let nav_hints = format!(
-        " {}{}b{} ◀ {} {}{}n{} ▶{}",
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg,
-        title_syms::TITLE_RIGHT_DOWN,
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg,
-        title_syms::TITLE_RIGHT_DOWN,
+        " {}{}{}b{} ◀{}{} {}{}{}n{} ▶{}{}",
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
         "\x1b[{};{}H {}{}{}",

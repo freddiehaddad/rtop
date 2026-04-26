@@ -252,18 +252,17 @@ pub fn draw(
     // Bottom border keybind hints: menu, preset, -/+ update timer
     let bottom_y = y + height;
     let hints = format!(
-        "{}{}m{}enu{} {}{}p{}reset{} {}{}─{}{}+{}",
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg, title_syms::TITLE_RIGHT_DOWN,
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg, title_syms::TITLE_RIGHT_DOWN,
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg, hi, title_syms::TITLE_RIGHT_DOWN,
+        "{}{}{}m{}enu{}{} {}{}{}p{}reset{}{} {}{}{}─{}{}+{}{}",
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
-        "\x1b[{};{}H{}{}",
+        "\x1b[{};{}H{}",
         bottom_y, x + 2,
-        box_color,
         hints
     ));
 

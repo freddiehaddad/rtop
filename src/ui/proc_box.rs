@@ -218,21 +218,17 @@ pub fn draw_with_sort(
     let sort_name = if sort_by.is_empty() { "cpu lazy" } else { sort_by };
     let tree_star = if tree_mode { "*" } else { "" };
     let left_hints = format!(
-        "{}{}f{}ilter {}{}{}e{}{}tree{} {}{}←{}{}{}{}→{}",
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg,
-        title_syms::TITLE_RIGHT_DOWN,
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg, tree_star,
-        title_syms::TITLE_RIGHT_DOWN,
-        title_syms::TITLE_LEFT_DOWN,
-        hi, fg, sort_name, hi, fg,
-        title_syms::TITLE_RIGHT_DOWN,
+        "{}{}{}f{}ilter{}{} {}{}{}e{}{}tree{}{} {}{}{}←{}{}{}{}→{}{}",
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, tree_star, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, sort_name, hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
-        "\x1b[{};{}H{}{}",
+        "\x1b[{};{}H{}",
         bottom_y, x + 2,
-        box_color,
         left_hints
     ));
 
