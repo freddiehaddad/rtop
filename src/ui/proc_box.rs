@@ -264,7 +264,7 @@ pub fn draw_with_sort(
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, title_color, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
-    out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 2, bottom_hints));
+    out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 3, bottom_hints));
 
     // Right side: process count
     let visible = procs.len().min(max_rows);

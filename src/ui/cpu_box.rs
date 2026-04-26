@@ -262,7 +262,7 @@ pub fn draw(
     );
     out.push_str(&format!(
         "\x1b[{};{}H{}",
-        bottom_y, x + 2,
+        bottom_y, x + 3,
         hints
     ));
 
