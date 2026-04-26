@@ -125,7 +125,7 @@ impl Config {
             ("followed_pid", 0),
             ("proc_start", 0),
             ("proc_selected", 0),
-            ("current_preset", -1),
+            ("current_preset", 0),
         ];
         for (k, v) in int_defaults {
             self.ints.entry(k.to_string()).or_insert(*v);
@@ -157,7 +157,8 @@ impl Config {
         let clamped = match name {
             "update_ms" => value.clamp(100, 86_400_000),
             "net_download" | "net_upload" => value.clamp(0, 10_000_000),
-            "current_preset" | "detailed_pid" => value,
+            "detailed_pid" => value,
+            "current_preset" => value.max(0),
             _ => value.max(0),
         };
         self.ints.insert(name.to_string(), clamped);
@@ -587,10 +588,9 @@ mod tests {
     }
 
     #[test]
-    fn current_preset_allows_negative() {
-        let mut config = Config::new();
-        config.set_int("current_preset", -1);
-        assert_eq!(config.get_int("current_preset"), -1);
+    fn current_preset_default_is_zero() {
+        let config = Config::new();
+        assert_eq!(config.get_int("current_preset"), 0);
     }
 
     #[test]

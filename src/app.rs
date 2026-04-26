@@ -445,7 +445,7 @@ pub fn run(
                         "p" => {
                             let presets = config.preset_list();
                             if !presets.is_empty() {
-                                let cur = config.get_int("current_preset").max(0);
+                                let cur = config.get_int("current_preset");
                                 let next = if (cur + 1) >= presets.len() as i64 {
                                     0i64
                                 } else {
@@ -459,7 +459,7 @@ pub fn run(
                         "P" => {
                             let presets = config.preset_list();
                             if !presets.is_empty() {
-                                let cur = config.get_int("current_preset").max(0);
+                                let cur = config.get_int("current_preset");
                                 let next = if cur <= 0 {
                                     presets.len() as i64 - 1
                                 } else {
