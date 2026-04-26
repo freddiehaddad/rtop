@@ -351,8 +351,13 @@ pub fn draw(
             }
 
             cy += 1;
-            if cy > max_rows {
+            // btop line 920-923: wrap to next column, break if all columns filled
+            let cores_per_col = core_count.div_ceil(b_columns).max(1);
+            if (cy > cores_per_col || cy > max_rows) && i != core_count - 1 {
                 cc += 1;
+                if cc >= b_columns {
+                    break;
+                }
                 cy = 1;
                 cx = col_w * cc;
             }
