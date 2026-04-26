@@ -10,6 +10,22 @@ use crate::tools;
 
 use super::BoxArea;
 
+// Core panel column width thresholds (from btop's b_column_size algorithm).
+// Each tier provides space for: label + mini-graph + percentage [+ temperature].
+/// Widest tier: 21 chars + 12 per temp column.
+const CORE_COL_WIDE: usize = 21;
+const CORE_COL_WIDE_TEMP: usize = 12;
+/// Medium tier: 15 chars + 6 per temp column.
+const CORE_COL_MED: usize = 15;
+const CORE_COL_MED_TEMP: usize = 6;
+/// Minimal tier: 8 chars + 6 per temp column.
+const CORE_COL_NARROW: usize = 8;
+const CORE_COL_NARROW_TEMP: usize = 6;
+/// Overhead rows in the core panel (CPU meter + load avg + border).
+const CORE_PANEL_OVERHEAD: usize = 3;
+/// Box border overhead (top + bottom).
+const BOX_BORDER_ROWS: usize = 2;
+
 /// Draw the CPU box into an ANSI string matching btop's layout.
 ///
 /// Layout:
@@ -66,29 +82,30 @@ pub fn draw(
     };
 
     // Determine column size and b_width
+    let wide_col = CORE_COL_WIDE + CORE_COL_WIDE_TEMP * show_temp;
+    let med_col = CORE_COL_MED + CORE_COL_MED_TEMP * show_temp;
+    let narrow_col = CORE_COL_NARROW + CORE_COL_NARROW_TEMP * show_temp;
+    let max_panel = width - width / 3;
+
     let (_, b_width) = if core_count == 0 || width <= 20 {
         (0usize, 0usize)
-    } else if b_columns * (21 + 12 * show_temp) < width - width / 3 {
-        // Size 2 (widest)
-        let w = 29usize.max((21 + 12 * show_temp) * b_columns - (b_columns - 1));
+    } else if b_columns * wide_col < max_panel {
+        let w = 29usize.max(wide_col * b_columns - (b_columns - 1));
         (2, w)
-    } else if b_columns * (15 + 6 * show_temp) < width - width / 3 {
-        // Size 1 (medium)
-        let w = (15 + 6 * show_temp) * b_columns - (b_columns - 1);
+    } else if b_columns * med_col < max_panel {
+        let w = med_col * b_columns - (b_columns - 1);
         (1, w)
     } else {
-        // Size 0 (minimal)
-        let w = (8 + 6 * show_temp) * b_columns + 1;
+        let w = narrow_col * b_columns + 1;
         (0, w)
     };
 
-    // b_height: enough for cores + CPU meter(1) + load avg(1) + border(1) = +3
-    // max_rows = b_height - 3 = rows_for_cores
+    // b_height: enough for cores + CPU meter + load avg + border
     let b_height = if b_width == 0 {
         0
     } else {
         let rows_for_cores = core_count.div_ceil(b_columns);
-        (height - 2).min(rows_for_cores + 3)
+        (height - BOX_BORDER_ROWS).min(rows_for_cores + CORE_PANEL_OVERHEAD)
     };
 
     // b_x = x + width - b_width - 1

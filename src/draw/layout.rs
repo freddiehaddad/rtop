@@ -25,6 +25,10 @@ pub const MIN_NET_HEIGHT: usize = 6;
 pub const MIN_NET_WIDTH: usize = 20;
 pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 4;
+/// Percentage of terminal width allocated to the proc box (right column).
+const PROC_WIDTH_PCT: usize = 55;
+/// Percentage of remaining height allocated to the mem box when both mem+net are shown.
+const MEM_HEIGHT_PCT: usize = 55;
 
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
@@ -81,7 +85,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // Proc box width (right side, ~55%)
     let proc_width = if has_proc {
-        (term_width * 55 / 100).max(MIN_PROC_WIDTH).min(term_width)
+        (term_width * PROC_WIDTH_PCT / 100).max(MIN_PROC_WIDTH).min(term_width)
     } else {
         0
     };
@@ -98,7 +102,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // MEM and NET heights
     let (mem_height, net_height) = if has_mem && has_net {
-        let mh = (remaining_height * 55 / 100).max(MIN_MEM_HEIGHT);
+        let mh = (remaining_height * MEM_HEIGHT_PCT / 100).max(MIN_MEM_HEIGHT);
         let nh = remaining_height.saturating_sub(mh).max(MIN_NET_HEIGHT);
         (mh, nh)
     } else if has_mem {

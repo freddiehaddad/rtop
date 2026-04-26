@@ -8,6 +8,20 @@ use crate::tools;
 
 use super::{BoxArea, ProcView};
 
+// Process list column widths.
+const COL_PID: usize = 7;
+const COL_CPU: usize = 7;
+const COL_MEM: usize = 7;
+/// Minimum inner width to show the Command column.
+const CMD_COL_THRESHOLD: usize = 55;
+/// Inner width above which the Program column expands.
+const WIDE_PROG_THRESHOLD: usize = 70;
+const PROG_WIDE: usize = 16;
+const PROG_NARROW: usize = 8;
+/// Number of spacing characters between columns.
+const COL_SPACING: usize = 4;
+const COL_SPACING_NO_CMD: usize = 3;
+
 /// Draw the process list box into an ANSI string matching btop's layout.
 ///
 /// Layout:
@@ -65,17 +79,17 @@ pub fn draw_with_sort(
         }
     }
 
-    // Column widths — add Command column when wide enough (btop: width > 55)
-    let pid_w = 7;
-    let cpu_w = 7;
-    let mem_w = 7;
-    let has_cmd_col = inner_w > 55;
+    // Column widths — add Command column when wide enough
+    let pid_w = COL_PID;
+    let cpu_w = COL_CPU;
+    let mem_w = COL_MEM;
+    let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
     let (name_w, cmd_w) = if has_cmd_col {
-        let prog = if inner_w > 70 { 16 } else { 8 };
-        let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + 4); // 4 for spacing
+        let prog = if inner_w > WIDE_PROG_THRESHOLD { PROG_WIDE } else { PROG_NARROW };
+        let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + COL_SPACING);
         (prog, cmd)
     } else {
-        (inner_w.saturating_sub(pid_w + cpu_w + mem_w + 3), 0)
+        (inner_w.saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD), 0)
     };
 
     // Header row with column titles and sort indicator
