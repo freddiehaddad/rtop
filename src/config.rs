@@ -110,6 +110,7 @@ impl Config {
             ("disable_mouse", false),
             ("disk_free_priv", false),
             ("gpu_mirror_graph", true),
+            ("disk_io_mode", false),
         ];
         for (k, v) in bool_defaults {
             self.bools.entry(k.to_string()).or_insert(*v);

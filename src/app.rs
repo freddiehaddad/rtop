@@ -266,21 +266,21 @@ pub fn run(
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "tab" => {
-                            options_cat = (options_cat + 1) % 5;
+                            options_cat = (options_cat + 1) % 7;
                             options_page = 0;
                             options_selected = 0;
                             let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "shift_tab" => {
-                            options_cat = if options_cat == 0 { 4 } else { options_cat - 1 };
+                            options_cat = if options_cat == 0 { 6 } else { options_cat - 1 };
                             options_page = 0;
                             options_selected = 0;
                             let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
-                        "1" | "2" | "3" | "4" | "5" => {
-                            let new_cat = key.parse::<usize>().unwrap_or(1) - 1;
+                        "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
+                            let new_cat = key.parse::<usize>().unwrap_or(0);
                             if new_cat != options_cat {
                                 options_cat = new_cat;
                                 options_page = 0;

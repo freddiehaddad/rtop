@@ -67,7 +67,7 @@ fn classify(key: &str, config: &Config) -> OptKind {
 // ---------------------------------------------------------------------------
 
 /// Category tab names for the options menu.
-pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc"];
+pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", "disk"];
 
 /// Options in the "general" category.
 pub const GENERAL: &[OptDef] = &[
@@ -488,9 +488,75 @@ pub const PROC: &[OptDef] = &[
     ]},
 ];
 
+/// Options in the "gpu" category.
+pub const GPU: &[OptDef] = &[
+    OptDef { key: "gpu_mirror_graph", desc: &[
+        "Mirror GPU graph.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "graph_symbol_gpu", desc: &[
+        "Graph symbol to use for graphs in gpu box.",
+        "",
+        "\"default\", \"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "custom_gpu_name0", desc: &[
+        "Custom GPU name for GPU 0.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "custom_gpu_name1", desc: &[
+        "Custom GPU name for GPU 1.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "custom_gpu_name2", desc: &[
+        "Custom GPU name for GPU 2.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "custom_gpu_name3", desc: &[
+        "Custom GPU name for GPU 3.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "custom_gpu_name4", desc: &[
+        "Custom GPU name for GPU 4.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "custom_gpu_name5", desc: &[
+        "Custom GPU name for GPU 5.",
+        "",
+        "Empty string to disable.",
+    ]},
+];
+
+/// Options in the "disk" category.
+pub const DISK: &[OptDef] = &[
+    OptDef { key: "disks_filter", desc: &[
+        "Optional filter for shown disks.",
+        "",
+        "Should be full path of a mountpoint.",
+        "Separate multiple values with whitespace.",
+    ]},
+    OptDef { key: "only_physical", desc: &[
+        "Filter out non physical disks.",
+        "",
+        "Set this to False to include network disks,",
+        "RAM disks and similar.",
+    ]},
+    OptDef { key: "disk_io_mode", desc: &[
+        "Show IO activity.",
+        "",
+        "Shows disk IO activity instead of",
+        "usage percentage.",
+    ]},
+];
+
 /// All categories in order.
 pub fn categories() -> &'static [&'static [OptDef]] {
-    &[GENERAL, CPU, MEM, NET, PROC]
+    &[GENERAL, CPU, MEM, NET, PROC, GPU, DISK]
 }
 
 // ---------------------------------------------------------------------------
@@ -588,16 +654,17 @@ pub fn draw(
     let x = term_width.saturating_sub(box_w) / 2;
 
     // Compute available height for options (each takes 2 rows)
-    let max_items = options.len();
+    let max_items = cats.iter().map(|c| c.len()).max().unwrap_or(0);
     let desired_h = max_items * 2 + 4; // 4 = tab row + divider + top/bottom borders
     let height = desired_h.min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
     let y = term_height.saturating_sub(height + 6) / 2;
 
+    let current_items = options.len();
     let item_height = ((height - 4) / 2).min(max_items);
-    let pages = if max_items == 0 { 1 } else { max_items.div_ceil(item_height) };
+    let pages = if current_items == 0 { 1 } else { current_items.div_ceil(item_height) };
     let page = page.min(pages - 1);
-    let select_max = item_height.min(max_items.saturating_sub(item_height * page)) - 1;
+    let select_max = item_height.min(current_items.saturating_sub(item_height * page)).saturating_sub(1);
     let selected = selected.min(select_max);
 
     let hi = theme.c("hi_fg");
@@ -609,6 +676,9 @@ pub fn draw(
     let reset = "\x1b[0m";
 
     let mut out = String::with_capacity(4096);
+
+    // Clear the screen to avoid artifacts when switching tabs
+    out.push_str("\x1b[2J");
 
     // Main box: create at (x, y+6) with height
     let tab_title = format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW);
@@ -651,9 +721,10 @@ pub fn draw(
         if i == cat {
             out.push_str(&format!("\x1b[1m{}[{}{}{}]{}", hi, title_c, name, hi, reset));
         } else {
-            out.push_str(&format!("\x1b[1m{}{}{}{}{}", hi, i + 1, title_c, name, reset));
+            out.push_str(&format!("\x1b[1m{}{}{}{}{}", hi, i, title_c, name, reset));
         }
-        out.push_str(&format!("\x1b[{}C", 10_usize.saturating_sub(name.len() + 1)));
+        let spacing = 8_usize.saturating_sub(name.len() + 1);
+        out.push_str(&format!("\x1b[{}C", spacing));
     }
 
     // Page indicator
@@ -763,10 +834,10 @@ pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> 
         return None;
     }
     let options = cats[cat];
-    let max_items = options.len();
-    let height = (max_items * 2 + 4).min(term_height.saturating_sub(8));
+    let global_max = cats.iter().map(|c| c.len()).max().unwrap_or(0);
+    let height = (global_max * 2 + 4).min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
-    let item_height = ((height - 4) / 2).min(max_items);
+    let item_height = ((height - 4) / 2).min(global_max);
     let idx = item_height * page + selected;
     options.get(idx).map(|o| o.key)
 }
@@ -777,10 +848,10 @@ pub fn items_per_page(cat: usize, term_height: usize) -> usize {
     if cat >= cats.len() {
         return 1;
     }
-    let max_items = cats[cat].len();
-    let height = (max_items * 2 + 4).min(term_height.saturating_sub(8));
+    let global_max = cats.iter().map(|c| c.len()).max().unwrap_or(0);
+    let height = (global_max * 2 + 4).min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
-    ((height - 4) / 2).min(max_items).max(1)
+    ((height - 4) / 2).min(global_max).max(1)
 }
 
 /// Number of pages for a category.
