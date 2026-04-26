@@ -95,6 +95,10 @@ fn main() {
         config.set_string("shown_boxes", &boxes.join(" "));
     }
 
+    // Snapshot the startup layout for preset 0
+    let initial = config.get_string("shown_boxes").to_string();
+    config.set_string("initial_shown_boxes", &initial);
+
     app::run(&mut config, &mut terminal, &mut theme, &mut runner);
 }
 

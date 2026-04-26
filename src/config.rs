@@ -281,9 +281,19 @@ impl Config {
     }
 
     /// Parse the presets config string into a list of preset strings.
-    /// Preset 0 is always all boxes shown with default settings.
+    /// Preset 0 is the startup layout stored in `initial_shown_boxes`.
     pub fn preset_list(&self) -> Vec<String> {
-        let mut list = vec!["cpu:0:default,mem:0:default,net:0:default,proc:0:default,disk:0:default".to_string()];
+        let initial = self.get_string("initial_shown_boxes");
+        let source = if initial.is_empty() {
+            self.get_string("shown_boxes")
+        } else {
+            initial
+        };
+        let preset0_parts: Vec<String> = source.split_whitespace().map(|b| {
+            format!("{b}:0:default")
+        }).collect();
+        let mut list = vec![preset0_parts.join(",")];
+
         let presets_str = self.get_string("presets");
         if !presets_str.is_empty() {
             for preset in presets_str.split_whitespace() {
