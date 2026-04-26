@@ -24,8 +24,6 @@ pub struct CpuInfo {
     pub uptime_seconds: u64,
     /// Temperature history: index 0 = package, 1+ = per-core.
     pub temp: Vec<VecDeque<i64>>,
-    /// Critical temperature threshold (°C).
-    pub temp_max: i64,
 }
 
 impl Default for CpuInfo {
@@ -40,7 +38,6 @@ impl Default for CpuInfo {
             core_count: 0,
             uptime_seconds: 0,
             temp: Vec::new(),
-            temp_max: 100,
         }
     }
 }

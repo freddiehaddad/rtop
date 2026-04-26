@@ -482,7 +482,7 @@ fn lhm_http_fetch() -> Option<serde_json::Value> {
 
 /// Parse a temperature value string like "65.0 °C" → 65
 fn parse_temp_value(s: &str) -> Option<i64> {
-    let num_part = s.split(|c: char| c == ' ' || c == '\u{00b0}').next()?;
+    let num_part = s.split([' ', '\u{00b0}']).next()?;
     num_part.parse::<f64>().ok().map(|v| v as i64)
 }
 
