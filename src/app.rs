@@ -545,7 +545,7 @@ pub fn run(
                             }
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
-                        "d" => {
+                        "d" | "6" => {
                             config.flip("show_disks");
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
