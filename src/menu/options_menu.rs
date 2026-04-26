@@ -90,6 +90,9 @@ pub const GENERAL: &[OptDef] = &[
         "Will convert 24-bit colors to 256 color",
         "(6x6x6 color cube) if False.",
     ]},
+    OptDef { key: "lowcolor", desc: &[
+        "Use 256-color mode instead of truecolor.",
+    ]},
     OptDef { key: "force_tty", desc: &[
         "TTY mode.",
         "",
@@ -485,6 +488,11 @@ pub const PROC: &[OptDef] = &[
         "",
         "If True, when opening the detailed view",
         "the process will be followed in the list.",
+    ]},
+    OptDef { key: "proc_filter", desc: &[
+        "Filter processes by name.",
+        "",
+        "Prefix with ! for regex.",
     ]},
 ];
 

@@ -22,6 +22,7 @@ pub fn draw(
     iface: &str,
     area: &BoxArea,
     theme: &Theme,
+    config: &crate::config::Config,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -49,6 +50,28 @@ pub fn draw(
         return out;
     }
 
+    let graph_sym = GraphSymbol::from_config(config.get_string("graph_symbol_net"), config.get_string("graph_symbol"));
+    let net_auto = config.get_bool("net_auto");
+    let net_sync = config.get_bool("net_sync");
+
+    // Compute graph max values
+    let dl_max_raw = if net_auto {
+        net.bandwidth.get("download").map(|bw| bw.iter().copied().max().unwrap_or(1).max(1)).unwrap_or(1)
+    } else {
+        (config.get_int("net_download") * 1024).max(1)
+    };
+    let ul_max_raw = if net_auto {
+        net.bandwidth.get("upload").map(|bw| bw.iter().copied().max().unwrap_or(1).max(1)).unwrap_or(1)
+    } else {
+        (config.get_int("net_upload") * 1024).max(1)
+    };
+    let (dl_max, ul_max) = if net_sync {
+        let m = dl_max_raw.max(ul_max_raw);
+        (m, m)
+    } else {
+        (dl_max_raw, ul_max_raw)
+    };
+
     // Split inner area between download (top half) and upload (bottom half)
     let dl_rows = inner_h / 2;
     let ul_rows = inner_h - dl_rows;
@@ -56,9 +79,8 @@ pub fn draw(
     // Download graph (normal orientation, top half)
     if let Some(dl_bw) = net.bandwidth.get("download") {
         if dl_rows > 0 {
-            let mut graph = Graph::new(graph_width, dl_rows, GraphSymbol::Braille, false, true, 0, 0);
-            let max_val = dl_bw.iter().copied().max().unwrap_or(1).max(1);
-            graph.max_value = max_val;
+            let mut graph = Graph::new(graph_width, dl_rows, graph_sym, false, true, 0, 0);
+            graph.max_value = dl_max;
             graph.create(dl_bw);
             let rows = graph.render_rows_colored(dl_bw, dl_grad);
             for (i, row) in rows.iter().enumerate() {
@@ -90,9 +112,8 @@ pub fn draw(
         if ul_rows > 0 {
             let ul_start_y = y + 2 + dl_rows;
             let mut graph =
-                Graph::new(graph_width, ul_rows, GraphSymbol::Braille, true, true, 0, 0);
-            let max_val = ul_bw.iter().copied().max().unwrap_or(1).max(1);
-            graph.max_value = max_val;
+                Graph::new(graph_width, ul_rows, graph_sym, true, true, 0, 0);
+            graph.max_value = ul_max;
             graph.create(ul_bw);
             let rows = graph.render_rows_colored(ul_bw, ul_grad);
             for (i, row) in rows.iter().enumerate() {

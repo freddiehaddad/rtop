@@ -1,18 +1,23 @@
 use crate::draw::box_drawing;
 use crate::term;
+use crate::theme::Theme;
 use crate::tools;
 
 /// Draw the help menu centered on screen.
-pub fn draw(term_width: usize, term_height: usize) -> String {
+pub fn draw(term_width: usize, term_height: usize, theme: &Theme) -> String {
     let w = 60.min(term_width);
     let h = 40.min(term_height);
     let x = (term_width.saturating_sub(w)) / 2;
     let y = (term_height.saturating_sub(h)) / 2;
 
+    let hi = theme.c("hi_fg");
+    let title_c = theme.c("title");
+    let fg = theme.c("main_fg");
+
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
-        x, y, width: w, height: h, line_color: "", fill: true,
+        x, y, width: w, height: h, line_color: hi, fill: true,
         title: "help", title2: "", num: 0, rounded: true,
-        hi_color: "", title_color: "",
+        hi_color: hi, title_color: title_c,
     });
 
     let lines = [
@@ -49,8 +54,47 @@ pub fn draw(term_width: usize, term_height: usize) -> String {
 
     for (i, line) in lines.iter().take(h.saturating_sub(3)).enumerate() {
         let trunc = tools::uresize(line, w.saturating_sub(4), false);
-        out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), trunc));
+        if trunc.starts_with('─') {
+            // Section header in title_color with bold
+            out.push_str(&format!(
+                "{}\x1b[1m{}{}\x1b[22m",
+                term::mv(x + 2, y + 2 + i), title_c, trunc
+            ));
+        } else if let Some(split) = split_key_desc(&trunc) {
+            // Key part in hi_fg, description in main_fg
+            out.push_str(&format!(
+                "{}{}{}{}{}",
+                term::mv(x + 2, y + 2 + i),
+                hi, &trunc[..split],
+                fg, &trunc[split..],
+            ));
+        } else if !trunc.trim().is_empty() {
+            out.push_str(&format!("{}{}{}", term::mv(x + 2, y + 2 + i), fg, trunc));
+        }
     }
 
+    out.push_str("\x1b[0m");
     out
+}
+
+/// Find the split point between key and description in a help line.
+/// Returns the byte index where the 4+ space separator starts.
+fn split_key_desc(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    let mut seen_nonspace = false;
+    while i < bytes.len() {
+        if bytes[i] != b' ' {
+            seen_nonspace = true;
+            i += 1;
+            continue;
+        }
+        if !seen_nonspace { i += 1; continue; }
+        let start = i;
+        while i < bytes.len() && bytes[i] == b' ' { i += 1; }
+        if i - start >= 4 && i < bytes.len() {
+            return Some(start);
+        }
+    }
+    None
 }

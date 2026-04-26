@@ -41,6 +41,7 @@ pub fn draw(
     cpu: &CpuInfo,
     area: &BoxArea,
     theme: &Theme,
+    config: &crate::config::Config,
     update_ms: u64,
     current_preset: i64,
 ) -> String {
@@ -55,6 +56,17 @@ pub fn draw(
     let div_color = theme.c("div_line");
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
+    let graph_sym = GraphSymbol::from_config(config.get_string("graph_symbol_cpu"), config.get_string("graph_symbol"));
+    let upper_key = match config.get_string("cpu_graph_upper") {
+        "user" => "user",
+        "system" => "system",
+        _ => "total",
+    };
+    let lower_key = match config.get_string("cpu_graph_lower") {
+        "user" => "user",
+        "system" => "system",
+        _ => "total",
+    };
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width, height, line_color: box_color, fill: true,
@@ -71,8 +83,9 @@ pub fn draw(
     }
 
     // --- btop core panel sizing (calcSizes from btop_draw.cpp:2297-2327) ---
-    let has_temp = !cpu.temp.is_empty();
-    let show_temp: usize = if has_temp { 1 } else { 0 };
+    let has_temp = config.get_bool("check_temp") && !cpu.temp.is_empty();
+    let show_coretemp_flag = has_temp && config.get_bool("show_coretemp");
+    let show_temp: usize = if show_coretemp_flag { 1 } else { 0 };
 
     // b_columns = max(1, ceil(coreCount / (height - 5)))
     let b_columns = if core_count == 0 || height <= 5 {
@@ -175,10 +188,10 @@ pub fn draw(
 
     // Upper graph (normal orientation)
     if upper_h > 0 && graph_width > 0 {
-        if let Some(total) = cpu.cpu_percent.get("total") {
-            let mut graph = Graph::new(graph_width, upper_h, GraphSymbol::Braille, false, true, 100, 0);
-            graph.create(total);
-            let rows = graph.render_rows_colored(total, cpu_gradient);
+        if let Some(data) = cpu.cpu_percent.get(upper_key) {
+            let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, true, 100, 0);
+            graph.create(data);
+            let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
                 out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), row));
             }
@@ -211,11 +224,11 @@ pub fn draw(
 
     // Lower graph (inverted orientation)
     if lower_h > 0 && graph_width > 0 {
-        if let Some(total) = cpu.cpu_percent.get("total") {
+        if let Some(data) = cpu.cpu_percent.get(lower_key) {
             let lower_start_y = y + 2 + divider_row + 1;
-            let mut graph = Graph::new(graph_width, lower_h, GraphSymbol::Braille, true, true, 100, 0);
-            graph.create(total);
-            let rows = graph.render_rows_colored(total, cpu_gradient);
+            let mut graph = Graph::new(graph_width, lower_h, graph_sym, true, true, 100, 0);
+            graph.create(data);
+            let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
                 out.push_str(&format!("{}{}", term::mv(x + 2, lower_start_y + i), row));
             }
@@ -225,7 +238,8 @@ pub fn draw(
     // --- Core panel ---
     if b_width > 0 && b_height > 0 {
         let panel = CorePanelArea { x: b_x, y: b_y, width: b_width, height: b_height, columns: b_columns };
-        out.push_str(&draw_core_panel(cpu, &panel, has_temp, theme));
+        let temp_scale = config.get_string("temp_scale");
+        out.push_str(&draw_core_panel(cpu, &panel, has_temp, show_coretemp_flag, temp_scale, graph_sym, theme));
     }
 
     // Uptime overlaid on lower-left of graph area
@@ -260,6 +274,9 @@ fn draw_core_panel(
     cpu: &CpuInfo,
     panel: &CorePanelArea,
     has_temp: bool,
+    show_coretemp: bool,
+    temp_scale: &str,
+    graph_sym: GraphSymbol,
     theme: &Theme,
 ) -> String {
     let fg = theme.c("main_fg");
@@ -297,16 +314,17 @@ fn draw_core_panel(
                 // Package temp graph + value on CPU meter row
                 if let Some(pkg_data) = cpu.temp.first() {
                     let pkg_temp = pkg_data.back().copied().unwrap_or(0);
-                    let mut tg = Graph::new(5, 1, GraphSymbol::Braille, false, false, 100, 0);
+                    let mut tg = Graph::new(5, 1, graph_sym, false, false, 100, 0);
                     let tg_str = tg.render_row_colored(pkg_data, temp_gradient);
                     let t_color = if !temp_gradient.is_empty() {
                         &temp_gradient[(pkg_temp.clamp(0, 100)) as usize]
                     } else {
                         fg
                     };
+                    let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, temp_scale);
                     out.push_str(&format!(
-                        " {}{}{:>3}°C",
-                        tg_str, t_color, pkg_temp
+                        " {}{}{:>3}{}",
+                        tg_str, t_color, conv_temp, temp_unit
                     ));
                 }
             }
@@ -341,7 +359,7 @@ fn draw_core_panel(
 
         let sep_w: usize = if cc + 1 < panel.columns { 1 } else { 0 }; // │ separator
         let pct_w: usize = 4; // " ##%"
-        let temp_w: usize = if has_temp { 5 } else { 0 }; // " ##°C"
+        let temp_w: usize = if has_temp && show_coretemp { 5 } else { 0 }; // " ##°C"
         let fixed_w = label_w + pct_w + temp_w + sep_w;
         let graph_w = col_w.saturating_sub(fixed_w);
 
@@ -350,7 +368,7 @@ fn draw_core_panel(
 
         // Mini graph
         if graph_w >= 3 {
-            let mut mini = Graph::new(graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
+            let mut mini = Graph::new(graph_w, 1, graph_sym, false, false, 100, 0);
             let mini_str = mini.render_row_colored(core_data, cpu_gradient);
             out.push_str(&mini_str);
         } else if graph_w > 0 {
@@ -361,7 +379,7 @@ fn draw_core_panel(
         out.push_str(&format!("{}{:>3}{}%", pct_color, pct, fg));
 
         // Per-core temperature
-        if has_temp {
+        if has_temp && show_coretemp {
             // cpu.temp: index 0 = package, 1+ = per physical core
             // If more logical cores than temp sensors (hyperthreading),
             // map back to the physical core's temperature.
@@ -380,7 +398,8 @@ fn draw_core_panel(
             } else {
                 fg
             };
-            out.push_str(&format!("{}{:>3}°C", t_color, core_temp));
+            let (conv_temp, temp_unit) = crate::tools::celsius_to(core_temp, temp_scale);
+            out.push_str(&format!("{}{:>3}{}", t_color, conv_temp, temp_unit));
         }
 
         // Column separator

@@ -105,7 +105,7 @@ pub fn run(
                 if let Some(ref cpu_dim) = layout.cpu {
                     let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
                     output.push_str(&ui::cpu_box::draw(
-                        &runner.cpu.info, &area, theme, update_ms,
+                        &runner.cpu.info, &area, theme, config, update_ms,
                         config.get_int("current_preset"),
                     ));
                 }
@@ -116,7 +116,7 @@ pub fn run(
                     if gi < runner.gpu.gpus.len() {
                         let area = ui::BoxArea { x: gpu_dim.x, y: gpu_dim.y, width: gpu_dim.width, height: gpu_dim.height, rounded };
                         output.push_str(&ui::gpu_box::draw(
-                            &runner.gpu.gpus[gi], gi, &area, theme,
+                            &runner.gpu.gpus[gi], gi, &area, theme, config,
                         ));
                     }
                 }
@@ -126,7 +126,7 @@ pub fn run(
                 if let Some(ref mem_dim) = layout.mem {
                     let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
                     output.push_str(&ui::mem_box::draw(
-                        &runner.mem.info, &area, theme,
+                        &runner.mem.info, &area, theme, config,
                     ));
                 }
             }
@@ -146,7 +146,7 @@ pub fn run(
                     let net_info = runner.net.current_net.get(iface).cloned().unwrap_or_default();
                     let area = ui::BoxArea { x: net_dim.x, y: net_dim.y, width: net_dim.width, height: net_dim.height, rounded };
                     output.push_str(&ui::net_box::draw(
-                        &net_info, iface, &area, theme,
+                        &net_info, iface, &area, theme, config,
                     ));
                 }
             }
@@ -224,7 +224,7 @@ pub fn run(
                                 }
                                 1 => {
                                     // Help
-                                    let menu_out = menu::help_menu::draw(tw, th);
+                                    let menu_out = menu::help_menu::draw(tw, th, theme);
                                     let _ = terminal.write_raw(&menu_out);
                                     menu_state = MenuState::Help;
                                 }
@@ -245,7 +245,7 @@ pub fn run(
                         }
                         "h" | "?" | "f1" => {
                             // Show help menu
-                            let menu_out = menu::help_menu::draw(tw, th);
+                            let menu_out = menu::help_menu::draw(tw, th, theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Help;
                         }
@@ -429,7 +429,7 @@ pub fn run(
                             menu_state = MenuState::Main;
                         }
                         "h" | "?" | "f1" => {
-                            let menu_out = menu::help_menu::draw(tw, th);
+                            let menu_out = menu::help_menu::draw(tw, th, theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Help;
                         }

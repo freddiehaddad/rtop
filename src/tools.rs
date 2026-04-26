@@ -221,7 +221,6 @@ pub fn sec_to_dhms(seconds: u64, no_days: bool, no_seconds: bool) -> String {
     result
 }
 
-#[cfg(test)]
 /// Convert a Celsius temperature value to the specified scale.
 /// Returns (converted_value, unit_suffix).
 pub fn celsius_to(celsius: i64, scale: &str) -> (i64, String) {

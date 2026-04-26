@@ -30,6 +30,7 @@ pub fn draw(
     index: usize,
     area: &BoxArea,
     theme: &Theme,
+    config: &crate::config::Config,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -83,11 +84,12 @@ pub fn draw(
         .copied()
         .unwrap_or(0);
     let temp = gpu.temp.back().copied().unwrap_or(0);
+    let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, config.get_string("temp_scale"));
     let pwr_w = gpu.pwr_usage as f64 / 1000.0;
     let pwr_max_w = gpu.pwr_max_usage as f64 / 1000.0;
 
     let label = format!(" GPU {gpu_pct:>3}% ");
-    let suffix = format!("  {temp}°C  {pwr_w:.0}W/{pwr_max_w:.0}W ");
+    let suffix = format!("  {conv_temp}{temp_unit}  {pwr_w:.0}W/{pwr_max_w:.0}W ");
     let meter_w = inner_w.saturating_sub(label.len() + suffix.len());
 
     if height >= 4 {

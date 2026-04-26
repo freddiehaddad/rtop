@@ -23,6 +23,7 @@ pub fn draw(
     mem: &MemInfo,
     area: &BoxArea,
     theme: &Theme,
+    config: &crate::config::Config,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -128,6 +129,7 @@ pub fn draw(
     }
 
     // Blank line before swap
+    if config.get_bool("show_swap") {
     if row < inner_h {
         row += 1;
     }
@@ -161,6 +163,7 @@ pub fn draw(
             ));
         }
     }
+    } // show_swap
 
     out.push_str("\x1b[0m");
     out
