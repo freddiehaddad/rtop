@@ -63,8 +63,16 @@ fn main() {
         }
     };
 
-    // Init theme (kept for later use)
-    let _theme = theme::Theme::new();
+    // Init theme
+    let theme = theme::Theme::new();
+
+    // Set terminal base colors from theme
+    let base_colors = format!(
+        "{}{}",
+        theme.c("main_fg"),
+        theme.c("main_bg").replace("38;2", "48;2")  // fg escape → bg escape
+    );
+    let _ = terminal.write_raw(&base_colors);
 
     // Init runner (collectors)
     let mut runner = runner::Runner::new();
@@ -124,6 +132,7 @@ fn main() {
                     cpu_dim.width,
                     cpu_dim.height,
                     rounded,
+                    &theme,
                 ));
             }
             if let Some(ref mem_dim) = layout.mem {
@@ -134,6 +143,7 @@ fn main() {
                     mem_dim.width,
                     mem_dim.height,
                     rounded,
+                    &theme,
                 ));
             }
             if let Some(ref net_dim) = layout.net {
@@ -152,6 +162,7 @@ fn main() {
                     net_dim.width,
                     net_dim.height,
                     rounded,
+                    &theme,
                 ));
             }
             if let Some(ref proc_dim) = layout.proc_box {
@@ -164,6 +175,7 @@ fn main() {
                     rounded,
                     0,
                     0,
+                    &theme,
                 ));
             }
 
