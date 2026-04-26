@@ -205,7 +205,60 @@ impl CpuCollector {
     }
 
     fn collect_frequency(&mut self) {
-        // Read from registry
+        // Use CallNtPowerInformation(ProcessorInformation) for dynamic current frequency.
+        // The registry ~MHz is just the base clock and never changes.
+        #[repr(C)]
+        #[derive(Default, Clone, Copy)]
+        struct ProcessorPowerInfo {
+            number: u32,
+            max_mhz: u32,
+            current_mhz: u32,
+            mhz_limit: u32,
+            max_idle_state: u32,
+            current_idle_state: u32,
+        }
+
+        // CallNtPowerInformation is in powrprof.dll
+        #[link(name = "powrprof")]
+        unsafe extern "system" {
+            fn CallNtPowerInformation(
+                information_level: i32,
+                input_buffer: *const std::ffi::c_void,
+                input_buffer_length: u32,
+                output_buffer: *mut std::ffi::c_void,
+                output_buffer_length: u32,
+            ) -> i32;
+        }
+
+        let core_count = self.info.core_count.max(1);
+        let mut ppi = vec![ProcessorPowerInfo::default(); core_count];
+        let buf_size = (core_count * std::mem::size_of::<ProcessorPowerInfo>()) as u32;
+
+        // ProcessorInformation = 11
+        let status = unsafe {
+            CallNtPowerInformation(
+                11,
+                std::ptr::null(),
+                0,
+                ppi.as_mut_ptr() as *mut std::ffi::c_void,
+                buf_size,
+            )
+        };
+
+        if status == 0 {
+            // Find the highest current frequency across all cores
+            let max_current = ppi.iter().map(|p| p.current_mhz).max().unwrap_or(0);
+            if max_current > 0 {
+                if max_current >= 1000 {
+                    self.info.cpu_hz = format!("{:.2} GHz", max_current as f64 / 1000.0);
+                } else {
+                    self.info.cpu_hz = format!("{} MHz", max_current);
+                }
+                return;
+            }
+        }
+
+        // Fallback: read base frequency from registry
         use windows::Win32::System::Registry::*;
         use windows::core::*;
 
