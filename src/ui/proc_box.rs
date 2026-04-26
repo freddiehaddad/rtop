@@ -56,6 +56,7 @@ pub fn draw_with_sort(
     let title_color = theme.c("title");
     let hi = theme.c("hi_fg");
     let sel_bg = theme.c("selected_bg");
+    let sel_bg_esc = sel_bg.replace("38;2", "48;2");
     let sel_fg = theme.c("selected_fg");
     let inactive = theme.c("inactive_fg");
     let proc_grad = theme.g("process");
@@ -236,7 +237,7 @@ pub fn draw_with_sort(
 
         if i + start == selected {
             // Selected row: highlight with selected colors
-            let bg_esc = sel_bg.replace("38;2", "48;2");
+            let bg_esc = &sel_bg_esc;
             out.push_str(&format!(
                 "{}{}{}{}{}\x1b[0m",
                 term::mv(x + 2, row),

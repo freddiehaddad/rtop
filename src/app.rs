@@ -63,21 +63,21 @@ pub fn run(
 
             // Rebuild derived process display list
             if dirty.contains(Dirty::PROC_LIST) {
-                let sort_by = config.get_string("proc_sorting").to_string();
+                let sort_by = config.get_string("proc_sorting");
                 let reversed = config.get_bool("proc_reversed");
-                let filter = config.get_string("proc_filter").to_string();
+                let filter = config.get_string("proc_filter");
                 let tree_mode = config.get_bool("proc_tree");
-                runner.proc_collector.rebuild_display(&sort_by, reversed, &filter, tree_mode);
+                runner.proc_collector.rebuild_display(sort_by, reversed, filter, tree_mode);
             }
 
             // Calculate layout (or reuse cached)
-            let layout = if dirty.contains(Dirty::LAYOUT) || cached_layout.is_none() {
+            if dirty.contains(Dirty::LAYOUT) || cached_layout.is_none() {
                 let shown: Vec<String> = config
                     .get_string("shown_boxes")
                     .split_whitespace()
                     .map(|s| s.to_string())
                     .collect();
-                let l = draw::layout::calc_sizes(&draw::layout::LayoutConfig {
+                cached_layout = Some(draw::layout::calc_sizes(&draw::layout::LayoutConfig {
                     term_width: tw,
                     term_height: th,
                     shown_boxes: &shown,
@@ -86,14 +86,9 @@ pub fn run(
                     proc_left: config.get_bool("proc_left"),
                     core_count: runner.cpu.info.core_count,
                     gpu_count: runner.gpu.gpu_count(),
-                });
-                cached_layout = Some(l.clone());
-                l
-            } else if let Some(ref l) = cached_layout {
-                l.clone()
-            } else {
-                unreachable!("cached_layout is None but LAYOUT flag was not set");
-            };
+                }));
+            }
+            let layout = cached_layout.as_ref().unwrap();
 
             // ── Phase 3: Render dirty boxes ───────────────────────────────
 
@@ -149,17 +144,17 @@ pub fn run(
                 if let Some(ref proc_dim) = layout.proc_box {
                     let procs = &runner.proc_collector.display_procs;
                     clamp_proc_selection(procs, proc_dim.height, &mut proc_selected, &mut proc_start);
-                    let sort_by = config.get_string("proc_sorting").to_string();
+                    let sort_by = config.get_string("proc_sorting");
                     let reversed = config.get_bool("proc_reversed");
                     let tree_mode = config.get_bool("proc_tree");
                     let detailed_pid = config.get_int("detailed_pid") as u32;
-                    let pf = config.get_string("proc_filter").to_string();
+                    let pf = config.get_string("proc_filter");
                     let is_filtering = menu_state == MenuState::Filter;
                     let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
                     let view = ui::ProcView {
                         start: proc_start, selected: proc_selected,
-                        sort_by: &sort_by, sort_reversed: reversed,
-                        tree_mode, detailed_pid, filter: &pf, filtering: is_filtering,
+                        sort_by, sort_reversed: reversed,
+                        tree_mode, detailed_pid, filter: pf, filtering: is_filtering,
                     };
                     output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, theme));
                 }
