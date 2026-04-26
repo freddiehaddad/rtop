@@ -216,9 +216,9 @@ pub fn draw_with_sort(
     let tree_star = if tree_mode { "*" } else { "" };
 
     // Build positions right-to-left from the right corner
-    // sort_vis: "← " + name + " →" = name.len + 4, plus 2 inset chars
+    // btop line 1884: sort_pos = x + width - sort_len - 8
     let sort_content_len = sort_name.len() + 4; // "← cpu lazy →"
-    let mut pos = x + width - sort_content_len - 2; // -2 for ┐ and ┌
+    let mut pos = x + width - sort_name.len() - 8;
 
     // Sort selector: ┐← sorting →┌
     let sort_inset = format!(
