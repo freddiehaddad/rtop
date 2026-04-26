@@ -233,40 +233,16 @@ fn main() {
             if let Some(ref proc_dim) = layout.proc_box {
                 clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                 let detailed_pid = config.get_int("detailed_pid") as u32;
+                let pf = config.get_string("proc_filter").to_string();
+                let is_filtering = menu_state == MenuState::Filter;
                 let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
-                let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid };
+                let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid, filter: &pf, filtering: is_filtering };
                 output.push_str(&ui::proc_box::draw_with_sort(
                     &runner.proc_collector.procs,
                     &area,
                     &view,
                     &theme,
                 ));
-                // Show filter input on the bottom border when in filter mode or filter is active
-                let pf = config.get_string("proc_filter").to_string();
-                let is_filtering = menu_state == MenuState::Filter;
-                if is_filtering || !pf.is_empty() {
-                    let box_color = theme.c("proc_box");
-                    let hi = theme.c("hi_fg");
-                    let title_c = theme.c("title");
-                    let fg = theme.c("main_fg");
-                    let cursor = if is_filtering { "\x1b[4m \x1b[24m" } else { "" };
-                    // Position after the existing bottom border labels (they end around x+30)
-                    // Find a good spot — put it after select/info/terminate (roughly 30 chars in)
-                    let filter_x = proc_dim.x + 32;
-                    let filter_label = format!(
-                        "{}{}{}f{}ilter: {}{}{}{}{}",
-                        box_color, crate::draw::box_drawing::title_syms::TITLE_LEFT_DOWN,
-                        hi, title_c,
-                        fg, pf, cursor,
-                        box_color, crate::draw::box_drawing::title_syms::TITLE_RIGHT_DOWN,
-                    );
-                    if filter_x < proc_dim.x + proc_dim.width - 15 {
-                        output.push_str(&format!(
-                            "\x1b[{};{}H{}",
-                            proc_dim.y + proc_dim.height, filter_x, filter_label
-                        ));
-                    }
-                }
             }
 
             output.push_str(term::SYNC_END);
@@ -294,7 +270,9 @@ fn main() {
                     clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                     let detailed_pid = config.get_int("detailed_pid") as u32;
                     let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
-                    let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid };
+                    let pf = config.get_string("proc_filter").to_string();
+                    let is_filtering = menu_state == MenuState::Filter;
+                    let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid, filter: &pf, filtering: is_filtering };
                     let mut output = String::new();
                     output.push_str(term::SYNC_START);
                     output.push_str(&ui::proc_box::draw_with_sort(

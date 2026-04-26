@@ -34,6 +34,8 @@ pub fn draw_with_sort(
     let sort_reversed = view.sort_reversed;
     let tree_mode = view.tree_mode;
     let detailed_pid = view.detailed_pid;
+    let filter = view.filter;
+    let filtering = view.filtering;
     let box_color = theme.c("proc_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
@@ -283,7 +285,7 @@ pub fn draw_with_sort(
         out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, rev_inset));
     }
 
-    // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘kill┘ (btop lines 1920-1937)
+    // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘filter┘ (filter appended at end)
     let bottom_y = y + height;
     let bottom_hints = format!(
         "{}{}{}↑{} select {}↓{}{}{}{}{}info {}↵{}{}{}{}{}t{}erminate{}{}",
@@ -295,6 +297,26 @@ pub fn draw_with_sort(
         hi, title_color, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 3, bottom_hints));
+
+    // Filter label — appended after the other elements
+    let cursor = if filtering { "\x1b[4m \x1b[24m" } else { "" };
+    let filter_label = if !filter.is_empty() || filtering {
+        format!(
+            "{}{}{}f{}ilter: {}{}{}{}{}",
+            box_color, title_syms::TITLE_LEFT_DOWN,
+            hi, title_color,
+            fg, filter, cursor,
+            box_color, title_syms::TITLE_RIGHT_DOWN,
+        )
+    } else {
+        format!(
+            "{}{}{}f{}ilter{}{}",
+            box_color, title_syms::TITLE_LEFT_DOWN,
+            hi, title_color,
+            box_color, title_syms::TITLE_RIGHT_DOWN,
+        )
+    };
+    out.push_str(&filter_label);
 
     // Right side: process count with border inset chars
     let visible = procs.len().min(max_rows);
