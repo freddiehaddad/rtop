@@ -166,6 +166,9 @@ fn main() {
         // Poll for input
         if input::poll(update_ms) {
             if let Some(key) = input::get() {
+                if key.is_empty() {
+                    continue; // Skip empty events (key releases)
+                }
                 if menu_active {
                     // Any key dismisses the menu
                     match key.as_str() {

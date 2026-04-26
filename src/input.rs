@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -41,6 +41,11 @@ pub fn get() -> Option<String> {
 
 /// Translate a crossterm KeyEvent to a btop key name.
 fn translate_key(key: KeyEvent) -> String {
+    // Only process key press events, ignore release and repeat
+    if key.kind != KeyEventKind::Press {
+        return String::new();
+    }
+
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char('r') => return "ctrl_r".to_string(),
