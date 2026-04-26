@@ -54,13 +54,13 @@ impl ProcCollector {
                     let threads = entry.cntThreads as usize;
 
                     // Get process times and memory
-                    let (cpu_p, cpu_time, mem, priority, user) =
+                    let (cpu_p, cpu_time, mem, priority, user, cmdline) =
                         get_process_details(pid, &self.prev_times, elapsed, core_count);
 
                     new_procs.push(ProcInfo {
                         pid,
                         name: name.clone(),
-                        cmd: name,
+                        cmd: if cmdline.is_empty() { name } else { cmdline },
                         threads,
                         user,
                         mem,
@@ -101,7 +101,7 @@ fn get_process_details(
     prev_times: &HashMap<u32, (u64, u64)>,
     elapsed: f64,
     core_count: usize,
-) -> (f64, u64, u64, PriorityClass, String) {
+) -> (f64, u64, u64, PriorityClass, String, String) {
     use windows::Win32::Foundation::*;
     use windows::Win32::System::Threading::*;
 
@@ -110,6 +110,7 @@ fn get_process_details(
     let mut mem = 0u64;
     let mut priority = PriorityClass::Normal;
     let mut user = String::new();
+    let mut cmd = String::new();
 
     unsafe {
         let handle = OpenProcess(
@@ -165,11 +166,14 @@ fn get_process_details(
             // Username
             user = get_process_user(handle);
 
+            // Command line
+            cmd = get_process_cmdline(pid);
+
             let _ = CloseHandle(handle);
         }
     }
 
-    (cpu_p, cpu_time, mem, priority, user)
+    (cpu_p, cpu_time, mem, priority, user, cmd)
 }
 
 fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
@@ -237,6 +241,136 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         let _ = CloseHandle(token);
     }
     String::new()
+}
+
+/// Read the full command line of a process via NtQueryInformationProcess.
+/// Returns empty string if access is denied or the process is protected.
+fn get_process_cmdline(pid: u32) -> String {
+    use windows::Win32::Foundation::*;
+    use windows::Win32::System::Threading::*;
+
+    #[repr(C)]
+    struct ProcessBasicInformation {
+        reserved1: usize,
+        peb_base_address: usize,
+        reserved2: [usize; 2],
+        unique_process_id: usize,
+        reserved3: usize,
+    }
+
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtQueryInformationProcess(
+            process: HANDLE,
+            info_class: u32,
+            info: *mut std::ffi::c_void,
+            info_length: u32,
+            return_length: *mut u32,
+        ) -> i32;
+    }
+
+    unsafe {
+        // Need PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
+        let handle = match OpenProcess(
+            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+            false,
+            pid,
+        ) {
+            Ok(h) => h,
+            Err(_) => return String::new(),
+        };
+
+        // Get PEB address
+        let mut pbi = std::mem::zeroed::<ProcessBasicInformation>();
+        let mut ret_len: u32 = 0;
+        let status = NtQueryInformationProcess(
+            handle,
+            0, // ProcessBasicInformation
+            &mut pbi as *mut _ as *mut std::ffi::c_void,
+            std::mem::size_of::<ProcessBasicInformation>() as u32,
+            &mut ret_len,
+        );
+        if status != 0 || pbi.peb_base_address == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // Read ProcessParameters pointer from PEB (offset 0x20 on 64-bit)
+        let params_ptr_addr = pbi.peb_base_address + 0x20;
+        let mut params_ptr: usize = 0;
+        let mut bytes_read: usize = 0;
+
+        #[link(name = "kernel32")]
+        unsafe extern "system" {
+            fn ReadProcessMemory(
+                process: HANDLE,
+                base: usize,
+                buffer: *mut std::ffi::c_void,
+                size: usize,
+                bytes_read: *mut usize,
+            ) -> i32;
+        }
+
+        if ReadProcessMemory(
+            handle,
+            params_ptr_addr,
+            &mut params_ptr as *mut usize as *mut std::ffi::c_void,
+            std::mem::size_of::<usize>(),
+            &mut bytes_read,
+        ) == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // Read CommandLine UNICODE_STRING from RTL_USER_PROCESS_PARAMETERS
+        // Offset 0x70 on 64-bit: UNICODE_STRING { Length: u16, MaxLength: u16, Pad: u32, Buffer: *mut u16 }
+        let cmdline_offset = params_ptr + 0x70;
+        let mut cmd_length: u16 = 0;
+        if ReadProcessMemory(
+            handle,
+            cmdline_offset,
+            &mut cmd_length as *mut u16 as *mut std::ffi::c_void,
+            2,
+            &mut bytes_read,
+        ) == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        let mut cmd_buffer_ptr: usize = 0;
+        if ReadProcessMemory(
+            handle,
+            cmdline_offset + 8, // skip Length(2) + MaxLength(2) + Pad(4)
+            &mut cmd_buffer_ptr as *mut usize as *mut std::ffi::c_void,
+            std::mem::size_of::<usize>(),
+            &mut bytes_read,
+        ) == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        if cmd_length == 0 || cmd_buffer_ptr == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        // Read the actual command line string
+        let char_count = (cmd_length as usize) / 2;
+        let mut cmd_buf = vec![0u16; char_count];
+        if ReadProcessMemory(
+            handle,
+            cmd_buffer_ptr,
+            cmd_buf.as_mut_ptr() as *mut std::ffi::c_void,
+            cmd_length as usize,
+            &mut bytes_read,
+        ) == 0 {
+            let _ = CloseHandle(handle);
+            return String::new();
+        }
+
+        let _ = CloseHandle(handle);
+        String::from_utf16_lossy(&cmd_buf).trim().to_string()
+    }
 }
 
 fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
