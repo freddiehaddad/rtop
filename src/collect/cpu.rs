@@ -56,7 +56,7 @@ impl CpuCollector {
     fn collect_cpu_times(&mut self) {
         use windows::Win32::Foundation::FILETIME;
 
-        // GetSystemTimes is in kernel32
+        // GetSystemTimes for aggregate totals
         #[link(name = "kernel32")]
         unsafe extern "system" {
             fn GetSystemTimes(
@@ -66,6 +66,29 @@ impl CpuCollector {
             ) -> i32;
         }
 
+        // NtQuerySystemInformation for per-core data
+        #[repr(C)]
+        #[derive(Default, Clone, Copy)]
+        struct ProcessorPerfInfo {
+            idle_time: i64,
+            kernel_time: i64,
+            user_time: i64,
+            dpc_time: i64,
+            interrupt_time: i64,
+            interrupt_count: u32,
+        }
+
+        #[link(name = "ntdll")]
+        unsafe extern "system" {
+            fn NtQuerySystemInformation(
+                system_information_class: u32,
+                system_information: *mut std::ffi::c_void,
+                system_information_length: u32,
+                return_length: *mut u32,
+            ) -> i32;
+        }
+
+        // --- Aggregate CPU times ---
         let mut idle = FILETIME::default();
         let mut kernel = FILETIME::default();
         let mut user = FILETIME::default();
@@ -110,6 +133,73 @@ impl CpuCollector {
                 self.prev_idle[0] = idle_val;
                 self.prev_kernel[0] = kernel_val;
                 self.prev_user[0] = user_val;
+            }
+        }
+
+        // --- Per-core CPU times via NtQuerySystemInformation ---
+        let core_count = self.info.core_count;
+        if core_count == 0 {
+            return;
+        }
+
+        let mut perf_info = vec![ProcessorPerfInfo::default(); core_count];
+        let buf_size = (core_count * std::mem::size_of::<ProcessorPerfInfo>()) as u32;
+        let mut return_len = 0u32;
+
+        // SystemProcessorPerformanceInformation = 8
+        let status = unsafe {
+            NtQuerySystemInformation(
+                8,
+                perf_info.as_mut_ptr() as *mut std::ffi::c_void,
+                buf_size,
+                &mut return_len,
+            )
+        };
+
+        if status == 0 {
+            // status == STATUS_SUCCESS
+            let actual_count = (return_len as usize / std::mem::size_of::<ProcessorPerfInfo>())
+                .min(core_count);
+
+            // Ensure vectors are sized correctly
+            while self.prev_idle.len() < actual_count + 1 {
+                self.prev_idle.push(0);
+            }
+            while self.prev_kernel.len() < actual_count + 1 {
+                self.prev_kernel.push(0);
+            }
+            while self.prev_user.len() < actual_count + 1 {
+                self.prev_user.push(0);
+            }
+            while self.info.core_percent.len() < actual_count {
+                self.info.core_percent.push(VecDeque::new());
+            }
+
+            for i in 0..actual_count {
+                let pi = &perf_info[i];
+                let idle_val = pi.idle_time as u64;
+                let kernel_val = pi.kernel_time as u64;
+                let user_val = pi.user_time as u64;
+
+                // Index i+1 in prev arrays (index 0 is the aggregate)
+                let pi_idx = i + 1;
+
+                let idle_delta = idle_val.saturating_sub(self.prev_idle[pi_idx]);
+                let kernel_delta = kernel_val.saturating_sub(self.prev_kernel[pi_idx]);
+                let user_delta = user_val.saturating_sub(self.prev_user[pi_idx]);
+                let total_delta = kernel_delta + user_delta;
+
+                let core_pct = if total_delta > 0 {
+                    ((total_delta - idle_delta) * 100 / total_delta) as i64
+                } else {
+                    0
+                };
+
+                push_history(&mut self.info.core_percent[i], core_pct);
+
+                self.prev_idle[pi_idx] = idle_val;
+                self.prev_kernel[pi_idx] = kernel_val;
+                self.prev_user[pi_idx] = user_val;
             }
         }
     }
