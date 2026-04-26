@@ -322,7 +322,8 @@ impl Config {
     /// Toggle a box's visibility in shown_boxes.
     pub fn toggle_box(&mut self, box_name: &str) -> bool {
         let valid = [
-            "cpu", "mem", "net", "proc", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
+            "cpu", "mem", "net", "proc", "disk",
+            "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
         ];
         if !valid.contains(&box_name) {
             return false;
