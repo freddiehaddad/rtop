@@ -215,37 +215,42 @@ pub fn draw_with_sort(
     let sort_name = if sort_by.is_empty() { "cpu lazy" } else { sort_by };
     let tree_star = if tree_mode { "*" } else { "" };
 
-    // Sort selector on top border, right-aligned: ┐← sorting →┌
-    // btop line 1908: title_left + ← + " " + sorting + " " + → + title_right
+    // Build positions right-to-left from the right corner
+    // sort_vis: "← " + name + " →" = name.len + 4, plus 2 inset chars
+    let sort_content_len = sort_name.len() + 4; // "← cpu lazy →"
+    let mut pos = x + width - sort_content_len - 2; // -2 for ┐ and ┌
+
+    // Sort selector: ┐← sorting →┌
     let sort_inset = format!(
         "{}{}{}← {}{} {}→{}{}",
         box_color, title_syms::TITLE_LEFT,
         hi, title_color, sort_name, hi,
         box_color, title_syms::TITLE_RIGHT,
     );
-    // btop line 1884: sort_pos = x + width - sort_len - 8
-    let sort_vis_len = sort_name.len() + 6; // "← " + name + " →"
-    let sort_x = x + width.saturating_sub(sort_vis_len + 2); // +2 for inset chars
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x, sort_inset));
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, sort_inset));
 
-    // Tree button: ┐tree┌
-    if sort_x > x + 20 {
+    // Tree button: ┐tree┌  (visible: "tree" = 4 + star, plus 2 inset chars)
+    let tree_content = format!("tre{}{}", tree_star, "e");
+    let tree_len = tree_content.len();
+    if pos > x + 12 + tree_len {
+        pos -= tree_len + 2;
         let tree_inset = format!(
             "{}{}{}tre{}{}e{}{}",
             box_color, title_syms::TITLE_LEFT,
             title_color, tree_star, hi, box_color, title_syms::TITLE_RIGHT,
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x.saturating_sub(7), tree_inset));
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, tree_inset));
     }
 
-    // Reverse button: ┐reverse┌
-    if sort_x > x + 30 {
+    // Reverse button: ┐reverse┌  (visible: "reverse" = 7, plus 2 inset chars)
+    if pos > x + 12 {
+        pos -= 9; // 7 + 2
         let rev_inset = format!(
             "{}{}{}r{}everse{}{}",
             box_color, title_syms::TITLE_LEFT,
             hi, title_color, box_color, title_syms::TITLE_RIGHT,
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x.saturating_sub(16), rev_inset));
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, rev_inset));
     }
 
     // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘kill┘ (btop lines 1920-1937)

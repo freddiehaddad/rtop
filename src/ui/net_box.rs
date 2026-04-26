@@ -122,14 +122,15 @@ pub fn draw(
     // Build right-to-left on top border
     let mut top_x = x + width - 1; // start from right corner
 
-    // Interface selector: ┐ ←b Ethernet n→ ┌
+    // Interface selector: ┐←b Ethernet n→┌
     let iface_inset = format!(
-        "{}{}{}←b {}{}{}  n→{}{}",
+        "{}{}{}←b {}{} {}n→{}{}",
         box_color, title_syms::TITLE_LEFT,
         hi, title_color, iface_display, hi,
         box_color, title_syms::TITLE_RIGHT,
     );
-    let iface_vis_len = 7 + iface_display.len(); // "←b " + name + "  n→"
+    // visible chars: "←b " + name + " n→" = 3 + name + 3 = 6 + name, plus 2 inset chars
+    let iface_vis_len = 6 + iface_display.len();
     top_x = top_x.saturating_sub(iface_vis_len + 2);
     out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, iface_inset));
 
