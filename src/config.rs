@@ -1,1 +1,444 @@
-// Configuration loading, saving, defaults, and validation
+use std::collections::HashMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+/// All configuration state for rtop.
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub strings: HashMap<String, String>,
+    pub bools: HashMap<String, bool>,
+    pub ints: HashMap<String, i64>,
+    conf_file: Option<PathBuf>,
+}
+
+impl Config {
+    /// Create a new Config with all default values.
+    pub fn new() -> Self {
+        let mut c = Self {
+            strings: HashMap::new(),
+            bools: HashMap::new(),
+            ints: HashMap::new(),
+            conf_file: None,
+        };
+        c.apply_defaults();
+        c
+    }
+
+    fn apply_defaults(&mut self) {
+        // String defaults
+        let string_defaults: &[(&str, &str)] = &[
+            ("color_theme", "Default"),
+            ("shown_boxes", "cpu mem net proc"),
+            ("graph_symbol", "braille"),
+            ("graph_symbol_cpu", "default"),
+            ("graph_symbol_gpu", "default"),
+            ("graph_symbol_mem", "default"),
+            ("graph_symbol_net", "default"),
+            ("graph_symbol_proc", "default"),
+            ("proc_sorting", "cpu lazy"),
+            ("cpu_graph_upper", "Auto"),
+            ("cpu_graph_lower", "Auto"),
+            ("cpu_sensor", "Auto"),
+            ("selected_battery", "Auto"),
+            ("cpu_core_map", ""),
+            ("temp_scale", "celsius"),
+            ("clock_format", "%X"),
+            ("custom_cpu_name", ""),
+            ("disks_filter", ""),
+            ("io_graph_speeds", ""),
+            ("net_iface", ""),
+            ("log_level", "WARNING"),
+            ("proc_filter", ""),
+            ("presets", ""),
+            ("custom_gpu_name0", ""),
+            ("custom_gpu_name1", ""),
+            ("custom_gpu_name2", ""),
+            ("custom_gpu_name3", ""),
+            ("custom_gpu_name4", ""),
+            ("custom_gpu_name5", ""),
+        ];
+        for (k, v) in string_defaults {
+            self.strings.entry(k.to_string()).or_insert_with(|| v.to_string());
+        }
+
+        // Bool defaults
+        let bool_defaults: &[(&str, bool)] = &[
+            ("theme_background", true),
+            ("truecolor", true),
+            ("rounded_corners", true),
+            ("proc_reversed", false),
+            ("proc_tree", false),
+            ("proc_colors", true),
+            ("proc_gradient", true),
+            ("proc_per_core", false),
+            ("proc_mem_bytes", true),
+            ("proc_cpu_graphs", true),
+            ("proc_left", false),
+            ("proc_filter_kernel", false),
+            ("proc_follow_detailed", true),
+            ("proc_aggregate", false),
+            ("keep_dead_proc_usage", false),
+            ("cpu_invert_lower", true),
+            ("cpu_single_graph", false),
+            ("cpu_bottom", false),
+            ("show_uptime", true),
+            ("show_cpu_watts", true),
+            ("check_temp", true),
+            ("show_coretemp", true),
+            ("show_cpu_freq", true),
+            ("mem_graphs", true),
+            ("mem_below_net", false),
+            ("show_swap", true),
+            ("swap_disk", true),
+            ("show_disks", true),
+            ("only_physical", true),
+            ("show_io_stat", true),
+            ("io_mode", false),
+            ("io_graph_combined", false),
+            ("swap_upload_download", false),
+            ("base_10_sizes", false),
+            ("net_auto", true),
+            ("net_sync", true),
+            ("show_battery", true),
+            ("show_battery_watts", true),
+            ("vim_keys", false),
+            ("force_tty", false),
+            ("lowcolor", false),
+            ("background_update", true),
+            ("terminal_sync", true),
+            ("save_config_on_exit", true),
+            ("disable_mouse", false),
+            ("disk_free_priv", false),
+            ("gpu_mirror_graph", true),
+        ];
+        for (k, v) in bool_defaults {
+            self.bools.entry(k.to_string()).or_insert(*v);
+        }
+
+        // Int defaults
+        let int_defaults: &[(&str, i64)] = &[
+            ("update_ms", 2000),
+            ("net_download", 100),
+            ("net_upload", 100),
+            ("detailed_pid", 0),
+            ("selected_pid", 0),
+            ("followed_pid", 0),
+            ("proc_start", 0),
+            ("proc_selected", 0),
+        ];
+        for (k, v) in int_defaults {
+            self.ints.entry(k.to_string()).or_insert(*v);
+        }
+    }
+
+    /// Get a boolean config value.
+    pub fn get_bool(&self, name: &str) -> bool {
+        self.bools.get(name).copied().unwrap_or(false)
+    }
+
+    /// Get an integer config value.
+    pub fn get_int(&self, name: &str) -> i64 {
+        self.ints.get(name).copied().unwrap_or(0)
+    }
+
+    /// Get a string config value.
+    pub fn get_string(&self, name: &str) -> &str {
+        self.strings.get(name).map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Set a boolean config value.
+    pub fn set_bool(&mut self, name: &str, value: bool) {
+        self.bools.insert(name.to_string(), value);
+    }
+
+    /// Set an integer config value with range clamping.
+    pub fn set_int(&mut self, name: &str, value: i64) {
+        let clamped = match name {
+            "update_ms" => value.clamp(100, 86_400_000),
+            "net_download" | "net_upload" => value.clamp(0, 10_000_000),
+            _ => value.max(0),
+        };
+        self.ints.insert(name.to_string(), clamped);
+    }
+
+    /// Set a string config value.
+    pub fn set_string(&mut self, name: &str, value: &str) {
+        self.strings.insert(name.to_string(), value.to_string());
+    }
+
+    /// Toggle a boolean config value.
+    pub fn flip(&mut self, name: &str) {
+        if let Some(val) = self.bools.get_mut(name) {
+            *val = !*val;
+        }
+    }
+
+    /// Load config from a file. Returns a list of warnings for invalid values.
+    pub fn load(&mut self, path: &Path) -> Vec<String> {
+        let mut warnings = Vec::new();
+        self.conf_file = Some(path.to_path_buf());
+
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return warnings,
+        };
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            let Some((key, value)) = trimmed.split_once('=') else {
+                continue;
+            };
+
+            let key = key.trim();
+            let value = value.trim().trim_matches('"');
+
+            if self.bools.contains_key(key) {
+                match value.to_lowercase().as_str() {
+                    "true" => self.bools.insert(key.to_string(), true),
+                    "false" => self.bools.insert(key.to_string(), false),
+                    _ => {
+                        warnings.push(format!("Invalid boolean value for '{key}': {value}"));
+                        continue;
+                    }
+                };
+            } else if self.ints.contains_key(key) {
+                match value.parse::<i64>() {
+                    Ok(v) => {
+                        self.set_int(key, v);
+                    }
+                    Err(_) => {
+                        warnings.push(format!("Invalid integer value for '{key}': {value}"));
+                    }
+                }
+            } else if self.strings.contains_key(key) {
+                self.strings.insert(key.to_string(), value.to_string());
+            } else {
+                warnings.push(format!("Unknown config key: '{key}'"));
+            }
+        }
+
+        warnings
+    }
+
+    /// Write config to the config file.
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        let content = self.to_config_string();
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, content)
+    }
+
+    /// Generate the full config file content as a string.
+    pub fn to_config_string(&self) -> String {
+        let mut out = String::new();
+        out.push_str("#? Config file for rtop\n\n");
+
+        // Write strings
+        let mut skeys: Vec<_> = self.strings.keys().collect();
+        skeys.sort();
+        for key in skeys {
+            let val = &self.strings[key];
+            out.push_str(&format!("{key} = \"{val}\"\n"));
+        }
+        out.push('\n');
+
+        // Write bools
+        let mut bkeys: Vec<_> = self.bools.keys().collect();
+        bkeys.sort();
+        for key in bkeys {
+            let val = if self.bools[key] { "True" } else { "False" };
+            out.push_str(&format!("{key} = {val}\n"));
+        }
+        out.push('\n');
+
+        // Write ints
+        let mut ikeys: Vec<_> = self.ints.keys().collect();
+        ikeys.sort();
+        for key in ikeys {
+            out.push_str(&format!("{key} = {}\n", self.ints[key]));
+        }
+
+        out
+    }
+
+    /// Toggle a box's visibility in shown_boxes.
+    pub fn toggle_box(&mut self, box_name: &str) -> bool {
+        let valid = [
+            "cpu", "mem", "net", "proc", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
+        ];
+        if !valid.contains(&box_name) {
+            return false;
+        }
+
+        let current = self.get_string("shown_boxes").to_string();
+        let mut boxes: Vec<&str> = current.split_whitespace().collect();
+
+        if let Some(pos) = boxes.iter().position(|b| *b == box_name) {
+            boxes.remove(pos);
+        } else {
+            boxes.push(box_name);
+        }
+
+        self.set_string("shown_boxes", &boxes.join(" "));
+        true
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn load_empty_file_uses_defaults() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_empty.conf");
+        fs::write(&tmp, "").unwrap();
+        let warnings = config.load(&tmp);
+        assert!(warnings.is_empty());
+        assert_eq!(config.get_int("update_ms"), 2000);
+        assert_eq!(config.get_string("color_theme"), "Default");
+        assert!(config.get_bool("truecolor"));
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_valid_config_parses_all_types() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_valid.conf");
+        let mut f = fs::File::create(&tmp).unwrap();
+        writeln!(f, "color_theme = \"dracula\"").unwrap();
+        writeln!(f, "truecolor = False").unwrap();
+        writeln!(f, "update_ms = 500").unwrap();
+        drop(f);
+
+        let warnings = config.load(&tmp);
+        assert!(warnings.is_empty());
+        assert_eq!(config.get_string("color_theme"), "dracula");
+        assert!(!config.get_bool("truecolor"));
+        assert_eq!(config.get_int("update_ms"), 500);
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_preserves_comments() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_comments.conf");
+        fs::write(&tmp, "# this is a comment\nupdate_ms = 1000\n").unwrap();
+        let warnings = config.load(&tmp);
+        assert!(warnings.is_empty());
+        assert_eq!(config.get_int("update_ms"), 1000);
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_invalid_key_generates_warning() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_unknown.conf");
+        fs::write(&tmp, "nonexistent_key = \"value\"\n").unwrap();
+        let warnings = config.load(&tmp);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Unknown"));
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_invalid_value_generates_warning() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_badval.conf");
+        fs::write(&tmp, "update_ms = not_a_number\n").unwrap();
+        let warnings = config.load(&tmp);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(config.get_int("update_ms"), 2000); // default preserved
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn write_roundtrip_preserves_values() {
+        let mut config = Config::new();
+        config.set_string("color_theme", "nord");
+        config.set_bool("vim_keys", true);
+        config.set_int("update_ms", 1500);
+
+        let tmp = std::env::temp_dir().join("rtop_test_roundtrip.conf");
+        config.write(&tmp).unwrap();
+
+        let mut config2 = Config::new();
+        config2.load(&tmp);
+        assert_eq!(config2.get_string("color_theme"), "nord");
+        assert!(config2.get_bool("vim_keys"));
+        assert_eq!(config2.get_int("update_ms"), 1500);
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn get_bool_returns_default() {
+        let config = Config::new();
+        assert!(config.get_bool("truecolor"));
+        assert!(!config.get_bool("vim_keys"));
+    }
+
+    #[test]
+    fn set_int_clamps_to_range() {
+        let mut config = Config::new();
+        config.set_int("update_ms", 50);
+        assert_eq!(config.get_int("update_ms"), 100); // clamped to min
+        config.set_int("update_ms", 100_000_000);
+        assert_eq!(config.get_int("update_ms"), 86_400_000); // clamped to max
+    }
+
+    #[test]
+    fn flip_toggles_boolean() {
+        let mut config = Config::new();
+        assert!(config.get_bool("truecolor"));
+        config.flip("truecolor");
+        assert!(!config.get_bool("truecolor"));
+        config.flip("truecolor");
+        assert!(config.get_bool("truecolor"));
+    }
+
+    #[test]
+    fn toggle_box_adds_when_missing() {
+        let mut config = Config::new();
+        config.set_string("shown_boxes", "cpu mem");
+        assert!(config.toggle_box("net"));
+        assert!(config.get_string("shown_boxes").contains("net"));
+    }
+
+    #[test]
+    fn toggle_box_removes_when_present() {
+        let mut config = Config::new();
+        config.set_string("shown_boxes", "cpu mem net");
+        assert!(config.toggle_box("net"));
+        assert!(!config.get_string("shown_boxes").contains("net"));
+    }
+
+    #[test]
+    fn toggle_box_invalid_name_returns_false() {
+        let mut config = Config::new();
+        assert!(!config.toggle_box("invalid_box"));
+    }
+
+    #[test]
+    fn default_has_all_expected_keys() {
+        let config = Config::new();
+        // Spot-check key categories
+        assert!(config.strings.contains_key("color_theme"));
+        assert!(config.strings.contains_key("proc_sorting"));
+        assert!(config.bools.contains_key("truecolor"));
+        assert!(config.bools.contains_key("show_battery"));
+        assert!(config.ints.contains_key("update_ms"));
+        assert!(config.ints.contains_key("net_download"));
+    }
+}
