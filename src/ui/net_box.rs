@@ -114,7 +114,7 @@ pub fn draw(
         };
         let label = format!("▲ {}", speed);
         let lx = x + width.saturating_sub(label.len() + 2);
-        let label_y = y + height - 2;
+        let label_y = y + height - 1;
         out.push_str(&format!("\x1b[{};{}H{}{}", label_y, lx, ul_color, label));
     }
 
