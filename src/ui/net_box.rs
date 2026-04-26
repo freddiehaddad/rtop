@@ -27,6 +27,7 @@ pub fn draw(
 ) -> String {
     let box_color = theme.c("net_box");
     let fg = theme.c("main_fg");
+    let title_color = theme.c("title");
     let dl_grad = theme.g("download");
     let ul_grad = theme.g("upload");
     let hi = theme.c("hi_fg");
@@ -114,18 +115,31 @@ pub fn draw(
         out.push_str(&format!("\x1b[{};{}H{}{}", label_y, lx, ul_color, label));
     }
 
-    // Interface name and keybind hints at bottom border
-    let iface_label = format!("{}< {}{}{} >", fg, hi, iface, fg);
+    // Interface name and keybind hints on TOP border (matching btop lines 1504-1507)
+    // btop format: ┐ ←b Ethernet n→ ┌  ┐zero┌  ┐auto┌  ┐sync┌
+    let iface_display = tools::uresize(iface, 15, false);
+    let iface_inset = format!(
+        "{}{}{}←b {}{}{}  n→{}{}",
+        box_color, title_syms::TITLE_LEFT,
+        hi, title_color, iface_display, hi,
+        box_color, title_syms::TITLE_RIGHT,
+    );
+    // Position on top border, right-aligned
+    let iface_vis_len = 6 + iface_display.len(); // "←b " + name + " n→"
+    let iface_x = x + width.saturating_sub(iface_vis_len + 4);
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, iface_x, iface_inset));
+
+    // b/n navigation hints on BOTTOM border
     let nav_hints = format!(
-        " {}{}{}b{} ◀{}{} {}{}{}n{} ▶{}{}",
+        "{}{}{}b{} ◀{}{} {}{}{}n{} ▶{}{}",
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
-        "\x1b[{};{}H {}{}{}",
-        y + height, x + 2, iface_label, box_color, nav_hints
+        "\x1b[{};{}H{}",
+        y + height, x + 2, nav_hints
     ));
 
     out.push_str("\x1b[0m");
