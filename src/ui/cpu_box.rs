@@ -190,7 +190,7 @@ pub fn draw(
                 // Place │ at the right border
                 out.push_str(&format!(
                     "\x1b[{};{}H{}{}",
-                    y + 2, right_border_x, div_color, symbols::V_LINE
+                    y + 2, right_border_x, box_color, symbols::V_LINE
                 ));
             }
         }
@@ -232,7 +232,7 @@ pub fn draw(
             // Place │ at the right border
             out.push_str(&format!(
                 "\x1b[{};{}H{}{}",
-                cy, right_border_x, div_color, symbols::V_LINE
+                cy, right_border_x, box_color, symbols::V_LINE
             ));
         }
     }

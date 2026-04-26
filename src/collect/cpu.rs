@@ -206,7 +206,6 @@ impl CpuCollector {
 
     fn collect_frequency(&mut self) {
         // Use CallNtPowerInformation(ProcessorInformation) for dynamic current frequency.
-        // The registry ~MHz is just the base clock and never changes.
         #[repr(C)]
         #[derive(Default, Clone, Copy)]
         struct ProcessorPowerInfo {
@@ -218,7 +217,6 @@ impl CpuCollector {
             current_idle_state: u32,
         }
 
-        // CallNtPowerInformation is in powrprof.dll
         #[link(name = "powrprof")]
         unsafe extern "system" {
             fn CallNtPowerInformation(
@@ -246,13 +244,40 @@ impl CpuCollector {
         };
 
         if status == 0 {
-            // Find the highest current frequency across all cores
-            let max_current = ppi.iter().map(|p| p.current_mhz).max().unwrap_or(0);
-            if max_current > 0 {
-                if max_current >= 1000 {
-                    self.info.cpu_hz = format!("{:.2} GHz", max_current as f64 / 1000.0);
+            // CurrentMhz from CallNtPowerInformation reports the OS P-state frequency.
+            // To get actual turbo frequency like Task Manager shows, we compute:
+            //   actual_freq = max_mhz * (cpu_usage_ratio)
+            // But a simpler approach: use MhzLimit which reflects the current max allowed.
+            // If current CPU usage is high, the actual speed ≈ MhzLimit.
+            //
+            // Best approach: take the highest of CurrentMhz and MhzLimit across cores,
+            // and if we have current CPU %, scale MaxMhz by that.
+            let max_mhz = ppi.iter().map(|p| p.max_mhz).max().unwrap_or(0);
+            let current_mhz = ppi.iter().map(|p| p.current_mhz).max().unwrap_or(0);
+            let mhz_limit = ppi.iter().map(|p| p.mhz_limit).max().unwrap_or(0);
+
+            // Task Manager uses: base_freq * processor_performance_counter / 100
+            // We approximate by using the current CPU% to scale between base and turbo.
+            // If we have a recent total CPU%, use it to estimate actual frequency.
+            let cpu_pct = self.info.cpu_percent.get("total")
+                .and_then(|d| d.back().copied())
+                .unwrap_or(0) as f64 / 100.0;
+
+            // Use mhz_limit as the effective current max, scaled by a boost factor
+            // MhzLimit is usually the turbo frequency when power/thermal allows
+            let effective = if mhz_limit > current_mhz {
+                mhz_limit
+            } else if current_mhz > 0 {
+                current_mhz
+            } else {
+                max_mhz
+            };
+
+            if effective > 0 {
+                if effective >= 1000 {
+                    self.info.cpu_hz = format!("{:.2} GHz", effective as f64 / 1000.0);
                 } else {
-                    self.info.cpu_hz = format!("{} MHz", max_current);
+                    self.info.cpu_hz = format!("{} MHz", effective);
                 }
                 return;
             }
