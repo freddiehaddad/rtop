@@ -22,6 +22,7 @@ fn fmt_bytes(bytes: u64) -> String {
 /// │ GPU 78% ■■■■■■■■■■■■■■░░░░  🌡 65°C  ⚡ 320W / 450W  │
 /// │ VRAM 45% ■■■■■■■■░░░░░░░░░  10.8G / 24.0G  2520 MHz  │
 /// ╰──────────────────────────────────────────────────────╯
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     gpu: &GpuInfo,
     index: usize,

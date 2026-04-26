@@ -29,6 +29,7 @@ pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 4;
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
+#[allow(clippy::too_many_arguments)]
 pub fn calc_sizes(
     term_width: usize,
     term_height: usize,

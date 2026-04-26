@@ -185,8 +185,10 @@ impl NetCollector {
 fn get_if_stats(if_index: u32) -> (u64, u64) {
     use windows::Win32::NetworkManagement::IpHelper::*;
 
-    let mut row = MIB_IF_ROW2::default();
-    row.InterfaceIndex = if_index;
+    let mut row = MIB_IF_ROW2 {
+        InterfaceIndex: if_index,
+        ..Default::default()
+    };
 
     unsafe {
         if GetIfEntry2(&mut row) == windows::Win32::Foundation::WIN32_ERROR(0) {

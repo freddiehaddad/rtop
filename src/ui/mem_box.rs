@@ -100,11 +100,7 @@ pub fn draw(
 
     // Used
     let used = *mem.stats.get("used").unwrap_or(&0);
-    let used_pct = if total_bytes > 0 {
-        (used * 100 / total_bytes) as i32
-    } else {
-        0
-    };
+    let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct as i64);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
     if row < inner_h {
@@ -122,11 +118,7 @@ pub fn draw(
 
     // Available
     let avail = *mem.stats.get("available").unwrap_or(&0);
-    let avail_pct = if total_bytes > 0 {
-        (avail * 100 / total_bytes) as i32
-    } else {
-        0
-    };
+    let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
     if row < inner_h {
@@ -145,11 +137,7 @@ pub fn draw(
     // Cached
     let cached = *mem.stats.get("cached").unwrap_or(&0);
     if cached > 0 && row < inner_h {
-        let cached_pct = if total_bytes > 0 {
-            (cached * 100 / total_bytes) as i32
-        } else {
-            0
-        };
+        let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
         out.push_str(&format!(
@@ -166,11 +154,7 @@ pub fn draw(
 
     // Free
     let free = *mem.stats.get("free").unwrap_or(&0);
-    let free_pct = if total_bytes > 0 {
-        (free * 100 / total_bytes) as i32
-    } else {
-        0
-    };
+    let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let free_color = gradient_color(free_grad, free_pct as i64);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
     if row < inner_h {

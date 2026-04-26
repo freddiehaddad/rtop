@@ -14,6 +14,7 @@ use crate::tools;
 /// │⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿            │
 /// │⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿    ▲ 0.5M/s │
 /// ╰── < Ethernet > ─── b ◀ ── n ▶ ───────╯
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     net: &NetInfo,
     iface: &str,

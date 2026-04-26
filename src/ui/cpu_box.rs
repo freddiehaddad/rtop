@@ -18,6 +18,7 @@ use crate::tools;
 /// │ <lower graph inv>  │ C2 ⣿⣷⣤ 55% │
 /// │up 3d12:45          │ C3 ⣿⣷⣤ 22% │
 /// ╰────────────────────┴──────────────╯
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     _buf: &mut crate::cell_buffer::CellBuffer,
     cpu: &CpuInfo,

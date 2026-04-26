@@ -65,7 +65,7 @@ impl NvmlFunctions {
         unsafe {
             let load_fn = |name: &[u8]| -> Option<unsafe extern "C" fn()> {
                 let proc = GetProcAddress(handle, PCSTR(name.as_ptr()));
-                Some(std::mem::transmute(proc?))
+                Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, unsafe extern "C" fn()>(proc?))
             };
 
             macro_rules! nvml_fn {
@@ -76,27 +76,27 @@ impl NvmlFunctions {
 
             Some(Self {
                 _handle: handle,
-                init: std::mem::transmute(nvml_fn!("nvmlInit_v2")),
-                shutdown: std::mem::transmute(nvml_fn!("nvmlShutdown")),
-                device_get_count: std::mem::transmute(nvml_fn!("nvmlDeviceGetCount_v2")),
-                device_get_handle_by_index: std::mem::transmute(
+                init: std::mem::transmute::<unsafe extern "C" fn(), NvmlInitV2>(nvml_fn!("nvmlInit_v2")),
+                shutdown: std::mem::transmute::<unsafe extern "C" fn(), NvmlShutdownFn>(nvml_fn!("nvmlShutdown")),
+                device_get_count: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetCountV2>(nvml_fn!("nvmlDeviceGetCount_v2")),
+                device_get_handle_by_index: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetHandleByIndexV2>(
                     nvml_fn!("nvmlDeviceGetHandleByIndex_v2"),
                 ),
-                device_get_name: std::mem::transmute(nvml_fn!("nvmlDeviceGetName")),
-                device_get_utilization_rates: std::mem::transmute(
+                device_get_name: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetName>(nvml_fn!("nvmlDeviceGetName")),
+                device_get_utilization_rates: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetUtilizationRates>(
                     nvml_fn!("nvmlDeviceGetUtilizationRates"),
                 ),
-                device_get_temperature: std::mem::transmute(
+                device_get_temperature: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetTemperature>(
                     nvml_fn!("nvmlDeviceGetTemperature"),
                 ),
-                device_get_memory_info: std::mem::transmute(
+                device_get_memory_info: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetMemoryInfo>(
                     nvml_fn!("nvmlDeviceGetMemoryInfo"),
                 ),
-                device_get_power_usage: std::mem::transmute(
+                device_get_power_usage: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetPowerUsage>(
                     nvml_fn!("nvmlDeviceGetPowerUsage"),
                 ),
-                device_get_clock_info: std::mem::transmute(nvml_fn!("nvmlDeviceGetClockInfo")),
-                device_get_power_management_limit: std::mem::transmute(
+                device_get_clock_info: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetClockInfo>(nvml_fn!("nvmlDeviceGetClockInfo")),
+                device_get_power_management_limit: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetPowerManagementLimit>(
                     nvml_fn!("nvmlDeviceGetPowerManagementLimit"),
                 ),
             })

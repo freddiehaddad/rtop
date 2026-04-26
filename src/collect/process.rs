@@ -149,8 +149,10 @@ fn get_process_details(
 
             // Memory
             use windows::Win32::System::ProcessStatus::*;
-            let mut mem_counters = PROCESS_MEMORY_COUNTERS::default();
-            mem_counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+            let mut mem_counters = PROCESS_MEMORY_COUNTERS {
+                cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
+                ..Default::default()
+            };
             if GetProcessMemoryInfo(
                 handle,
                 &mut mem_counters,

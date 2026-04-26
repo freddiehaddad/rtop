@@ -123,11 +123,7 @@ impl MemCollector {
                 .is_ok()
                 {
                     let used = total_bytes.saturating_sub(free_bytes);
-                    let used_pct = if total_bytes > 0 {
-                        (used * 100 / total_bytes) as i32
-                    } else {
-                        0
-                    };
+                    let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
                     let free_pct = 100 - used_pct;
 
                     // Get volume info

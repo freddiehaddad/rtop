@@ -115,25 +115,25 @@ impl CpuCollector {
                 let total_delta = kernel_delta + user_delta;
 
                 if total_delta > 0 {
-                    let cpu_pct = ((total_delta - idle_delta) * 100 / total_delta) as i64;
+                    let cpu_pct = ((total_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
                     push_history(
                         self.info.cpu_percent.get_mut("total").unwrap(),
                         cpu_pct,
                     );
 
-                    let user_pct = (user_delta * 100 / total_delta) as i64;
+                    let user_pct = (user_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
                     push_history(
                         self.info.cpu_percent.get_mut("user").unwrap(),
                         user_pct,
                     );
 
-                    let system_pct = ((kernel_delta - idle_delta) * 100 / total_delta) as i64;
+                    let system_pct = ((kernel_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
                     push_history(
                         self.info.cpu_percent.get_mut("system").unwrap(),
                         system_pct.max(0),
                     );
 
-                    let idle_pct = (idle_delta * 100 / total_delta) as i64;
+                    let idle_pct = (idle_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
                     push_history(
                         self.info.cpu_percent.get_mut("idle").unwrap(),
                         idle_pct,
@@ -185,8 +185,7 @@ impl CpuCollector {
                 self.info.core_percent.push(VecDeque::new());
             }
 
-            for i in 0..actual_count {
-                let pi = &perf_info[i];
+            for (i, pi) in perf_info.iter().enumerate().take(actual_count) {
                 let idle_val = pi.idle_time as u64;
                 let kernel_val = pi.kernel_time as u64;
                 let user_val = pi.user_time as u64;
@@ -199,11 +198,7 @@ impl CpuCollector {
                 let user_delta = user_val.saturating_sub(self.prev_user[pi_idx]);
                 let total_delta = kernel_delta + user_delta;
 
-                let core_pct = if total_delta > 0 {
-                    ((total_delta - idle_delta) * 100 / total_delta) as i64
-                } else {
-                    0
-                };
+                let core_pct = ((total_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
 
                 push_history(&mut self.info.core_percent[i], core_pct);
 

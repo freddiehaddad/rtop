@@ -39,6 +39,7 @@ pub mod title_syms {
 /// 2. Draw vertical lines (and optional fill) on middle rows
 /// 3. Draw corners on top of the horizontal lines
 /// 4. Draw title at (y, x+2) using title_left/title_right inset chars
+#[allow(clippy::too_many_arguments)]
 pub fn create_box(
     x: usize,
     y: usize,

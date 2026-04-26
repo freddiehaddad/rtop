@@ -15,6 +15,7 @@ use crate::tools;
 /// │ ...                                      │
 /// ╰──────────────────────── 25/350 ──────────╯
 /// Draw the process list box with sort indicator on the active column.
+#[allow(clippy::too_many_arguments)]
 pub fn draw_with_sort(
     procs: &[ProcInfo],
     x: usize,

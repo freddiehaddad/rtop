@@ -131,6 +131,7 @@ impl CellBuffer {
     }
 
     /// Fill a rectangular area with a character and colors.
+    #[allow(clippy::too_many_arguments)]
     pub fn fill_rect(
         &mut self,
         x: usize,
