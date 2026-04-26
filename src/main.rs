@@ -94,12 +94,13 @@ fn main() {
     let mut proc_start: usize = 0;
     let mut proc_selected: usize = 0;
 
-    // Main event loop
-    let mut needs_full_redraw = true;  // Full collection + all boxes
-    let mut needs_proc_redraw = false; // Just redraw proc box (selection changed)
-
-    // Cache the layout so proc-only redraws can use it
+    // Main event loop — timer-based like btop.
+    // Collection runs on a wall-clock deadline, input never blocks it.
+    let mut needs_full_redraw = true;
+    let mut needs_proc_redraw = false;
     let mut cached_layout: Option<draw::layout::Layout> = None;
+
+    let mut next_update = std::time::Instant::now();
 
     loop {
         // Check resize
@@ -110,9 +111,17 @@ fn main() {
         let tw = tw as usize;
         let th = th as usize;
 
+        // Check if it's time for a full collection cycle (wall-clock deadline)
+        let now = std::time::Instant::now();
+        if now >= next_update {
+            needs_full_redraw = true;
+            next_update = now + std::time::Duration::from_millis(update_ms);
+        }
+
+        // Full redraw: collect data + render all boxes
         if menu_state == MenuState::None && needs_full_redraw {
             needs_full_redraw = false;
-            needs_proc_redraw = false; // full redraw covers proc too
+            needs_proc_redraw = false;
 
             // Collect data
             runner.collect_all();
@@ -225,11 +234,16 @@ fn main() {
             }
         }
 
-        // Poll for input
-        if input::poll(update_ms) {
+        // Poll for input — wait at most until the next update deadline
+        let remaining = next_update
+            .saturating_duration_since(std::time::Instant::now())
+            .as_millis() as u64;
+        let poll_ms = remaining.max(10).min(1000); // At least 10ms, at most 1s
+
+        if input::poll(poll_ms) {
             if let Some(key) = input::get() {
                 if key.is_empty()
-                    || key.starts_with("mouse_")  // Ignore all mouse events for now
+                    || key.starts_with("mouse_")
                     || key == "resize"
                 {
                     if key == "resize" {
@@ -398,10 +412,9 @@ fn main() {
                     },
                 }
             }
-        } else {
-            // Poll timed out — no input received, time for periodic update
-            needs_full_redraw = true;
         }
+        // No else branch needed — the wall-clock check at the top of the loop
+        // handles periodic updates regardless of input activity.
     }
 }
 
