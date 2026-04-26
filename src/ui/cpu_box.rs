@@ -64,7 +64,7 @@ pub fn draw(
     };
 
     // Determine column size and b_width
-    let (b_column_size, b_width) = if core_count == 0 || width <= 20 {
+    let (_, b_width) = if core_count == 0 || width <= 20 {
         (0usize, 0usize)
     } else if b_columns * (21 + 12 * show_temp) < width - width / 3 {
         // Size 2 (widest)
@@ -249,10 +249,10 @@ pub fn draw(
         }
 
         // Per-core rows with multi-column wrapping (btop lines 878-923)
-        let core_width: usize = if b_column_size == 0 { 2 } else { 3 };
+        // Each core row must fit exactly in col_w visible characters.
         let col_w = if b_columns > 0 { panel_inner_w.checked_div(b_columns).unwrap_or(panel_inner_w) } else { panel_inner_w };
         let mut cx: usize = 0;
-        let mut cy: usize = 1; // start at row 1 within core panel (row 0 is CPU meter)
+        let mut cy: usize = 1;
         let mut cc: usize = 0;
 
         for (i, core_data) in cpu.core_percent.iter().enumerate() {
@@ -263,43 +263,37 @@ pub fn draw(
                 fg
             };
 
-            let core_label = if core_width == 2 {
-                format!("C{}", i)
-            } else {
-                format!("C{:>2}", i)
-            };
-
             let row_y = b_y + cy + 1;
             let row_x = b_x + cx + 2;
 
-            out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                row_y, row_x, fg, core_label
-            ));
+            // Build the core line with absolute positioning for each part.
+            // Layout (fitting in col_w chars):
+            //   "C##" (2-3 chars) + graph (variable) + " ##%" (4-5 chars) + " ##°C" (5 chars) + "│" (1 char if multi-col)
+            let label = if core_count >= 100 { format!("{:>3}", i) }
+                else if core_count >= 10 { format!("C{:<2}", i) }
+                else { format!("C{}", i) };
+            let label_w = label.len();
 
-            // Mini graph (size > 0 only)
-            if b_column_size > 0 {
-                let graph_chars = if b_column_size == 2 { 10 } else { 5 };
-                // Distribute extra width to the graph
-                let extra = col_w.saturating_sub(
-                    core_width + 1 + graph_chars + 5 + if has_temp { 6 + 1 } else { 1 }
-                );
-                let gw = graph_chars + extra;
-                let mut mini = Graph::new(gw, 1, GraphSymbol::Braille, false, false, 100, 0);
+            let sep_w: usize = if cc + 1 < b_columns { 1 } else { 0 }; // │ separator
+            let pct_w: usize = 4; // " ##%"
+            let temp_w: usize = if has_temp { 5 } else { 0 }; // " ##°C"
+            let fixed_w = label_w + pct_w + temp_w + sep_w;
+            let graph_w = col_w.saturating_sub(fixed_w);
+
+            // Position and write label
+            out.push_str(&format!("\x1b[{};{}H{}{}", row_y, row_x, fg, label));
+
+            // Mini graph
+            if graph_w >= 3 {
+                let mut mini = Graph::new(graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
                 let mini_str = mini.render_row_colored(core_data, cpu_gradient);
-                out.push_str(&format!(" {}", mini_str));
+                out.push_str(&mini_str);
+            } else if graph_w > 0 {
+                out.push_str(&format!("\x1b[{}C", graph_w)); // skip space
             }
 
-            // Percentage
-            if b_column_size == 2 {
-                out.push_str(&format!(
-                    "{}{}{}", pct_color, tools::rjust(&pct.to_string(), 4, false), "%"
-                ));
-            } else {
-                out.push_str(&format!(
-                    "{}{}{}", pct_color, tools::rjust(&pct.to_string(), 3, false), "%"
-                ));
-            }
+            // Percentage — positioned absolutely to ensure alignment
+            out.push_str(&format!("{}{:>3}{}%", pct_color, pct, fg));
 
             // Per-core temperature
             if has_temp {
@@ -307,45 +301,15 @@ pub fn draw(
                     .and_then(|dq| dq.back())
                     .copied()
                     .unwrap_or(0);
-                if b_column_size >= 1 {
-                    let t_color = if !temp_gradient.is_empty() {
-                        &temp_gradient[(core_temp.clamp(0, 100)) as usize]
-                    } else {
-                        fg
-                    };
-                    if b_column_size == 2 {
-                        // Size 2: temp_graph(5) + " ###°C"
-                        if let Some(t_data) = cpu.temp.get(i + 1) {
-                            let mut tg = Graph::new(5, 1, GraphSymbol::Braille, false, false, 100, 0);
-                            let tg_str = tg.render_row_colored(t_data, temp_gradient);
-                            out.push_str(&format!(
-                                "{}{}{:>3}°C", tg_str, t_color, core_temp
-                            ));
-                        } else {
-                            out.push_str(&format!(
-                                "{}{:>3}°C", t_color, core_temp
-                            ));
-                        }
-                    } else {
-                        // Size 1: " ###°C"
-                        out.push_str(&format!(
-                            " {}{:>3}°C", t_color, core_temp
-                        ));
-                    }
+                let t_color = if !temp_gradient.is_empty() {
+                    &temp_gradient[(core_temp.clamp(0, 100)) as usize]
                 } else {
-                    // Size 0: " ###°C"
-                    let t_color = if !temp_gradient.is_empty() {
-                        &temp_gradient[(core_temp.clamp(0, 100)) as usize]
-                    } else {
-                        fg
-                    };
-                    out.push_str(&format!(
-                        " {}{:>3}°C", t_color, core_temp
-                    ));
-                }
+                    fg
+                };
+                out.push_str(&format!("{}{:>3}°C", t_color, core_temp));
             }
 
-            // Column separator if not last column
+            // Column separator
             if cc + 1 < b_columns {
                 out.push_str(&format!("{}{}", div_color, symbols::V_LINE));
             }
