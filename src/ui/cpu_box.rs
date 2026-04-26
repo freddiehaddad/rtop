@@ -20,7 +20,6 @@ use crate::tools;
 /// ╰────────────────────┴──────────────╯
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
-    _buf: &mut crate::cell_buffer::CellBuffer,
     cpu: &CpuInfo,
     x: usize,
     y: usize,

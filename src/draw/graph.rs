@@ -2,11 +2,8 @@ use std::collections::VecDeque;
 
 /// Graph symbol mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // variants used in tests
 pub enum GraphSymbol {
     Braille,
-    Block,
-    Tty,
 }
 
 /// Braille graph characters — 25 entries indexed by [prev_level * 5 + curr_level].
@@ -18,37 +15,6 @@ pub const BRAILLE_DOWN: [&str; 25] = [
     " ", "⠈", "⠘", "⠸", "⢸", "⠁", "⠉", "⠙", "⠹", "⢹", "⠃", "⠋", "⠛", "⠻", "⢻", "⠇",
     "⠏", "⠟", "⠿", "⢿", "⡇", "⡏", "⡟", "⡿", "⣿",
 ];
-pub const BLOCK_UP: [&str; 25] = [
-    " ", "▗", "▗", "▐", "▐", "▖", "▄", "▄", "▟", "▟", "▖", "▄", "▄", "▟", "▟", "▌", "▙", "▙",
-    "█", "█", "▌", "▙", "▙", "█", "█",
-];
-pub const BLOCK_DOWN: [&str; 25] = [
-    " ", "▝", "▝", "▐", "▐", "▘", "▀", "▀", "▜", "▜", "▘", "▀", "▀", "▜", "▜", "▌", "▛", "▛",
-    "█", "█", "▌", "▛", "▛", "█", "█",
-];
-pub const TTY_UP: [&str; 25] = [
-    " ", "░", "░", "▒", "▒", "░", "░", "▒", "▒", "█", "░", "░", "▒", "▒", "█", "▒", "▒", "▒",
-    "█", "█", "█", "█", "█", "█", "█",
-];
-
-/// Skip the first visual graph element in a row string.
-/// Elements can be either a single Unicode character or an ANSI escape sequence like `\x1b[1C`.
-#[allow(dead_code)] // used by update() which is tested
-fn skip_first_graph_element(s: &str) -> &str {
-    if let Some(stripped) = s.strip_prefix('\x1b') {
-        // Find the end of the escape sequence (letter terminates CSI sequences)
-        if let Some(pos) = stripped.find(|c: char| c.is_ascii_alphabetic()) {
-            return &stripped[pos + 1..];
-        }
-        return s;
-    }
-    // Skip one Unicode character
-    let mut chars = s.chars();
-    if chars.next().is_some() {
-        return chars.as_str();
-    }
-    s
-}
 
 /// Parse a graph buffer row into individual visual elements.
 /// Each element is either a cursor-right escape sequence or a single graph character.
@@ -101,7 +67,6 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
 /// Matches btop's Graph architecture: double-buffered, multi-row with vertical
 /// slicing so each row covers a portion of the 0-100% range.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // fields/methods used in tests and as UI grows
 pub struct Graph {
     pub width: usize,
     pub height: usize,
@@ -115,11 +80,8 @@ pub struct Graph {
     graphs: [Vec<String>; 2],
     /// Which buffer is current (indexes into `graphs`).
     current: bool,
-    /// Name of the color gradient to use (e.g. "cpu", "download").
-    color_gradient: String,
 }
 
-#[allow(dead_code)]
 impl Graph {
     pub fn new(
         width: usize,
@@ -145,13 +107,7 @@ impl Graph {
                 vec![String::new(); h],
             ],
             current: true,
-            color_gradient: String::new(),
         }
-    }
-
-    /// Set the color gradient name for rendering.
-    pub fn set_color_gradient(&mut self, name: &str) {
-        self.color_gradient = name.to_string();
     }
 
     /// Look up the symbol table based on symbol type and invert flag.
@@ -159,19 +115,7 @@ impl Graph {
         match (self.symbol, self.invert) {
             (GraphSymbol::Braille, false) => &BRAILLE_UP,
             (GraphSymbol::Braille, true) => &BRAILLE_DOWN,
-            (GraphSymbol::Block, false) => &BLOCK_UP,
-            (GraphSymbol::Block, true) => &BLOCK_DOWN,
-            (GraphSymbol::Tty, _) => &TTY_UP,
         }
-    }
-
-    /// Look up the graph symbol for a (previous, current) value pair.
-    pub fn symbol_at(&self, prev: i64, curr: i64) -> &'static str {
-        let max = self.max_value;
-        let p = ((prev - self.offset).clamp(0, max) * 4 / max.max(1)) as usize;
-        let c = ((curr - self.offset).clamp(0, max) * 4 / max.max(1)) as usize;
-        let idx = (p.min(4)) * 5 + c.min(4);
-        self.table()[idx.min(24)]
     }
 
     /// Map a 0-100 value to a 0-4 level within a specific row's vertical range.
@@ -269,51 +213,6 @@ impl Graph {
         self.graphs[other as usize] = self.graphs[self.current as usize].clone();
     }
 
-    /// Update the graph by shifting old data left and appending one new column.
-    /// Matches btop's `operator()` behavior.
-    pub fn update(&mut self, data: &VecDeque<i64>) {
-        let len = data.len();
-        if len == 0 {
-            return;
-        }
-
-        // Swap buffers
-        self.current = !self.current;
-        let other = !self.current;
-
-        let curr = *data.back().unwrap_or(&0);
-        let prev = if len >= 2 { data[len - 2] } else { self.last };
-        let h = self.height;
-
-        for row in 0..h {
-            let mut prev_level = self.value_to_level(prev, row);
-            let mut curr_level = self.value_to_level(curr, row);
-
-            if self.no_zero && row == h - 1 {
-                if prev_level == 0 { prev_level = 1; }
-                if curr_level == 0 { curr_level = 1; }
-            }
-
-            let new_sym = if h == 1 && prev_level + curr_level == 0 {
-                "\x1b[1C"
-            } else {
-                let idx = prev_level * 5 + curr_level;
-                self.table()[idx.min(24)]
-            };
-
-            // Start from the other buffer, remove first visible element, append new
-            let other_row = &self.graphs[other as usize][row];
-            let mut new_row = String::with_capacity(self.width * 4);
-            // Skip the first visual element (could be a char or an escape sequence like \x1b[1C)
-            let trimmed = skip_first_graph_element(other_row);
-            new_row.push_str(trimmed);
-            new_row.push_str(new_sym);
-            self.graphs[self.current as usize][row] = new_row;
-        }
-
-        self.last = curr;
-    }
-
     /// Render the multi-row graph with per-row gradient colors for multi-height,
     /// or per-column gradient colors for single-height.
     /// Returns Vec<String> where each element is one row with ANSI color codes.
@@ -386,27 +285,6 @@ impl Graph {
         rows
     }
 
-    /// Render the graph as positioned ANSI output at the given (x, y) coordinates.
-    /// Each row is placed at consecutive y positions.
-    pub fn render_at(&self, x: usize, y: usize, data: &VecDeque<i64>, gradient: &[String]) -> String {
-        let rows = self.render_rows_colored(data, gradient);
-        let mut out = String::new();
-        for (i, row) in rows.iter().enumerate() {
-            out.push_str(&format!("\x1b[{};{}H{}", y + 1 + i, x + 1, row));
-        }
-        out
-    }
-
-    /// Render a single row of graph data into a string of graph symbols.
-    /// For backward compatibility and single-height graphs.
-    pub fn render_row(&mut self, data: &VecDeque<i64>) -> String {
-        self.create(data);
-        self.graphs[self.current as usize]
-            .first()
-            .cloned()
-            .unwrap_or_default()
-    }
-
     /// Render a row with gradient colors applied per column.
     /// For backward compatibility with single-height graphs.
     pub fn render_row_colored(&mut self, data: &VecDeque<i64>, gradient: &[String]) -> String {
@@ -414,135 +292,11 @@ impl Graph {
         let rows = self.render_rows_colored(data, gradient);
         rows.into_iter().next().unwrap_or_default()
     }
-
-    /// Get the raw (uncolored) row strings from the current buffer.
-    pub fn rows(&self) -> &[String] {
-        &self.graphs[self.current as usize]
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn braille_symbol_lookup_correct() {
-        let graph = Graph::new(10, 1, GraphSymbol::Braille, false, false, 100, 0);
-        assert_eq!(graph.symbol_at(0, 0), " ");
-        assert_eq!(graph.symbol_at(100, 100), "⣿");
-    }
-
-    #[test]
-    fn block_symbol_lookup_correct() {
-        let graph = Graph::new(10, 1, GraphSymbol::Block, false, false, 100, 0);
-        assert_eq!(graph.symbol_at(0, 0), " ");
-        assert_eq!(graph.symbol_at(100, 100), "█");
-    }
-
-    #[test]
-    fn tty_symbol_lookup_correct() {
-        let graph = Graph::new(10, 1, GraphSymbol::Tty, false, false, 100, 0);
-        assert_eq!(graph.symbol_at(0, 0), " ");
-        assert_eq!(graph.symbol_at(100, 100), "█");
-    }
-
-    #[test]
-    fn render_single_value_100_percent() {
-        let mut graph = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![100].into();
-        let result = graph.render_row(&data);
-        assert_eq!(result, "⢸"); // prev=0, curr=100 → level 0*5+4 = index 4
-    }
-
-    #[test]
-    fn render_single_value_0_percent() {
-        let mut graph = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![0].into();
-        let result = graph.render_row(&data);
-        // Single-height with both prev and curr 0 outputs cursor-right escape
-        assert_eq!(result, "\x1b[1C");
-    }
-
-    #[test]
-    fn render_inverted_flips_direction() {
-        let graph_up = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 0);
-        let graph_down = Graph::new(1, 1, GraphSymbol::Braille, true, false, 100, 0);
-        let s_up = graph_up.symbol_at(0, 50);
-        let s_down = graph_down.symbol_at(0, 50);
-        assert_ne!(s_up, s_down);
-    }
-
-    #[test]
-    fn render_width_matches_data_length() {
-        let mut graph = Graph::new(5, 1, GraphSymbol::Block, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![10, 20, 30, 40, 50].into();
-        let result = graph.render_row(&data);
-        // All non-zero, so no cursor-right escapes; should be 5 visible chars
-        let elems = parse_graph_elements(&result);
-        assert_eq!(elems.len(), 5);
-    }
-
-    #[test]
-    fn render_max_value_clamping() {
-        let graph = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 0);
-        assert_eq!(graph.symbol_at(200, 200), "⣿");
-    }
-
-    #[test]
-    fn render_offset_subtracted() {
-        let graph = Graph::new(1, 1, GraphSymbol::Braille, false, false, 100, 50);
-        assert_eq!(graph.symbol_at(50, 50), " ");
-        assert_eq!(graph.symbol_at(150, 150), "⣿");
-    }
-
-    #[test]
-    fn multi_height_creates_correct_row_count() {
-        let mut graph = Graph::new(10, 3, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
-        graph.create(&data);
-        assert_eq!(graph.rows().len(), 3);
-        // No padding (10 data points for width 10), each row has 10 graph chars
-        for row in graph.rows() {
-            assert_eq!(row.chars().count(), 10);
-        }
-    }
-
-    #[test]
-    fn multi_height_full_value_fills_all_rows() {
-        let mut graph = Graph::new(5, 3, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![100, 100, 100, 100, 100].into();
-        graph.create(&data);
-        // All rows should have non-space characters for 100% values
-        for row in graph.rows() {
-            assert!(!row.chars().all(|c| c == ' '), "row should not be all spaces for 100%");
-        }
-    }
-
-    #[test]
-    fn multi_height_zero_value_empty_rows() {
-        let mut graph = Graph::new(5, 3, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![0, 0, 0, 0, 0].into();
-        graph.create(&data);
-        for row in graph.rows() {
-            assert!(row.chars().all(|c| c == ' '), "rows should be all spaces for 0%");
-        }
-    }
-
-    #[test]
-    fn update_shifts_graph_left() {
-        let mut graph = Graph::new(5, 1, GraphSymbol::Braille, false, false, 100, 0);
-        let data: VecDeque<i64> = vec![0, 0, 0, 0, 50].into();
-        graph.create(&data);
-        let row_before = graph.rows()[0].clone();
-
-        let data2: VecDeque<i64> = vec![0, 0, 0, 50, 100].into();
-        graph.update(&data2);
-        let row_after = graph.rows()[0].clone();
-
-        assert_ne!(row_before, row_after);
-        let elems = parse_graph_elements(&row_after);
-        assert_eq!(elems.len(), 5);
-    }
 
     #[test]
     fn render_rows_colored_returns_correct_count() {

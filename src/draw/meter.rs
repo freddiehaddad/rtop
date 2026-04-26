@@ -5,8 +5,6 @@
 /// Empty characters use the `meter_bg` color.
 #[derive(Debug, Clone)]
 pub struct Meter {
-    #[allow(dead_code)] // stored for potential future use
-    width: usize,
     cache: Vec<String>,
 }
 
@@ -45,7 +43,7 @@ impl Meter {
             s.push_str("\x1b[0m");
             cache.push(s);
         }
-        Self { width, cache }
+        Self { cache }
     }
 
     /// Render the meter at the given percentage (0-100).

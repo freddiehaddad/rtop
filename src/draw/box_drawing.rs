@@ -1,5 +1,4 @@
 /// Box-drawing characters.
-#[allow(dead_code)]
 pub mod symbols {
     pub const H_LINE: &str = "─";
     pub const V_LINE: &str = "│";

@@ -1,31 +1,5 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
-use std::collections::HashMap;
 use std::time::Duration;
-
-/// A clickable region on screen.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // used in tests and as mouse support grows
-pub struct MouseLoc {
-    pub line: u16,
-    pub col: u16,
-    pub height: u16,
-    pub width: u16,
-}
-
-#[allow(dead_code)]
-impl MouseLoc {
-    /// Check if a point (x, y) is within this region.
-    pub fn contains(&self, x: u16, y: u16) -> bool {
-        x >= self.col
-            && x < self.col + self.width
-            && y >= self.line
-            && y < self.line + self.height
-    }
-}
-
-/// Map of clickable region name → location.
-#[allow(dead_code)]
-pub type MouseMappings = HashMap<String, MouseLoc>;
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.
 pub fn poll(timeout_ms: u64) -> bool {
@@ -147,19 +121,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn mouse_loc_contains_point() {
-        let loc = MouseLoc {
-            line: 5,
-            col: 10,
-            height: 3,
-            width: 5,
-        };
-        assert!(loc.contains(10, 5));
-        assert!(loc.contains(14, 7));
-        assert!(!loc.contains(9, 5));
-        assert!(!loc.contains(15, 5));
-        assert!(!loc.contains(10, 4));
-        assert!(!loc.contains(10, 8));
-    }
 }

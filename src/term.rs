@@ -4,59 +4,7 @@ use crossterm::{
 };
 use std::io::{self, Write};
 
-/// ANSI escape code constants matching btop's Fx namespace.
-#[allow(dead_code)]
-pub mod fx {
-    pub const BOLD: &str = "\x1b[1m";
-    pub const UNBOLD: &str = "\x1b[22m";
-    pub const DIM: &str = "\x1b[2m";
-    pub const UNDIM: &str = "\x1b[22m";
-    pub const ITALIC: &str = "\x1b[3m";
-    pub const UNITALIC: &str = "\x1b[23m";
-    pub const UNDERLINE: &str = "\x1b[4m";
-    pub const UNUNDERLINE: &str = "\x1b[24m";
-    pub const BLINK: &str = "\x1b[5m";
-    pub const UNBLINK: &str = "\x1b[25m";
-    pub const STRIKETHROUGH: &str = "\x1b[9m";
-    pub const UNSTRIKETHROUGH: &str = "\x1b[29m";
-    pub const RESET: &str = "\x1b[0m";
-}
-
-/// Cursor movement helpers matching btop's Mv namespace.
-#[allow(dead_code)]
-pub mod mv {
-    pub fn to(line: u16, col: u16) -> String {
-        format!("\x1b[{};{}H", line, col)
-    }
-    pub fn right(n: u16) -> String {
-        format!("\x1b[{}C", n)
-    }
-    pub fn left(n: u16) -> String {
-        format!("\x1b[{}D", n)
-    }
-    pub fn up(n: u16) -> String {
-        format!("\x1b[{}A", n)
-    }
-    pub fn down(n: u16) -> String {
-        format!("\x1b[{}B", n)
-    }
-    pub const SAVE: &str = "\x1b[s";
-    pub const RESTORE: &str = "\x1b[u";
-}
-
 /// Terminal sequences for screen management.
-#[allow(dead_code)]
-pub const HIDE_CURSOR: &str = "\x1b[?25l";
-#[allow(dead_code)]
-pub const SHOW_CURSOR: &str = "\x1b[?25h";
-#[allow(dead_code)]
-pub const ALT_SCREEN: &str = "\x1b[?1049h";
-#[allow(dead_code)]
-pub const NORMAL_SCREEN: &str = "\x1b[?1049l";
-#[allow(dead_code)]
-pub const MOUSE_ON: &str = "\x1b[?1002h\x1b[?1015h\x1b[?1006h";
-#[allow(dead_code)]
-pub const MOUSE_OFF: &str = "\x1b[?1002l\x1b[?1015l\x1b[?1006l";
 pub const SYNC_START: &str = "\x1b[?2026h";
 pub const SYNC_END: &str = "\x1b[?2026l";
 
@@ -127,29 +75,3 @@ impl Drop for Terminal {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn mv_to_produces_correct_sequence() {
-        assert_eq!(mv::to(1, 1), "\x1b[1;1H");
-        assert_eq!(mv::to(10, 20), "\x1b[10;20H");
-    }
-
-    #[test]
-    fn mv_right_left_up_down() {
-        assert_eq!(mv::right(5), "\x1b[5C");
-        assert_eq!(mv::left(3), "\x1b[3D");
-        assert_eq!(mv::up(2), "\x1b[2A");
-        assert_eq!(mv::down(1), "\x1b[1B");
-    }
-
-    #[test]
-    fn escape_code_constants_valid() {
-        assert!(fx::BOLD.starts_with("\x1b["));
-        assert!(fx::RESET.starts_with("\x1b["));
-        assert!(HIDE_CURSOR.contains("25l"));
-        assert!(SHOW_CURSOR.contains("25h"));
-    }
-}

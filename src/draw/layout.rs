@@ -23,8 +23,6 @@ pub const MIN_MEM_HEIGHT: usize = 10;
 pub const MIN_MEM_WIDTH: usize = 36;
 pub const MIN_NET_HEIGHT: usize = 6;
 pub const MIN_NET_WIDTH: usize = 20;
-#[allow(dead_code)] // used in tests
-pub const MIN_PROC_HEIGHT: usize = 10;
 pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 4;
 

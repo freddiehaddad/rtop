@@ -49,12 +49,6 @@ const COLORS_NORMAL: [&str; 3] = [
     "\x1b[38;2;128;128;128m", // #80
 ];
 
-/// Draw the main menu centered on screen with btop-style ASCII art items.
-#[allow(dead_code)] // menu UI — will be connected to input handler
-pub fn draw(term_width: usize, term_height: usize) -> String {
-    draw_with_selection(term_width, term_height, 0)
-}
-
 /// Draw the main menu with a specific item selected (0=Options, 1=Help, 2=Quit).
 pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usize) -> String {
     let mut out = String::new();

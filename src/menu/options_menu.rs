@@ -21,8 +21,6 @@ pub enum OptKind {
 pub struct OptDef {
     pub key: &'static str,
     pub desc: &'static [&'static str],
-    #[allow(dead_code)] // field populated by classify(), read as UI grows
-    pub kind: OptKind,
 }
 
 // ---------------------------------------------------------------------------
@@ -69,40 +67,40 @@ fn classify(key: &str, config: &Config) -> OptKind {
 pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc"];
 
 pub const GENERAL: &[OptDef] = &[
-    OptDef { key: "color_theme", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "color_theme", desc: &[
         "Set color theme.",
         "",
         "Choose from all bundled themes.",
         "",
         "\"Default\" for builtin default theme.",
     ]},
-    OptDef { key: "theme_background", kind: OptKind::Bool, desc: &[
+    OptDef { key: "theme_background", desc: &[
         "If the theme set background should be shown.",
         "",
         "Set to False if you want terminal background",
         "transparency.",
     ]},
-    OptDef { key: "truecolor", kind: OptKind::Bool, desc: &[
+    OptDef { key: "truecolor", desc: &[
         "Sets if 24-bit truecolor should be used.",
         "",
         "Will convert 24-bit colors to 256 color",
         "(6x6x6 color cube) if False.",
     ]},
-    OptDef { key: "force_tty", kind: OptKind::Bool, desc: &[
+    OptDef { key: "force_tty", desc: &[
         "TTY mode.",
         "",
         "Set to true to force tty mode regardless",
         "if a real tty has been detected or not.",
     ]},
-    OptDef { key: "vim_keys", kind: OptKind::Bool, desc: &[
+    OptDef { key: "vim_keys", desc: &[
         "Enable vim keys.",
         "Set to True to enable \"h,j,k,l\" keys for",
         "directional control in lists.",
     ]},
-    OptDef { key: "disable_mouse", kind: OptKind::Bool, desc: &[
+    OptDef { key: "disable_mouse", desc: &[
         "Disable all mouse events.",
     ]},
-    OptDef { key: "presets", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "presets", desc: &[
         "Define presets for the layout of the boxes.",
         "",
         "Preset 0 is always all boxes shown with",
@@ -110,13 +108,13 @@ pub const GENERAL: &[OptDef] = &[
         "",
         "Format: \"box_name:P:G,box_name:P:G\"",
     ]},
-    OptDef { key: "shown_boxes", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "shown_boxes", desc: &[
         "Manually set which boxes to show.",
         "",
         "Available values are \"cpu mem net proc\".",
         "Separate values with whitespace.",
     ]},
-    OptDef { key: "update_ms", kind: OptKind::Int, desc: &[
+    OptDef { key: "update_ms", desc: &[
         "Update time in milliseconds.",
         "",
         "Recommended 2000 ms or above for better",
@@ -125,60 +123,60 @@ pub const GENERAL: &[OptDef] = &[
         "Min value: 100 ms",
         "Max value: 86400000 ms = 24 hours.",
     ]},
-    OptDef { key: "rounded_corners", kind: OptKind::Bool, desc: &[
+    OptDef { key: "rounded_corners", desc: &[
         "Rounded corners on boxes.",
         "",
         "True or False",
     ]},
-    OptDef { key: "terminal_sync", kind: OptKind::Bool, desc: &[
+    OptDef { key: "terminal_sync", desc: &[
         "Output synchronization.",
         "",
         "Use terminal synchronized output sequences",
         "to reduce flickering on supported terminals.",
     ]},
-    OptDef { key: "graph_symbol", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "graph_symbol", desc: &[
         "Default symbols to use for graph creation.",
         "",
         "\"braille\", \"block\" or \"tty\".",
     ]},
-    OptDef { key: "clock_format", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "clock_format", desc: &[
         "Draw a clock at top of screen.",
         "(Only visible if cpu box is enabled!)",
         "",
         "Formatting according to strftime, empty",
         "string to disable.",
     ]},
-    OptDef { key: "base_10_sizes", kind: OptKind::Bool, desc: &[
+    OptDef { key: "base_10_sizes", desc: &[
         "Use base 10 for bits and bytes sizes.",
         "",
         "Uses KB = 1000 instead of KiB = 1024.",
     ]},
-    OptDef { key: "background_update", kind: OptKind::Bool, desc: &[
+    OptDef { key: "background_update", desc: &[
         "Update main ui when menus are showing.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "show_battery", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_battery", desc: &[
         "Show battery stats.",
         "(Only visible if cpu box is enabled!)",
     ]},
-    OptDef { key: "selected_battery", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "selected_battery", desc: &[
         "Select battery.",
         "",
         "Which battery to use if multiple are present.",
         "\"Auto\" for auto detection.",
     ]},
-    OptDef { key: "show_battery_watts", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_battery_watts", desc: &[
         "Show battery power.",
         "",
         "Show discharge/charging power.",
     ]},
-    OptDef { key: "log_level", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "log_level", desc: &[
         "Set loglevel for error.log",
         "",
         "\"ERROR\", \"WARNING\", \"INFO\" and \"DEBUG\".",
     ]},
-    OptDef { key: "save_config_on_exit", kind: OptKind::Bool, desc: &[
+    OptDef { key: "save_config_on_exit", desc: &[
         "Save config on exit.",
         "",
         "Automatically save current settings to",
@@ -187,46 +185,46 @@ pub const GENERAL: &[OptDef] = &[
 ];
 
 pub const CPU: &[OptDef] = &[
-    OptDef { key: "cpu_bottom", kind: OptKind::Bool, desc: &[
+    OptDef { key: "cpu_bottom", desc: &[
         "Cpu box location.",
         "",
         "Show cpu box at bottom of screen instead",
         "of top.",
     ]},
-    OptDef { key: "graph_symbol_cpu", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "graph_symbol_cpu", desc: &[
         "Graph symbol to use for graphs in cpu box.",
         "",
         "\"default\", \"braille\", \"block\" or \"tty\".",
     ]},
-    OptDef { key: "cpu_graph_upper", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "cpu_graph_upper", desc: &[
         "Cpu upper graph.",
         "",
         "Sets the CPU stat shown in upper half of",
         "the CPU graph.",
     ]},
-    OptDef { key: "cpu_graph_lower", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "cpu_graph_lower", desc: &[
         "Cpu lower graph.",
         "",
         "Sets the CPU stat shown in lower half of",
         "the CPU graph.",
     ]},
-    OptDef { key: "cpu_invert_lower", kind: OptKind::Bool, desc: &[
+    OptDef { key: "cpu_invert_lower", desc: &[
         "Toggles orientation of the lower CPU graph.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "cpu_single_graph", kind: OptKind::Bool, desc: &[
+    OptDef { key: "cpu_single_graph", desc: &[
         "Completely disable the lower CPU graph.",
         "",
         "Shows only upper CPU graph and resizes it",
         "to fit to box height.",
     ]},
-    OptDef { key: "check_temp", kind: OptKind::Bool, desc: &[
+    OptDef { key: "check_temp", desc: &[
         "Enable cpu temperature reporting.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "cpu_sensor", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "cpu_sensor", desc: &[
         "Cpu temperature sensor.",
         "",
         "Select the sensor that corresponds to",
@@ -234,41 +232,41 @@ pub const CPU: &[OptDef] = &[
         "",
         "Set to \"Auto\" for auto detection.",
     ]},
-    OptDef { key: "show_coretemp", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_coretemp", desc: &[
         "Show temperatures for cpu cores.",
         "",
         "Only works if check_temp is True and",
         "the system is reporting core temps.",
     ]},
-    OptDef { key: "cpu_core_map", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "cpu_core_map", desc: &[
         "Custom mapping between core and coretemp.",
         "",
         "Format: \"X:Y\"",
         "X=core with wrong temp.",
         "Y=core with correct temp.",
     ]},
-    OptDef { key: "temp_scale", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "temp_scale", desc: &[
         "Which temperature scale to use.",
         "",
         "Celsius, Fahrenheit, Kelvin or Rankine.",
     ]},
-    OptDef { key: "show_cpu_freq", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_cpu_freq", desc: &[
         "Show CPU frequency.",
         "",
         "Can cause slowdowns on systems with many",
         "cores and certain kernel versions.",
     ]},
-    OptDef { key: "custom_cpu_name", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "custom_cpu_name", desc: &[
         "Custom cpu model name in cpu percentage box.",
         "",
         "Empty string to disable.",
     ]},
-    OptDef { key: "show_uptime", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_uptime", desc: &[
         "Shows the system uptime in the CPU box.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "show_cpu_watts", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_cpu_watts", desc: &[
         "Shows the CPU power consumption in watts.",
         "",
         "True or False.",
@@ -276,74 +274,74 @@ pub const CPU: &[OptDef] = &[
 ];
 
 pub const MEM: &[OptDef] = &[
-    OptDef { key: "mem_below_net", kind: OptKind::Bool, desc: &[
+    OptDef { key: "mem_below_net", desc: &[
         "Mem box location.",
         "",
         "Show mem box below net box instead of above.",
     ]},
-    OptDef { key: "graph_symbol_mem", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "graph_symbol_mem", desc: &[
         "Graph symbol to use for graphs in mem box.",
         "",
         "\"default\", \"braille\", \"block\" or \"tty\".",
     ]},
-    OptDef { key: "mem_graphs", kind: OptKind::Bool, desc: &[
+    OptDef { key: "mem_graphs", desc: &[
         "Show graphs for memory values.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "show_disks", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_disks", desc: &[
         "Split memory box to also show disks.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "show_io_stat", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_io_stat", desc: &[
         "Toggle IO activity graphs.",
         "",
         "Show small IO graphs for disk activity",
         "when not in IO mode.",
     ]},
-    OptDef { key: "io_mode", kind: OptKind::Bool, desc: &[
+    OptDef { key: "io_mode", desc: &[
         "Toggles io mode for disks.",
         "",
         "Shows big graphs for disk read/write speeds",
         "instead of used/free percentage meters.",
     ]},
-    OptDef { key: "io_graph_combined", kind: OptKind::Bool, desc: &[
+    OptDef { key: "io_graph_combined", desc: &[
         "Toggle combined read and write graphs.",
         "",
         "Only has effect if \"io mode\" is True.",
     ]},
-    OptDef { key: "io_graph_speeds", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "io_graph_speeds", desc: &[
         "Set top speeds for the io graphs.",
         "",
         "Manually set which speed in MiB/s that",
         "equals 100 percent in the io graphs.",
         "(100 MiB/s by default).",
     ]},
-    OptDef { key: "show_swap", kind: OptKind::Bool, desc: &[
+    OptDef { key: "show_swap", desc: &[
         "If swap memory should be shown in memory box.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "swap_disk", kind: OptKind::Bool, desc: &[
+    OptDef { key: "swap_disk", desc: &[
         "Show swap as a disk.",
         "",
         "Ignores show_swap value above.",
         "Inserts itself after first disk.",
     ]},
-    OptDef { key: "only_physical", kind: OptKind::Bool, desc: &[
+    OptDef { key: "only_physical", desc: &[
         "Filter out non physical disks.",
         "",
         "Set this to False to include network disks,",
         "RAM disks and similar.",
     ]},
-    OptDef { key: "disk_free_priv", kind: OptKind::Bool, desc: &[
+    OptDef { key: "disk_free_priv", desc: &[
         "Type of available disk space.",
         "",
         "Set to true to show how much disk space is",
         "available for privileged users.",
     ]},
-    OptDef { key: "disks_filter", kind: OptKind::StringVal, desc: &[
+    OptDef { key: "disks_filter", desc: &[
         "Optional filter for shown disks.",
         "",
         "Should be full path of a mountpoint.",
@@ -352,42 +350,42 @@ pub const MEM: &[OptDef] = &[
 ];
 
 pub const NET: &[OptDef] = &[
-    OptDef { key: "graph_symbol_net", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "graph_symbol_net", desc: &[
         "Graph symbol to use for graphs in net box.",
         "",
         "\"default\", \"braille\", \"block\" or \"tty\".",
     ]},
-    OptDef { key: "swap_upload_download", kind: OptKind::Bool, desc: &[
+    OptDef { key: "swap_upload_download", desc: &[
         "Swap the positions of the upload and download",
         "graphs.",
     ]},
-    OptDef { key: "net_download", kind: OptKind::Int, desc: &[
+    OptDef { key: "net_download", desc: &[
         "Fixed network graph download value.",
         "",
         "Value in Mebibits, default \"100\".",
         "",
         "Can be toggled with auto button.",
     ]},
-    OptDef { key: "net_upload", kind: OptKind::Int, desc: &[
+    OptDef { key: "net_upload", desc: &[
         "Fixed network graph upload value.",
         "",
         "Value in Mebibits, default \"100\".",
         "",
         "Can be toggled with auto button.",
     ]},
-    OptDef { key: "net_auto", kind: OptKind::Bool, desc: &[
+    OptDef { key: "net_auto", desc: &[
         "Start in network graphs auto rescaling mode.",
         "",
         "Ignores any values set above at start and",
         "rescales down to 10Kibibytes at the lowest.",
     ]},
-    OptDef { key: "net_sync", kind: OptKind::Bool, desc: &[
+    OptDef { key: "net_sync", desc: &[
         "Network scale sync.",
         "",
         "Syncs the scaling for download and upload to",
         "whichever currently has the highest scale.",
     ]},
-    OptDef { key: "net_iface", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "net_iface", desc: &[
         "Network Interface.",
         "",
         "Manually set the starting Network Interface.",
@@ -398,83 +396,83 @@ pub const NET: &[OptDef] = &[
 ];
 
 pub const PROC: &[OptDef] = &[
-    OptDef { key: "proc_left", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_left", desc: &[
         "Proc box location.",
         "",
         "Show proc box on left side of screen",
         "instead of right.",
     ]},
-    OptDef { key: "graph_symbol_proc", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "graph_symbol_proc", desc: &[
         "Graph symbol to use for graphs in proc box.",
         "",
         "\"default\", \"braille\", \"block\" or \"tty\".",
     ]},
-    OptDef { key: "proc_sorting", kind: OptKind::Browsable, desc: &[
+    OptDef { key: "proc_sorting", desc: &[
         "Processes sorting option.",
         "",
         "Possible values:",
         "\"pid\", \"program\", \"arguments\", \"threads\",",
         "\"user\", \"memory\", \"cpu lazy\", \"cpu direct\".",
     ]},
-    OptDef { key: "proc_reversed", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_reversed", desc: &[
         "Reverse processes sorting order.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "proc_tree", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_tree", desc: &[
         "Processes tree view.",
         "",
         "Set true to show processes grouped by",
         "parents with lines drawn between parent",
         "and child process.",
     ]},
-    OptDef { key: "proc_aggregate", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_aggregate", desc: &[
         "Aggregate child's resources in parent.",
         "",
         "In tree-view, include all child resources",
         "with the parent even while expanded.",
     ]},
-    OptDef { key: "proc_colors", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_colors", desc: &[
         "Enable colors in process view.",
         "",
         "True or False.",
     ]},
-    OptDef { key: "proc_gradient", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_gradient", desc: &[
         "Enable process view gradient fade.",
         "",
         "Fades from top or current selection.",
     ]},
-    OptDef { key: "proc_per_core", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_per_core", desc: &[
         "Process usage per core.",
         "",
         "If process cpu usage should be of the core",
         "it's running on or usage of the total",
         "available cpu power.",
     ]},
-    OptDef { key: "proc_mem_bytes", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_mem_bytes", desc: &[
         "Show memory as bytes in process list.",
         "",
         "Will show percentage of total memory",
         "if False.",
     ]},
-    OptDef { key: "keep_dead_proc_usage", kind: OptKind::Bool, desc: &[
+    OptDef { key: "keep_dead_proc_usage", desc: &[
         "Cpu and Mem usage for dead processes",
         "",
         "Set true if process should preserve the cpu",
         "and memory usage of when it died while paused.",
     ]},
-    OptDef { key: "proc_cpu_graphs", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_cpu_graphs", desc: &[
         "Show cpu graph for each process.",
         "",
         "True or False",
     ]},
-    OptDef { key: "proc_filter_kernel", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_filter_kernel", desc: &[
         "Filter kernel processes from output.",
         "",
         "Set to True to filter out internal",
         "processes started by the kernel.",
     ]},
-    OptDef { key: "proc_follow_detailed", kind: OptKind::Bool, desc: &[
+    OptDef { key: "proc_follow_detailed", desc: &[
         "Follow selected process with detailed view",
         "",
         "If True, when opening the detailed view",
@@ -747,13 +745,6 @@ pub fn draw(
 
     out.push_str(reset);
     out
-}
-
-/// Return the number of items for a given category.
-#[allow(dead_code)] // used as options UI grows
-pub fn cat_len(cat: usize) -> usize {
-    let cats = categories();
-    if cat < cats.len() { cats[cat].len() } else { 0 }
 }
 
 /// Return the option key at `(cat, index)`.

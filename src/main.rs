@@ -1,5 +1,4 @@
 mod banner;
-mod cell_buffer;
 mod cli;
 mod collect;
 mod config;
@@ -182,7 +181,6 @@ fn main() {
 
             if let Some(ref cpu_dim) = layout.cpu {
                 output.push_str(&ui::cpu_box::draw(
-                    &mut cell_buffer::CellBuffer::new(tw, th),
                     &runner.cpu.info,
                     cpu_dim.x,
                     cpu_dim.y,

@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 /// All theme color data.
 #[derive(Debug, Clone)]
@@ -144,59 +143,6 @@ impl Theme {
         }
     }
 
-    /// Load a theme from a `.theme` file.
-    #[allow(dead_code)] // will be used when file-based theme loading is wired up
-    pub fn load_file(&mut self, path: &Path) -> Result<(), String> {
-        let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read theme: {e}"))?;
-
-        // Start with defaults
-        self.load_defaults();
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-
-            // Parse theme[key]="value" format
-            let Some(rest) = trimmed.strip_prefix("theme[") else {
-                continue;
-            };
-            let Some((key, rest)) = rest.split_once(']') else {
-                continue;
-            };
-            let Some((_, value)) = rest.split_once('=') else {
-                continue;
-            };
-            let value = value.trim().trim_matches('"');
-
-            // Only accept known keys
-            if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
-                continue;
-            }
-
-            if value.is_empty() {
-                continue;
-            }
-
-            let rgb = if value.starts_with('#') {
-                parse_hex(value)
-            } else {
-                parse_decimal_rgb(value)
-            };
-
-            let escape = rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]);
-            self.rgbs.insert(key.to_string(), rgb);
-            self.colors.insert(key.to_string(), escape);
-        }
-
-        // Apply fallbacks
-        self.apply_fallbacks();
-        self.generate_gradients();
-        Ok(())
-    }
-
     fn apply_fallbacks(&mut self) {
         // meter_bg defaults to inactive_fg
         if !self.rgbs.contains_key("meter_bg") {
@@ -257,35 +203,12 @@ impl Theme {
         self.gradients.get(name).map(|v| v.as_slice()).unwrap_or(&[])
     }
 
-    /// Get RGB decimal values by name.
-    #[allow(dead_code)] // used in tests and as UI grows
-    pub fn dec(&self, name: &str) -> [u8; 3] {
-        self.rgbs.get(name).copied().unwrap_or([0, 0, 0])
-    }
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Discover available theme files.
-#[allow(dead_code)] // will be used when theme selection UI is wired up
-pub fn discover_themes(dirs: &[&Path]) -> Vec<PathBuf> {
-    let mut themes = Vec::new();
-    for dir in dirs {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "theme") {
-                    themes.push(path);
-                }
-            }
-        }
-    }
-    themes.sort();
-    themes
 }
 
 /// Parse a hex color string to [R, G, B].
@@ -323,33 +246,6 @@ pub fn parse_decimal_rgb(s: &str) -> [u8; 3] {
 /// Convert RGB to a foreground ANSI truecolor escape code.
 pub fn rgb_to_fg_escape(r: u8, g: u8, b: u8) -> String {
     format!("\x1b[38;2;{r};{g};{b}m")
-}
-
-/// Convert RGB to a background ANSI truecolor escape code.
-#[allow(dead_code)] // used in tests and as UI grows
-pub fn rgb_to_bg_escape(r: u8, g: u8, b: u8) -> String {
-    format!("\x1b[48;2;{r};{g};{b}m")
-}
-
-/// Convert 24-bit RGB to 256-color index.
-#[allow(dead_code)] // used in tests and for 256-color terminal fallback
-pub fn truecolor_to_256(r: u8, g: u8, b: u8) -> u8 {
-    if r / 11 == g / 11 && g / 11 == b / 11 {
-        // Grayscale range (232-255)
-        if r < 6 {
-            16
-        } else if r > 249 {
-            231
-        } else {
-            (((r as u16 - 6) * 24 / 244) as u8) + 232
-        }
-    } else {
-        // 6x6x6 color cube (16-231)
-        let ri = ((r as f64 / 51.0).round() as u8).min(5);
-        let gi = ((g as f64 / 51.0).round() as u8).min(5);
-        let bi = ((b as f64 / 51.0).round() as u8).min(5);
-        16 + 36 * ri + 6 * gi + bi
-    }
 }
 
 /// Generate a 101-element gradient from start, optional mid, and optional end colors.
@@ -536,29 +432,6 @@ mod tests {
         assert_eq!(rgb_to_fg_escape(255, 0, 0), "\x1b[38;2;255;0;0m");
     }
 
-    #[test]
-    fn rgb_to_bg_escape_format() {
-        assert_eq!(rgb_to_bg_escape(0, 255, 0), "\x1b[48;2;0;255;0m");
-    }
-
-    #[test]
-    fn truecolor_to_256_grayscale() {
-        // Near-black
-        assert_eq!(truecolor_to_256(0, 0, 0), 16);
-        // Near-white
-        assert_eq!(truecolor_to_256(255, 255, 255), 231);
-        // Mid-gray
-        let idx = truecolor_to_256(128, 128, 128);
-        assert!((232..=255).contains(&idx));
-    }
-
-    #[test]
-    fn truecolor_to_256_color_cube() {
-        // Pure red → should be in color cube
-        let idx = truecolor_to_256(255, 0, 0);
-        assert_eq!(idx, 16 + 36 * 5); // 196
-    }
-
     // --- gradient generation ---
 
     #[test]
@@ -622,20 +495,6 @@ mod tests {
         let theme = Theme::new();
         let color = theme.c("main_fg");
         assert!(color.starts_with("\x1b[38;2;"));
-    }
-
-    #[test]
-    fn theme_dec_accessor() {
-        let theme = Theme::new();
-        let rgb = theme.dec("main_fg");
-        assert_eq!(rgb, [204, 204, 204]); // #cc
-    }
-
-    #[test]
-    fn theme_nonexistent_key_returns_empty() {
-        let theme = Theme::new();
-        assert_eq!(theme.c("nonexistent"), "");
-        assert_eq!(theme.dec("nonexistent"), [0, 0, 0]);
     }
 
     #[test]
