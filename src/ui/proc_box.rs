@@ -2,6 +2,7 @@ use crate::domain::process::ProcInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::box_drawing::title_syms;
+use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -101,13 +102,13 @@ pub fn draw_with_sort(
     // PID column
     let pid_str = format!("{:<pid_w$}", pid_label, pid_w = pid_w);
     let pid_color = if is_sort("pid") { hi } else { title_color };
-    out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, pid_color, pid_str));
+    out.push_str(&format!("{}{}{}", term::mv(col_x, header_row_y), pid_color, pid_str));
     col_x += pid_w + 1;
 
     // Program column
     let name_str = format!("{:<name_w$}", name_label, name_w = name_w);
     let name_color = if is_sort("name") { hi } else { title_color };
-    out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, name_color, name_str));
+    out.push_str(&format!("{}{}{}", term::mv(col_x, header_row_y), name_color, name_str));
     col_x += name_w + 1;
 
     // Command column (when terminal is wide enough)
@@ -115,27 +116,26 @@ pub fn draw_with_sort(
         let cmd_label = if is_sort("command") { format!("Cmd{arrow}") } else { "Cmd".into() };
         let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = cmd_w);
         let cmd_color = if is_sort("command") { hi } else { title_color };
-        out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, cmd_color, cmd_str));
+        out.push_str(&format!("{}{}{}", term::mv(col_x, header_row_y), cmd_color, cmd_str));
         col_x += cmd_w + 1;
     }
 
     // Cpu% column
     let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = cpu_w);
     let cpu_color = if is_sort("cpu") { hi } else { title_color };
-    out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, cpu_color, cpu_str));
+    out.push_str(&format!("{}{}{}", term::mv(col_x, header_row_y), cpu_color, cpu_str));
     col_x += cpu_w + 1;
 
     // Mem% column
     let mem_str = format!("{:>mem_w$}", mem_label, mem_w = mem_w);
     let mem_color = if is_sort("mem") { hi } else { title_color };
-    out.push_str(&format!("\x1b[{};{}H{}{}\x1b[0m", header_row_y, col_x, mem_color, mem_str));
+    out.push_str(&format!("{}{}{}\x1b[0m", term::mv(col_x, header_row_y), mem_color, mem_str));
 
     // Divider line under header
     let div_y = y + 3 + detail_rows;
     out.push_str(&format!(
-        "\x1b[{};{}H{}{}{}{}{}{}",
-        div_y,
-        x + 1,
+        "{}{}{}{}{}{}{}",
+        term::mv(x + 1, div_y),
         box_color, symbols::DIV_LEFT,
         inactive,
         symbols::H_LINE.repeat(width.saturating_sub(2)),
@@ -146,9 +146,8 @@ pub fn draw_with_sort(
     if detail_rows > 0 {
         let detail_div_y = y + 1 + detail_rows;
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}{}",
-            detail_div_y,
-            x + 1,
+            "{}{}{}{}{}{}{}",
+            term::mv(x + 1, detail_div_y),
             box_color, symbols::DIV_LEFT,
             inactive,
             symbols::H_LINE.repeat(width.saturating_sub(2)),
@@ -225,9 +224,8 @@ pub fn draw_with_sort(
             // Selected row: highlight with selected colors
             let bg_esc = sel_bg.replace("38;2", "48;2");
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}{}{}\x1b[0m",
-                row,
-                x + 2,
+                "{}{}{}{}{}\x1b[0m",
+                term::mv(x + 2, row),
                 bg_esc,
                 sel_fg,
                 tools::ljust(&line_trunc, inner_w, false),
@@ -235,9 +233,8 @@ pub fn draw_with_sort(
             ));
         } else {
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                row,
-                x + 2,
+                "{}{}{}",
+                term::mv(x + 2, row),
                 proc_color,
                 line_trunc
             ));
@@ -259,7 +256,7 @@ pub fn draw_with_sort(
         hi, title_color, sort_name, hi,
         box_color, title_syms::TITLE_RIGHT,
     );
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, sort_inset));
+    out.push_str(&format!("{}{}", term::mv(pos, y + 1), sort_inset));
 
     // Tree button: ┐tree┌  (visible: "tree" = 4 + star, plus 2 inset chars)
     let tree_content = format!("tre{}{}", tree_star, "e");
@@ -271,7 +268,7 @@ pub fn draw_with_sort(
             box_color, title_syms::TITLE_LEFT,
             title_color, tree_star, hi, box_color, title_syms::TITLE_RIGHT,
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, tree_inset));
+        out.push_str(&format!("{}{}", term::mv(pos, y + 1), tree_inset));
     }
 
     // Reverse button: ┐reverse┌  (visible: "reverse" = 7, plus 2 inset chars)
@@ -282,7 +279,7 @@ pub fn draw_with_sort(
             box_color, title_syms::TITLE_LEFT,
             hi, title_color, box_color, title_syms::TITLE_RIGHT,
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, pos, rev_inset));
+        out.push_str(&format!("{}{}", term::mv(pos, y + 1), rev_inset));
     }
 
     // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘filter┘ (filter appended at end)
@@ -296,7 +293,7 @@ pub fn draw_with_sort(
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, title_color, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
-    out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 3, bottom_hints));
+    out.push_str(&format!("{}{}", term::mv(x + 3, bottom_y), bottom_hints));
 
     // Filter label — appended after the other elements
     let cursor = if filtering { "\x1b[4m \x1b[24m" } else { "" };
@@ -323,9 +320,8 @@ pub fn draw_with_sort(
     let count_str = format!("{}/{}", visible, procs.len());
     let count_x = x + width.saturating_sub(count_str.len() + 3);
     out.push_str(&format!(
-        "\x1b[{};{}H{}{}{}{}{}{}",
-        bottom_y,
-        count_x,
+        "{}{}{}{}{}{}{}",
+        term::mv(count_x, bottom_y),
         box_color, title_syms::TITLE_LEFT_DOWN,
         fg, count_str,
         box_color, title_syms::TITLE_RIGHT_DOWN,
@@ -356,8 +352,8 @@ fn draw_detail_panel(
     let title_x = x + 2;
     if rows > 0 {
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + 2, title_x,
+            "{}{}{}",
+            term::mv(title_x, y + 2),
             hi,
             tools::uresize(&detail_title, inner_w, false)
         ));
@@ -366,7 +362,7 @@ fn draw_detail_panel(
     // Row 1: Command
     if rows > 1 {
         let cmd_line = format!("{}Cmd: {}{}", title_color, fg, tools::uresize(&proc.cmd, inner_w.saturating_sub(5), false));
-        out.push_str(&format!("\x1b[{};{}H{}", y + 3, title_x, cmd_line));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 3), cmd_line));
     }
 
     // Row 2: User and status
@@ -376,7 +372,7 @@ fn draw_detail_panel(
             title_color, fg, tools::uresize(&proc.user, 12, false),
             title_color, fg, proc.state
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 4, title_x, tools::uresize(&info, inner_w, false)));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 4), tools::uresize(&info, inner_w, false)));
     }
 
     // Row 3: Threads, PPID
@@ -386,7 +382,7 @@ fn draw_detail_panel(
             title_color, fg, proc.threads,
             title_color, fg, proc.ppid
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 5, title_x, tools::uresize(&info, inner_w, false)));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 5), tools::uresize(&info, inner_w, false)));
     }
 
     // Row 4: CPU and Memory
@@ -397,7 +393,7 @@ fn draw_detail_panel(
             title_color, fg, proc.cpu_p,
             title_color, fg, mem_str
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 6, title_x, tools::uresize(&info, inner_w, false)));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 6), tools::uresize(&info, inner_w, false)));
     }
 
     // Row 5: IO
@@ -409,13 +405,13 @@ fn draw_detail_panel(
             title_color, fg, io_r,
             title_color, fg, io_w
         );
-        out.push_str(&format!("\x1b[{};{}H{}", y + 7, title_x, tools::uresize(&info, inner_w, false)));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 7), tools::uresize(&info, inner_w, false)));
     }
 
     // Row 6: Priority
     if rows > 6 {
         let info = format!("{}Priority: {}{}", title_color, fg, proc.priority);
-        out.push_str(&format!("\x1b[{};{}H{}", y + 8, title_x, tools::uresize(&info, inner_w, false)));
+        out.push_str(&format!("{}{}", term::mv(title_x, y + 8), tools::uresize(&info, inner_w, false)));
     }
 
     out

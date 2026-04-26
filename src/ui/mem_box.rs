@@ -2,6 +2,7 @@ use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::meter::Meter;
+use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -64,8 +65,8 @@ pub fn draw(
     if disk_w > 0 {
         let disks_title_x = divider_col + 3;
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}{}{}",
-            y + 1, disks_title_x,
+            "{}{}{}{}{}{}{}{}",
+            term::mv(disks_title_x, y + 1),
             box_color,
             box_drawing::title_syms::TITLE_LEFT,
             hi, "d",
@@ -76,18 +77,18 @@ pub fn draw(
 
         // Divider: div_up at top, div_down at bottom, v_line in between (btop line 2458-2460)
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + 1, divider_col + 1, box_color, symbols::DIV_UP
+            "{}{}{}",
+            term::mv(divider_col + 1, y + 1), box_color, symbols::DIV_UP
         ));
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + height, divider_col + 1, box_color, symbols::DIV_DOWN
+            "{}{}{}",
+            term::mv(divider_col + 1, y + height), box_color, symbols::DIV_DOWN
         ));
         out.push_str(div_color);
         for row_i in 1..height.saturating_sub(1) {
             out.push_str(&format!(
-                "\x1b[{};{}H{}",
-                y + 1 + row_i, divider_col + 1, symbols::V_LINE
+                "{}{}",
+                term::mv(divider_col + 1, y + 1 + row_i), symbols::V_LINE
             ));
         }
     }
@@ -111,9 +112,8 @@ pub fn draw(
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Used  {}  {}{}",
-            y + 2 + row,
-            x + 2,
+            "{}{}Used  {}  {}{}",
+            term::mv(x + 2, y + 2 + row),
             title_color,
             used_meter.render(used_pct),
             used_color,
@@ -129,9 +129,8 @@ pub fn draw(
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Avail {}  {}{}",
-            y + 2 + row,
-            x + 2,
+            "{}{}Avail {}  {}{}",
+            term::mv(x + 2, y + 2 + row),
             title_color,
             avail_meter.render(avail_pct),
             avail_color,
@@ -147,9 +146,8 @@ pub fn draw(
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
         out.push_str(&format!(
-            "\x1b[{};{}H{}Cache {}  {}{}",
-            y + 2 + row,
-            x + 2,
+            "{}{}Cache {}  {}{}",
+            term::mv(x + 2, y + 2 + row),
             title_color,
             cached_meter.render(cached_pct),
             cache_color,
@@ -165,9 +163,8 @@ pub fn draw(
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Free  {}  {}{}",
-            y + 2 + row,
-            x + 2,
+            "{}{}Free  {}  {}{}",
+            term::mv(x + 2, y + 2 + row),
             title_color,
             free_meter.render(free_pct),
             free_color,
@@ -188,9 +185,8 @@ pub fn draw(
         let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
         let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
         out.push_str(&format!(
-            "\x1b[{};{}H{}Swap  {}  {}{}",
-            y + 2 + row,
-            x + 2,
+            "{}{}Swap  {}  {}{}",
+            term::mv(x + 2, y + 2 + row),
             title_color,
             used_meter.render(swap_pct),
             fg,
@@ -203,9 +199,8 @@ pub fn draw(
             let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
             let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
             out.push_str(&format!(
-                "\x1b[{};{}H{}  {} / {}",
-                y + 2 + row,
-                x + 2,
+                "{}{}  {} / {}",
+                term::mv(x + 2, y + 2 + row),
                 fg,
                 su,
                 st
@@ -236,9 +231,8 @@ pub fn draw(
                     format!(" {}", disk.fstype)
                 };
                 out.push_str(&format!(
-                    "\x1b[{};{}H{}{}{}{}",
-                    y + 2 + drow,
-                    disk_x + 1,
+                    "{}{}{}{}{}",
+                    term::mv(disk_x + 1, y + 2 + drow),
                     title_color,
                     tools::uresize(&disk.name, 4, false),
                     fg,
@@ -253,9 +247,8 @@ pub fn draw(
                 // Row 2: " ■■■■■■■■░ 233G / 465G"
                 let usage_label = format!("{} / {}", du, dt);
                 out.push_str(&format!(
-                    "\x1b[{};{}H {} {}{}",
-                    y + 2 + drow,
-                    disk_x + 1,
+                    "{} {} {}{}",
+                    term::mv(disk_x + 1, y + 2 + drow),
                     disk_meter.render(disk.used_percent),
                     fg,
                     usage_label,

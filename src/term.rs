@@ -8,6 +8,14 @@ use std::io::{self, Write};
 pub const SYNC_START: &str = "\x1b[?2026h";
 pub const SYNC_END: &str = "\x1b[?2026l";
 
+/// Return an ANSI escape sequence that moves the cursor to column `x`, row `y`.
+///
+/// Both `x` and `y` are 1-based (matching ANSI CUP convention).
+#[inline]
+pub fn mv(x: usize, y: usize) -> String {
+    format!("\x1b[{y};{x}H")
+}
+
 /// Terminal state wrapper.
 pub struct Terminal {
     pub width: u16,

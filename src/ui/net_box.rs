@@ -2,6 +2,7 @@ use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
+use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -60,7 +61,7 @@ pub fn draw(
             graph.create(dl_bw);
             let rows = graph.render_rows_colored(dl_bw, dl_grad);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", y + 2 + i, x + 2, row));
+                out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), row));
             }
         }
     }
@@ -80,7 +81,7 @@ pub fn draw(
         };
         let label = format!("▼ {}", speed);
         let lx = x + width.saturating_sub(label.len() + 2);
-        out.push_str(&format!("\x1b[{};{}H{}{}", y + 2, lx, dl_color, label));
+        out.push_str(&format!("{}{}{}", term::mv(lx, y + 2), dl_color, label));
     }
 
     // Upload graph (inverted orientation, bottom half)
@@ -94,7 +95,7 @@ pub fn draw(
             graph.create(ul_bw);
             let rows = graph.render_rows_colored(ul_bw, ul_grad);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", ul_start_y + i, x + 2, row));
+                out.push_str(&format!("{}{}", term::mv(x + 2, ul_start_y + i), row));
             }
         }
     }
@@ -115,7 +116,7 @@ pub fn draw(
         let label = format!("▲ {}", speed);
         let lx = x + width.saturating_sub(label.len() + 2);
         let label_y = y + height - 1;
-        out.push_str(&format!("\x1b[{};{}H{}{}", label_y, lx, ul_color, label));
+        out.push_str(&format!("{}{}{}", term::mv(lx, label_y), ul_color, label));
     }
 
     // Interface selector and buttons on TOP border (btop lines 1504-1519)
@@ -135,7 +136,7 @@ pub fn draw(
     // visible chars: "←b " + name + " n→" = 3 + name + 3 = 6 + name, plus 2 inset chars
     let iface_vis_len = 6 + iface_display.len();
     top_x = top_x.saturating_sub(iface_vis_len + 2);
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, iface_inset));
+    out.push_str(&format!("{}{}", term::mv(top_x, y + 1), iface_inset));
 
     // zero button: ┐zero┌
     let zero_inset = format!(
@@ -145,7 +146,7 @@ pub fn draw(
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, zero_inset));
+        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), zero_inset));
     }
 
     // auto button: ┐auto┌
@@ -156,7 +157,7 @@ pub fn draw(
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, auto_inset));
+        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), auto_inset));
     }
 
     // sync button: ┐sync┌
@@ -167,7 +168,7 @@ pub fn draw(
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, sync_inset));
+        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), sync_inset));
     }
 
     out.push_str("\x1b[0m");

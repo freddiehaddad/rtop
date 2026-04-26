@@ -1,6 +1,7 @@
 use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::meter::Meter;
+use crate::term;
 use crate::theme::Theme;
 
 /// Format bytes into a short human-readable string (e.g., "10.8G").
@@ -61,9 +62,8 @@ pub fn draw(
     if !name_trunc.is_empty() {
         let name_x = x + title.len() + 6;
         out.push_str(&format!(
-            "\x1b[{};{}H{}{} {} {}{}",
-            y + 1,
-            name_x,
+            "{}{}{} {} {}{}",
+            term::mv(name_x, y + 1),
             box_color,
             box_drawing::title_syms::TITLE_LEFT,
             name_trunc,
@@ -91,9 +91,8 @@ pub fn draw(
         // We have 2 inner rows
         let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}",
-            y + 2,
-            x + 2,
+            "{}{}{}{}{}{}",
+            term::mv(x + 2, y + 2),
             fg,
             label,
             meter.render(gpu_pct as i32),
@@ -116,9 +115,8 @@ pub fn draw(
         let vmeter_w = inner_w.saturating_sub(vlabel.len() + vsuffix.len());
         let vmeter = Meter::new(vmeter_w.max(1), cpu_gradient, meter_bg);
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}",
-            y + 3,
-            x + 2,
+            "{}{}{}{}{}{}",
+            term::mv(x + 2, y + 3),
             fg,
             vlabel,
             vmeter.render(vram_pct as i32),
@@ -129,9 +127,8 @@ pub fn draw(
         // Only 1 inner row — compact view
         let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}",
-            y + 2,
-            x + 2,
+            "{}{}{}{}{}{}",
+            term::mv(x + 2, y + 2),
             fg,
             label,
             meter.render(gpu_pct as i32),

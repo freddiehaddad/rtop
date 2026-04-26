@@ -1,3 +1,5 @@
+use crate::term;
+
 /// Menu item ASCII art: normal (thin lines) and selected (thick lines)
 const MENU_NORMAL: [&[&str]; 3] = [
     &[
@@ -79,9 +81,8 @@ pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usiz
 
         for (line_idx, line) in menu.iter().enumerate() {
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                cy,
-                menu_x + 1,
+                "{}{}{}",
+                term::mv(menu_x + 1, cy),
                 colors[line_idx],
                 line,
             ));

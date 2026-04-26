@@ -1,4 +1,5 @@
 use crate::draw::box_drawing;
+use crate::term;
 use crate::tools;
 
 /// Draw the help menu centered on screen.
@@ -47,7 +48,7 @@ pub fn draw(term_width: usize, term_height: usize) -> String {
 
     for (i, line) in lines.iter().take(h.saturating_sub(3)).enumerate() {
         let trunc = tools::uresize(line, w.saturating_sub(4), false);
-        out.push_str(&format!("\x1b[{};{}H{}", y + 2 + i, x + 2, trunc));
+        out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), trunc));
     }
 
     out

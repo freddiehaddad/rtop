@@ -1,3 +1,5 @@
+use crate::term;
+
 /// Box-drawing characters.
 pub mod symbols {
     pub const H_LINE: &str = "─";
@@ -91,20 +93,20 @@ pub fn create_box(cfg: &BoxConfig) -> String {
     // Step 1: Draw horizontal lines on top and bottom
     // Top line: full width of h_line at (y+1, x+1)
     out.push_str(&format!(
-        "\x1b[{};{}H{}",
-        y + 1, x + 1,
+        "{}{}",
+        term::mv(x + 1, y + 1),
         symbols::H_LINE.repeat(width)
     ));
     // Bottom line
     out.push_str(&format!(
-        "\x1b[{};{}H{}",
-        y + height, x + 1,
+        "{}{}",
+        term::mv(x + 1, y + height),
         symbols::H_LINE.repeat(width)
     ));
 
     // Step 2: Draw vertical lines and fill on middle rows
     for row in 1..(height - 1) {
-        out.push_str(&format!("\x1b[{};{}H", y + 1 + row, x + 1));
+        out.push_str(&term::mv(x + 1, y + 1 + row));
         out.push_str(symbols::V_LINE);
         if fill {
             out.push_str(&" ".repeat(width - 2));
@@ -115,10 +117,10 @@ pub fn create_box(cfg: &BoxConfig) -> String {
     }
 
     // Step 3: Draw corners (overwriting the h_line at the corner positions)
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, x + 1, tl));
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, x + width, tr));
-    out.push_str(&format!("\x1b[{};{}H{}", y + height, x + 1, bl));
-    out.push_str(&format!("\x1b[{};{}H{}", y + height, x + width, br));
+    out.push_str(&format!("{}{}", term::mv(x + 1, y + 1), tl));
+    out.push_str(&format!("{}{}", term::mv(x + width, y + 1), tr));
+    out.push_str(&format!("{}{}", term::mv(x + 1, y + height), bl));
+    out.push_str(&format!("{}{}", term::mv(x + width, y + height), br));
 
     // Step 4: Draw title at (y, x+2) if defined — matching btop format:
     // title_left + bold + hi_fg_numbering + title_color + title + unbold + line_color + title_right
@@ -130,8 +132,8 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         };
         // btop uses: hi_fg for number, title color for text, bold for both
         out.push_str(&format!(
-            "\x1b[{};{}H{}\x1b[1m{}{}\x1b[22m{}{}",
-            y + 1, x + 3,
+            "{}{}\x1b[1m{}{}\x1b[22m{}{}",
+            term::mv(x + 3, y + 1),
             title_syms::TITLE_LEFT,
             numbering,  // number in current color (line_color which is box color)
             title,       // title text
@@ -143,8 +145,8 @@ pub fn create_box(cfg: &BoxConfig) -> String {
     // Title2 on bottom border
     if !title2.is_empty() {
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}",
-            y + height, x + 3,
+            "{}{}{}{}{}",
+            term::mv(x + 3, y + height),
             title_syms::TITLE_LEFT_DOWN,
             title2,
             color,
@@ -152,7 +154,7 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         ));
     }
 
-    out.push_str(&format!("\x1b[0m\x1b[{};{}H", y + 2, x + 2));
+    out.push_str(&format!("\x1b[0m{}", term::mv(x + 2, y + 2)));
     out
 }
 

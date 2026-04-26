@@ -4,6 +4,7 @@ use crate::draw::box_drawing::symbols;
 use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
+use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -117,19 +118,19 @@ pub fn draw(
     if b_width > 0 {
         for row_i in 1..height.saturating_sub(1) {
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                y + 1 + row_i, b_x + 1, div_color, symbols::V_LINE
+                "{}{}{}",
+                term::mv(b_x + 1, y + 1 + row_i), div_color, symbols::V_LINE
             ));
         }
         // T-junction at top border
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + 1, b_x + 1, box_color, symbols::DIV_UP
+            "{}{}{}",
+            term::mv(b_x + 1, y + 1), box_color, symbols::DIV_UP
         ));
         // Bottom junction
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + height, b_x + 1, box_color, symbols::DIV_DOWN
+            "{}{}{}",
+            term::mv(b_x + 1, y + height), box_color, symbols::DIV_DOWN
         ));
 
         // CPU frequency title inset on the top border
@@ -142,8 +143,8 @@ pub fn draw(
                 let dashes = avail.saturating_sub(hz_vis_len + 1);
                 let hz_x = b_x + 2;
                 out.push_str(&format!(
-                    "\x1b[{};{}H{}{}{}{}{}{}{}",
-                    y + 1, hz_x,
+                    "{}{}{}{}{}{}{}{}",
+                    term::mv(hz_x, y + 1),
                     box_color,
                     symbols::H_LINE.repeat(dashes),
                     title_syms::TITLE_LEFT,
@@ -162,7 +163,7 @@ pub fn draw(
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", y + 2 + i, x + 2, row));
+                out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), row));
             }
         }
     }
@@ -175,8 +176,8 @@ pub fn draw(
         let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
         let right_dashes = graph_width.saturating_sub(label_vis_len + left_dashes);
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}{}{}{}",
-            div_y, x + 1,
+            "{}{}{}{}{}{}{}",
+            term::mv(x + 1, div_y),
             box_color, symbols::DIV_LEFT,
             div_color,
             symbols::H_LINE.repeat(left_dashes),
@@ -185,8 +186,8 @@ pub fn draw(
         ));
         if b_width > 0 {
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                div_y, b_x + 1, box_color, symbols::DIV_RIGHT
+                "{}{}{}",
+                term::mv(b_x + 1, div_y), box_color, symbols::DIV_RIGHT
             ));
         }
     }
@@ -199,7 +200,7 @@ pub fn draw(
             graph.create(total);
             let rows = graph.render_rows_colored(total, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("\x1b[{};{}H{}", lower_start_y + i, x + 2, row));
+                out.push_str(&format!("{}{}", term::mv(x + 2, lower_start_y + i), row));
             }
         }
     }
@@ -222,8 +223,8 @@ pub fn draw(
                 let meter_w = panel_inner_w.saturating_sub(4 + 5 + temp_suffix_len).max(1);
                 let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
                 out.push_str(&format!(
-                    "\x1b[{};{}H{}CPU {}{}{}{}{}",
-                    b_y + 1, b_x + 2,
+                    "{}{}CPU {}{}{}{}{}",
+                    term::mv(b_x + 2, b_y + 1),
                     title_color,
                     pct_color, meter.render(pct as i32),
                     pct_color, tools::rjust(&pct.to_string(), 4, false),
@@ -282,7 +283,7 @@ pub fn draw(
             let graph_w = col_w.saturating_sub(fixed_w);
 
             // Position and write label
-            out.push_str(&format!("\x1b[{};{}H{}{}", row_y, row_x, fg, label));
+            out.push_str(&format!("{}{}{}", term::mv(row_x, row_y), fg, label));
 
             // Mini graph
             if graph_w >= 3 {
@@ -347,8 +348,8 @@ pub fn draw(
         if lavg_vis_len <= panel_inner_w {
             let lavg_x = b_x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                lavg_y, lavg_x, fg, lavg_str
+                "{}{}{}",
+                term::mv(lavg_x, lavg_y), fg, lavg_str
             ));
         }
     }
@@ -359,8 +360,8 @@ pub fn draw(
     let up_y = y + 2;
     if !uptime.is_empty() {
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            up_y, x + 2, graph_text_color, up_str
+            "{}{}{}",
+            term::mv(x + 2, up_y), graph_text_color, up_str
         ));
     }
 
@@ -377,8 +378,8 @@ pub fn draw(
         hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
-        "\x1b[{};{}H{}",
-        bottom_y, x + 3,
+        "{}{}",
+        term::mv(x + 3, bottom_y),
         hints
     ));
 

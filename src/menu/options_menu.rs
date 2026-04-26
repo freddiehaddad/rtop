@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::draw::box_drawing::{self, symbols};
+use crate::term;
 use crate::theme::Theme;
 
 // ---------------------------------------------------------------------------
@@ -613,7 +614,7 @@ pub fn draw(
     let h_left = symbols::H_LINE.repeat(29);
     let h_right = symbols::H_LINE.repeat(box_w - 32);
     let divider_row = y + 8 + 1;
-    out.push_str(&format!("\x1b[{};{}H", divider_row, x + 1));
+    out.push_str(&term::mv(x + 1, divider_row));
     out.push_str(hi);
     out.push_str(symbols::DIV_LEFT);
     out.push_str(div_line);
@@ -623,21 +624,21 @@ pub fn draw(
     out.push_str(hi);
     out.push_str(symbols::DIV_RIGHT);
     // Bottom T-junction on vertical divider
-    out.push_str(&format!("\x1b[{};{}H", y + 6 + height, x + 31));
+    out.push_str(&term::mv(x + 31, y + 6 + height));
     out.push_str(div_line);
     out.push_str(symbols::DIV_DOWN);
 
     // Vertical divider line at x+30 for each content row
     for i in 0..(height - 4) {
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}",
-            y + 9 + 1 + i, x + 31,
+            "{}{}{}",
+            term::mv(x + 31, y + 9 + 1 + i),
             div_line, symbols::V_LINE,
         ));
     }
 
     // Category tab bar at row y+7
-    out.push_str(&format!("\x1b[{};{}H", y + 7 + 1, x + 4));
+    out.push_str(&term::mv(x + 4, y + 7 + 1));
     for (i, &name) in CAT_NAMES.iter().enumerate() {
         if i == cat {
             out.push_str(&format!("\x1b[1m{}[{}{}{}]{}", hi, title_c, name, hi, reset));
@@ -650,8 +651,8 @@ pub fn draw(
     // Page indicator
     if pages > 1 {
         out.push_str(&format!(
-            "\x1b[{};{}H{}{} {} page {}/{} {} {}",
-            y + 6 + height, x + 2,
+            "{}{}{} {} page {}/{} {} {}",
+            term::mv(x + 2, y + 6 + height),
             hi, symbols::UP_ARROW, title_c, page + 1, pages, hi, symbols::DOWN_ARROW,
         ));
     }
@@ -682,8 +683,8 @@ pub fn draw(
         let full_name = format!("{}{}", name_display, name_suffix);
         let name_str = cjust(&full_name, 29);
         out.push_str(&format!(
-            "\x1b[{};{}H{}{}{}",
-            cy_start + c * 2, x + 2,
+            "{}{}{}{}",
+            term::mv(x + 2, cy_start + c * 2),
             if is_selected {
                 format!("{}{}\x1b[1m", sel_bg, sel_fg)
             } else {
@@ -696,8 +697,8 @@ pub fn draw(
         // Row 2: value (centered in 25 chars within left panel, with arrow indicators)
         let value_display = cjust(&value, 25);
         out.push_str(&format!(
-            "\x1b[{};{}H{}  {}  {}",
-            cy_start + c * 2 + 1, x + 2,
+            "{}{}  {}  {}",
+            term::mv(x + 2, cy_start + c * 2 + 1),
             if is_selected { &sel_fg } else { &fg },
             value_display,
             reset,
@@ -709,15 +710,15 @@ pub fn draw(
             match kind {
                 OptKind::Bool | OptKind::Browsable | OptKind::Int => {
                     out.push_str(&format!(
-                        "\x1b[1m\x1b[{};{}H{}{}\x1b[{};{}H{}{}{}",
-                        val_row, x + 2, hi, symbols::LEFT_ARROW,
-                        val_row, x + 29, hi, symbols::RIGHT_ARROW, reset,
+                        "\x1b[1m{}{}{}{}{}{}{}",
+                        term::mv(x + 2, val_row), hi, symbols::LEFT_ARROW,
+                        term::mv(x + 29, val_row), hi, symbols::RIGHT_ARROW, reset,
                     ));
                 }
                 OptKind::StringVal => {
                     out.push_str(&format!(
-                        "\x1b[1m\x1b[{};{}H{}{}{}",
-                        val_row, x + 29, hi, symbols::ENTER, reset,
+                        "\x1b[1m{}{}{}{}",
+                        term::mv(x + 29, val_row), hi, symbols::ENTER, reset,
                     ));
                 }
             }
@@ -734,8 +735,8 @@ pub fn draw(
                     out.push_str(&format!("{}\x1b[22m", fg));
                 }
                 out.push_str(&format!(
-                    "\x1b[{};{}H{}",
-                    desc_row + 1, x + 33,
+                    "{}{}",
+                    term::mv(x + 33, desc_row + 1),
                     desc_line,
                 ));
             }

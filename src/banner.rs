@@ -1,3 +1,5 @@
+use crate::term;
+
 /// ASCII art banner lines for the rtop splash/menu screen.
 pub const BANNER: &[&str] = &[
     "██████╗ ████████╗ ██████╗ ██████╗ ",
@@ -12,7 +14,7 @@ pub const BANNER: &[&str] = &[
 pub fn generate(y: usize, x: usize) -> String {
     let mut out = String::new();
     for (i, line) in BANNER.iter().enumerate() {
-        out.push_str(&format!("\x1b[{};{}H{}", y + i + 1, x + 1, line));
+        out.push_str(&format!("{}{}", term::mv(x + 1, y + i + 1), line));
     }
     out
 }
