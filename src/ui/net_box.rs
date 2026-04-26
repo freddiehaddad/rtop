@@ -66,11 +66,16 @@ pub fn draw(
     let net_auto = config.get_bool("net_auto");
     let net_sync = config.get_bool("net_sync");
 
-    // Compute graph max values
+    // Compute graph max values from the visible window only.
+    // Using the full history would cause old peaks to flatten new data.
+    let visible = graph_width;
     let dl_max_raw = if net_auto {
         net.bandwidth
             .get("download")
-            .map(|bw| bw.iter().copied().max().unwrap_or(1).max(1))
+            .map(|bw| {
+                let start = bw.len().saturating_sub(visible);
+                bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
+            })
             .unwrap_or(1)
     } else {
         (config.get_int("net_download") * 1024).max(1)
@@ -78,7 +83,10 @@ pub fn draw(
     let ul_max_raw = if net_auto {
         net.bandwidth
             .get("upload")
-            .map(|bw| bw.iter().copied().max().unwrap_or(1).max(1))
+            .map(|bw| {
+                let start = bw.len().saturating_sub(visible);
+                bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
+            })
             .unwrap_or(1)
     } else {
         (config.get_int("net_upload") * 1024).max(1)
