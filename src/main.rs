@@ -77,7 +77,7 @@ fn main() {
     // Init runner (collectors)
     let mut runner = runner::Runner::new();
 
-    let rounded = config.get_bool("rounded_corners");
+    let mut rounded = config.get_bool("rounded_corners");
     let update_ms = config.get_int("update_ms") as u64;
 
     #[derive(PartialEq)]
@@ -89,6 +89,9 @@ fn main() {
     }
 
     let mut menu_state = MenuState::None;
+
+    let mut menu_active = false;
+    let mut options_selected: usize = 0;
 
     // Main event loop
     loop {
@@ -196,7 +199,8 @@ fn main() {
                             menu_state = MenuState::None;
                         }
                         "o" | "f2" => {
-                            let menu_out = draw_options_menu(tw, th, &config);
+                            options_selected = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
@@ -220,6 +224,34 @@ fn main() {
                         "escape" | "o" | "f2" => {
                             menu_state = MenuState::None;
                         }
+                        "up" | "k" => {
+                            if options_selected > 0 {
+                                options_selected -= 1;
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let _ = terminal.write_raw(&menu_out);
+                        }
+                        "down" | "j" => {
+                            let entries = build_options_entries(&config);
+                            if options_selected < entries.len().saturating_sub(1) {
+                                options_selected += 1;
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let _ = terminal.write_raw(&menu_out);
+                        }
+                        "enter" | "space" => {
+                            // Toggle the selected option
+                            let entries = build_options_entries(&config);
+                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
+                                if *is_bool {
+                                    config.flip(key_name);
+                                    // Update rounded if changed
+                                    rounded = config.get_bool("rounded_corners");
+                                }
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let _ = terminal.write_raw(&menu_out);
+                        }
                         _ => {}
                     },
                     MenuState::None => match key.as_str() {
@@ -235,7 +267,8 @@ fn main() {
                             menu_state = MenuState::Help;
                         }
                         "o" | "f2" => {
-                            let menu_out = draw_options_menu(tw, th, &config);
+                            options_selected = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
@@ -247,16 +280,51 @@ fn main() {
     }
 }
 
-fn draw_options_menu(tw: usize, th: usize, config: &config::Config) -> String {
-    let update_ms_str = config.get_int("update_ms").to_string();
-    let entries: Vec<(&str, &str)> = vec![
-        ("color_theme", config.get_string("color_theme")),
-        ("update_ms", &update_ms_str),
-        ("rounded_corners", if config.get_bool("rounded_corners") { "True" } else { "False" }),
-        ("vim_keys", if config.get_bool("vim_keys") { "True" } else { "False" }),
-        ("show_battery", if config.get_bool("show_battery") { "True" } else { "False" }),
-        ("proc_tree", if config.get_bool("proc_tree") { "True" } else { "False" }),
-    ];
-    menu::options_menu::draw(tw, th, &entries)
+fn build_options_entries(config: &config::Config) -> Vec<(String, String, bool)> {
+    vec![
+        ("color_theme".into(), config.get_string("color_theme").to_string(), false),
+        ("truecolor".into(), config.get_bool("truecolor").to_string(), true),
+        ("rounded_corners".into(), config.get_bool("rounded_corners").to_string(), true),
+        ("vim_keys".into(), config.get_bool("vim_keys").to_string(), true),
+        ("show_battery".into(), config.get_bool("show_battery").to_string(), true),
+        ("show_battery_watts".into(), config.get_bool("show_battery_watts").to_string(), true),
+        ("theme_background".into(), config.get_bool("theme_background").to_string(), true),
+        ("force_tty".into(), config.get_bool("force_tty").to_string(), true),
+        ("disable_mouse".into(), config.get_bool("disable_mouse").to_string(), true),
+        ("terminal_sync".into(), config.get_bool("terminal_sync").to_string(), true),
+        ("base_10_sizes".into(), config.get_bool("base_10_sizes").to_string(), true),
+        ("background_update".into(), config.get_bool("background_update").to_string(), true),
+        ("save_config_on_exit".into(), config.get_bool("save_config_on_exit").to_string(), true),
+        ("cpu_bottom".into(), config.get_bool("cpu_bottom").to_string(), true),
+        ("cpu_single_graph".into(), config.get_bool("cpu_single_graph").to_string(), true),
+        ("cpu_invert_lower".into(), config.get_bool("cpu_invert_lower").to_string(), true),
+        ("check_temp".into(), config.get_bool("check_temp").to_string(), true),
+        ("show_coretemp".into(), config.get_bool("show_coretemp").to_string(), true),
+        ("show_cpu_freq".into(), config.get_bool("show_cpu_freq").to_string(), true),
+        ("show_uptime".into(), config.get_bool("show_uptime").to_string(), true),
+        ("mem_graphs".into(), config.get_bool("mem_graphs").to_string(), true),
+        ("mem_below_net".into(), config.get_bool("mem_below_net").to_string(), true),
+        ("show_disks".into(), config.get_bool("show_disks").to_string(), true),
+        ("show_swap".into(), config.get_bool("show_swap").to_string(), true),
+        ("show_io_stat".into(), config.get_bool("show_io_stat").to_string(), true),
+        ("io_mode".into(), config.get_bool("io_mode").to_string(), true),
+        ("net_auto".into(), config.get_bool("net_auto").to_string(), true),
+        ("net_sync".into(), config.get_bool("net_sync").to_string(), true),
+        ("swap_upload_download".into(), config.get_bool("swap_upload_download").to_string(), true),
+        ("proc_left".into(), config.get_bool("proc_left").to_string(), true),
+        ("proc_tree".into(), config.get_bool("proc_tree").to_string(), true),
+        ("proc_colors".into(), config.get_bool("proc_colors").to_string(), true),
+        ("proc_gradient".into(), config.get_bool("proc_gradient").to_string(), true),
+        ("proc_per_core".into(), config.get_bool("proc_per_core").to_string(), true),
+        ("proc_mem_bytes".into(), config.get_bool("proc_mem_bytes").to_string(), true),
+        ("proc_cpu_graphs".into(), config.get_bool("proc_cpu_graphs").to_string(), true),
+        ("proc_reversed".into(), config.get_bool("proc_reversed").to_string(), true),
+        ("proc_filter_kernel".into(), config.get_bool("proc_filter_kernel").to_string(), true),
+    ]
+}
+
+fn draw_options_menu(tw: usize, th: usize, config: &config::Config, selected: usize, theme: &theme::Theme) -> String {
+    let entries = build_options_entries(config);
+    menu::options_menu::draw(tw, th, &entries, selected, theme)
 }
 
