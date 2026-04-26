@@ -99,10 +99,10 @@ pub fn draw(
                     y + 1, hz_x,
                     box_color,
                     symbols::H_LINE.repeat(dashes),
-                    symbols::DIV_LEFT,
+                    title_syms::TITLE_LEFT,
                     title_color, hz_str,
                     box_color,
-                    symbols::DIV_RIGHT,
+                    title_syms::TITLE_RIGHT,
                 ));
             }
         }
