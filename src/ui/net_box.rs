@@ -115,32 +115,56 @@ pub fn draw(
         out.push_str(&format!("\x1b[{};{}H{}{}", label_y, lx, ul_color, label));
     }
 
-    // Interface name and keybind hints on TOP border (matching btop lines 1504-1507)
-    // btop format: ┐ ←b Ethernet n→ ┌  ┐zero┌  ┐auto┌  ┐sync┌
+    // Interface selector and buttons on TOP border (btop lines 1504-1519)
+    // All on the top border, right-aligned: ┐sync┌ ┐auto┌ ┐zero┌ ┐←b Ethernet n→┌
     let iface_display = tools::uresize(iface, 15, false);
+
+    // Build right-to-left on top border
+    let mut top_x = x + width - 1; // start from right corner
+
+    // Interface selector: ┐ ←b Ethernet n→ ┌
     let iface_inset = format!(
         "{}{}{}←b {}{}{}  n→{}{}",
         box_color, title_syms::TITLE_LEFT,
         hi, title_color, iface_display, hi,
         box_color, title_syms::TITLE_RIGHT,
     );
-    // Position on top border, right-aligned
-    let iface_vis_len = 6 + iface_display.len(); // "←b " + name + " n→"
-    let iface_x = x + width.saturating_sub(iface_vis_len + 4);
-    out.push_str(&format!("\x1b[{};{}H{}", y + 1, iface_x, iface_inset));
+    let iface_vis_len = 7 + iface_display.len(); // "←b " + name + "  n→"
+    top_x = top_x.saturating_sub(iface_vis_len + 2);
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, iface_inset));
 
-    // b/n navigation hints on BOTTOM border
-    let nav_hints = format!(
-        "{}{}{}b{} ◀{}{} {}{}{}n{} ▶{}{}",
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+    // zero button: ┐zero┌
+    let zero_inset = format!(
+        "{}{}{}z{}ero{}{}",
+        box_color, title_syms::TITLE_LEFT,
+        hi, title_color, box_color, title_syms::TITLE_RIGHT,
     );
-    out.push_str(&format!(
-        "\x1b[{};{}H{}",
-        y + height, x + 2, nav_hints
-    ));
+    top_x = top_x.saturating_sub(6);
+    if top_x > x + 10 {
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, zero_inset));
+    }
+
+    // auto button: ┐auto┌
+    let auto_inset = format!(
+        "{}{}{}a{}uto{}{}",
+        box_color, title_syms::TITLE_LEFT,
+        hi, title_color, box_color, title_syms::TITLE_RIGHT,
+    );
+    top_x = top_x.saturating_sub(6);
+    if top_x > x + 10 {
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, auto_inset));
+    }
+
+    // sync button: ┐sync┌
+    let sync_inset = format!(
+        "{}{}{}s{}y{}nc{}{}",
+        box_color, title_syms::TITLE_LEFT,
+        title_color, hi, title_color, box_color, title_syms::TITLE_RIGHT,
+    );
+    top_x = top_x.saturating_sub(6);
+    if top_x > x + 10 {
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, top_x, sync_inset));
+    }
 
     out.push_str("\x1b[0m");
     out
