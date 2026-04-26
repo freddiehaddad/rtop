@@ -95,19 +95,24 @@ fn main() {
     let mut proc_selected: usize = 0;
 
     // Main event loop
-    let mut needs_redraw = true;
+    let mut needs_full_redraw = true;  // Full collection + all boxes
+    let mut needs_proc_redraw = false; // Just redraw proc box (selection changed)
+
+    // Cache the layout so proc-only redraws can use it
+    let mut cached_layout: Option<draw::layout::Layout> = None;
 
     loop {
         // Check resize
         if terminal.refresh() {
-            needs_redraw = true;
+            needs_full_redraw = true;
         }
         let (tw, th) = terminal.size();
         let tw = tw as usize;
         let th = th as usize;
 
-        if menu_state == MenuState::None && needs_redraw {
-            needs_redraw = false;
+        if menu_state == MenuState::None && needs_full_redraw {
+            needs_full_redraw = false;
+            needs_proc_redraw = false; // full redraw covers proc too
 
             // Collect data
             runner.collect_all();
@@ -176,19 +181,7 @@ fn main() {
                 ));
             }
             if let Some(ref proc_dim) = layout.proc_box {
-                // Clamp selection to valid range
-                let proc_count = runner.proc_collector.procs.len();
-                let max_visible = proc_dim.height.saturating_sub(5);
-                if proc_selected >= proc_count {
-                    proc_selected = proc_count.saturating_sub(1);
-                }
-                // Auto-scroll to keep selection visible
-                if proc_selected >= proc_start + max_visible {
-                    proc_start = proc_selected.saturating_sub(max_visible) + 1;
-                }
-                if proc_selected < proc_start {
-                    proc_start = proc_selected;
-                }
+                clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                 output.push_str(&ui::proc_box::draw(
                     &runner.proc_collector.procs,
                     proc_dim.x,
@@ -204,6 +197,32 @@ fn main() {
 
             output.push_str(term::SYNC_END);
             let _ = terminal.write_raw(&output);
+            cached_layout = Some(layout);
+        }
+
+        // Proc-only redraw: just re-render the proc box without collecting data
+        if menu_state == MenuState::None && needs_proc_redraw {
+            needs_proc_redraw = false;
+            if let Some(ref layout) = cached_layout {
+                if let Some(ref proc_dim) = layout.proc_box {
+                    clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
+                    let mut output = String::new();
+                    output.push_str(term::SYNC_START);
+                    output.push_str(&ui::proc_box::draw(
+                        &runner.proc_collector.procs,
+                        proc_dim.x,
+                        proc_dim.y,
+                        proc_dim.width,
+                        proc_dim.height,
+                        rounded,
+                        proc_start,
+                        proc_selected,
+                        &theme,
+                    ));
+                    output.push_str(term::SYNC_END);
+                    let _ = terminal.write_raw(&output);
+                }
+            }
         }
 
         // Poll for input
@@ -214,7 +233,7 @@ fn main() {
                     || key == "resize"
                 {
                     if key == "resize" {
-                        needs_redraw = true;
+                        needs_full_redraw = true;
                     }
                     continue;
                 }
@@ -223,7 +242,7 @@ fn main() {
                         "q" => break,
                         "escape" | "m" => {
                             menu_state = MenuState::None;
-                            needs_redraw = true;
+                            needs_full_redraw = true;
                         }
                         "o" | "f2" => {
                             options_selected = 0;
@@ -243,7 +262,7 @@ fn main() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
                             menu_state = MenuState::None;
-                            needs_redraw = true;
+                            needs_full_redraw = true;
                         }
                         _ => {}
                     },
@@ -251,7 +270,7 @@ fn main() {
                         "q" => break,
                         "escape" | "o" | "f2" => {
                             menu_state = MenuState::None;
-                            needs_redraw = true;
+                            needs_full_redraw = true;
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
@@ -344,36 +363,36 @@ fn main() {
                         "up" | "k" => {
                             if proc_selected > 0 {
                                 proc_selected -= 1;
-                                needs_redraw = true;
+                                needs_proc_redraw = true;
                             }
                         }
                         "down" | "j" => {
                             let count = runner.proc_collector.procs.len();
                             if proc_selected + 1 < count {
                                 proc_selected += 1;
-                                needs_redraw = true;
+                                needs_proc_redraw = true;
                             }
                         }
                         "page_up" => {
                             let page = th.saturating_sub(10);
                             proc_selected = proc_selected.saturating_sub(page);
-                            needs_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "page_down" => {
                             let page = th.saturating_sub(10);
                             let count = runner.proc_collector.procs.len();
                             proc_selected = (proc_selected + page).min(count.saturating_sub(1));
-                            needs_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "home" | "g" => {
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "end" | "G" => {
                             let count = runner.proc_collector.procs.len();
                             proc_selected = count.saturating_sub(1);
-                            needs_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         _ => {}
                     },
@@ -381,8 +400,31 @@ fn main() {
             }
         } else {
             // Poll timed out — no input received, time for periodic update
-            needs_redraw = true;
+            needs_full_redraw = true;
         }
+    }
+}
+
+fn clamp_proc_selection(procs: &[crate::domain::process::ProcInfo], box_height: usize, selected: &mut usize, start: &mut usize) {
+    let count = procs.len();
+    let max_visible = box_height.saturating_sub(5);
+    if count == 0 {
+        *selected = 0;
+        *start = 0;
+        return;
+    }
+    if *selected >= count {
+        *selected = count - 1;
+    }
+    if max_visible == 0 {
+        *start = *selected;
+        return;
+    }
+    if *selected >= *start + max_visible {
+        *start = *selected - max_visible + 1;
+    }
+    if *selected < *start {
+        *start = *selected;
     }
 }
 
