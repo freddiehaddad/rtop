@@ -13,6 +13,12 @@ pub struct CpuCollector {
     prev_user: Vec<u64>,
     load_avg_samples: VecDeque<f64>,
     initialized: bool,
+    // Persistent PDH query for CPU frequency (needs two collections for rate counters)
+    pdh_query: isize,
+    pdh_freq_counter: isize,
+    pdh_perf_counter: isize,
+    pdh_initialized: bool,
+    pdh_has_first_sample: bool,
 }
 
 impl CpuCollector {
@@ -24,6 +30,11 @@ impl CpuCollector {
             prev_user: Vec::new(),
             load_avg_samples: VecDeque::with_capacity(900),
             initialized: false,
+            pdh_query: 0,
+            pdh_freq_counter: 0,
+            pdh_perf_counter: 0,
+            pdh_initialized: false,
+            pdh_has_first_sample: false,
         }
     }
 
@@ -205,100 +216,90 @@ impl CpuCollector {
     }
 
     fn collect_frequency(&mut self) {
-        // Task Manager computes actual frequency as:
-        //   base_freq * (% Processor Performance) / 100
-        // We need two PDH counters:
-        //   \Processor Information(_Total)\Processor Frequency  → base MHz
-        //   \Processor Information(_Total)\% Processor Performance → scaling %
+        // Task Manager computes: base_freq * (% Processor Performance) / 100
+        // % Processor Performance is a rate counter that needs TWO PdhCollectQueryData
+        // calls with a time gap. We keep the query persistent across frames.
 
         #[link(name = "pdh")]
         unsafe extern "system" {
-            fn PdhOpenQueryW(
-                data_source: *const u16,
-                user_data: usize,
-                query: *mut isize,
-            ) -> i32;
-            fn PdhAddCounterW(
-                query: isize,
-                counter_path: *const u16,
-                user_data: usize,
-                counter: *mut isize,
-            ) -> i32;
-            fn PdhCollectQueryData(query: isize) -> i32;
-            fn PdhGetFormattedCounterValue(
-                counter: isize,
-                format: u32,
-                counter_type: *mut u32,
-                value: *mut PdhFmtCounterValue,
-            ) -> i32;
-            fn PdhCloseQuery(query: isize) -> i32;
+            fn PdhOpenQueryW(ds: *const u16, ud: usize, q: *mut isize) -> i32;
+            fn PdhAddCounterW(q: isize, p: *const u16, ud: usize, c: *mut isize) -> i32;
+            fn PdhCollectQueryData(q: isize) -> i32;
+            fn PdhGetFormattedCounterValue(c: isize, f: u32, ct: *mut u32, v: *mut PdhVal) -> i32;
+            fn PdhCloseQuery(q: isize) -> i32;
         }
 
         #[repr(C)]
         #[derive(Default)]
-        struct PdhFmtCounterValue {
-            status: u32,
-            double_value: f64,
-        }
+        struct PdhVal { status: u32, value: f64 }
 
         const PDH_FMT_DOUBLE: u32 = 0x00000200;
 
-        let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
-            .encode_utf16()
-            .collect();
-        let perf_path: Vec<u16> = "\\Processor Information(_Total)\\% Processor Performance\0"
-            .encode_utf16()
-            .collect();
+        // Initialize the persistent PDH query on first call
+        if !self.pdh_initialized {
+            let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
+                .encode_utf16().collect();
+            let perf_path: Vec<u16> = "\\Processor Information(_Total)\\% Processor Performance\0"
+                .encode_utf16().collect();
 
+            unsafe {
+                let mut q: isize = 0;
+                if PdhOpenQueryW(std::ptr::null(), 0, &mut q) != 0 {
+                    self.collect_frequency_fallback();
+                    return;
+                }
+                self.pdh_query = q;
+
+                if PdhAddCounterW(q, freq_path.as_ptr(), 0, &mut self.pdh_freq_counter) != 0
+                    || PdhAddCounterW(q, perf_path.as_ptr(), 0, &mut self.pdh_perf_counter) != 0
+                {
+                    PdhCloseQuery(q);
+                    self.pdh_query = 0;
+                    self.collect_frequency_fallback();
+                    return;
+                }
+
+                // First collection establishes baseline for rate counters
+                let _ = PdhCollectQueryData(q);
+                self.pdh_initialized = true;
+                self.pdh_has_first_sample = false;
+            }
+
+            // On first frame, use registry fallback since we don't have data yet
+            self.collect_frequency_fallback();
+            return;
+        }
+
+        // Collect new sample
         unsafe {
-            let mut query: isize = 0;
-            if PdhOpenQueryW(std::ptr::null(), 0, &mut query) != 0 {
+            if PdhCollectQueryData(self.pdh_query) != 0 {
                 self.collect_frequency_fallback();
                 return;
             }
 
-            let mut freq_counter: isize = 0;
-            let mut perf_counter: isize = 0;
-            if PdhAddCounterW(query, freq_path.as_ptr(), 0, &mut freq_counter) != 0
-                || PdhAddCounterW(query, perf_path.as_ptr(), 0, &mut perf_counter) != 0
-            {
-                PdhCloseQuery(query);
-                self.collect_frequency_fallback();
-                return;
+            if !self.pdh_has_first_sample {
+                // Second call — now rate counters will have data
+                self.pdh_has_first_sample = true;
             }
 
-            if PdhCollectQueryData(query) != 0 {
-                PdhCloseQuery(query);
-                self.collect_frequency_fallback();
-                return;
-            }
-
-            let mut freq_val = PdhFmtCounterValue::default();
-            let mut perf_val = PdhFmtCounterValue::default();
+            let mut freq_val = PdhVal::default();
+            let mut perf_val = PdhVal::default();
             let mut ct: u32 = 0;
 
-            let freq_ok = PdhGetFormattedCounterValue(freq_counter, PDH_FMT_DOUBLE, &mut ct, &mut freq_val) == 0
-                && freq_val.status == 0;
-            let perf_ok = PdhGetFormattedCounterValue(perf_counter, PDH_FMT_DOUBLE, &mut ct, &mut perf_val) == 0
-                && perf_val.status == 0;
+            let freq_ok = PdhGetFormattedCounterValue(
+                self.pdh_freq_counter, PDH_FMT_DOUBLE, &mut ct, &mut freq_val
+            ) == 0 && freq_val.status == 0;
 
-            PdhCloseQuery(query);
+            let perf_ok = PdhGetFormattedCounterValue(
+                self.pdh_perf_counter, PDH_FMT_DOUBLE, &mut ct, &mut perf_val
+            ) == 0 && perf_val.status == 0;
 
-            if freq_ok && perf_ok && freq_val.double_value > 0.0 && perf_val.double_value > 0.0 {
-                // actual_mhz = base_mhz * performance% / 100
-                let actual_mhz = (freq_val.double_value * perf_val.double_value / 100.0) as u32;
+            if freq_ok && perf_ok && freq_val.value > 0.0 && perf_val.value > 0.0 {
+                let actual_mhz = (freq_val.value * perf_val.value / 100.0) as u32;
                 if actual_mhz >= 1000 {
                     self.info.cpu_hz = format!("{:.2} GHz", actual_mhz as f64 / 1000.0);
                 } else {
                     self.info.cpu_hz = format!("{} MHz", actual_mhz);
-                }
-                return;
-            } else if freq_ok && freq_val.double_value > 0.0 {
-                let mhz = freq_val.double_value as u32;
-                if mhz >= 1000 {
-                    self.info.cpu_hz = format!("{:.2} GHz", mhz as f64 / 1000.0);
-                } else {
-                    self.info.cpu_hz = format!("{} MHz", mhz);
                 }
                 return;
             }
