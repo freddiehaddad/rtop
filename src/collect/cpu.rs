@@ -205,9 +205,11 @@ impl CpuCollector {
     }
 
     fn collect_frequency(&mut self) {
-        // Use PDH performance counter for actual current frequency, matching Task Manager.
-        // Counter: \Processor Information(_Total)\Processor Frequency
-        // This reports the actual real-time frequency including turbo boost.
+        // Task Manager computes actual frequency as:
+        //   base_freq * (% Processor Performance) / 100
+        // We need two PDH counters:
+        //   \Processor Information(_Total)\Processor Frequency  → base MHz
+        //   \Processor Information(_Total)\% Processor Performance → scaling %
 
         #[link(name = "pdh")]
         unsafe extern "system" {
@@ -241,7 +243,10 @@ impl CpuCollector {
 
         const PDH_FMT_DOUBLE: u32 = 0x00000200;
 
-        let counter_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
+        let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
+            .encode_utf16()
+            .collect();
+        let perf_path: Vec<u16> = "\\Processor Information(_Total)\\% Processor Performance\0"
             .encode_utf16()
             .collect();
 
@@ -252,8 +257,11 @@ impl CpuCollector {
                 return;
             }
 
-            let mut counter: isize = 0;
-            if PdhAddCounterW(query, counter_path.as_ptr(), 0, &mut counter) != 0 {
+            let mut freq_counter: isize = 0;
+            let mut perf_counter: isize = 0;
+            if PdhAddCounterW(query, freq_path.as_ptr(), 0, &mut freq_counter) != 0
+                || PdhAddCounterW(query, perf_path.as_ptr(), 0, &mut perf_counter) != 0
+            {
                 PdhCloseQuery(query);
                 self.collect_frequency_fallback();
                 return;
@@ -265,24 +273,35 @@ impl CpuCollector {
                 return;
             }
 
-            let mut value = PdhFmtCounterValue::default();
-            let mut counter_type: u32 = 0;
-            if PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, &mut counter_type, &mut value) == 0
-                && value.status == 0
-            {
-                let mhz = value.double_value as u32;
-                if mhz > 0 {
-                    if mhz >= 1000 {
-                        self.info.cpu_hz = format!("{:.2} GHz", mhz as f64 / 1000.0);
-                    } else {
-                        self.info.cpu_hz = format!("{} MHz", mhz);
-                    }
-                    PdhCloseQuery(query);
-                    return;
-                }
-            }
+            let mut freq_val = PdhFmtCounterValue::default();
+            let mut perf_val = PdhFmtCounterValue::default();
+            let mut ct: u32 = 0;
+
+            let freq_ok = PdhGetFormattedCounterValue(freq_counter, PDH_FMT_DOUBLE, &mut ct, &mut freq_val) == 0
+                && freq_val.status == 0;
+            let perf_ok = PdhGetFormattedCounterValue(perf_counter, PDH_FMT_DOUBLE, &mut ct, &mut perf_val) == 0
+                && perf_val.status == 0;
 
             PdhCloseQuery(query);
+
+            if freq_ok && perf_ok && freq_val.double_value > 0.0 && perf_val.double_value > 0.0 {
+                // actual_mhz = base_mhz * performance% / 100
+                let actual_mhz = (freq_val.double_value * perf_val.double_value / 100.0) as u32;
+                if actual_mhz >= 1000 {
+                    self.info.cpu_hz = format!("{:.2} GHz", actual_mhz as f64 / 1000.0);
+                } else {
+                    self.info.cpu_hz = format!("{} MHz", actual_mhz);
+                }
+                return;
+            } else if freq_ok && freq_val.double_value > 0.0 {
+                let mhz = freq_val.double_value as u32;
+                if mhz >= 1000 {
+                    self.info.cpu_hz = format!("{:.2} GHz", mhz as f64 / 1000.0);
+                } else {
+                    self.info.cpu_hz = format!("{} MHz", mhz);
+                }
+                return;
+            }
         }
 
         self.collect_frequency_fallback();
