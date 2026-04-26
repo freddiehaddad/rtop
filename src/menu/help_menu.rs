@@ -4,7 +4,7 @@ use crate::theme::Theme;
 use crate::tools;
 
 /// Draw the help menu centered on screen.
-pub fn draw(term_width: usize, term_height: usize, theme: &Theme) -> String {
+pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool) -> String {
     let w = 60.min(term_width);
     let h = 40.min(term_height);
     let x = (term_width.saturating_sub(w)) / 2;
@@ -24,7 +24,7 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme) -> String {
         title: "help",
         title2: "",
         num: 0,
-        rounded: true,
+        rounded,
         hi_color: hi,
         title_color: title_c,
     });

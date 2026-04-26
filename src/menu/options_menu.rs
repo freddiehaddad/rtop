@@ -885,7 +885,7 @@ pub fn draw(
         title: &tab_title,
         title2: "",
         num: 0,
-        rounded: true,
+        rounded: config.get_bool("rounded_corners"),
         hi_color: "",
         title_color: "",
     }));

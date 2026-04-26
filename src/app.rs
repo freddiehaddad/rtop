@@ -300,7 +300,7 @@ pub fn run(
                                 }
                                 1 => {
                                     // Help
-                                    let menu_out = menu::help_menu::draw(tw, th, theme);
+                                    let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
                                     let _ = terminal.write_raw(&menu_out);
                                     menu_state = MenuState::Help;
                                 }
@@ -329,7 +329,7 @@ pub fn run(
                         }
                         "h" | "?" | "f1" => {
                             // Show help menu
-                            let menu_out = menu::help_menu::draw(tw, th, theme);
+                            let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Help;
                         }
@@ -634,7 +634,7 @@ pub fn run(
                             menu_state = MenuState::Main;
                         }
                         "h" | "?" | "f1" => {
-                            let menu_out = menu::help_menu::draw(tw, th, theme);
+                            let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Help;
                         }
