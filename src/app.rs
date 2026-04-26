@@ -87,6 +87,7 @@ pub fn run(
                     proc_left: config.get_bool("proc_left"),
                     core_count: runner.cpu.info.core_count,
                     gpu_count: runner.gpu.gpu_count(),
+                    show_disks: config.get_bool("show_disks"),
                 }));
             }
             let layout = cached_layout.as_ref().unwrap();
@@ -126,6 +127,15 @@ pub fn run(
                     let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
                     output.push_str(&ui::mem_box::draw(
                         &runner.mem.info, &area, theme,
+                    ));
+                }
+            }
+
+            if dirty.intersects(Dirty::DISK_BOX) {
+                if let Some(ref disk_dim) = layout.disk {
+                    let area = ui::BoxArea { x: disk_dim.x, y: disk_dim.y, width: disk_dim.width, height: disk_dim.height, rounded };
+                    output.push_str(&ui::disk_box::draw(
+                        &runner.disk.data, &area, theme,
                     ));
                 }
             }
@@ -537,7 +547,7 @@ pub fn run(
                         }
                         "d" => {
                             config.flip("show_disks");
-                            dirty |= Dirty::MEM_BOX;
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         // Process keybinds
                         "f" | "/" => {

@@ -12,6 +12,7 @@ pub struct BoxDimensions {
 pub struct Layout {
     pub cpu: Option<BoxDimensions>,
     pub mem: Option<BoxDimensions>,
+    pub disk: Option<BoxDimensions>,
     pub net: Option<BoxDimensions>,
     pub proc_box: Option<BoxDimensions>,
     pub gpu: Vec<BoxDimensions>,
@@ -31,6 +32,8 @@ pub const MIN_NET_WIDTH: usize = 20;
 pub const MIN_PROC_WIDTH: usize = 44;
 /// Minimum height for a GPU box.
 pub const MIN_GPU_HEIGHT: usize = 4;
+/// Minimum height for the disk box.
+pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
 const PROC_WIDTH_PCT: usize = 55;
 /// Percentage of remaining height allocated to the mem box when both mem+net are shown.
@@ -46,6 +49,8 @@ pub struct LayoutConfig<'a> {
     pub proc_left: bool,
     pub core_count: usize,
     pub gpu_count: usize,
+    /// Whether the disk box is visible.
+    pub show_disks: bool,
 }
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
@@ -62,6 +67,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let has_mem = shown_boxes.iter().any(|b| b == "mem");
     let has_net = shown_boxes.iter().any(|b| b == "net");
     let has_proc = shown_boxes.iter().any(|b| b == "proc");
+    let has_disk = cfg.show_disks;
 
     // Count how many gpu boxes are shown
     let gpu_shown: Vec<usize> = (0..gpu_count)
@@ -106,15 +112,23 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Remaining height after CPU + GPU
     let remaining_height = term_height.saturating_sub(top_section);
 
-    // MEM and NET heights
+    // Reserve disk height if visible
+    let disk_height = if has_disk {
+        MIN_DISK_HEIGHT.max(remaining_height / 4).min(remaining_height / 2)
+    } else {
+        0
+    };
+    let left_remaining = remaining_height.saturating_sub(disk_height);
+
+    // MEM and NET heights from the remaining left column space
     let (mem_height, net_height) = if has_mem && has_net {
-        let mh = (remaining_height * MEM_HEIGHT_PCT / 100).max(MIN_MEM_HEIGHT);
-        let nh = remaining_height.saturating_sub(mh).max(MIN_NET_HEIGHT);
+        let mh = (left_remaining * MEM_HEIGHT_PCT / 100).max(MIN_MEM_HEIGHT);
+        let nh = left_remaining.saturating_sub(mh).max(MIN_NET_HEIGHT);
         (mh, nh)
     } else if has_mem {
-        (remaining_height, 0)
+        (left_remaining, 0)
     } else if has_net {
-        (0, remaining_height)
+        (0, left_remaining)
     } else {
         (0, 0)
     };
@@ -182,6 +196,17 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         });
     }
 
+    // Disk box — below mem+net in the left column
+    if has_disk {
+        let disk_y = left_y_start + mem_height + net_height;
+        layout.disk = Some(BoxDimensions {
+            x: left_x,
+            y: disk_y,
+            width: left_width.max(MIN_MEM_WIDTH),
+            height: disk_height,
+        });
+    }
+
     // PROC position
     if has_proc {
         let proc_x = if proc_left { 0 } else { left_width };
@@ -205,7 +230,7 @@ mod tests {
     }
 
     fn lc(tw: usize, th: usize, shown: &[String]) -> LayoutConfig<'_> {
-        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0 }
+        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0, show_disks: false }
     }
 
     #[test]
@@ -285,5 +310,25 @@ mod tests {
         if let Some(proc_b) = &layout.proc_box {
             assert!(proc_b.width >= MIN_PROC_WIDTH);
         }
+    }
+
+    #[test]
+    fn calc_sizes_disk_box_when_show_disks() {
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { show_disks: true, core_count: 8, ..lc(120, 50, &b) });
+        assert!(layout.disk.is_some(), "disk box should be present");
+        let disk = layout.disk.as_ref().unwrap();
+        assert!(disk.height >= MIN_DISK_HEIGHT);
+        // Disk should be below mem and net in the left column
+        if let Some(mem) = &layout.mem {
+            assert!(disk.y >= mem.y + mem.height);
+        }
+    }
+
+    #[test]
+    fn calc_sizes_no_disk_box_when_hidden() {
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { show_disks: false, ..lc(120, 50, &b) });
+        assert!(layout.disk.is_none(), "disk box should be absent");
     }
 }

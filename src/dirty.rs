@@ -26,13 +26,16 @@ bitflags! {
         /// Rebuild the derived process display list (sort, filter, tree)
         /// from the raw collected process data.
         const PROC_LIST = 1 << 7;
+        /// Redraw the disk box.
+        const DISK_BOX  = 1 << 8;
 
         /// All renderable boxes.
         const ALL_BOXES = Self::CPU_BOX.bits()
                         | Self::MEM_BOX.bits()
                         | Self::NET_BOX.bits()
                         | Self::PROC_BOX.bits()
-                        | Self::GPU_BOX.bits();
+                        | Self::GPU_BOX.bits()
+                        | Self::DISK_BOX.bits();
 
         /// Everything — full collection + layout + all boxes + proc list.
         const FULL = Self::COLLECT.bits()
@@ -53,6 +56,7 @@ mod tests {
         assert!(Dirty::ALL_BOXES.contains(Dirty::NET_BOX));
         assert!(Dirty::ALL_BOXES.contains(Dirty::PROC_BOX));
         assert!(Dirty::ALL_BOXES.contains(Dirty::GPU_BOX));
+        assert!(Dirty::ALL_BOXES.contains(Dirty::DISK_BOX));
     }
 
     #[test]

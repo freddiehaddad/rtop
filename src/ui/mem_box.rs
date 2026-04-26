@@ -1,6 +1,5 @@
 use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
-use crate::draw::box_drawing::symbols;
 use crate::draw::meter::Meter;
 use crate::term;
 use crate::theme::Theme;
@@ -8,18 +7,18 @@ use crate::tools;
 
 use super::BoxArea;
 
-/// Draw the memory box into an ANSI string matching btop's layout.
+/// Draw the memory box into an ANSI string.
 ///
-/// Layout with disks:
-/// ╭─ mem ──────────────────────╮╭─ disks ─────────────────╮
-/// │ Used  ■■■■■■■■■■■░░░ 5.2G ││ C: NTFS                 │
-/// │ Avail ■■■■░░░░░░░░░░ 3.1G ││  ■■■■■■■■■░ 233G / 465G │
-/// │ Cache ■■■░░░░░░░░░░░ 1.8G ││ D: NTFS                 │
-/// │ Free  ■■░░░░░░░░░░░░ 0.9G ││  ■■■░░░░░░░ 1.2T / 3.6T │
-/// │                            ││                          │
-/// │ Swap  ■■░░░░░░░░░░░░ 1.0G ││                          │
-/// │   1.0G / 8.0G              ││                          │
-/// ╰────────────────────────────╯╰──────────────────────────╯
+/// Layout:
+/// ╭─ mem ──────────────────────╮
+/// │ Used  ■■■■■■■■■■■░░░ 5.2G │
+/// │ Avail ■■■■░░░░░░░░░░ 3.1G │
+/// │ Cache ■■■░░░░░░░░░░░ 1.8G │
+/// │ Free  ■■░░░░░░░░░░░░ 0.9G │
+/// │                            │
+/// │ Swap  ■■░░░░░░░░░░░░ 1.0G │
+/// │   1.0G / 8.0G              │
+/// ╰────────────────────────────╯
 pub fn draw(
     mem: &MemInfo,
     area: &BoxArea,
@@ -33,71 +32,24 @@ pub fn draw(
     let box_color = theme.c("mem_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
-    let hi = theme.c("hi_fg");
-    let div_color = theme.c("div_line");
     let used_grad = theme.g("used");
     let free_grad = theme.g("free");
     let cached_grad = theme.g("cached");
     let avail_grad = theme.g("available");
 
-    let has_disks = !mem.disks.is_empty();
     let inner_h = height.saturating_sub(2);
 
-    // btop: mem_width = ceil((width-3)/2), rounded to even; disks_width = width - mem_width - 2
-    let (mem_w, disk_w, divider_col) = if has_disks && width > 50 {
-        let mw = ((width as f64 - 3.0) / 2.0).ceil() as usize;
-        let mw = mw + (mw % 2); // round up to even
-        let dw = width - mw - 2;
-        (mw, dw, x + mw)
-    } else {
-        (width.saturating_sub(1), 0, 0)
-    };
-
-    // One full-width box with "mem" title (btop line 2453)
     let mut out =
         box_drawing::create_box(&box_drawing::BoxConfig {
             x, y, width, height, line_color: box_color, fill: true,
             title: "mem", title2: "", num: 2, rounded,
         });
 
-    // "disks" title inset on the top border (btop line 2454)
-    // Placed at divider+2 using title_left + "d" highlighted + "isks" + title_right
-    if disk_w > 0 {
-        let disks_title_x = divider_col + 3;
-        out.push_str(&format!(
-            "{}{}{}{}{}{}{}{}",
-            term::mv(disks_title_x, y + 1),
-            box_color,
-            box_drawing::title_syms::TITLE_LEFT,
-            hi, "d",
-            title_color, "isks",
-            box_color,
-        ));
-        out.push_str(box_drawing::title_syms::TITLE_RIGHT);
-
-        // Divider: div_up at top, div_down at bottom, v_line in between (btop line 2458-2460)
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(divider_col + 1, y + 1), box_color, symbols::DIV_UP
-        ));
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(divider_col + 1, y + height), box_color, symbols::DIV_DOWN
-        ));
-        out.push_str(div_color);
-        for row_i in 1..height.saturating_sub(1) {
-            out.push_str(&format!(
-                "{}{}",
-                term::mv(divider_col + 1, y + 1 + row_i), symbols::V_LINE
-            ));
-        }
-    }
-
     let total_bytes = mem.stats.get("used").unwrap_or(&0)
         + mem.stats.get("available").unwrap_or(&0);
-    let meter_area = mem_w.saturating_sub(4); // 2 border + 2 padding
-    let label_w = 6; // "Used  ", "Avail ", etc.
-    let meter_w = meter_area.saturating_sub(label_w + 6).max(5); // 6 for value display
+    let meter_area = width.saturating_sub(4);
+    let label_w = 6;
+    let meter_w = meter_area.saturating_sub(label_w + 6).max(5);
     let meter_bg = theme.c("meter_bg");
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
@@ -205,56 +157,6 @@ pub fn draw(
                 su,
                 st
             ));
-        }
-    }
-
-    // Disks section (right panel, after the divider)
-    if disk_w > 0 {
-        let disk_x = divider_col + 1; // column after the vertical divider
-        let disk_inner_w = disk_w.saturating_sub(1); // -1 for the right border
-        let disk_meter_w = disk_inner_w.saturating_sub(16).max(5);
-        let disk_meter = Meter::new(disk_meter_w, avail_grad, meter_bg);
-        let mut drow = 0;
-
-        for disk_name in &mem.disks_order {
-            if drow + 1 >= inner_h {
-                break;
-            }
-            if let Some(disk) = mem.disks.get(disk_name) {
-                let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
-                let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
-
-                // Row 1: "C: NTFS"
-                let fstype_label = if disk.fstype.is_empty() {
-                    String::new()
-                } else {
-                    format!(" {}", disk.fstype)
-                };
-                out.push_str(&format!(
-                    "{}{}{}{}{}",
-                    term::mv(disk_x + 1, y + 2 + drow),
-                    title_color,
-                    tools::uresize(&disk.name, 4, false),
-                    fg,
-                    fstype_label,
-                ));
-                drow += 1;
-
-                if drow >= inner_h {
-                    break;
-                }
-
-                // Row 2: " ■■■■■■■■░ 233G / 465G"
-                let usage_label = format!("{} / {}", du, dt);
-                out.push_str(&format!(
-                    "{} {} {}{}",
-                    term::mv(disk_x + 1, y + 2 + drow),
-                    disk_meter.render(disk.used_percent),
-                    fg,
-                    usage_label,
-                ));
-                drow += 1;
-            }
         }
     }
 

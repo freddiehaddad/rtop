@@ -1,4 +1,5 @@
 use crate::collect::cpu::CpuCollector;
+use crate::collect::disk::DiskCollector;
 use crate::collect::gpu::GpuCollector;
 use crate::collect::memory::MemCollector;
 use crate::collect::network::NetCollector;
@@ -7,6 +8,7 @@ use crate::collect::process::ProcCollector;
 /// Coordinates all data collectors.
 pub struct Runner {
     pub cpu: CpuCollector,
+    pub disk: DiskCollector,
     pub gpu: GpuCollector,
     pub mem: MemCollector,
     pub net: NetCollector,
@@ -20,6 +22,7 @@ impl Runner {
         cpu.init();
         Self {
             cpu,
+            disk: DiskCollector::new(),
             gpu: GpuCollector::new(),
             mem: MemCollector::new(),
             net: NetCollector::new(),
@@ -30,6 +33,7 @@ impl Runner {
     /// Run one collection cycle for all collectors.
     pub fn collect_all(&mut self) {
         self.cpu.collect();
+        self.disk.collect();
         self.gpu.collect();
         self.mem.collect();
         self.net.collect();

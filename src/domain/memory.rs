@@ -1,6 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
-/// System memory, swap, and disk usage information.
+/// System memory and swap usage information.
 #[derive(Debug, Clone)]
 pub struct MemInfo {
     /// Memory statistics in bytes. Keys: "used", "available", "cached", "free",
@@ -8,10 +8,6 @@ pub struct MemInfo {
     pub stats: HashMap<String, u64>,
     /// Percentage histories for each memory category (0-100).
     pub percent: HashMap<String, VecDeque<i64>>,
-    /// Disk information keyed by drive/mount name (e.g. "C:").
-    pub disks: HashMap<String, DiskInfo>,
-    /// Ordered list of disk names for display.
-    pub disks_order: Vec<String>,
 }
 
 impl Default for MemInfo {
@@ -28,26 +24,8 @@ impl Default for MemInfo {
         Self {
             stats: keys.iter().map(|k| (k.to_string(), 0u64)).collect(),
             percent: keys.iter().map(|k| (k.to_string(), VecDeque::new())).collect(),
-            disks: HashMap::new(),
-            disks_order: Vec::new(),
         }
     }
-}
-
-/// Information about a single disk/volume.
-#[derive(Debug, Clone)]
-#[derive(Default)]
-pub struct DiskInfo {
-    /// Display name (e.g. "C:", "D:").
-    pub name: String,
-    /// Filesystem type (e.g. "NTFS", "FAT32", "ReFS").
-    pub fstype: String,
-    /// Total capacity in bytes.
-    pub total: u64,
-    /// Used space in bytes.
-    pub used: u64,
-    /// Used percentage (0-100).
-    pub used_percent: i32,
 }
 
 
@@ -70,16 +48,5 @@ mod tests {
             assert!(mem.stats.contains_key(*key), "missing stat key: {key}");
             assert!(mem.percent.contains_key(*key), "missing percent key: {key}");
         }
-    }
-
-    #[test]
-    fn disk_info_percentages_valid_range() {
-        let disk = DiskInfo {
-            total: 1_000_000,
-            used: 600_000,
-            used_percent: 60,
-            ..Default::default()
-        };
-        assert!((0..=100).contains(&disk.used_percent));
     }
 }
