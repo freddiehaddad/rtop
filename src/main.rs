@@ -102,6 +102,7 @@ fn main() {
         Main,
         Help,
         Options,
+        Filter,
     }
 
     let mut menu_state = MenuState::None;
@@ -112,6 +113,7 @@ fn main() {
     let mut main_menu_selected: usize = 0;
     let mut proc_start: usize = 0;
     let mut proc_selected: usize = 0;
+    let mut filter_text = String::new();
 
     // Main event loop — timer-based like btop.
     // Collection runs on a wall-clock deadline, input never blocks it.
@@ -149,6 +151,12 @@ fn main() {
             let sort_by = config.get_string("proc_sorting").to_string();
             let reversed = config.get_bool("proc_reversed");
             collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
+
+            // Filter processes if filter is active
+            let proc_filter = config.get_string("proc_filter").to_string();
+            if !proc_filter.is_empty() {
+                runner.proc_collector.procs.retain(|p| collect::process::matches_filter(p, &proc_filter));
+            }
 
             // Build tree if tree mode is enabled
             let tree_mode = config.get_bool("proc_tree");
@@ -233,6 +241,26 @@ fn main() {
                     &view,
                     &theme,
                 ));
+                // Show filter input if in filter mode or if filter is active
+                let pf = config.get_string("proc_filter").to_string();
+                if menu_state == MenuState::Filter || !pf.is_empty() {
+                    let filter_label = format!(
+                        "{}{}{}f{}ilter: {}{}{}{}",
+                        theme.c("proc_box"),
+                        crate::draw::box_drawing::title_syms::TITLE_LEFT_DOWN,
+                        theme.c("hi_fg"),
+                        theme.c("title"),
+                        theme.c("main_fg"),
+                        pf,
+                        if menu_state == MenuState::Filter { "\x1b[4m \x1b[24m" } else { "" },
+                        crate::draw::box_drawing::title_syms::TITLE_RIGHT_DOWN,
+                    );
+                    output.push_str(&format!(
+                        "\x1b[{};{}H{}{}",
+                        proc_dim.y + proc_dim.height, proc_dim.x + 3,
+                        theme.c("proc_box"), filter_label
+                    ));
+                }
             }
 
             output.push_str(term::SYNC_END);
@@ -247,6 +275,10 @@ fn main() {
             let reversed = config.get_bool("proc_reversed");
             let tree_mode = config.get_bool("proc_tree");
             collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
+            let proc_filter = config.get_string("proc_filter").to_string();
+            if !proc_filter.is_empty() {
+                runner.proc_collector.procs.retain(|p| collect::process::matches_filter(p, &proc_filter));
+            }
             if tree_mode {
                 let children = collect::process::build_tree(&runner.proc_collector.procs);
                 collect::process::generate_tree_prefixes(&mut runner.proc_collector.procs, &children);
@@ -479,6 +511,43 @@ fn main() {
                         }
                         _ => {}
                     },
+                    MenuState::Filter => match key.as_str() {
+                        "escape" => {
+                            // Cancel filter, restore previous
+                            menu_state = MenuState::None;
+                            needs_full_redraw = true;
+                        }
+                        "enter" => {
+                            // Apply filter
+                            config.set_string("proc_filter", &filter_text);
+                            menu_state = MenuState::None;
+                            proc_selected = 0;
+                            proc_start = 0;
+                            needs_full_redraw = true;
+                        }
+                        "backspace" => {
+                            filter_text.pop();
+                            config.set_string("proc_filter", &filter_text);
+                            proc_selected = 0;
+                            proc_start = 0;
+                            needs_full_redraw = true;
+                        }
+                        "delete" => {
+                            filter_text.clear();
+                            config.set_string("proc_filter", "");
+                            proc_selected = 0;
+                            proc_start = 0;
+                            needs_full_redraw = true;
+                        }
+                        s if s.len() == 1 && !s.starts_with('\x1b') => {
+                            filter_text.push_str(s);
+                            config.set_string("proc_filter", &filter_text);
+                            proc_selected = 0;
+                            proc_start = 0;
+                            needs_full_redraw = true;
+                        }
+                        _ => {}
+                    },
                     MenuState::None => match key.as_str() {
                         "q" => break,
                         "escape" | "m" => {
@@ -610,7 +679,8 @@ fn main() {
                         }
                         // Process keybinds
                         "f" | "/" => {
-                            config.flip("proc_filter_kernel");
+                            menu_state = MenuState::Filter;
+                            filter_text = config.get_string("proc_filter").to_string();
                             needs_full_redraw = true;
                         }
                         "e" => {

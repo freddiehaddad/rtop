@@ -480,7 +480,6 @@ pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
     });
 }
 
-#[cfg(test)]
 /// Test if a process matches a filter string.
 pub fn matches_filter(proc: &ProcInfo, filter: &str) -> bool {
     if filter.is_empty() {
