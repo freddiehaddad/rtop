@@ -193,6 +193,7 @@ fn main() {
                     &runner.cpu.info,
                     &area,
                     &theme,
+                    update_ms,
                 ));
             }
             for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
@@ -663,20 +664,19 @@ fn main() {
                         "f" | "/" => {
                             menu_state = MenuState::Filter;
                             filter_text = config.get_string("proc_filter").to_string();
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "e" => {
                             config.flip("proc_tree");
-                            // Reset tree-related state when toggling
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "r" => {
                             config.flip("proc_reversed");
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "c" => {
                             config.flip("proc_per_core");
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "i" => {
                             config.flip("io_mode");
@@ -688,7 +688,7 @@ fn main() {
                             let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
                             let new_idx = if idx == 0 { sort_opts.len() - 1 } else { idx - 1 };
                             config.set_string("proc_sorting", sort_opts[new_idx]);
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "right" => {
                             let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
@@ -696,14 +696,14 @@ fn main() {
                             let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
                             let new_idx = (idx + 1) % sort_opts.len();
                             config.set_string("proc_sorting", sort_opts[new_idx]);
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "t"
                             // Terminate selected process
                             if proc_selected < runner.proc_collector.procs.len() => {
                                 let pid = runner.proc_collector.procs[proc_selected].pid;
                                 terminate_process(pid);
-                                needs_full_redraw = true;
+                                needs_proc_redraw = true;
                             }
                         "enter"
                             // Toggle process detailed view
@@ -716,7 +716,7 @@ fn main() {
                                 } else {
                                     config.set_int("detailed_pid", pid as i64);
                                 }
-                                needs_full_redraw = true;
+                                needs_proc_redraw = true;
                             }
                         // Network keybinds
                         "b"
@@ -777,14 +777,24 @@ fn main() {
                             let new_ms = (update_ms as i64 + step).min(86_400_000);
                             config.set_int("update_ms", new_ms);
                             update_ms = config.get_int("update_ms") as u64;
-                            needs_full_redraw = true;
+                            if let Some(ref layout) = cached_layout {
+                                if let Some(ref cpu_dim) = layout.cpu {
+                                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
+                                    let _ = terminal.write_raw(&ui::cpu_box::draw_rate_label(&area, &theme, update_ms));
+                                }
+                            }
                         }
                         "-" => {
                             let step = if update_ms > 2000 { 1000 } else { 100 };
                             let new_ms = (update_ms as i64 - step).max(100);
                             config.set_int("update_ms", new_ms);
                             update_ms = config.get_int("update_ms") as u64;
-                            needs_full_redraw = true;
+                            if let Some(ref layout) = cached_layout {
+                                if let Some(ref cpu_dim) = layout.cpu {
+                                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
+                                    let _ = terminal.write_raw(&ui::cpu_box::draw_rate_label(&area, &theme, update_ms));
+                                }
+                            }
                         }
                         _ => {}
                     },

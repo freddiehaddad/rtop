@@ -24,6 +24,7 @@ pub fn draw(
     cpu: &CpuInfo,
     area: &BoxArea,
     theme: &Theme,
+    update_ms: u64,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -365,14 +366,15 @@ pub fn draw(
 
     // Bottom border keybind hints
     let bottom_y = y + height;
+    let rate_label = format!("{}ms", update_ms);
     let hints = format!(
-        "{}{}{}m{}enu{}{} {}{}{}p{}reset{}{} {}{}{}─{}{}+{}{}",
+        "{}{}{}m{}enu{}{} {}{}{}p{}reset{}{} {}{}{}─ {}{} {}+{}{}",
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
+        hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
     out.push_str(&format!(
         "\x1b[{};{}H{}",
@@ -382,4 +384,24 @@ pub fn draw(
 
     out.push_str("\x1b[0m");
     out
+}
+
+/// Render only the `─ {rate}ms +` portion on the CPU bottom border.
+/// Used for instant feedback when pressing +/- without a full redraw.
+pub fn draw_rate_label(area: &BoxArea, theme: &Theme, update_ms: u64) -> String {
+    let box_color = theme.c("cpu_box");
+    let hi = theme.c("hi_fg");
+    let fg = theme.c("main_fg");
+    let bottom_y = area.y + area.height;
+    // "┘menu┌ ┘preset┌ " = 16 visible chars before the rate inset
+    let col = area.x + 3 + 16;
+    let rate_label = format!("{}ms", update_ms);
+    // Overwrite: ┘─ {rate} +┌ then pad with ─ to clear old longer values
+    let content = format!(
+        "{}{}{}─ {}{} {}+{}{}",
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
+    );
+    // Pad with box-colored ─ to clear any leftover chars from a longer previous value
+    format!("\x1b[{};{}H{}{}─────\x1b[0m", bottom_y, col, content, box_color)
 }
