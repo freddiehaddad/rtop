@@ -864,7 +864,6 @@ pub fn draw(
     let selected = selected.min(select_max);
 
     let hi = theme.c("hi_fg");
-    let div_line = theme.c("div_line");
     let title_c = theme.c("title");
     let fg = theme.c("main_fg");
     let sel_bg = theme.c("selected_bg");
@@ -897,7 +896,7 @@ pub fn draw(
     out.push_str(&term::mv(x + 1, divider_row));
     out.push_str(hi);
     out.push_str(symbols::DIV_LEFT);
-    out.push_str(div_line);
+    out.push_str(hi);
     out.push_str(&h_left);
     out.push_str(symbols::DIV_UP);
     out.push_str(&h_right);
@@ -905,7 +904,7 @@ pub fn draw(
     out.push_str(symbols::DIV_RIGHT);
     // Bottom T-junction on vertical divider
     out.push_str(&term::mv(x + 31, y + 6 + height));
-    out.push_str(div_line);
+    out.push_str(hi);
     out.push_str(symbols::DIV_DOWN);
 
     // Vertical divider line at x+30 for each content row
@@ -913,7 +912,7 @@ pub fn draw(
         out.push_str(&format!(
             "{}{}{}",
             term::mv(x + 31, y + 9 + 1 + i),
-            div_line,
+            hi,
             symbols::V_LINE,
         ));
     }

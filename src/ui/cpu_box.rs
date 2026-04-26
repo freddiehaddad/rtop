@@ -53,7 +53,6 @@ pub fn draw(
     let box_color = theme.c("cpu_box");
     let hi = theme.c("hi_fg");
     let title_color = theme.c("title");
-    let div_color = theme.c("div_line");
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
     let graph_sym = GraphSymbol::from_config(
@@ -170,7 +169,7 @@ pub fn draw(
             out.push_str(&format!(
                 "{}{}{}",
                 term::mv(b_x + 1, y + 1 + row_i),
-                div_color,
+                box_color,
                 symbols::V_LINE
             ));
         }
@@ -229,11 +228,11 @@ pub fn draw(
     if has_lower {
         let div_y = y + 2 + divider_row;
         let mid_label = format!(
-            " {}▲ {}{} {} {}▼{} ",
-            hi, title_color, upper_key, div_color, title_color, lower_key,
+            " {}▲ {}{}{}── {}{} {}▼ {}",
+            hi, title_color, upper_key, box_color, title_color, lower_key, hi, box_color,
         );
-        // Visible length: " ▲ user ── system ▼ " (arrows + names + spaces)
-        let label_vis_len = 5 + upper_key.len() + lower_key.len();
+        // Visible length: " ▲ user ── system ▼ "
+        let label_vis_len = 7 + upper_key.len() + lower_key.len();
         let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
         let right_dashes = graph_width.saturating_sub(label_vis_len + left_dashes);
         out.push_str(&format!(
@@ -241,7 +240,7 @@ pub fn draw(
             term::mv(x + 1, div_y),
             box_color,
             symbols::DIV_LEFT,
-            div_color,
+            box_color,
             symbols::H_LINE.repeat(left_dashes),
             mid_label,
             symbols::H_LINE.repeat(right_dashes),
@@ -337,7 +336,7 @@ fn draw_core_panel(
 ) -> String {
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
-    let div_color = theme.c("div_line");
+    let box_color = theme.c("cpu_box");
     let cpu_gradient = theme.g("cpu");
     let temp_gradient = theme.g("temp");
     let mut out = String::new();
@@ -474,7 +473,7 @@ fn draw_core_panel(
 
         // Column separator
         if cc + 1 < panel.columns {
-            out.push_str(&format!("{}{}", div_color, symbols::V_LINE));
+            out.push_str(&format!("{}{}", box_color, symbols::V_LINE));
         }
 
         cy += 1;
