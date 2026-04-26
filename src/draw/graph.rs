@@ -38,7 +38,7 @@ pub struct Graph {
     symbol: GraphSymbol,
     invert: bool,
     no_zero: bool,
-    max_value: i64,
+    pub max_value: i64,
     offset: i64,
     last: i64,
 }
@@ -102,6 +102,39 @@ impl Graph {
             self.last = curr;
         }
 
+        result
+    }
+
+    /// Render a row with gradient colors applied per column.
+    pub fn render_row_colored(&mut self, data: &VecDeque<i64>, gradient: &[String]) -> String {
+        let mut result = String::with_capacity(self.width * 20);
+        let len = data.len();
+
+        for i in 0..self.width {
+            let data_idx = if len > self.width {
+                i + len - self.width
+            } else {
+                i
+            };
+            let curr = data.get(data_idx).copied().unwrap_or(0);
+            let prev = if data_idx > 0 {
+                data.get(data_idx - 1).copied().unwrap_or(0)
+            } else {
+                0
+            };
+
+            // Apply gradient color based on current value
+            if !gradient.is_empty() {
+                let max = self.max_value.max(1);
+                let pct = ((curr - self.offset).clamp(0, max) * 100 / max) as usize;
+                result.push_str(&gradient[pct.min(100)]);
+            }
+
+            result.push_str(self.symbol_at(prev, curr));
+            self.last = curr;
+        }
+
+        result.push_str("\x1b[0m");
         result
     }
 }
