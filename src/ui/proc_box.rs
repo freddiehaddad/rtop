@@ -299,7 +299,7 @@ pub fn draw_with_sort(
     // Right side: process count with border inset chars
     let visible = procs.len().min(max_rows);
     let count_str = format!("{}/{}", visible, procs.len());
-    let count_x = x + width.saturating_sub(count_str.len() + 4); // +4 for inset chars + padding
+    let count_x = x + width.saturating_sub(count_str.len() + 3);
     out.push_str(&format!(
         "\x1b[{};{}H{}{}{}{}{}{}",
         bottom_y,
