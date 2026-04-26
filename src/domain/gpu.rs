@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 
 /// GPU monitoring data for a single GPU device.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector
 pub struct GpuInfo {
     /// GPU device name (e.g. "NVIDIA RTX 4090").
     pub name: String,
@@ -41,6 +42,7 @@ pub struct GpuInfo {
 
 /// Flags indicating which GPU metrics are available for this device.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector
 pub struct GpuSupported {
     pub gpu_utilization: bool,
     pub mem_utilization: bool,

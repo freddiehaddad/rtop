@@ -36,6 +36,7 @@ impl Default for NetInfo {
 
 /// Cumulative transfer statistics for one direction (download or upload).
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)] // domain model — fields populated by collector
 pub struct NetStat {
     /// Current speed in bytes/sec.
     pub speed: u64,

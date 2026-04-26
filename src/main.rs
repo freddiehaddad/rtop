@@ -303,7 +303,7 @@ fn main() {
         let remaining = next_update
             .saturating_duration_since(std::time::Instant::now())
             .as_millis() as u64;
-        let poll_ms = remaining.max(10).min(1000); // At least 10ms, at most 1s
+        let poll_ms = remaining.clamp(10, 1000); // At least 10ms, at most 1s
 
         if input::poll(poll_ms) {
             if let Some(key) = input::get() {
@@ -533,10 +533,8 @@ fn main() {
                             let presets = config.preset_list();
                             if presets.len() > 1 {
                                 let cur = config.get_int("current_preset");
-                                let next = if cur < 0 {
+                                let next = if cur < 0 || (cur + 1) >= presets.len() as i64 {
                                     0i64
-                                } else if (cur + 1) >= presets.len() as i64 {
-                                    0
                                 } else {
                                     cur + 1
                                 };
@@ -578,12 +576,11 @@ fn main() {
                             update_ms = config.get_int("update_ms") as u64;
                             needs_full_redraw = true;
                         }
-                        "up" | "k" => {
-                            if proc_selected > 0 {
+                        "up" | "k"
+                            if proc_selected > 0 => {
                                 proc_selected -= 1;
                                 needs_proc_redraw = true;
                             }
-                        }
                         "down" | "j" => {
                             let count = runner.proc_collector.procs.len();
                             if proc_selected + 1 < count {
@@ -677,17 +674,16 @@ fn main() {
                             config.set_string("proc_sorting", sort_opts[new_idx]);
                             needs_full_redraw = true;
                         }
-                        "t" => {
+                        "t"
                             // Terminate selected process
-                            if proc_selected < runner.proc_collector.procs.len() {
+                            if proc_selected < runner.proc_collector.procs.len() => {
                                 let pid = runner.proc_collector.procs[proc_selected].pid;
                                 terminate_process(pid);
                                 needs_full_redraw = true;
                             }
-                        }
-                        "enter" => {
+                        "enter"
                             // Toggle process detailed view
-                            if proc_selected < runner.proc_collector.procs.len() {
+                            if proc_selected < runner.proc_collector.procs.len() => {
                                 let pid = runner.proc_collector.procs[proc_selected].pid;
                                 let current_detailed = config.get_int("detailed_pid");
                                 if current_detailed == pid as i64 {
@@ -698,10 +694,9 @@ fn main() {
                                 }
                                 needs_full_redraw = true;
                             }
-                        }
                         // Network keybinds
-                        "b" => {
-                            if !runner.net.interfaces.is_empty() {
+                        "b"
+                            if !runner.net.interfaces.is_empty() => {
                                 let idx = runner.net.interfaces.iter()
                                     .position(|s| s == &runner.net.selected_iface)
                                     .unwrap_or(0);
@@ -709,9 +704,8 @@ fn main() {
                                 runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
                                 needs_full_redraw = true;
                             }
-                        }
-                        "n" => {
-                            if !runner.net.interfaces.is_empty() {
+                        "n"
+                            if !runner.net.interfaces.is_empty() => {
                                 let idx = runner.net.interfaces.iter()
                                     .position(|s| s == &runner.net.selected_iface)
                                     .unwrap_or(0);
@@ -719,7 +713,6 @@ fn main() {
                                 runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
                                 needs_full_redraw = true;
                             }
-                        }
                         "a" => {
                             config.flip("net_auto");
                             needs_full_redraw = true;

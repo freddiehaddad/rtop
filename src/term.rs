@@ -1,10 +1,11 @@
 use crossterm::{
     cursor, execute,
-    terminal::{self, ClearType},
+    terminal,
 };
 use std::io::{self, Write};
 
 /// ANSI escape code constants matching btop's Fx namespace.
+#[allow(dead_code)]
 pub mod fx {
     pub const BOLD: &str = "\x1b[1m";
     pub const UNBOLD: &str = "\x1b[22m";
@@ -22,6 +23,7 @@ pub mod fx {
 }
 
 /// Cursor movement helpers matching btop's Mv namespace.
+#[allow(dead_code)]
 pub mod mv {
     pub fn to(line: u16, col: u16) -> String {
         format!("\x1b[{};{}H", line, col)
@@ -43,11 +45,17 @@ pub mod mv {
 }
 
 /// Terminal sequences for screen management.
+#[allow(dead_code)]
 pub const HIDE_CURSOR: &str = "\x1b[?25l";
+#[allow(dead_code)]
 pub const SHOW_CURSOR: &str = "\x1b[?25h";
+#[allow(dead_code)]
 pub const ALT_SCREEN: &str = "\x1b[?1049h";
+#[allow(dead_code)]
 pub const NORMAL_SCREEN: &str = "\x1b[?1049l";
+#[allow(dead_code)]
 pub const MOUSE_ON: &str = "\x1b[?1002h\x1b[?1015h\x1b[?1006h";
+#[allow(dead_code)]
 pub const MOUSE_OFF: &str = "\x1b[?1002l\x1b[?1015l\x1b[?1006l";
 pub const SYNC_START: &str = "\x1b[?2026h";
 pub const SYNC_END: &str = "\x1b[?2026l";

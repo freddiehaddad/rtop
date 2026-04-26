@@ -34,12 +34,14 @@ impl Default for Cell {
 /// is diffed against the previous frame and flushed to the terminal.
 /// This enables deterministic snapshot testing without a real terminal.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // used in tests and as rendering pipeline grows
 pub struct CellBuffer {
     width: usize,
     height: usize,
     cells: Vec<Cell>,
 }
 
+#[allow(dead_code)]
 impl CellBuffer {
     /// Create a new buffer filled with default (blank) cells.
     pub fn new(width: usize, height: usize) -> Self {

@@ -2,12 +2,14 @@ use crate::draw::box_drawing;
 use crate::tools;
 
 /// Message box style.
+#[allow(dead_code)] // UI component — will be connected to input handler
 pub enum MsgBoxStyle {
     Ok,
     YesNo,
 }
 
 /// Draw a modal message box centered on screen.
+#[allow(dead_code)] // UI component — will be connected to input handler
 pub fn draw(
     term_width: usize,
     term_height: usize,

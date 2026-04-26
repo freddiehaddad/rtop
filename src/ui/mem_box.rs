@@ -236,7 +236,6 @@ pub fn draw(
                 break;
             }
             if let Some(disk) = mem.disks.get(disk_name) {
-                let disk_color = gradient_color(avail_grad, disk.used_percent as i64);
                 let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
                 let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
 
@@ -280,7 +279,7 @@ pub fn draw(
     out
 }
 
-fn gradient_color<'a>(gradient: &'a [String], pct: i64) -> &'a str {
+fn gradient_color(gradient: &[String], pct: i64) -> &str {
     if gradient.is_empty() {
         return "";
     }

@@ -36,6 +36,8 @@ impl Default for MemInfo {
 
 /// Information about a single disk/volume.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector
+#[derive(Default)]
 pub struct DiskInfo {
     /// Display name (e.g. "C:", "D:").
     pub name: String,
@@ -61,23 +63,6 @@ pub struct DiskInfo {
     pub io_activity: VecDeque<i64>,
 }
 
-impl Default for DiskInfo {
-    fn default() -> Self {
-        Self {
-            name: String::new(),
-            label: String::new(),
-            fstype: String::new(),
-            total: 0,
-            used: 0,
-            free: 0,
-            used_percent: 0,
-            free_percent: 0,
-            io_read: VecDeque::new(),
-            io_write: VecDeque::new(),
-            io_activity: VecDeque::new(),
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

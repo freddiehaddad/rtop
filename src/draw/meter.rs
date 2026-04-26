@@ -5,6 +5,7 @@
 /// Empty characters use the `meter_bg` color.
 #[derive(Debug, Clone)]
 pub struct Meter {
+    #[allow(dead_code)] // stored for potential future use
     width: usize,
     cache: Vec<String>,
 }
@@ -51,10 +52,6 @@ impl Meter {
     pub fn render(&self, value: i32) -> &str {
         let clamped = value.clamp(0, 100) as usize;
         &self.cache[clamped]
-    }
-
-    pub fn width(&self) -> usize {
-        self.width
     }
 }
 

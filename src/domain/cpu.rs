@@ -4,9 +4,10 @@ use std::collections::{HashMap, VecDeque};
 ///
 /// On Windows, `cpu_percent` contains these keys:
 ///   - "total", "user", "system", "idle", "irq", "dpc"
-/// Linux-only keys ("nice","iowait","softirq","steal","guest","guest_nice")
-/// are not populated.
+///     Linux-only keys ("nice","iowait","softirq","steal","guest","guest_nice")
+///     are not populated.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector, read as UI grows
 pub struct CpuInfo {
     /// Aggregate CPU usage histories by category.
     pub cpu_percent: HashMap<String, VecDeque<i64>>,
@@ -56,6 +57,7 @@ impl Default for CpuInfo {
 
 /// Battery status information.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector
 pub struct BatteryInfo {
     /// Battery charge percentage (0-100), or -1 if unavailable.
     pub percent: i32,

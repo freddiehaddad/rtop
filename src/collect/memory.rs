@@ -187,11 +187,13 @@ fn push_pct(
     }
 }
 
+#[cfg(test)]
 /// Calculate used memory from total and available (for unit testing).
 pub fn calculate_used(total: u64, available: u64) -> u64 {
     total.saturating_sub(available)
 }
 
+#[cfg(test)]
 /// Calculate swap from page file values (for unit testing).
 pub fn calculate_swap(total_page: u64, total_phys: u64, avail_page: u64, avail_phys: u64) -> (u64, u64, u64) {
     let swap_total = total_page.saturating_sub(total_phys);
@@ -200,6 +202,7 @@ pub fn calculate_swap(total_page: u64, total_phys: u64, avail_page: u64, avail_p
     (swap_total, swap_used, swap_avail)
 }
 
+#[cfg(test)]
 /// Calculate disk usage percentage (for unit testing).
 pub fn disk_percent(used: u64, total: u64) -> i32 {
     if total == 0 {

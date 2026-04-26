@@ -1,4 +1,4 @@
-use crate::domain::process::{PriorityClass, ProcInfo, ProcState, TreeProc};
+use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
 use std::collections::HashMap;
 
 /// Process data collector using Windows APIs.
@@ -177,7 +177,6 @@ fn get_process_details(
 
 fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
     use windows::Win32::Security::*;
-    use windows::Win32::Security::Authorization::*;
     use windows::Win32::Foundation::*;
 
     unsafe {
@@ -260,6 +259,7 @@ pub fn priority_from_u32(pclass: u32) -> PriorityClass {
     }
 }
 
+#[cfg(test)]
 /// Calculate CPU percentage from process time delta (for unit testing).
 pub fn cpu_percent_from_times(
     prev_total: u64,
@@ -349,6 +349,7 @@ pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
     });
 }
 
+#[cfg(test)]
 /// Test if a process matches a filter string.
 pub fn matches_filter(proc: &ProcInfo, filter: &str) -> bool {
     if filter.is_empty() {

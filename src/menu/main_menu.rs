@@ -50,6 +50,7 @@ const COLORS_NORMAL: [&str; 3] = [
 ];
 
 /// Draw the main menu centered on screen with btop-style ASCII art items.
+#[allow(dead_code)] // menu UI — will be connected to input handler
 pub fn draw(term_width: usize, term_height: usize) -> String {
     draw_with_selection(term_width, term_height, 0)
 }

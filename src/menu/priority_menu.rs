@@ -2,6 +2,7 @@ use crate::domain::process::PriorityClass;
 use crate::draw::box_drawing;
 
 /// Draw the priority class selection menu.
+#[allow(dead_code)] // UI component — will be connected to input handler
 pub fn draw(term_width: usize, term_height: usize, selected: usize) -> String {
     let classes = [
         PriorityClass::Idle,

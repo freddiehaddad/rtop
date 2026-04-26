@@ -2,6 +2,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 /// A single-line text input field with cursor support.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // used in tests
 pub struct TextEdit {
     /// The editable text.
     pub text: String,
@@ -13,6 +14,7 @@ pub struct TextEdit {
     numeric: bool,
 }
 
+#[allow(dead_code)]
 impl TextEdit {
     pub fn new(text: String, numeric: bool) -> Self {
         let upos = text.graphemes(true).count();
@@ -53,18 +55,15 @@ impl TextEdit {
                 self.pos = self.text.len();
                 false
             }
-            "backspace" => {
-                if self.upos > 0 {
+            "backspace"
+                if self.upos > 0 => {
                     self.upos -= 1;
                     let start = self.grapheme_byte_pos(self.upos);
                     let end = self.pos;
                     self.text.drain(start..end);
                     self.pos = start;
                     true
-                } else {
-                    false
                 }
-            }
             "delete" => {
                 let total = self.text.graphemes(true).count();
                 if self.upos < total {

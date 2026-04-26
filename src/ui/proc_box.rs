@@ -14,20 +14,6 @@ use crate::tools;
 /// │ 5678   code.exe              8.1   0.9G  │
 /// │ ...                                      │
 /// ╰──────────────────────── 25/350 ──────────╯
-pub fn draw(
-    procs: &[ProcInfo],
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    rounded: bool,
-    start: usize,
-    selected: usize,
-    theme: &Theme,
-) -> String {
-    draw_with_sort(procs, x, y, width, height, rounded, start, selected, theme, "", false, false, 0)
-}
-
 /// Draw the process list box with sort indicator on the active column.
 pub fn draw_with_sort(
     procs: &[ProcInfo],
@@ -217,7 +203,6 @@ pub fn draw_with_sort(
 
     // Build positions right-to-left from the right corner
     // btop line 1884: sort_pos = x + width - sort_len - 8
-    let sort_content_len = sort_name.len() + 4; // "← cpu lazy →"
     let mut pos = x + width - sort_name.len() - 7;
 
     // Sort selector: ┐← sorting →┌

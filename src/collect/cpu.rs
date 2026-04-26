@@ -1,6 +1,5 @@
 use crate::domain::cpu::{BatteryInfo, CpuInfo};
 use std::collections::VecDeque;
-use std::mem;
 
 /// Maximum number of data points to retain in history deques.
 const MAX_HISTORY: usize = 300;
@@ -467,6 +466,7 @@ fn push_history(deque: &mut VecDeque<i64>, value: i64) {
     }
 }
 
+#[cfg(test)]
 /// Calculate CPU percentage from time deltas (for unit testing).
 pub fn calculate_cpu_percent(idle_delta: u64, kernel_delta: u64, user_delta: u64) -> i64 {
     let total = kernel_delta + user_delta;
@@ -476,6 +476,7 @@ pub fn calculate_cpu_percent(idle_delta: u64, kernel_delta: u64, user_delta: u64
     ((total - idle_delta) * 100 / total) as i64
 }
 
+#[cfg(test)]
 /// Format frequency in GHz or MHz.
 pub fn format_frequency(mhz: u32) -> String {
     if mhz >= 1000 {

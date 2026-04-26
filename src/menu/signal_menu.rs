@@ -2,6 +2,7 @@ use crate::domain::process::ProcessAction;
 use crate::draw::box_drawing;
 
 /// Draw the process action menu (End Task, Terminate, Suspend, Resume).
+#[allow(dead_code)] // UI component — will be connected to input handler
 pub fn draw(term_width: usize, term_height: usize, selected: usize) -> String {
     let actions = [
         ProcessAction::EndTask,

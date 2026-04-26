@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 
 /// Graph symbol mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // variants used in tests
 pub enum GraphSymbol {
     Braille,
     Block,
@@ -32,11 +33,12 @@ pub const TTY_UP: [&str; 25] = [
 
 /// Skip the first visual graph element in a row string.
 /// Elements can be either a single Unicode character or an ANSI escape sequence like `\x1b[1C`.
+#[allow(dead_code)] // used by update() which is tested
 fn skip_first_graph_element(s: &str) -> &str {
-    if s.starts_with('\x1b') {
+    if let Some(stripped) = s.strip_prefix('\x1b') {
         // Find the end of the escape sequence (letter terminates CSI sequences)
-        if let Some(pos) = s[1..].find(|c: char| c.is_ascii_alphabetic()) {
-            return &s[1 + pos + 1..];
+        if let Some(pos) = stripped.find(|c: char| c.is_ascii_alphabetic()) {
+            return &stripped[pos + 1..];
         }
         return s;
     }
@@ -99,6 +101,7 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
 /// Matches btop's Graph architecture: double-buffered, multi-row with vertical
 /// slicing so each row covers a portion of the 0-100% range.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // fields/methods used in tests and as UI grows
 pub struct Graph {
     pub width: usize,
     pub height: usize,
@@ -116,6 +119,7 @@ pub struct Graph {
     color_gradient: String,
 }
 
+#[allow(dead_code)]
 impl Graph {
     pub fn new(
         width: usize,
@@ -210,7 +214,7 @@ impl Graph {
         }
 
         // If less data than width, pad left with cursor-right moves (like btop's Mv::r)
-        let pad_cols = if len < self.width { self.width - len } else { 0 };
+        let pad_cols = self.width.saturating_sub(len);
         if pad_cols > 0 {
             let pad = format!("\x1b[{}C", pad_cols);
             for row_str in self.graphs[self.current as usize].iter_mut() {
@@ -225,7 +229,7 @@ impl Graph {
         }
 
         // Render the actual data columns (last `width` values, or all if less)
-        let data_start = if len > self.width { len - self.width } else { 0 };
+        let data_start = len.saturating_sub(self.width);
         let data_cols = len.min(self.width);
 
         for di in 0..data_cols {
@@ -324,13 +328,13 @@ impl Graph {
             // and graph characters. We iterate over "graph elements" instead of chars.
             let mut row_str = String::with_capacity(self.width * 20);
             let len = data.len();
-            let raw = buf.get(0).map(|s| s.as_str()).unwrap_or("");
+            let raw = buf.first().map(|s| s.as_str()).unwrap_or("");
 
             // Parse the buffer into visual elements
             let elements = parse_graph_elements(raw);
 
-            let pad_cols = if len < self.width { self.width - len } else { 0 };
-            let data_start = if len > self.width { len - self.width } else { 0 };
+            let pad_cols = self.width.saturating_sub(len);
+            let data_start = len.saturating_sub(self.width);
 
             for (col, elem) in elements.iter().enumerate() {
                 if col < pad_cols {

@@ -23,6 +23,7 @@ pub const MIN_MEM_HEIGHT: usize = 10;
 pub const MIN_MEM_WIDTH: usize = 36;
 pub const MIN_NET_HEIGHT: usize = 6;
 pub const MIN_NET_WIDTH: usize = 20;
+#[allow(dead_code)] // used in tests
 pub const MIN_PROC_HEIGHT: usize = 10;
 pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 4;
@@ -59,7 +60,7 @@ pub fn calc_sizes(
 
     // CPU box height based on core count
     let cpu_height = if has_cpu {
-        let rows = (core_count + 1) / 2; // 2 cores per row
+        let rows = core_count.div_ceil(2); // 2 cores per row
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
         (rows + 5).clamp(MIN_CPU_HEIGHT, max_h)
     } else {

@@ -1,8 +1,8 @@
 /// Box-drawing characters.
+#[allow(dead_code)]
 pub mod symbols {
     pub const H_LINE: &str = "─";
     pub const V_LINE: &str = "│";
-    pub const DOTTED_V_LINE: &str = "╎";
     pub const LEFT_UP: &str = "┌";
     pub const RIGHT_UP: &str = "┐";
     pub const LEFT_DOWN: &str = "└";
@@ -21,7 +21,6 @@ pub mod symbols {
     pub const RIGHT_ARROW: &str = "→";
     pub const ENTER: &str = "↵";
     pub const SUPERSCRIPT: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
-    pub const METER_CHAR: &str = "■";
 }
 
 /// Box-drawing title inset characters (matching btop).

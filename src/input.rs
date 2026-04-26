@@ -4,6 +4,7 @@ use std::time::Duration;
 
 /// A clickable region on screen.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // used in tests and as mouse support grows
 pub struct MouseLoc {
     pub line: u16,
     pub col: u16,
@@ -11,6 +12,7 @@ pub struct MouseLoc {
     pub width: u16,
 }
 
+#[allow(dead_code)]
 impl MouseLoc {
     /// Check if a point (x, y) is within this region.
     pub fn contains(&self, x: u16, y: u16) -> bool {
@@ -22,6 +24,7 @@ impl MouseLoc {
 }
 
 /// Map of clickable region name → location.
+#[allow(dead_code)]
 pub type MouseMappings = HashMap<String, MouseLoc>;
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.

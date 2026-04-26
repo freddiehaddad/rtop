@@ -145,6 +145,7 @@ impl Theme {
     }
 
     /// Load a theme from a `.theme` file.
+    #[allow(dead_code)] // will be used when file-based theme loading is wired up
     pub fn load_file(&mut self, path: &Path) -> Result<(), String> {
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read theme: {e}"))?;
@@ -257,6 +258,7 @@ impl Theme {
     }
 
     /// Get RGB decimal values by name.
+    #[allow(dead_code)] // used in tests and as UI grows
     pub fn dec(&self, name: &str) -> [u8; 3] {
         self.rgbs.get(name).copied().unwrap_or([0, 0, 0])
     }
@@ -269,6 +271,7 @@ impl Default for Theme {
 }
 
 /// Discover available theme files.
+#[allow(dead_code)] // will be used when theme selection UI is wired up
 pub fn discover_themes(dirs: &[&Path]) -> Vec<PathBuf> {
     let mut themes = Vec::new();
     for dir in dirs {
@@ -323,11 +326,13 @@ pub fn rgb_to_fg_escape(r: u8, g: u8, b: u8) -> String {
 }
 
 /// Convert RGB to a background ANSI truecolor escape code.
+#[allow(dead_code)] // used in tests and as UI grows
 pub fn rgb_to_bg_escape(r: u8, g: u8, b: u8) -> String {
     format!("\x1b[48;2;{r};{g};{b}m")
 }
 
 /// Convert 24-bit RGB to 256-color index.
+#[allow(dead_code)] // used in tests and for 256-color terminal fallback
 pub fn truecolor_to_256(r: u8, g: u8, b: u8) -> u8 {
     if r / 11 == g / 11 && g / 11 == b / 11 {
         // Grayscale range (232-255)

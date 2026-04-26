@@ -1,15 +1,10 @@
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 /// Returns the display width of a string, ignoring ANSI escape codes.
 /// If `wide` is true, uses full Unicode width (CJK = 2 columns).
-pub fn ulen(s: &str, wide: bool) -> usize {
+pub fn ulen(s: &str, _wide: bool) -> usize {
     let stripped = strip_ansi(s);
-    if wide {
-        UnicodeWidthStr::width(stripped.as_str())
-    } else {
-        UnicodeWidthStr::width(stripped.as_str())
-    }
+    UnicodeWidthStr::width(stripped.as_str())
 }
 
 /// Truncate a string to fit within `len` display columns.
@@ -42,6 +37,7 @@ pub fn uresize(s: &str, len: usize, _wide: bool) -> String {
     result
 }
 
+#[cfg(test)]
 /// Left-truncate a string to fit within `len` display columns.
 pub fn luresize(s: &str, len: usize, _wide: bool) -> String {
     let stripped = strip_ansi(s);
@@ -106,6 +102,7 @@ pub fn rjust(s: &str, width: usize, utf: bool) -> String {
     }
 }
 
+#[cfg(test)]
 /// Center string, padding with spaces on both sides to `width` columns.
 /// If string exceeds `width`, it is truncated.
 pub fn cjust(s: &str, width: usize, utf: bool) -> String {
@@ -224,6 +221,7 @@ pub fn sec_to_dhms(seconds: u64, no_days: bool, no_seconds: bool) -> String {
     result
 }
 
+#[cfg(test)]
 /// Convert a Celsius temperature value to the specified scale.
 /// Returns (converted_value, unit_suffix).
 pub fn celsius_to(celsius: i64, scale: &str) -> (i64, String) {
@@ -255,6 +253,7 @@ fn strip_ansi(s: &str) -> String {
     result
 }
 
+#[cfg(test)]
 /// Format the current time using strftime-compatible format string.
 /// Supports special replacements: `/host`, `/user`, `/uptime`.
 pub fn strf_time(format: &str, uptime_seconds: u64) -> String {
@@ -267,6 +266,7 @@ pub fn strf_time(format: &str, uptime_seconds: u64) -> String {
     result.replace("/uptime", &uptime_str)
 }
 
+#[cfg(test)]
 /// Get the system hostname.
 pub fn hostname() -> String {
     std::env::var("COMPUTERNAME")
@@ -274,6 +274,7 @@ pub fn hostname() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
+#[cfg(test)]
 /// Get the current username.
 pub fn username() -> String {
     std::env::var("USERNAME")
@@ -314,6 +315,7 @@ pub fn data_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
 }
 
+#[cfg(test)]
 /// Simple strftime without chrono dependency — handles common format specifiers.
 fn chrono_free_strftime(format: &str) -> String {
     use std::time::SystemTime;

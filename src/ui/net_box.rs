@@ -1,6 +1,5 @@
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
-use crate::draw::box_drawing::symbols;
 use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::theme::Theme;
@@ -31,9 +30,7 @@ pub fn draw(
     let dl_grad = theme.g("download");
     let ul_grad = theme.g("upload");
     let hi = theme.c("hi_fg");
-    let graph_text_color = theme.c("graph_text");
 
-    let title = format!("{}net", fg);
     let mut out = box_drawing::create_box(x, y, width, height, box_color, true, "net", "", 3, rounded);
 
     let graph_width = width.saturating_sub(2);

@@ -3,6 +3,7 @@ use std::fmt;
 
 /// Information about a single process.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — fields populated by collector
 pub struct ProcInfo {
     /// Process ID.
     pub pid: u32,
@@ -80,6 +81,7 @@ impl Default for ProcInfo {
 ///
 /// Unlike Linux (R/S/D/Z/T/t/X/K/W/P), Windows has fewer observable states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // variants used as the UI grows
 pub enum ProcState {
     Running,
     Suspended,
@@ -126,6 +128,8 @@ impl fmt::Display for PriorityClass {
 
 /// Detailed view data for a selected process.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — used when detail view is wired up
+#[derive(Default)]
 pub struct DetailContainer {
     /// PID of the last detailed process.
     pub last_pid: u32,
@@ -149,25 +153,10 @@ pub struct DetailContainer {
     pub mem_bytes: VecDeque<i64>,
 }
 
-impl Default for DetailContainer {
-    fn default() -> Self {
-        Self {
-            last_pid: 0,
-            entry: ProcInfo::default(),
-            elapsed: String::new(),
-            parent: String::new(),
-            status: String::new(),
-            io_read: String::new(),
-            io_write: String::new(),
-            memory: String::new(),
-            cpu_percent: VecDeque::new(),
-            mem_bytes: VecDeque::new(),
-        }
-    }
-}
 
 /// Process sort options (matching btop's sort_vector).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // used in tests and as UI grows
 pub enum ProcSorting {
     Pid,
     Name,
@@ -179,6 +168,7 @@ pub enum ProcSorting {
     CpuLazy,
 }
 
+#[allow(dead_code)]
 impl ProcSorting {
     pub const ALL: &[Self] = &[
         Self::Pid,
@@ -207,6 +197,7 @@ impl ProcSorting {
 
 /// Process actions available on Windows (replaces Unix signals).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // used in tests and signal menu
 pub enum ProcessAction {
     /// Gracefully ask the process to close (WM_CLOSE to main window).
     EndTask,
@@ -231,6 +222,7 @@ impl fmt::Display for ProcessAction {
 
 /// A node in the process tree used during tree construction.
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // domain model — used when tree view is wired up
 pub struct TreeProc {
     /// Index into the flat process list.
     pub proc_index: usize,

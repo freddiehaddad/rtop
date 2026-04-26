@@ -37,6 +37,7 @@ pub fn init(log_dir: &Path, level: &str) {
     }
 }
 
+#[cfg(test)]
 /// Convert btop log level string to tracing level name.
 pub fn level_from_str(s: &str) -> &'static str {
     match s.to_uppercase().as_str() {

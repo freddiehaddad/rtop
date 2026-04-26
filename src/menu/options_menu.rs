@@ -21,6 +21,7 @@ pub enum OptKind {
 pub struct OptDef {
     pub key: &'static str,
     pub desc: &'static [&'static str],
+    #[allow(dead_code)] // field populated by classify(), read as UI grows
     pub kind: OptKind,
 }
 
@@ -588,7 +589,7 @@ pub fn draw(
     let y = term_height.saturating_sub(height + 6) / 2;
 
     let item_height = ((height - 4) / 2).min(max_items);
-    let pages = if max_items == 0 { 1 } else { (max_items + item_height - 1) / item_height };
+    let pages = if max_items == 0 { 1 } else { max_items.div_ceil(item_height) };
     let page = page.min(pages - 1);
     let select_max = item_height.min(max_items.saturating_sub(item_height * page)) - 1;
     let selected = selected.min(select_max);
@@ -605,7 +606,7 @@ pub fn draw(
 
     // Main box: create at (x, y+6) with height
     out.push_str(&box_drawing::create_box(
-        x, y + 6, box_w, height, &hi, true,
+        x, y + 6, box_w, height, hi, true,
         &format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW),
         "", 0, true,
     ));
@@ -749,6 +750,7 @@ pub fn draw(
 }
 
 /// Return the number of items for a given category.
+#[allow(dead_code)] // used as options UI grows
 pub fn cat_len(cat: usize) -> usize {
     let cats = categories();
     if cat < cats.len() { cats[cat].len() } else { 0 }
@@ -789,7 +791,7 @@ pub fn page_count(cat: usize, term_height: usize) -> usize {
     }
     let max_items = cats[cat].len();
     let ipp = items_per_page(cat, term_height);
-    (max_items + ipp - 1) / ipp
+    max_items.div_ceil(ipp)
 }
 
 /// Max selectable index on a given page.
