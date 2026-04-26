@@ -225,11 +225,15 @@ pub fn draw(
         }
     }
 
-    // Divider line with ▲▼
+    // Divider line with source labels: "──── ▲ user ── system ▼ ────"
     if has_lower {
         let div_y = y + 2 + divider_row;
-        let mid_label = format!(" {}▲▼{} ", hi, div_color);
-        let label_vis_len = 4; // " ▲▼ "
+        let mid_label = format!(
+            " {}▲ {}{} {} {}▼{} ",
+            hi, title_color, upper_key, div_color, title_color, lower_key,
+        );
+        // Visible length: " ▲ user ── system ▼ " (arrows + names + spaces)
+        let label_vis_len = 5 + upper_key.len() + lower_key.len();
         let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
         let right_dashes = graph_width.saturating_sub(label_vis_len + left_dashes);
         out.push_str(&format!(
