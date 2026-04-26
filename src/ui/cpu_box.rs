@@ -42,6 +42,7 @@ pub fn draw(
     area: &BoxArea,
     theme: &Theme,
     update_ms: u64,
+    current_preset: i64,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -239,7 +240,7 @@ pub fn draw(
     }
 
     // Bottom border keybind hints
-    out.push_str(&draw_bottom_hints(x, y + height, update_ms, theme));
+    out.push_str(&draw_bottom_hints(x, y + height, update_ms, current_preset, theme));
 
     out.push_str("\x1b[0m");
     out
@@ -418,19 +419,24 @@ fn draw_core_panel(
     out
 }
 
-/// Render the bottom border keybind hints (menu, preset, update rate).
-fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, theme: &Theme) -> String {
+/// Render the bottom border keybind hints (menu, preset with number, update rate).
+fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, current_preset: i64, theme: &Theme) -> String {
     let box_color = theme.c("cpu_box");
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
 
+    let preset_label = if current_preset >= 0 {
+        format!("p{}reset *{}", fg, current_preset)
+    } else {
+        format!("p{}reset", fg)
+    };
     let rate_label = format!("{}ms", update_ms);
     let hints = format!(
-        "{}{}{}m{}enu{}{}{}{}{}p{}reset{}{}{}{}{}─ {}{} {}+{}{}",
+        "{}{}{}m{}enu{}{}{}{}{}{}{}{}{}{}{}─ {}{} {}+{}{}",
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+        hi, preset_label, box_color, title_syms::TITLE_RIGHT_DOWN,
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
     );

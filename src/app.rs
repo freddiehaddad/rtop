@@ -106,6 +106,7 @@ pub fn run(
                     let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
                     output.push_str(&ui::cpu_box::draw(
                         &runner.cpu.info, &area, theme, update_ms,
+                        config.get_int("current_preset"),
                     ));
                 }
             }
@@ -443,7 +444,7 @@ pub fn run(
                         // Preset cycling
                         "p" => {
                             let presets = config.preset_list();
-                            if presets.len() > 1 {
+                            if !presets.is_empty() {
                                 let cur = config.get_int("current_preset");
                                 let next = if cur < 0 || (cur + 1) >= presets.len() as i64 {
                                     0i64
@@ -457,7 +458,7 @@ pub fn run(
                         }
                         "P" => {
                             let presets = config.preset_list();
-                            if presets.len() > 1 {
+                            if !presets.is_empty() {
                                 let cur = config.get_int("current_preset");
                                 let next = if cur <= 0 {
                                     presets.len() as i64 - 1
@@ -466,6 +467,24 @@ pub fn run(
                                 };
                                 config.set_int("current_preset", next);
                                 config.apply_preset(&presets[next as usize]);
+                                dirty |= Dirty::FULL;
+                            }
+                        }
+                        // Save current layout as preset
+                        "ctrl_s" => {
+                            config.save_preset();
+                            dirty |= Dirty::CPU_BOX; // refresh preset label
+                        }
+                        // Delete current preset
+                        "ctrl_d" => {
+                            let cur = config.get_int("current_preset");
+                            if cur > 0 {
+                                config.delete_preset(cur as usize);
+                                let presets = config.preset_list();
+                                let new_cur = config.get_int("current_preset");
+                                if !presets.is_empty() && (new_cur as usize) < presets.len() {
+                                    config.apply_preset(&presets[new_cur as usize]);
+                                }
                                 dirty |= Dirty::FULL;
                             }
                         }

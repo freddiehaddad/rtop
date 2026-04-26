@@ -49,7 +49,7 @@ impl Config {
             ("net_iface", ""),
             ("log_level", "WARNING"),
             ("proc_filter", ""),
-            ("presets", ""),
+            ("presets", "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default"),
             ("custom_gpu_name0", ""),
             ("custom_gpu_name1", ""),
             ("custom_gpu_name2", ""),
@@ -280,9 +280,9 @@ impl Config {
     }
 
     /// Parse the presets config string into a list of preset strings.
-    /// The default preset "cpu mem net proc" is always index 0.
+    /// Preset 0 is always all boxes shown with default settings.
     pub fn preset_list(&self) -> Vec<String> {
-        let mut list = vec!["cpu:0:default,mem:0:default,net:0:default,proc:0:default".to_string()];
+        let mut list = vec!["cpu:0:default,mem:0:default,net:0:default,proc:0:default,disk:0:default".to_string()];
         let presets_str = self.get_string("presets");
         if !presets_str.is_empty() {
             for preset in presets_str.split_whitespace() {
@@ -292,6 +292,63 @@ impl Config {
             }
         }
         list
+    }
+
+    /// Save the current layout as a new preset and return its index.
+    pub fn save_preset(&mut self) -> usize {
+        let shown = self.get_string("shown_boxes").to_string();
+        let cpu_bottom = if self.get_bool("cpu_bottom") { "1" } else { "0" };
+        let mem_below_net = if self.get_bool("mem_below_net") { "1" } else { "0" };
+        let proc_left = if self.get_bool("proc_left") { "1" } else { "0" };
+
+        let mut parts = Vec::new();
+        for box_name in shown.split_whitespace() {
+            let pos = match box_name {
+                "cpu" => cpu_bottom,
+                "mem" => mem_below_net,
+                "proc" => proc_left,
+                _ => "0",
+            };
+            parts.push(format!("{box_name}:{pos}:default"));
+        }
+        let new_preset = parts.join(",");
+
+        let current = self.get_string("presets").to_string();
+        let updated = if current.is_empty() {
+            new_preset
+        } else {
+            format!("{current} {new_preset}")
+        };
+        self.set_string("presets", &updated);
+        let idx = self.preset_list().len() - 1;
+        self.set_int("current_preset", idx as i64);
+        idx
+    }
+
+    /// Delete the preset at the given index. Index 0 (the default) cannot be deleted.
+    /// Returns true if a preset was deleted.
+    pub fn delete_preset(&mut self, index: usize) -> bool {
+        if index == 0 {
+            return false;
+        }
+        let presets_str = self.get_string("presets").to_string();
+        let custom: Vec<&str> = presets_str.split_whitespace().collect();
+        let custom_idx = index - 1; // offset for the hardcoded preset 0
+        if custom_idx >= custom.len() {
+            return false;
+        }
+        let remaining: Vec<&str> = custom.iter().enumerate()
+            .filter(|(i, _)| *i != custom_idx)
+            .map(|(_, s)| *s)
+            .collect();
+        self.set_string("presets", &remaining.join(" "));
+        // Adjust current_preset if needed
+        let cur = self.get_int("current_preset");
+        let total = self.preset_list().len() as i64;
+        if cur >= total {
+            self.set_int("current_preset", total - 1);
+        }
+        true
     }
 
     /// Apply a preset string like "cpu:0:default,mem:0:default,net:0:default,proc:0:default".
@@ -497,10 +554,11 @@ mod tests {
     }
 
     #[test]
-    fn preset_list_default_has_one_entry() {
+    fn preset_list_default_has_builtin_presets() {
         let config = Config::new();
         let list = config.preset_list();
-        assert_eq!(list.len(), 1);
+        // Preset 0 (hardcoded default) + 3 built-in custom presets
+        assert_eq!(list.len(), 4);
         assert!(list[0].contains("cpu:0:default"));
     }
 
@@ -509,7 +567,7 @@ mod tests {
         let mut config = Config::new();
         config.set_string("presets", "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default");
         let list = config.preset_list();
-        assert_eq!(list.len(), 3);
+        assert_eq!(list.len(), 3); // 1 hardcoded + 2 custom
     }
 
     #[test]
@@ -540,5 +598,36 @@ mod tests {
         let mut config = Config::new();
         config.set_int("detailed_pid", 0);
         assert_eq!(config.get_int("detailed_pid"), 0);
+    }
+
+    #[test]
+    fn save_preset_appends_and_sets_current() {
+        let mut config = Config::new();
+        config.set_string("presets", "");
+        config.set_string("shown_boxes", "cpu proc");
+        config.set_bool("proc_left", true);
+        let idx = config.save_preset();
+        assert!(idx > 0);
+        assert_eq!(config.get_int("current_preset"), idx as i64);
+        let list = config.preset_list();
+        let last = &list[idx];
+        assert!(last.contains("cpu:0:default"));
+        assert!(last.contains("proc:1:default"));
+    }
+
+    #[test]
+    fn delete_preset_removes_custom() {
+        let mut config = Config::new();
+        config.set_string("presets", "cpu:0:default,proc:0:default mem:0:default,net:0:default");
+        let before = config.preset_list().len();
+        assert!(config.delete_preset(1));
+        let after = config.preset_list().len();
+        assert_eq!(after, before - 1);
+    }
+
+    #[test]
+    fn delete_preset_zero_is_rejected() {
+        let mut config = Config::new();
+        assert!(!config.delete_preset(0));
     }
 }

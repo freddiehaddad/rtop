@@ -26,6 +26,8 @@ fn translate_key(key: KeyEvent) -> String {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char('r') => return "ctrl_r".to_string(),
+            KeyCode::Char('s') => return "ctrl_s".to_string(),
+            KeyCode::Char('d') => return "ctrl_d".to_string(),
             KeyCode::Char('c') => return "q".to_string(),
             _ => {}
         }
