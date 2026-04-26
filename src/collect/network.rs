@@ -143,7 +143,6 @@ impl NetCollector {
                 entry.stat.insert("download".into(), NetStat {
                     speed: dl_speed,
                     top: dl_stat.top.max(dl_speed),
-                    total: rx_bytes.saturating_sub(dl_stat.offset) + dl_stat.rollover,
                     last: rx_bytes,
                     offset: dl_stat.offset,
                     rollover: dl_stat.rollover,
@@ -152,7 +151,6 @@ impl NetCollector {
                 entry.stat.insert("upload".into(), NetStat {
                     speed: ul_speed,
                     top: ul_stat.top.max(ul_speed),
-                    total: tx_bytes.saturating_sub(ul_stat.offset) + ul_stat.rollover,
                     last: tx_bytes,
                     offset: ul_stat.offset,
                     rollover: ul_stat.rollover,

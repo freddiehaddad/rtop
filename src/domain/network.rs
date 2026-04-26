@@ -36,14 +36,11 @@ impl Default for NetInfo {
 
 /// Cumulative transfer statistics for one direction (download or upload).
 #[derive(Debug, Clone, Default)]
-#[allow(dead_code)] // domain model — fields populated by collector
 pub struct NetStat {
     /// Current speed in bytes/sec.
     pub speed: u64,
     /// Peak speed in bytes/sec.
     pub top: u64,
-    /// Total bytes transferred (with rollover handling).
-    pub total: u64,
     /// Last raw counter value from OS.
     pub last: u64,
     /// Offset for manual total reset.
@@ -61,7 +58,6 @@ mod tests {
         let stat = NetStat::default();
         assert_eq!(stat.speed, 0);
         assert_eq!(stat.top, 0);
-        assert_eq!(stat.total, 0);
         assert_eq!(stat.last, 0);
         assert_eq!(stat.offset, 0);
         assert_eq!(stat.rollover, 0);

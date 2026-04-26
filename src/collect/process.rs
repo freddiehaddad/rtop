@@ -60,25 +60,20 @@ impl ProcCollector {
                     new_procs.push(ProcInfo {
                         pid,
                         name: name.clone(),
-                        cmd: name.clone(), // Full cmd requires elevated access
-                        short_cmd: name,
+                        cmd: name,
                         threads,
                         user,
                         mem,
                         cpu_p,
-                        cpu_c: 0.0,
                         state: ProcState::Running,
                         priority,
                         ppid,
-                        start_time: 0,
                         cpu_time,
                         io_read: 0,
                         io_write: 0,
                         prefix: String::new(),
                         depth: 0,
                         tree_index: 0,
-                        collapsed: false,
-                        filtered: false,
                     });
 
                     if Process32NextW(snapshot, &mut entry).is_err() {

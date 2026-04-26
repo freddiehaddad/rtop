@@ -124,7 +124,6 @@ impl MemCollector {
                 {
                     let used = total_bytes.saturating_sub(free_bytes);
                     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
-                    let free_pct = 100 - used_pct;
 
                     // Get volume info
                     let mut vol_name = [0u16; 256];
@@ -138,9 +137,6 @@ impl MemCollector {
                         Some(&mut fs_name),
                     );
 
-                    let label = String::from_utf16_lossy(&vol_name)
-                        .trim_end_matches('\0')
-                        .to_string();
                     let fstype = String::from_utf16_lossy(&fs_name)
                         .trim_end_matches('\0')
                         .to_string();
@@ -149,16 +145,10 @@ impl MemCollector {
 
                     let disk = DiskInfo {
                         name: name.clone(),
-                        label,
                         fstype,
                         total: total_bytes,
                         used,
-                        free: free_bytes,
                         used_percent: used_pct,
-                        free_percent: free_pct,
-                        io_read: VecDeque::new(),
-                        io_write: VecDeque::new(),
-                        io_activity: VecDeque::new(),
                     };
 
                     self.info.disks_order.push(name.clone());

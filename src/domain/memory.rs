@@ -36,31 +36,18 @@ impl Default for MemInfo {
 
 /// Information about a single disk/volume.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // domain model — fields populated by collector
 #[derive(Default)]
 pub struct DiskInfo {
     /// Display name (e.g. "C:", "D:").
     pub name: String,
-    /// Volume label (e.g. "Windows", "Data").
-    pub label: String,
     /// Filesystem type (e.g. "NTFS", "FAT32", "ReFS").
     pub fstype: String,
     /// Total capacity in bytes.
     pub total: u64,
     /// Used space in bytes.
     pub used: u64,
-    /// Free space in bytes.
-    pub free: u64,
     /// Used percentage (0-100).
     pub used_percent: i32,
-    /// Free percentage (0-100).
-    pub free_percent: i32,
-    /// IO read bytes per update history.
-    pub io_read: VecDeque<i64>,
-    /// IO write bytes per update history.
-    pub io_write: VecDeque<i64>,
-    /// IO activity percentage history (0-100).
-    pub io_activity: VecDeque<i64>,
 }
 
 
@@ -90,13 +77,9 @@ mod tests {
         let disk = DiskInfo {
             total: 1_000_000,
             used: 600_000,
-            free: 400_000,
             used_percent: 60,
-            free_percent: 40,
             ..Default::default()
         };
         assert!((0..=100).contains(&disk.used_percent));
-        assert!((0..=100).contains(&disk.free_percent));
-        assert_eq!(disk.used_percent + disk.free_percent, 100);
     }
 }

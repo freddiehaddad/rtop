@@ -1,9 +1,7 @@
-use std::collections::VecDeque;
 use std::fmt;
 
 /// Information about a single process.
 #[derive(Debug, Clone)]
-#[allow(dead_code)] // domain model — fields populated by collector
 pub struct ProcInfo {
     /// Process ID.
     pub pid: u32,
@@ -11,8 +9,6 @@ pub struct ProcInfo {
     pub name: String,
     /// Full command line.
     pub cmd: String,
-    /// Shortened command for display.
-    pub short_cmd: String,
     /// Thread count.
     pub threads: usize,
     /// Username of the process owner.
@@ -21,16 +17,12 @@ pub struct ProcInfo {
     pub mem: u64,
     /// Current CPU usage percentage (may exceed 100% if per-core).
     pub cpu_p: f64,
-    /// Cumulative CPU usage percentage.
-    pub cpu_c: f64,
     /// Current process state.
     pub state: ProcState,
     /// Process priority class.
     pub priority: PriorityClass,
     /// Parent process ID.
     pub ppid: u32,
-    /// Process start time (FILETIME as u64, 100ns intervals since 1601).
-    pub start_time: u64,
     /// Total CPU time consumed (100ns intervals).
     pub cpu_time: u64,
     /// Total IO bytes read.
@@ -43,10 +35,6 @@ pub struct ProcInfo {
     pub depth: usize,
     /// Index in flattened tree list.
     pub tree_index: usize,
-    /// Whether this tree node is collapsed.
-    pub collapsed: bool,
-    /// Whether this process is hidden by the current filter.
-    pub filtered: bool,
 }
 
 impl Default for ProcInfo {
@@ -55,24 +43,19 @@ impl Default for ProcInfo {
             pid: 0,
             name: String::new(),
             cmd: String::new(),
-            short_cmd: String::new(),
             threads: 0,
             user: String::new(),
             mem: 0,
             cpu_p: 0.0,
-            cpu_c: 0.0,
             state: ProcState::Unknown,
             priority: PriorityClass::Normal,
             ppid: 0,
-            start_time: 0,
             cpu_time: 0,
             io_read: 0,
             io_write: 0,
             prefix: String::new(),
             depth: 0,
             tree_index: 0,
-            collapsed: false,
-            filtered: false,
         }
     }
 }
@@ -81,11 +64,8 @@ impl Default for ProcInfo {
 ///
 /// Unlike Linux (R/S/D/Z/T/t/X/K/W/P), Windows has fewer observable states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // variants used as the UI grows
 pub enum ProcState {
     Running,
-    Suspended,
-    NotResponding,
     Unknown,
 }
 
@@ -93,8 +73,6 @@ impl fmt::Display for ProcState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Running => write!(f, "Running"),
-            Self::Suspended => write!(f, "Suspended"),
-            Self::NotResponding => write!(f, "Not Responding"),
             Self::Unknown => write!(f, "Unknown"),
         }
     }
@@ -126,110 +104,6 @@ impl fmt::Display for PriorityClass {
     }
 }
 
-/// Detailed view data for a selected process.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // domain model — used when detail view is wired up
-#[derive(Default)]
-pub struct DetailContainer {
-    /// PID of the last detailed process.
-    pub last_pid: u32,
-    /// Full process entry.
-    pub entry: ProcInfo,
-    /// Formatted elapsed time since start.
-    pub elapsed: String,
-    /// Parent process name.
-    pub parent: String,
-    /// Status display string.
-    pub status: String,
-    /// Formatted IO read total.
-    pub io_read: String,
-    /// Formatted IO write total.
-    pub io_write: String,
-    /// Formatted memory usage.
-    pub memory: String,
-    /// CPU usage history for the detailed graph.
-    pub cpu_percent: VecDeque<i64>,
-    /// Memory usage history (bytes) for the detailed graph.
-    pub mem_bytes: VecDeque<i64>,
-}
-
-
-/// Process sort options (matching btop's sort_vector).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // used in tests and as UI grows
-pub enum ProcSorting {
-    Pid,
-    Name,
-    Command,
-    Threads,
-    User,
-    Memory,
-    CpuDirect,
-    CpuLazy,
-}
-
-#[allow(dead_code)]
-impl ProcSorting {
-    pub const ALL: &[Self] = &[
-        Self::Pid,
-        Self::Name,
-        Self::Command,
-        Self::Threads,
-        Self::User,
-        Self::Memory,
-        Self::CpuDirect,
-        Self::CpuLazy,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Pid => "pid",
-            Self::Name => "name",
-            Self::Command => "command",
-            Self::Threads => "threads",
-            Self::User => "user",
-            Self::Memory => "memory",
-            Self::CpuDirect => "cpu direct",
-            Self::CpuLazy => "cpu lazy",
-        }
-    }
-}
-
-/// Process actions available on Windows (replaces Unix signals).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // used in tests and signal menu
-pub enum ProcessAction {
-    /// Gracefully ask the process to close (WM_CLOSE to main window).
-    EndTask,
-    /// Forcefully terminate the process.
-    Terminate,
-    /// Suspend all threads.
-    Suspend,
-    /// Resume all threads.
-    Resume,
-}
-
-impl fmt::Display for ProcessAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::EndTask => write!(f, "End Task"),
-            Self::Terminate => write!(f, "Terminate"),
-            Self::Suspend => write!(f, "Suspend"),
-            Self::Resume => write!(f, "Resume"),
-        }
-    }
-}
-
-/// A node in the process tree used during tree construction.
-#[derive(Debug, Clone)]
-#[allow(dead_code)] // domain model — used when tree view is wired up
-pub struct TreeProc {
-    /// Index into the flat process list.
-    pub proc_index: usize,
-    /// Child nodes.
-    pub children: Vec<TreeProc>,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -237,8 +111,6 @@ mod tests {
     #[test]
     fn proc_state_display_names() {
         assert_eq!(ProcState::Running.to_string(), "Running");
-        assert_eq!(ProcState::Suspended.to_string(), "Suspended");
-        assert_eq!(ProcState::NotResponding.to_string(), "Not Responding");
         assert_eq!(ProcState::Unknown.to_string(), "Unknown");
     }
 
@@ -256,28 +128,5 @@ mod tests {
         assert_eq!(PriorityClass::Normal.to_string(), "Normal");
         assert_eq!(PriorityClass::Realtime.to_string(), "Realtime");
         assert_eq!(PriorityClass::Idle.to_string(), "Idle");
-    }
-
-    #[test]
-    fn detail_container_default() {
-        let detail = DetailContainer::default();
-        assert_eq!(detail.last_pid, 0);
-        assert!(detail.cpu_percent.is_empty());
-        assert!(detail.mem_bytes.is_empty());
-    }
-
-    #[test]
-    fn proc_sorting_labels() {
-        assert_eq!(ProcSorting::Pid.label(), "pid");
-        assert_eq!(ProcSorting::CpuLazy.label(), "cpu lazy");
-        assert_eq!(ProcSorting::ALL.len(), 8);
-    }
-
-    #[test]
-    fn process_action_display() {
-        assert_eq!(ProcessAction::EndTask.to_string(), "End Task");
-        assert_eq!(ProcessAction::Terminate.to_string(), "Terminate");
-        assert_eq!(ProcessAction::Suspend.to_string(), "Suspend");
-        assert_eq!(ProcessAction::Resume.to_string(), "Resume");
     }
 }

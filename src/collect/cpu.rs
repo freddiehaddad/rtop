@@ -1,4 +1,4 @@
-use crate::domain::cpu::{BatteryInfo, CpuInfo};
+use crate::domain::cpu::CpuInfo;
 use std::collections::VecDeque;
 
 /// Maximum number of data points to retain in history deques.
@@ -57,7 +57,6 @@ impl CpuCollector {
         self.collect_cpu_times();
         self.collect_frequency();
         self.collect_uptime();
-        self.collect_battery();
         self.update_load_avg();
 
         &self.info
@@ -339,42 +338,6 @@ impl CpuCollector {
         self.info.uptime_seconds = unsafe {
             windows::Win32::System::SystemInformation::GetTickCount64() / 1000
         };
-    }
-
-    fn collect_battery(&mut self) {
-        use windows::Win32::System::Power::*;
-
-        let mut status = SYSTEM_POWER_STATUS::default();
-        unsafe {
-            if GetSystemPowerStatus(&mut status).is_ok() {
-                self.info.has_battery = status.BatteryFlag != 128; // 128 = no battery
-                self.info.battery = BatteryInfo {
-                    percent: if status.BatteryLifePercent <= 100 {
-                        status.BatteryLifePercent as i32
-                    } else {
-                        -1
-                    },
-                    watts: 0.0,
-                    seconds_remaining: if status.BatteryLifeTime != u32::MAX {
-                        status.BatteryLifeTime as i64
-                    } else {
-                        -1
-                    },
-                    status: match status.ACLineStatus {
-                        0 => {
-                            if status.BatteryFlag & 8 != 0 {
-                                "Charging".to_string()
-                            } else {
-                                "Discharging".to_string()
-                            }
-                        }
-                        1 => "Full".to_string(),
-                        _ => "Unknown".to_string(),
-                    },
-                    ac_connected: status.ACLineStatus == 1,
-                };
-            }
-        }
     }
 
     fn update_load_avg(&mut self) {

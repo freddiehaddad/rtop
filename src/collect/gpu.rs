@@ -177,8 +177,6 @@ impl GpuCollector {
             let ret = unsafe { (nvml.device_get_power_management_limit)(device, &mut pwr_limit) };
             if ret == NVML_SUCCESS {
                 info.pwr_max_usage = pwr_limit as i64;
-            } else {
-                info.supported.pwr_usage = false;
             }
 
             self.gpus.push(info);
