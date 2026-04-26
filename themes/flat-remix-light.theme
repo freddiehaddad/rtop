@@ -45,6 +45,12 @@ theme[net_box]="#fd3535"
 # Processes box outline color
 theme[proc_box]="#4aaee6"
 
+# Gpu box outline color
+theme[gpu_box]="#e6a019"
+
+# Disk box outline color
+theme[disk_box]="#9b59b6"
+
 # Box divider line and small boxes line color
 theme[div_line]="#50"
 
