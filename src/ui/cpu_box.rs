@@ -172,6 +172,7 @@ pub fn draw(
 
         // Row 1: CPU total meter "CPU ■■■■░░ ##%" followed by │
         // btop: "CPU " + meter + rjust(pct,4) + "%" + div_line + v_line
+        let has_temp = !cpu.temp.is_empty();
         if let Some(total) = cpu.cpu_percent.get("total") {
             if let Some(&pct) = total.back() {
                 let label_len = 4; // "CPU "
@@ -200,9 +201,28 @@ pub fn draw(
             }
         }
 
+        // Row 2 (optional): Package temperature "Tm XX°C"
+        let temp_row_offset: usize = if has_temp {
+            let pkg_temp = cpu.temp[0].back().copied().unwrap_or(0);
+            let temp_str = format!("Tm {}°C", pkg_temp);
+            out.push_str(&format!(
+                "\x1b[{};{}H{}{}",
+                y + 3, panel_x + 1,
+                fg,
+                tools::rjust(&temp_str, panel_inner_w, false),
+            ));
+            out.push_str(&format!(
+                "\x1b[{};{}H{}{}",
+                y + 3, right_border_x, box_color, symbols::V_LINE
+            ));
+            1
+        } else {
+            0
+        };
+
         // Per-core rows with mini graphs
-        let core_start = y + 3;
-        let core_area = inner_h.saturating_sub(2);
+        let core_start = y + 3 + temp_row_offset;
+        let core_area = inner_h.saturating_sub(2 + temp_row_offset);
         let mini_graph_w = 5_usize;
 
         for (i, core_data) in cpu.core_percent.iter().enumerate() {
@@ -224,15 +244,26 @@ pub fn draw(
             let mut mini_graph = Graph::new(mini_graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
             let mini_str = mini_graph.render_row_colored(core_data, cpu_gradient);
 
-            // btop: C# + graph + rjust(pct,4) + "%" + div_line + v_line
+            // Per-core temp suffix (e.g. " 58°")
+            let temp_suffix = if has_temp {
+                cpu.temp.get(i + 1)
+                    .and_then(|dq| dq.back())
+                    .map(|t| format!("{}{:>3}°", fg, t))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+
+            // btop: C# + graph + rjust(pct,4) + "%" + temp + div_line + v_line
             out.push_str(&format!(
-                "\x1b[{};{}H{}{:<3}{}{}{}{}",
+                "\x1b[{};{}H{}{:<3}{}{}{}{}{}",
                 cy, panel_x + 1,
                 fg, core_label,
                 mini_str,
                 pct_color,
                 tools::rjust(&pct.to_string(), 4, false),
                 "%",
+                temp_suffix,
             ));
             // Place │ at the right border
             out.push_str(&format!(

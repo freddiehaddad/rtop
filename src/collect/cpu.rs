@@ -4,6 +4,13 @@ use std::collections::VecDeque;
 /// Maximum number of data points to retain in history deques.
 const MAX_HISTORY: usize = 300;
 
+/// How we collect temperature data.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TempSource {
+    None,
+    LhmHttp,
+}
+
 /// CPU data collector using Windows APIs.
 pub struct CpuCollector {
     pub info: CpuInfo,
@@ -18,6 +25,7 @@ pub struct CpuCollector {
     pdh_perf_counter: isize,
     pdh_initialized: bool,
     pdh_has_first_sample: bool,
+    temp_source: TempSource,
 }
 
 impl CpuCollector {
@@ -34,6 +42,7 @@ impl CpuCollector {
             pdh_perf_counter: 0,
             pdh_initialized: false,
             pdh_has_first_sample: false,
+            temp_source: TempSource::None,
         }
     }
 
@@ -46,6 +55,11 @@ impl CpuCollector {
         self.prev_kernel = vec![0; self.info.core_count + 1];
         self.prev_user = vec![0; self.info.core_count + 1];
         self.initialized = true;
+
+        // Detect temperature source: try LHM HTTP first
+        if lhm_http_probe() {
+            self.temp_source = TempSource::LhmHttp;
+        }
     }
 
     /// Collect current CPU data.
@@ -58,6 +72,7 @@ impl CpuCollector {
         self.collect_frequency();
         self.collect_uptime();
         self.update_load_avg();
+        self.collect_temperatures();
 
         &self.info
     }
@@ -370,6 +385,111 @@ impl CpuCollector {
             }
         }
     }
+
+    fn collect_temperatures(&mut self) {
+        if self.temp_source != TempSource::LhmHttp {
+            return;
+        }
+
+        let Some(json) = lhm_http_fetch() else {
+            return;
+        };
+
+        let mut package_temp: Option<i64> = None;
+        let mut core_temps: Vec<(usize, i64)> = Vec::new();
+
+        // Walk the tree looking for "Temperatures" parent nodes
+        fn walk(node: &serde_json::Value, in_temps: bool, pkg: &mut Option<i64>, cores: &mut Vec<(usize, i64)>) {
+            let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
+            let is_temps = text == "Temperatures";
+
+            if in_temps {
+                // This node is a direct child of a "Temperatures" parent
+                if let Some(val_str) = node.get("Value").and_then(|v| v.as_str()) {
+                    if let Some(temp) = parse_temp_value(val_str) {
+                        if text == "CPU Package" || text == "CPU" {
+                            *pkg = Some(temp);
+                        } else if let Some(n) = parse_core_index(text) {
+                            cores.push((n, temp));
+                        }
+                    }
+                }
+            }
+
+            if let Some(children) = node.get("Children").and_then(|v| v.as_array()) {
+                for child in children {
+                    walk(child, is_temps, pkg, cores);
+                }
+            }
+        }
+
+        walk(&json, false, &mut package_temp, &mut core_temps);
+
+        // Sort core temps by index
+        core_temps.sort_by_key(|&(idx, _)| idx);
+
+        // Total entries: 1 (package) + number of core temps
+        let total = 1 + core_temps.len();
+
+        // Ensure self.info.temp has enough VecDeques
+        while self.info.temp.len() < total {
+            self.info.temp.push(VecDeque::new());
+        }
+
+        // Index 0 = package temp
+        let pkg = package_temp.unwrap_or(0);
+        push_history(&mut self.info.temp[0], pkg);
+
+        // Index 1+ = per-core temps
+        for (slot, &(_, temp)) in core_temps.iter().enumerate() {
+            push_history(&mut self.info.temp[slot + 1], temp);
+        }
+    }
+}
+
+/// Probe whether LHM HTTP API is reachable.
+fn lhm_http_probe() -> bool {
+    lhm_http_fetch().is_some()
+}
+
+/// Fetch and parse JSON from LHM HTTP API. Returns None on any failure.
+fn lhm_http_fetch() -> Option<serde_json::Value> {
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    let mut stream = TcpStream::connect_timeout(
+        &"127.0.0.1:8085".parse().ok()?,
+        Duration::from_secs(2),
+    ).ok()?;
+    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
+
+    let request = "GET /data.json HTTP/1.1\r\nHost: localhost:8085\r\nConnection: close\r\n\r\n";
+    stream.write_all(request.as_bytes()).ok()?;
+
+    let mut response = Vec::new();
+    stream.read_to_end(&mut response).ok()?;
+
+    let text = String::from_utf8_lossy(&response);
+    // Find the start of the JSON body (after the blank line separating headers)
+    let body_start = text.find("\r\n\r\n").map(|i| i + 4)
+        .or_else(|| text.find("\n\n").map(|i| i + 2))?;
+    let body = &text[body_start..];
+
+    serde_json::from_str(body).ok()
+}
+
+/// Parse a temperature value string like "65.0 °C" → 65
+fn parse_temp_value(s: &str) -> Option<i64> {
+    let num_part = s.split(|c: char| c == ' ' || c == '\u{00b0}').next()?;
+    num_part.parse::<f64>().ok().map(|v| v as i64)
+}
+
+/// Parse "CPU Core #N" → Some(N-1), zero-indexed. Returns None for non-core labels.
+fn parse_core_index(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix("CPU Core #")?;
+    rest.parse::<usize>().ok().map(|n| n.saturating_sub(1))
 }
 
 fn get_cpu_name() -> String {
@@ -488,5 +608,37 @@ mod tests {
         collector.init();
         assert!(collector.info.core_count > 0);
         assert!(!collector.info.cpu_name.is_empty());
+    }
+
+    #[test]
+    fn parse_temp_value_normal() {
+        assert_eq!(parse_temp_value("65.0 °C"), Some(65));
+        assert_eq!(parse_temp_value("100.5 °C"), Some(100));
+        assert_eq!(parse_temp_value("0.0 °C"), Some(0));
+    }
+
+    #[test]
+    fn parse_temp_value_no_space() {
+        assert_eq!(parse_temp_value("65.0°C"), Some(65));
+    }
+
+    #[test]
+    fn parse_temp_value_invalid() {
+        assert_eq!(parse_temp_value(""), None);
+        assert_eq!(parse_temp_value("N/A"), None);
+    }
+
+    #[test]
+    fn parse_core_index_valid() {
+        assert_eq!(parse_core_index("CPU Core #1"), Some(0));
+        assert_eq!(parse_core_index("CPU Core #8"), Some(7));
+        assert_eq!(parse_core_index("CPU Core #16"), Some(15));
+    }
+
+    #[test]
+    fn parse_core_index_non_core() {
+        assert_eq!(parse_core_index("CPU Package"), None);
+        assert_eq!(parse_core_index("GPU Core"), None);
+        assert_eq!(parse_core_index(""), None);
     }
 }

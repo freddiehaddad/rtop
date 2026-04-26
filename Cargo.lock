@@ -714,6 +714,7 @@ dependencies = [
  "pretty_assertions",
  "proptest",
  "regex",
+ "serde_json",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
