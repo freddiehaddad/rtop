@@ -218,7 +218,7 @@ pub fn draw_with_sort(
     // Build positions right-to-left from the right corner
     // btop line 1884: sort_pos = x + width - sort_len - 8
     let sort_content_len = sort_name.len() + 4; // "← cpu lazy →"
-    let mut pos = x + width - sort_name.len() - 8;
+    let mut pos = x + width - sort_name.len() - 7;
 
     // Sort selector: ┐← sorting →┌
     let sort_inset = format!(
