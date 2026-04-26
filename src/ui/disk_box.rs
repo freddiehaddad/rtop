@@ -37,7 +37,7 @@ pub fn draw(
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width, height, line_color: box_color, fill: true,
-        title: "disks", title2: "", num: 0, rounded,
+        title: "disks", title2: "", num: 6, rounded,
     });
 
     let meter_w = inner_w.saturating_sub(16).max(5);
