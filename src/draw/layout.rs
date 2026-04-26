@@ -19,11 +19,17 @@ pub struct Layout {
 
 /// Minimum box dimensions (matching btop).
 pub const MIN_CPU_HEIGHT: usize = 8;
+/// Minimum height for the memory box.
 pub const MIN_MEM_HEIGHT: usize = 10;
+/// Minimum width for the memory box.
 pub const MIN_MEM_WIDTH: usize = 36;
+/// Minimum height for the network box.
 pub const MIN_NET_HEIGHT: usize = 6;
+/// Minimum width for the network box.
 pub const MIN_NET_WIDTH: usize = 20;
+/// Minimum width for the process box.
 pub const MIN_PROC_WIDTH: usize = 44;
+/// Minimum height for a GPU box.
 pub const MIN_GPU_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
 const PROC_WIDTH_PCT: usize = 55;

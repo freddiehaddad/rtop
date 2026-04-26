@@ -13,6 +13,7 @@ pub struct ProcCollector {
 }
 
 impl ProcCollector {
+    /// Create a new process collector.
     pub fn new() -> Self {
         Self {
             procs: Vec::new(),
@@ -426,6 +427,7 @@ pub fn cpu_percent_from_times(
 }
 
 /// Build a process tree from PPID relationships.
+/// Build a parent-PID-to-child-indices map for process tree display.
 pub fn build_tree(procs: &[ProcInfo]) -> HashMap<u32, Vec<usize>> {
     let mut children: HashMap<u32, Vec<usize>> = HashMap::new();
     for (i, p) in procs.iter().enumerate() {
@@ -435,6 +437,7 @@ pub fn build_tree(procs: &[ProcInfo]) -> HashMap<u32, Vec<usize>> {
 }
 
 /// Generate tree prefix strings for display.
+/// Assign tree-view prefix strings (e.g. "├─ ", "└─ ") to each process.
 pub fn generate_tree_prefixes(procs: &mut [ProcInfo], children: &HashMap<u32, Vec<usize>>) {
     // Find root processes (ppid not in process list)
     let pids: std::collections::HashSet<u32> = procs.iter().map(|p| p.pid).collect();
@@ -483,6 +486,7 @@ fn assign_prefix(
 }
 
 /// Sort processes by the given column.
+/// Sort processes in place by the given column name.
 pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
     procs.sort_by(|a, b| {
         let cmp = match sort_by {
@@ -500,6 +504,7 @@ pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
 }
 
 /// Test if a process matches a filter string.
+/// Return true if a process matches the filter (substring or `!regex`).
 pub fn matches_filter(proc: &ProcInfo, filter: &str) -> bool {
     if filter.is_empty() {
         return true;

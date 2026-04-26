@@ -28,6 +28,7 @@ pub struct OptDef {
 // Browsable option value lists
 // ---------------------------------------------------------------------------
 
+/// Return the list of valid values for a browsable option key.
 pub fn browsable_values(key: &str) -> &'static [&'static str] {
     match key {
         "color_theme" => crate::theme::THEME_NAMES,
@@ -65,8 +66,10 @@ fn classify(key: &str, config: &Config) -> OptKind {
 // Category definitions  (mirroring btop, minus Linux-only options)
 // ---------------------------------------------------------------------------
 
+/// Category tab names for the options menu.
 pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc"];
 
+/// Options in the "general" category.
 pub const GENERAL: &[OptDef] = &[
     OptDef { key: "color_theme", desc: &[
         "Set color theme.",
@@ -185,6 +188,7 @@ pub const GENERAL: &[OptDef] = &[
     ]},
 ];
 
+/// Options in the "cpu" category.
 pub const CPU: &[OptDef] = &[
     OptDef { key: "cpu_bottom", desc: &[
         "Cpu box location.",
@@ -274,6 +278,7 @@ pub const CPU: &[OptDef] = &[
     ]},
 ];
 
+/// Options in the "mem" category.
 pub const MEM: &[OptDef] = &[
     OptDef { key: "mem_below_net", desc: &[
         "Mem box location.",
@@ -350,6 +355,7 @@ pub const MEM: &[OptDef] = &[
     ]},
 ];
 
+/// Options in the "net" category.
 pub const NET: &[OptDef] = &[
     OptDef { key: "graph_symbol_net", desc: &[
         "Graph symbol to use for graphs in net box.",
@@ -396,6 +402,7 @@ pub const NET: &[OptDef] = &[
     ]},
 ];
 
+/// Options in the "proc" category.
 pub const PROC: &[OptDef] = &[
     OptDef { key: "proc_left", desc: &[
         "Proc box location.",

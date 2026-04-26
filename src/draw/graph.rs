@@ -11,6 +11,7 @@ pub const BRAILLE_UP: [&str; 25] = [
     " ", "⢀", "⢠", "⢰", "⢸", "⡀", "⣀", "⣠", "⣰", "⣸", "⡄", "⣄", "⣤", "⣴", "⣼", "⡆",
     "⣆", "⣦", "⣶", "⣾", "⡇", "⣇", "⣧", "⣷", "⣿",
 ];
+/// Braille graph characters for inverted (bottom-up) graphs.
 pub const BRAILLE_DOWN: [&str; 25] = [
     " ", "⠈", "⠘", "⠸", "⢸", "⠁", "⠉", "⠙", "⠹", "⢹", "⠃", "⠋", "⠛", "⠻", "⢻", "⠇",
     "⠏", "⠟", "⠿", "⢿", "⡇", "⡏", "⡟", "⡿", "⣿",
@@ -82,6 +83,7 @@ pub struct Graph {
 }
 
 impl Graph {
+    /// Create a new graph with the given dimensions, symbol mode, and value range.
     pub fn new(
         width: usize,
         height: usize,

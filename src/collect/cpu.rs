@@ -13,6 +13,7 @@ enum TempSource {
 
 /// CPU data collector using Windows APIs.
 pub struct CpuCollector {
+
     pub info: CpuInfo,
     prev_idle: Vec<u64>,
     prev_kernel: Vec<u64>,
@@ -29,6 +30,7 @@ pub struct CpuCollector {
 }
 
 impl CpuCollector {
+    /// Create a new CPU collector with default state.
     pub fn new() -> Self {
         Self {
             info: CpuInfo::default(),

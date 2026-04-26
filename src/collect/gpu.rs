@@ -114,6 +114,7 @@ pub struct GpuCollector {
 }
 
 impl GpuCollector {
+    /// Create a new GPU collector, loading NVML if available.
     pub fn new() -> Self {
         let mut collector = Self {
             nvml: NvmlFunctions::load(),

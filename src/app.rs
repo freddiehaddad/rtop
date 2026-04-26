@@ -9,6 +9,7 @@ enum MenuState {
     Filter,
 }
 
+/// Run the main event loop: collect data, render UI, and handle input.
 pub fn run(
     config: &mut config::Config,
     terminal: &mut term::Terminal,

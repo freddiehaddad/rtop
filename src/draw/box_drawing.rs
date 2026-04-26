@@ -2,34 +2,58 @@ use crate::term;
 
 /// Box-drawing characters.
 pub mod symbols {
+    /// Horizontal line `─`.
     pub const H_LINE: &str = "─";
+    /// Vertical line `│`.
     pub const V_LINE: &str = "│";
+    /// Top-left corner `┌`.
     pub const LEFT_UP: &str = "┌";
+    /// Top-right corner `┐`.
     pub const RIGHT_UP: &str = "┐";
+    /// Bottom-left corner `└`.
     pub const LEFT_DOWN: &str = "└";
+    /// Bottom-right corner `┘`.
     pub const RIGHT_DOWN: &str = "┘";
+    /// Rounded top-left corner `╭`.
     pub const ROUND_LEFT_UP: &str = "╭";
+    /// Rounded top-right corner `╮`.
     pub const ROUND_RIGHT_UP: &str = "╮";
+    /// Rounded bottom-left corner `╰`.
     pub const ROUND_LEFT_DOWN: &str = "╰";
+    /// Rounded bottom-right corner `╯`.
     pub const ROUND_RIGHT_DOWN: &str = "╯";
+    /// Right T-junction `┤`.
     pub const DIV_RIGHT: &str = "┤";
+    /// Left T-junction `├`.
     pub const DIV_LEFT: &str = "├";
+    /// Top T-junction `┬`.
     pub const DIV_UP: &str = "┬";
+    /// Bottom T-junction `┴`.
     pub const DIV_DOWN: &str = "┴";
+    /// Up arrow `↑`.
     pub const UP_ARROW: &str = "↑";
+    /// Down arrow `↓`.
     pub const DOWN_ARROW: &str = "↓";
+    /// Left arrow `←`.
     pub const LEFT_ARROW: &str = "←";
+    /// Right arrow `→`.
     pub const RIGHT_ARROW: &str = "→";
+    /// Enter/return symbol `↵`.
     pub const ENTER: &str = "↵";
+    /// Unicode superscript digits 0–9.
     pub const SUPERSCRIPT: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
 }
 
 /// Box-drawing title inset characters (matching btop).
 /// These create a notch in the border line for the title text.
 pub mod title_syms {
+    /// Left inset for title on top border `┐`.
     pub const TITLE_LEFT: &str = "┐";
+    /// Right inset for title on top border `┌`.
     pub const TITLE_RIGHT: &str = "┌";
+    /// Left inset for title on bottom border `┘`.
     pub const TITLE_LEFT_DOWN: &str = "┘";
+    /// Right inset for title on bottom border `└`.
     pub const TITLE_RIGHT_DOWN: &str = "└";
 }
 

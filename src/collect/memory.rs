@@ -9,6 +9,7 @@ pub struct MemCollector {
 }
 
 impl MemCollector {
+    /// Create a new memory and disk collector.
     pub fn new() -> Self {
         Self {
             info: MemInfo::default(),

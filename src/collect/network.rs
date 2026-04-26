@@ -10,6 +10,7 @@ pub struct NetCollector {
 }
 
 impl NetCollector {
+    /// Create a new network collector.
     pub fn new() -> Self {
         Self {
             interfaces: Vec::new(),
