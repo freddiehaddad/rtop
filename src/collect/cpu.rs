@@ -205,84 +205,90 @@ impl CpuCollector {
     }
 
     fn collect_frequency(&mut self) {
-        // Use CallNtPowerInformation(ProcessorInformation) for dynamic current frequency.
-        #[repr(C)]
-        #[derive(Default, Clone, Copy)]
-        struct ProcessorPowerInfo {
-            number: u32,
-            max_mhz: u32,
-            current_mhz: u32,
-            mhz_limit: u32,
-            max_idle_state: u32,
-            current_idle_state: u32,
-        }
+        // Use PDH performance counter for actual current frequency, matching Task Manager.
+        // Counter: \Processor Information(_Total)\Processor Frequency
+        // This reports the actual real-time frequency including turbo boost.
 
-        #[link(name = "powrprof")]
+        #[link(name = "pdh")]
         unsafe extern "system" {
-            fn CallNtPowerInformation(
-                information_level: i32,
-                input_buffer: *const std::ffi::c_void,
-                input_buffer_length: u32,
-                output_buffer: *mut std::ffi::c_void,
-                output_buffer_length: u32,
+            fn PdhOpenQueryW(
+                data_source: *const u16,
+                user_data: usize,
+                query: *mut isize,
             ) -> i32;
+            fn PdhAddCounterW(
+                query: isize,
+                counter_path: *const u16,
+                user_data: usize,
+                counter: *mut isize,
+            ) -> i32;
+            fn PdhCollectQueryData(query: isize) -> i32;
+            fn PdhGetFormattedCounterValue(
+                counter: isize,
+                format: u32,
+                counter_type: *mut u32,
+                value: *mut PdhFmtCounterValue,
+            ) -> i32;
+            fn PdhCloseQuery(query: isize) -> i32;
         }
 
-        let core_count = self.info.core_count.max(1);
-        let mut ppi = vec![ProcessorPowerInfo::default(); core_count];
-        let buf_size = (core_count * std::mem::size_of::<ProcessorPowerInfo>()) as u32;
+        #[repr(C)]
+        #[derive(Default)]
+        struct PdhFmtCounterValue {
+            status: u32,
+            double_value: f64,
+        }
 
-        // ProcessorInformation = 11
-        let status = unsafe {
-            CallNtPowerInformation(
-                11,
-                std::ptr::null(),
-                0,
-                ppi.as_mut_ptr() as *mut std::ffi::c_void,
-                buf_size,
-            )
-        };
+        const PDH_FMT_DOUBLE: u32 = 0x00000200;
 
-        if status == 0 {
-            // CurrentMhz from CallNtPowerInformation reports the OS P-state frequency.
-            // To get actual turbo frequency like Task Manager shows, we compute:
-            //   actual_freq = max_mhz * (cpu_usage_ratio)
-            // But a simpler approach: use MhzLimit which reflects the current max allowed.
-            // If current CPU usage is high, the actual speed ≈ MhzLimit.
-            //
-            // Best approach: take the highest of CurrentMhz and MhzLimit across cores,
-            // and if we have current CPU %, scale MaxMhz by that.
-            let max_mhz = ppi.iter().map(|p| p.max_mhz).max().unwrap_or(0);
-            let current_mhz = ppi.iter().map(|p| p.current_mhz).max().unwrap_or(0);
-            let mhz_limit = ppi.iter().map(|p| p.mhz_limit).max().unwrap_or(0);
+        let counter_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
+            .encode_utf16()
+            .collect();
 
-            // Task Manager uses: base_freq * processor_performance_counter / 100
-            // We approximate by using the current CPU% to scale between base and turbo.
-            // If we have a recent total CPU%, use it to estimate actual frequency.
-            let cpu_pct = self.info.cpu_percent.get("total")
-                .and_then(|d| d.back().copied())
-                .unwrap_or(0) as f64 / 100.0;
-
-            // Use mhz_limit as the effective current max, scaled by a boost factor
-            // MhzLimit is usually the turbo frequency when power/thermal allows
-            let effective = if mhz_limit > current_mhz {
-                mhz_limit
-            } else if current_mhz > 0 {
-                current_mhz
-            } else {
-                max_mhz
-            };
-
-            if effective > 0 {
-                if effective >= 1000 {
-                    self.info.cpu_hz = format!("{:.2} GHz", effective as f64 / 1000.0);
-                } else {
-                    self.info.cpu_hz = format!("{} MHz", effective);
-                }
+        unsafe {
+            let mut query: isize = 0;
+            if PdhOpenQueryW(std::ptr::null(), 0, &mut query) != 0 {
+                self.collect_frequency_fallback();
                 return;
             }
+
+            let mut counter: isize = 0;
+            if PdhAddCounterW(query, counter_path.as_ptr(), 0, &mut counter) != 0 {
+                PdhCloseQuery(query);
+                self.collect_frequency_fallback();
+                return;
+            }
+
+            if PdhCollectQueryData(query) != 0 {
+                PdhCloseQuery(query);
+                self.collect_frequency_fallback();
+                return;
+            }
+
+            let mut value = PdhFmtCounterValue::default();
+            let mut counter_type: u32 = 0;
+            if PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, &mut counter_type, &mut value) == 0
+                && value.status == 0
+            {
+                let mhz = value.double_value as u32;
+                if mhz > 0 {
+                    if mhz >= 1000 {
+                        self.info.cpu_hz = format!("{:.2} GHz", mhz as f64 / 1000.0);
+                    } else {
+                        self.info.cpu_hz = format!("{} MHz", mhz);
+                    }
+                    PdhCloseQuery(query);
+                    return;
+                }
+            }
+
+            PdhCloseQuery(query);
         }
 
+        self.collect_frequency_fallback();
+    }
+
+    fn collect_frequency_fallback(&mut self) {
         // Fallback: read base frequency from registry
         use windows::Win32::System::Registry::*;
         use windows::core::*;
@@ -292,7 +298,7 @@ impl CpuCollector {
             let subkey = w!("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
             if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, Some(0), KEY_READ, &mut key).is_ok() {
                 let mut mhz: u32 = 0;
-                let mut size = mem::size_of::<u32>() as u32;
+                let mut size = std::mem::size_of::<u32>() as u32;
                 let val_name = w!("~MHz");
                 if RegQueryValueExW(
                     key,
