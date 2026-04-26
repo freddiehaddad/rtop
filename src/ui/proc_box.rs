@@ -64,6 +64,7 @@ pub fn draw_with_sort(
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width, height, line_color: box_color, fill: true,
         title: "proc", title2: "", num: 4, rounded,
+        hi_color: hi, title_color,
     });
 
     let inner_w = width.saturating_sub(4);

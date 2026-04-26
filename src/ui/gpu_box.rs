@@ -38,6 +38,8 @@ pub fn draw(
     let rounded = area.rounded;
     let box_color = theme.c("cpu_box");
     let fg = theme.c("main_fg");
+    let hi = theme.c("hi_fg");
+    let title_color = theme.c("title");
     let meter_bg = theme.c("meter_bg");
     let cpu_gradient = theme.g("cpu");
 
@@ -47,6 +49,7 @@ pub fn draw(
         box_drawing::create_box(&box_drawing::BoxConfig {
             x, y, width, height, line_color: box_color, fill: true,
             title: &title, title2: "", num, rounded,
+            hi_color: hi, title_color,
         });
 
     let inner_w = width.saturating_sub(2);

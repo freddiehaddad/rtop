@@ -29,6 +29,7 @@ pub fn draw(
     let box_color = theme.c("mem_box"); // same color family as mem
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
+    let hi = theme.c("hi_fg");
     let avail_grad = theme.g("available");
     let meter_bg = theme.c("meter_bg");
 
@@ -38,6 +39,7 @@ pub fn draw(
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width, height, line_color: box_color, fill: true,
         title: "disks", title2: "", num: 6, rounded,
+        hi_color: hi, title_color,
     });
 
     let meter_w = inner_w.saturating_sub(16).max(5);

@@ -615,6 +615,7 @@ pub fn draw(
     out.push_str(&box_drawing::create_box(&box_drawing::BoxConfig {
         x, y: y + 6, width: box_w, height, line_color: hi, fill: true,
         title: &tab_title, title2: "", num: 0, rounded: true,
+        hi_color: "", title_color: "",
     }));
 
     // Horizontal divider at row y+8 with T-junctions

@@ -32,6 +32,7 @@ pub fn draw(
     let box_color = theme.c("mem_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
+    let hi = theme.c("hi_fg");
     let used_grad = theme.g("used");
     let free_grad = theme.g("free");
     let cached_grad = theme.g("cached");
@@ -43,6 +44,7 @@ pub fn draw(
         box_drawing::create_box(&box_drawing::BoxConfig {
             x, y, width, height, line_color: box_color, fill: true,
             title: "mem", title2: "", num: 2, rounded,
+            hi_color: hi, title_color,
         });
 
     let total_bytes = mem.stats.get("used").unwrap_or(&0)

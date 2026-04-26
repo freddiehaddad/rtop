@@ -12,6 +12,7 @@ pub fn draw(term_width: usize, term_height: usize) -> String {
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width: w, height: h, line_color: "", fill: true,
         title: "help", title2: "", num: 0, rounded: true,
+        hi_color: "", title_color: "",
     });
 
     let lines = [

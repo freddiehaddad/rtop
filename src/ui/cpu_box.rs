@@ -58,6 +58,7 @@ pub fn draw(
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x, y, width, height, line_color: box_color, fill: true,
         title: "cpu", title2: "", num: 1, rounded,
+        hi_color: hi, title_color,
     });
 
     let core_count = cpu.core_percent.len();

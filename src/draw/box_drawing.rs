@@ -69,6 +69,10 @@ pub struct BoxConfig<'a> {
     pub title2: &'a str,
     pub num: u8,
     pub rounded: bool,
+    /// Highlight color for hotkey characters (superscript number). Empty = inherit line_color.
+    pub hi_color: &'a str,
+    /// Title text color. Empty = inherit line_color.
+    pub title_color: &'a str,
 }
 
 /// Create a box frame matching btop's createBox exactly.
@@ -154,13 +158,14 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         } else {
             ""
         };
-        // btop uses: hi_fg for number, title color for text, bold for both
+        let hi = if cfg.hi_color.is_empty() { color } else { cfg.hi_color };
+        let tc = if cfg.title_color.is_empty() { color } else { cfg.title_color };
         out.push_str(&format!(
-            "{}{}\x1b[1m{}{}\x1b[22m{}{}",
+            "{}{}\x1b[1m{}{}{}{}\x1b[22m{}{}",
             term::mv(x + 3, y + 1),
             title_syms::TITLE_LEFT,
-            numbering,  // number in current color (line_color which is box color)
-            title,       // title text
+            hi, numbering,
+            tc, title,
             color,
             title_syms::TITLE_RIGHT,
         ));
@@ -187,7 +192,7 @@ mod tests {
     use super::*;
 
     fn cfg(x: usize, y: usize, w: usize, h: usize) -> BoxConfig<'static> {
-        BoxConfig { x, y, width: w, height: h, line_color: "", fill: false, title: "", title2: "", num: 0, rounded: false }
+        BoxConfig { x, y, width: w, height: h, line_color: "", fill: false, title: "", title2: "", num: 0, rounded: false, hi_color: "", title_color: "" }
     }
 
     #[test]
