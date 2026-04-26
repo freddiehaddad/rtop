@@ -62,11 +62,18 @@ pub fn draw_with_sort(
         }
     }
 
-    // Column widths proportional to available space
+    // Column widths — add Command column when wide enough (btop: width > 55)
     let pid_w = 7;
     let cpu_w = 7;
     let mem_w = 7;
-    let name_w = inner_w.saturating_sub(pid_w + cpu_w + mem_w + 3); // 3 for spacing
+    let has_cmd_col = inner_w > 55;
+    let (name_w, cmd_w) = if has_cmd_col {
+        let prog = if inner_w > 70 { 16 } else { 8 };
+        let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + 4); // 4 for spacing
+        (prog, cmd)
+    } else {
+        (inner_w.saturating_sub(pid_w + cpu_w + mem_w + 3), 0)
+    };
 
     // Header row with column titles and sort indicator
     let arrow = if sort_reversed { "▼" } else { "▲" };
@@ -100,6 +107,15 @@ pub fn draw_with_sort(
     let name_color = if is_sort("name") { hi } else { title_color };
     out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, name_color, name_str));
     col_x += name_w + 1;
+
+    // Command column (when terminal is wide enough)
+    if has_cmd_col && cmd_w > 0 {
+        let cmd_label = if is_sort("command") { format!("Cmd{arrow}") } else { "Cmd".into() };
+        let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = cmd_w);
+        let cmd_color = if is_sort("command") { hi } else { title_color };
+        out.push_str(&format!("\x1b[{};{}H{}{}", header_row_y, col_x, cmd_color, cmd_str));
+        col_x += cmd_w + 1;
+    }
 
     // Cpu% column
     let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = cpu_w);
@@ -166,17 +182,41 @@ pub fn draw_with_sort(
             proc.name.clone()
         };
 
-        let line = format!(
-            "{:<pid_w$} {:<name_w$} {:>cpu_w$.1} {:>mem_w$}",
-            proc.pid,
-            tools::uresize(&display_name, name_w, false),
-            proc.cpu_p,
-            mem_str,
-            pid_w = pid_w,
-            name_w = name_w,
-            cpu_w = cpu_w,
-            mem_w = mem_w
-        );
+        let line = if has_cmd_col && cmd_w > 0 {
+            // Extract just the args from cmd (remove the exe name/path)
+            let cmd_display = if proc.cmd.len() > proc.name.len() {
+                proc.cmd[proc.name.len()..].trim().to_string()
+            } else if proc.cmd != proc.name {
+                proc.cmd.clone()
+            } else {
+                String::new()
+            };
+            format!(
+                "{:<pid_w$} {:<name_w$} {:<cmd_w$} {:>cpu_w$.1} {:>mem_w$}",
+                proc.pid,
+                tools::uresize(&display_name, name_w, false),
+                tools::uresize(&cmd_display, cmd_w, false),
+                proc.cpu_p,
+                mem_str,
+                pid_w = pid_w,
+                name_w = name_w,
+                cmd_w = cmd_w,
+                cpu_w = cpu_w,
+                mem_w = mem_w
+            )
+        } else {
+            format!(
+                "{:<pid_w$} {:<name_w$} {:>cpu_w$.1} {:>mem_w$}",
+                proc.pid,
+                tools::uresize(&display_name, name_w, false),
+                proc.cpu_p,
+                mem_str,
+                pid_w = pid_w,
+                name_w = name_w,
+                cpu_w = cpu_w,
+                mem_w = mem_w
+            )
+        };
         let line_trunc = tools::uresize(&line, inner_w, false);
 
         if i + start == selected {
