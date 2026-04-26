@@ -1,104 +1,805 @@
-use crate::draw::box_drawing;
+use crate::config::Config;
+use crate::draw::box_drawing::{self, symbols};
 use crate::theme::Theme;
-use crate::tools;
 
-/// A single option entry in the options menu.
-pub struct OptionEntry {
-    pub key: String,
-    pub display: String,
-    pub kind: OptionKind,
-}
+// ---------------------------------------------------------------------------
+// Option type classification
+// ---------------------------------------------------------------------------
 
-pub enum OptionKind {
+/// How an option can be edited.
+#[derive(Clone, Copy, PartialEq)]
+pub enum OptKind {
     Bool,
     Int,
-    StringChoice(Vec<String>),
+    /// Cycle through a fixed list of choices.
+    Browsable,
+    /// Free-form string (not editable via left/right in this version).
+    StringVal,
 }
 
-/// Draw the options menu centered on screen with a highlighted selection.
+/// A single option definition.
+pub struct OptDef {
+    pub key: &'static str,
+    pub desc: &'static [&'static str],
+    pub kind: OptKind,
+}
+
+// ---------------------------------------------------------------------------
+// Browsable option value lists
+// ---------------------------------------------------------------------------
+
+pub fn browsable_values(key: &str) -> &'static [&'static str] {
+    match key {
+        "color_theme" => crate::theme::THEME_NAMES,
+        "graph_symbol" | "graph_symbol_cpu" | "graph_symbol_mem"
+        | "graph_symbol_net" | "graph_symbol_proc" | "graph_symbol_gpu" => {
+            &["default", "braille", "block", "tty"]
+        }
+        "cpu_graph_upper" | "cpu_graph_lower" => {
+            &["Auto", "total", "user", "system"]
+        }
+        "temp_scale" => &["celsius", "fahrenheit", "kelvin", "rankine"],
+        "proc_sorting" => {
+            &["pid", "program", "arguments", "threads", "user", "memory", "cpu lazy", "cpu direct"]
+        }
+        "log_level" => &["ERROR", "WARNING", "INFO", "DEBUG"],
+        "cpu_sensor" | "selected_battery" | "net_iface" => &["Auto"],
+        _ => &[],
+    }
+}
+
+fn classify(key: &str, config: &Config) -> OptKind {
+    if config.bools.contains_key(key) {
+        return OptKind::Bool;
+    }
+    if config.ints.contains_key(key) {
+        return OptKind::Int;
+    }
+    if !browsable_values(key).is_empty() {
+        return OptKind::Browsable;
+    }
+    OptKind::StringVal
+}
+
+// ---------------------------------------------------------------------------
+// Category definitions  (mirroring btop, minus Linux-only options)
+// ---------------------------------------------------------------------------
+
+pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc"];
+
+pub const GENERAL: &[OptDef] = &[
+    OptDef { key: "color_theme", kind: OptKind::Browsable, desc: &[
+        "Set color theme.",
+        "",
+        "Choose from all bundled themes.",
+        "",
+        "\"Default\" for builtin default theme.",
+    ]},
+    OptDef { key: "theme_background", kind: OptKind::Bool, desc: &[
+        "If the theme set background should be shown.",
+        "",
+        "Set to False if you want terminal background",
+        "transparency.",
+    ]},
+    OptDef { key: "truecolor", kind: OptKind::Bool, desc: &[
+        "Sets if 24-bit truecolor should be used.",
+        "",
+        "Will convert 24-bit colors to 256 color",
+        "(6x6x6 color cube) if False.",
+    ]},
+    OptDef { key: "force_tty", kind: OptKind::Bool, desc: &[
+        "TTY mode.",
+        "",
+        "Set to true to force tty mode regardless",
+        "if a real tty has been detected or not.",
+    ]},
+    OptDef { key: "vim_keys", kind: OptKind::Bool, desc: &[
+        "Enable vim keys.",
+        "Set to True to enable \"h,j,k,l\" keys for",
+        "directional control in lists.",
+    ]},
+    OptDef { key: "disable_mouse", kind: OptKind::Bool, desc: &[
+        "Disable all mouse events.",
+    ]},
+    OptDef { key: "presets", kind: OptKind::StringVal, desc: &[
+        "Define presets for the layout of the boxes.",
+        "",
+        "Preset 0 is always all boxes shown with",
+        "default settings. Max 9 presets.",
+        "",
+        "Format: \"box_name:P:G,box_name:P:G\"",
+    ]},
+    OptDef { key: "shown_boxes", kind: OptKind::StringVal, desc: &[
+        "Manually set which boxes to show.",
+        "",
+        "Available values are \"cpu mem net proc\".",
+        "Separate values with whitespace.",
+    ]},
+    OptDef { key: "update_ms", kind: OptKind::Int, desc: &[
+        "Update time in milliseconds.",
+        "",
+        "Recommended 2000 ms or above for better",
+        "sample times for graphs.",
+        "",
+        "Min value: 100 ms",
+        "Max value: 86400000 ms = 24 hours.",
+    ]},
+    OptDef { key: "rounded_corners", kind: OptKind::Bool, desc: &[
+        "Rounded corners on boxes.",
+        "",
+        "True or False",
+    ]},
+    OptDef { key: "terminal_sync", kind: OptKind::Bool, desc: &[
+        "Output synchronization.",
+        "",
+        "Use terminal synchronized output sequences",
+        "to reduce flickering on supported terminals.",
+    ]},
+    OptDef { key: "graph_symbol", kind: OptKind::Browsable, desc: &[
+        "Default symbols to use for graph creation.",
+        "",
+        "\"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "clock_format", kind: OptKind::StringVal, desc: &[
+        "Draw a clock at top of screen.",
+        "(Only visible if cpu box is enabled!)",
+        "",
+        "Formatting according to strftime, empty",
+        "string to disable.",
+    ]},
+    OptDef { key: "base_10_sizes", kind: OptKind::Bool, desc: &[
+        "Use base 10 for bits and bytes sizes.",
+        "",
+        "Uses KB = 1000 instead of KiB = 1024.",
+    ]},
+    OptDef { key: "background_update", kind: OptKind::Bool, desc: &[
+        "Update main ui when menus are showing.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "show_battery", kind: OptKind::Bool, desc: &[
+        "Show battery stats.",
+        "(Only visible if cpu box is enabled!)",
+    ]},
+    OptDef { key: "selected_battery", kind: OptKind::Browsable, desc: &[
+        "Select battery.",
+        "",
+        "Which battery to use if multiple are present.",
+        "\"Auto\" for auto detection.",
+    ]},
+    OptDef { key: "show_battery_watts", kind: OptKind::Bool, desc: &[
+        "Show battery power.",
+        "",
+        "Show discharge/charging power.",
+    ]},
+    OptDef { key: "log_level", kind: OptKind::Browsable, desc: &[
+        "Set loglevel for error.log",
+        "",
+        "\"ERROR\", \"WARNING\", \"INFO\" and \"DEBUG\".",
+    ]},
+    OptDef { key: "save_config_on_exit", kind: OptKind::Bool, desc: &[
+        "Save config on exit.",
+        "",
+        "Automatically save current settings to",
+        "config file on exit.",
+    ]},
+];
+
+pub const CPU: &[OptDef] = &[
+    OptDef { key: "cpu_bottom", kind: OptKind::Bool, desc: &[
+        "Cpu box location.",
+        "",
+        "Show cpu box at bottom of screen instead",
+        "of top.",
+    ]},
+    OptDef { key: "graph_symbol_cpu", kind: OptKind::Browsable, desc: &[
+        "Graph symbol to use for graphs in cpu box.",
+        "",
+        "\"default\", \"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "cpu_graph_upper", kind: OptKind::Browsable, desc: &[
+        "Cpu upper graph.",
+        "",
+        "Sets the CPU stat shown in upper half of",
+        "the CPU graph.",
+    ]},
+    OptDef { key: "cpu_graph_lower", kind: OptKind::Browsable, desc: &[
+        "Cpu lower graph.",
+        "",
+        "Sets the CPU stat shown in lower half of",
+        "the CPU graph.",
+    ]},
+    OptDef { key: "cpu_invert_lower", kind: OptKind::Bool, desc: &[
+        "Toggles orientation of the lower CPU graph.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "cpu_single_graph", kind: OptKind::Bool, desc: &[
+        "Completely disable the lower CPU graph.",
+        "",
+        "Shows only upper CPU graph and resizes it",
+        "to fit to box height.",
+    ]},
+    OptDef { key: "check_temp", kind: OptKind::Bool, desc: &[
+        "Enable cpu temperature reporting.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "cpu_sensor", kind: OptKind::Browsable, desc: &[
+        "Cpu temperature sensor.",
+        "",
+        "Select the sensor that corresponds to",
+        "your cpu temperature.",
+        "",
+        "Set to \"Auto\" for auto detection.",
+    ]},
+    OptDef { key: "show_coretemp", kind: OptKind::Bool, desc: &[
+        "Show temperatures for cpu cores.",
+        "",
+        "Only works if check_temp is True and",
+        "the system is reporting core temps.",
+    ]},
+    OptDef { key: "cpu_core_map", kind: OptKind::StringVal, desc: &[
+        "Custom mapping between core and coretemp.",
+        "",
+        "Format: \"X:Y\"",
+        "X=core with wrong temp.",
+        "Y=core with correct temp.",
+    ]},
+    OptDef { key: "temp_scale", kind: OptKind::Browsable, desc: &[
+        "Which temperature scale to use.",
+        "",
+        "Celsius, Fahrenheit, Kelvin or Rankine.",
+    ]},
+    OptDef { key: "show_cpu_freq", kind: OptKind::Bool, desc: &[
+        "Show CPU frequency.",
+        "",
+        "Can cause slowdowns on systems with many",
+        "cores and certain kernel versions.",
+    ]},
+    OptDef { key: "custom_cpu_name", kind: OptKind::StringVal, desc: &[
+        "Custom cpu model name in cpu percentage box.",
+        "",
+        "Empty string to disable.",
+    ]},
+    OptDef { key: "show_uptime", kind: OptKind::Bool, desc: &[
+        "Shows the system uptime in the CPU box.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "show_cpu_watts", kind: OptKind::Bool, desc: &[
+        "Shows the CPU power consumption in watts.",
+        "",
+        "True or False.",
+    ]},
+];
+
+pub const MEM: &[OptDef] = &[
+    OptDef { key: "mem_below_net", kind: OptKind::Bool, desc: &[
+        "Mem box location.",
+        "",
+        "Show mem box below net box instead of above.",
+    ]},
+    OptDef { key: "graph_symbol_mem", kind: OptKind::Browsable, desc: &[
+        "Graph symbol to use for graphs in mem box.",
+        "",
+        "\"default\", \"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "mem_graphs", kind: OptKind::Bool, desc: &[
+        "Show graphs for memory values.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "show_disks", kind: OptKind::Bool, desc: &[
+        "Split memory box to also show disks.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "show_io_stat", kind: OptKind::Bool, desc: &[
+        "Toggle IO activity graphs.",
+        "",
+        "Show small IO graphs for disk activity",
+        "when not in IO mode.",
+    ]},
+    OptDef { key: "io_mode", kind: OptKind::Bool, desc: &[
+        "Toggles io mode for disks.",
+        "",
+        "Shows big graphs for disk read/write speeds",
+        "instead of used/free percentage meters.",
+    ]},
+    OptDef { key: "io_graph_combined", kind: OptKind::Bool, desc: &[
+        "Toggle combined read and write graphs.",
+        "",
+        "Only has effect if \"io mode\" is True.",
+    ]},
+    OptDef { key: "io_graph_speeds", kind: OptKind::StringVal, desc: &[
+        "Set top speeds for the io graphs.",
+        "",
+        "Manually set which speed in MiB/s that",
+        "equals 100 percent in the io graphs.",
+        "(100 MiB/s by default).",
+    ]},
+    OptDef { key: "show_swap", kind: OptKind::Bool, desc: &[
+        "If swap memory should be shown in memory box.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "swap_disk", kind: OptKind::Bool, desc: &[
+        "Show swap as a disk.",
+        "",
+        "Ignores show_swap value above.",
+        "Inserts itself after first disk.",
+    ]},
+    OptDef { key: "only_physical", kind: OptKind::Bool, desc: &[
+        "Filter out non physical disks.",
+        "",
+        "Set this to False to include network disks,",
+        "RAM disks and similar.",
+    ]},
+    OptDef { key: "disk_free_priv", kind: OptKind::Bool, desc: &[
+        "Type of available disk space.",
+        "",
+        "Set to true to show how much disk space is",
+        "available for privileged users.",
+    ]},
+    OptDef { key: "disks_filter", kind: OptKind::StringVal, desc: &[
+        "Optional filter for shown disks.",
+        "",
+        "Should be full path of a mountpoint.",
+        "Separate multiple values with whitespace.",
+    ]},
+];
+
+pub const NET: &[OptDef] = &[
+    OptDef { key: "graph_symbol_net", kind: OptKind::Browsable, desc: &[
+        "Graph symbol to use for graphs in net box.",
+        "",
+        "\"default\", \"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "swap_upload_download", kind: OptKind::Bool, desc: &[
+        "Swap the positions of the upload and download",
+        "graphs.",
+    ]},
+    OptDef { key: "net_download", kind: OptKind::Int, desc: &[
+        "Fixed network graph download value.",
+        "",
+        "Value in Mebibits, default \"100\".",
+        "",
+        "Can be toggled with auto button.",
+    ]},
+    OptDef { key: "net_upload", kind: OptKind::Int, desc: &[
+        "Fixed network graph upload value.",
+        "",
+        "Value in Mebibits, default \"100\".",
+        "",
+        "Can be toggled with auto button.",
+    ]},
+    OptDef { key: "net_auto", kind: OptKind::Bool, desc: &[
+        "Start in network graphs auto rescaling mode.",
+        "",
+        "Ignores any values set above at start and",
+        "rescales down to 10Kibibytes at the lowest.",
+    ]},
+    OptDef { key: "net_sync", kind: OptKind::Bool, desc: &[
+        "Network scale sync.",
+        "",
+        "Syncs the scaling for download and upload to",
+        "whichever currently has the highest scale.",
+    ]},
+    OptDef { key: "net_iface", kind: OptKind::Browsable, desc: &[
+        "Network Interface.",
+        "",
+        "Manually set the starting Network Interface.",
+        "",
+        "Will otherwise automatically choose the NIC",
+        "with the highest total download since boot.",
+    ]},
+];
+
+pub const PROC: &[OptDef] = &[
+    OptDef { key: "proc_left", kind: OptKind::Bool, desc: &[
+        "Proc box location.",
+        "",
+        "Show proc box on left side of screen",
+        "instead of right.",
+    ]},
+    OptDef { key: "graph_symbol_proc", kind: OptKind::Browsable, desc: &[
+        "Graph symbol to use for graphs in proc box.",
+        "",
+        "\"default\", \"braille\", \"block\" or \"tty\".",
+    ]},
+    OptDef { key: "proc_sorting", kind: OptKind::Browsable, desc: &[
+        "Processes sorting option.",
+        "",
+        "Possible values:",
+        "\"pid\", \"program\", \"arguments\", \"threads\",",
+        "\"user\", \"memory\", \"cpu lazy\", \"cpu direct\".",
+    ]},
+    OptDef { key: "proc_reversed", kind: OptKind::Bool, desc: &[
+        "Reverse processes sorting order.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "proc_tree", kind: OptKind::Bool, desc: &[
+        "Processes tree view.",
+        "",
+        "Set true to show processes grouped by",
+        "parents with lines drawn between parent",
+        "and child process.",
+    ]},
+    OptDef { key: "proc_aggregate", kind: OptKind::Bool, desc: &[
+        "Aggregate child's resources in parent.",
+        "",
+        "In tree-view, include all child resources",
+        "with the parent even while expanded.",
+    ]},
+    OptDef { key: "proc_colors", kind: OptKind::Bool, desc: &[
+        "Enable colors in process view.",
+        "",
+        "True or False.",
+    ]},
+    OptDef { key: "proc_gradient", kind: OptKind::Bool, desc: &[
+        "Enable process view gradient fade.",
+        "",
+        "Fades from top or current selection.",
+    ]},
+    OptDef { key: "proc_per_core", kind: OptKind::Bool, desc: &[
+        "Process usage per core.",
+        "",
+        "If process cpu usage should be of the core",
+        "it's running on or usage of the total",
+        "available cpu power.",
+    ]},
+    OptDef { key: "proc_mem_bytes", kind: OptKind::Bool, desc: &[
+        "Show memory as bytes in process list.",
+        "",
+        "Will show percentage of total memory",
+        "if False.",
+    ]},
+    OptDef { key: "keep_dead_proc_usage", kind: OptKind::Bool, desc: &[
+        "Cpu and Mem usage for dead processes",
+        "",
+        "Set true if process should preserve the cpu",
+        "and memory usage of when it died while paused.",
+    ]},
+    OptDef { key: "proc_cpu_graphs", kind: OptKind::Bool, desc: &[
+        "Show cpu graph for each process.",
+        "",
+        "True or False",
+    ]},
+    OptDef { key: "proc_filter_kernel", kind: OptKind::Bool, desc: &[
+        "Filter kernel processes from output.",
+        "",
+        "Set to True to filter out internal",
+        "processes started by the kernel.",
+    ]},
+    OptDef { key: "proc_follow_detailed", kind: OptKind::Bool, desc: &[
+        "Follow selected process with detailed view",
+        "",
+        "If True, when opening the detailed view",
+        "the process will be followed in the list.",
+    ]},
+];
+
+/// All categories in order.
+pub fn categories() -> &'static [&'static [OptDef]] {
+    &[GENERAL, CPU, MEM, NET, PROC]
+}
+
+// ---------------------------------------------------------------------------
+// Value helpers
+// ---------------------------------------------------------------------------
+
+/// Get the display value for an option.
+pub fn get_value(key: &str, config: &Config) -> String {
+    if config.bools.contains_key(key) {
+        if config.get_bool(key) { "True".to_string() } else { "False".to_string() }
+    } else if config.ints.contains_key(key) {
+        config.get_int(key).to_string()
+    } else {
+        config.get_string(key).to_string()
+    }
+}
+
+/// Cycle a browsable option left or right. Returns true if changed.
+pub fn cycle_browsable(key: &str, config: &mut Config, direction: i32) -> bool {
+    let vals = browsable_values(key);
+    if vals.is_empty() {
+        return false;
+    }
+    let current = config.get_string(key).to_string();
+    let idx = vals.iter().position(|&v| v == current).unwrap_or(0);
+    let new_idx = if direction > 0 {
+        (idx + 1) % vals.len()
+    } else {
+        if idx == 0 { vals.len() - 1 } else { idx - 1 }
+    };
+    config.set_string(key, vals[new_idx]);
+    true
+}
+
+/// Step an int option by `delta`.
+pub fn step_int(key: &str, config: &mut Config, delta: i64) {
+    let step = if key == "update_ms" { 100 } else { 1 };
+    let value = config.get_int(key) + delta * step;
+    config.set_int(key, value);
+}
+
+// ---------------------------------------------------------------------------
+// Drawing
+// ---------------------------------------------------------------------------
+
+/// Center-justify a string in `width` columns, padding with spaces.
+fn cjust(s: &str, width: usize) -> String {
+    let slen = s.chars().count();
+    if slen >= width {
+        return s.chars().take(width).collect();
+    }
+    let pad_left = (width - slen) / 2;
+    let pad_right = width - slen - pad_left;
+    format!("{}{}{}", " ".repeat(pad_left), s, " ".repeat(pad_right))
+}
+
+/// Capitalize first letter of each word, replace underscores with spaces.
+fn capitalize_option(key: &str) -> String {
+    key.replace('_', " ")
+        .split(' ')
+        .map(|w| {
+            let mut c = w.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => {
+                    let upper: String = f.to_uppercase().collect();
+                    format!("{}{}", upper, c.as_str())
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Draw the btop-style options menu.
+///
+/// The box is 78 chars wide, centered on screen.
+/// Left panel: 30 chars (option name + value rows).
+/// Right panel: description of selected option.
+/// Vertical divider at column x+30.
 pub fn draw(
     term_width: usize,
     term_height: usize,
-    entries: &[(String, String, bool)], // (key, display_value, is_bool)
+    cat: usize,
     selected: usize,
+    page: usize,
+    config: &Config,
     theme: &Theme,
 ) -> String {
-    let w = 64.min(term_width.saturating_sub(4));
-    let h = (entries.len() + 5).min(term_height.saturating_sub(2));
-    let x = (term_width.saturating_sub(w)) / 2;
-    let y = (term_height.saturating_sub(h)) / 2;
+    let cats = categories();
+    let cat = cat.min(cats.len() - 1);
+    let options = cats[cat];
 
-    let box_color = theme.c("div_line");
-    let fg = theme.c("main_fg");
-    let title = theme.c("title");
+    let box_w: usize = 78;
+    let x = term_width.saturating_sub(box_w) / 2;
+
+    // Compute available height for options (each takes 2 rows)
+    let max_items = options.len();
+    let desired_h = max_items * 2 + 4; // 4 = tab row + divider + top/bottom borders
+    let height = desired_h.min(term_height.saturating_sub(8));
+    let height = if height % 2 != 0 { height - 1 } else { height };
+    let y = term_height.saturating_sub(height + 6) / 2;
+
+    let item_height = ((height - 4) / 2).min(max_items);
+    let pages = if max_items == 0 { 1 } else { (max_items + item_height - 1) / item_height };
+    let page = page.min(pages - 1);
+    let select_max = item_height.min(max_items.saturating_sub(item_height * page)) - 1;
+    let selected = selected.min(select_max);
+
     let hi = theme.c("hi_fg");
+    let div_line = theme.c("div_line");
+    let title_c = theme.c("title");
+    let fg = theme.c("main_fg");
     let sel_bg = theme.c("selected_bg");
     let sel_fg = theme.c("selected_fg");
-    let inactive = theme.c("inactive_fg");
+    let reset = "\x1b[0m";
 
-    let mut out = box_drawing::create_box(x, y, w, h, box_color, true, "options", "", 0, true);
+    let mut out = String::with_capacity(4096);
 
-    // Instructions
-    out.push_str(&format!(
-        "\x1b[{};{}H{}↑↓{}select  {}Enter{}toggle  {}Esc{}close",
-        y + 1, x + 2, hi, fg, hi, fg, hi, fg
+    // Main box: create at (x, y+6) with height
+    out.push_str(&box_drawing::create_box(
+        x, y + 6, box_w, height, &hi, true,
+        &format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW),
+        "", 0, true,
     ));
 
+    // Horizontal divider at row y+8 with T-junctions
+    let h_left = symbols::H_LINE.repeat(29);
+    let h_right = symbols::H_LINE.repeat(box_w - 32);
+    let divider_row = y + 8 + 1;
+    out.push_str(&format!("\x1b[{};{}H", divider_row, x + 1));
+    out.push_str(hi);
+    out.push_str(symbols::DIV_LEFT);
+    out.push_str(div_line);
+    out.push_str(&h_left);
+    out.push_str(symbols::DIV_UP);
+    out.push_str(&h_right);
+    out.push_str(hi);
+    out.push_str(symbols::DIV_RIGHT);
+    // Bottom T-junction on vertical divider
+    out.push_str(&format!("\x1b[{};{}H", y + 6 + height, x + 31));
+    out.push_str(div_line);
+    out.push_str(symbols::DIV_DOWN);
+
+    // Vertical divider line at x+30 for each content row
+    for i in 0..(height - 4) {
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}",
+            y + 9 + 1 + i, x + 31,
+            div_line, symbols::V_LINE,
+        ));
+    }
+
+    // Category tab bar at row y+7
+    out.push_str(&format!("\x1b[{};{}H", y + 7 + 1, x + 4));
+    for (i, &name) in CAT_NAMES.iter().enumerate() {
+        if i == cat {
+            out.push_str(&format!("\x1b[1m{}[{}{}{}]{}", hi, title_c, name, hi, reset));
+        } else {
+            out.push_str(&format!("\x1b[1m{}{}{}{}{}", hi, i + 1, title_c, name, reset));
+        }
+        out.push_str(&format!("\x1b[{}C", 10_usize.saturating_sub(name.len() + 1)));
+    }
+
+    // Page indicator
+    if pages > 1 {
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{} {} page {}/{} {} {}",
+            y + 6 + height, x + 2,
+            hi, symbols::UP_ARROW, title_c, page + 1, pages, hi, symbols::DOWN_ARROW,
+        ));
+    }
+
     // Option rows
-    let visible_rows = h.saturating_sub(4);
-    let scroll_offset = if selected >= visible_rows {
-        selected - visible_rows + 1
-    } else {
-        0
-    };
+    let cy_start = y + 9 + 1; // first content row (1-based terminal row)
+    for c in 0..item_height {
+        let i = item_height * page + c;
+        if i >= options.len() {
+            break;
+        }
+        let opt = &options[i];
+        let kind = classify(opt.key, config);
+        let value = get_value(opt.key, config);
+        let is_selected = c == selected;
 
-    for (i, (key, value, is_bool)) in entries
-        .iter()
-        .skip(scroll_offset)
-        .take(visible_rows)
-        .enumerate()
-    {
-        let abs_idx = scroll_offset + i;
-        let row = y + 3 + i;
-        let inner_w = w.saturating_sub(4);
+        let name_display = capitalize_option(opt.key);
 
-        let val_display = if *is_bool {
-            if value == "True" || value == "true" {
-                format!("{}◉ {}{}", hi, value, fg)
+        // Browsable index suffix
+        let mut name_suffix = String::new();
+        if is_selected && kind == OptKind::Browsable {
+            let vals = browsable_values(opt.key);
+            let idx = vals.iter().position(|&v| v == value).unwrap_or(0);
+            name_suffix = format!(" {}/{}", idx + 1, vals.len());
+        }
+
+        // Row 1: option name (29 chars in left panel)
+        let full_name = format!("{}{}", name_display, name_suffix);
+        let name_str = cjust(&full_name, 29);
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}{}",
+            cy_start + c * 2, x + 2,
+            if is_selected {
+                format!("{}{}\x1b[1m", sel_bg, sel_fg)
             } else {
-                format!("{}○ {}{}", inactive, value, fg)
+                format!("{}\x1b[1m", title_c)
+            },
+            name_str,
+            reset,
+        ));
+
+        // Row 2: value (centered in 25 chars within left panel, with arrow indicators)
+        let value_display = cjust(&value, 25);
+        out.push_str(&format!(
+            "\x1b[{};{}H{}  {}  {}",
+            cy_start + c * 2 + 1, x + 2,
+            if is_selected { &sel_fg } else { &fg },
+            value_display,
+            reset,
+        ));
+
+        // Draw arrows and enter symbol for selected item
+        if is_selected {
+            let val_row = cy_start + c * 2 + 1;
+            match kind {
+                OptKind::Bool | OptKind::Browsable | OptKind::Int => {
+                    out.push_str(&format!(
+                        "\x1b[1m\x1b[{};{}H{}{}\x1b[{};{}H{}{}{}",
+                        val_row, x + 2, hi, symbols::LEFT_ARROW,
+                        val_row, x + 29, hi, symbols::RIGHT_ARROW, reset,
+                    ));
+                }
+                OptKind::StringVal => {
+                    out.push_str(&format!(
+                        "\x1b[1m\x1b[{};{}H{}{}{}",
+                        val_row, x + 29, hi, symbols::ENTER, reset,
+                    ));
+                }
             }
-        } else {
-            format!("{}{}{}", title, value, fg)
-        };
 
-        let key_display = tools::uresize(key, 26, false);
-
-        if abs_idx == selected {
-            // Highlighted row
-            let bg_esc = sel_bg.replace("38;2", "48;2");
-            out.push_str(&format!(
-                "\x1b[{};{}H{}{} {:<26} {}{}\x1b[0m",
-                row,
-                x + 2,
-                bg_esc,
-                sel_fg,
-                key_display,
-                val_display,
-                " ".repeat(inner_w.saturating_sub(28 + value.len()).min(20)),
-            ));
-        } else {
-            out.push_str(&format!(
-                "\x1b[{};{}H{} {:<26} {}",
-                row,
-                x + 2,
-                fg,
-                key_display,
-                val_display,
-            ));
+            // Description in right panel
+            out.push_str(&format!("{}{}\x1b[1m", reset, title_c));
+            for (di, desc_line) in opt.desc.iter().enumerate() {
+                let desc_row = y + 8 + 1 + di; // start at the row after the divider
+                if desc_row >= y + 6 + height {
+                    break;
+                }
+                // First description line is title-colored, rest are main_fg
+                if di == 1 {
+                    out.push_str(&format!("{}\x1b[22m", fg));
+                }
+                out.push_str(&format!(
+                    "\x1b[{};{}H{}",
+                    desc_row + 1, x + 33,
+                    desc_line,
+                ));
+            }
+            out.push_str(reset);
         }
     }
 
-    out.push_str("\x1b[0m");
+    out.push_str(reset);
     out
+}
+
+/// Return the number of items for a given category.
+pub fn cat_len(cat: usize) -> usize {
+    let cats = categories();
+    if cat < cats.len() { cats[cat].len() } else { 0 }
+}
+
+/// Return the option key at `(cat, index)`.
+pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> Option<&'static str> {
+    let cats = categories();
+    if cat >= cats.len() {
+        return None;
+    }
+    let options = cats[cat];
+    let max_items = options.len();
+    let height = (max_items * 2 + 4).min(term_height.saturating_sub(8));
+    let height = if height % 2 != 0 { height - 1 } else { height };
+    let item_height = ((height - 4) / 2).min(max_items);
+    let idx = item_height * page + selected;
+    options.get(idx).map(|o| o.key)
+}
+
+/// Get item_height (visible items per page) for a category.
+pub fn items_per_page(cat: usize, term_height: usize) -> usize {
+    let cats = categories();
+    if cat >= cats.len() {
+        return 1;
+    }
+    let max_items = cats[cat].len();
+    let height = (max_items * 2 + 4).min(term_height.saturating_sub(8));
+    let height = if height % 2 != 0 { height - 1 } else { height };
+    ((height - 4) / 2).min(max_items).max(1)
+}
+
+/// Number of pages for a category.
+pub fn page_count(cat: usize, term_height: usize) -> usize {
+    let cats = categories();
+    if cat >= cats.len() {
+        return 1;
+    }
+    let max_items = cats[cat].len();
+    let ipp = items_per_page(cat, term_height);
+    (max_items + ipp - 1) / ipp
+}
+
+/// Max selectable index on a given page.
+pub fn select_max(cat: usize, page: usize, term_height: usize) -> usize {
+    let cats = categories();
+    if cat >= cats.len() {
+        return 0;
+    }
+    let max_items = cats[cat].len();
+    let ipp = items_per_page(cat, term_height);
+    let remaining = max_items.saturating_sub(ipp * page);
+    ipp.min(remaining).saturating_sub(1)
 }

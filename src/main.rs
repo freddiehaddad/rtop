@@ -90,7 +90,9 @@ fn main() {
 
     let mut menu_state = MenuState::None;
 
+    let mut options_cat: usize = 0;
     let mut options_selected: usize = 0;
+    let mut options_page: usize = 0;
     let mut main_menu_selected: usize = 0;
     let mut proc_start: usize = 0;
     let mut proc_selected: usize = 0;
@@ -273,8 +275,10 @@ fn main() {
                             match main_menu_selected {
                                 0 => {
                                     // Options
+                                    options_cat = 0;
                                     options_selected = 0;
-                                    let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                                    options_page = 0;
+                                    let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                                     let _ = terminal.write_raw(&menu_out);
                                     menu_state = MenuState::Options;
                                 }
@@ -292,8 +296,10 @@ fn main() {
                             }
                         }
                         "o" | "f2" => {
+                            options_cat = 0;
                             options_selected = 0;
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            options_page = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
@@ -315,76 +321,126 @@ fn main() {
                     },
                     MenuState::Options => match key.as_str() {
                         "q" => break,
-                        "escape" | "o" | "f2" => {
+                        "escape" | "backspace" => {
                             menu_state = MenuState::None;
                             needs_full_redraw = true;
+                        }
+                        "tab" => {
+                            options_cat = (options_cat + 1) % 5;
+                            options_page = 0;
+                            options_selected = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "shift_tab" => {
+                            options_cat = if options_cat == 0 { 4 } else { options_cat - 1 };
+                            options_page = 0;
+                            options_selected = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "1" | "2" | "3" | "4" | "5" => {
+                            let new_cat = key.parse::<usize>().unwrap_or(1) - 1;
+                            if new_cat != options_cat {
+                                options_cat = new_cat;
+                                options_page = 0;
+                                options_selected = 0;
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
                                 options_selected -= 1;
+                            } else {
+                                // wrap to previous page or last page
+                                let pages = menu::options_menu::page_count(options_cat, th);
+                                if options_page > 0 {
+                                    options_page -= 1;
+                                } else if pages > 1 {
+                                    options_page = pages - 1;
+                                }
+                                options_selected = menu::options_menu::select_max(options_cat, options_page, th);
                             }
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "down" | "j" => {
-                            let entries = build_options_entries(&config);
-                            if options_selected < entries.len().saturating_sub(1) {
+                            let sm = menu::options_menu::select_max(options_cat, options_page, th);
+                            if options_selected < sm {
                                 options_selected += 1;
+                            } else {
+                                // wrap to next page or first page
+                                let pages = menu::options_menu::page_count(options_cat, th);
+                                if options_page < pages - 1 {
+                                    options_page += 1;
+                                } else if pages > 1 {
+                                    options_page = 0;
+                                }
+                                options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
-                        "enter" | "space" => {
-                            let entries = build_options_entries(&config);
-                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
-                                if *is_bool {
-                                    config.flip(key_name);
-                                    rounded = config.get_bool("rounded_corners");
-                                } else if key_name == "color_theme" {
-                                    // Cycle to next theme
-                                    cycle_theme(&mut config, &mut theme, 1);
-                                    // Reapply terminal base colors
-                                    let base = format!(
-                                        "{}{}",
-                                        theme.c("main_fg"),
-                                        theme.c("main_bg").replace("38;2", "48;2"),
-                                    );
-                                    let _ = terminal.write_raw(&base);
-                                }
+                        "page_up" => {
+                            let pages = menu::options_menu::page_count(options_cat, th);
+                            if pages > 1 {
+                                options_page = if options_page > 0 { options_page - 1 } else { pages - 1 };
+                                options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
-                        "right" | "l" => {
-                            let entries = build_options_entries(&config);
-                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
-                                if !is_bool && key_name == "color_theme" {
-                                    cycle_theme(&mut config, &mut theme, 1);
-                                    let base = format!(
-                                        "{}{}",
-                                        theme.c("main_fg"),
-                                        theme.c("main_bg").replace("38;2", "48;2"),
-                                    );
-                                    let _ = terminal.write_raw(&base);
-                                }
+                        "page_down" => {
+                            let pages = menu::options_menu::page_count(options_cat, th);
+                            if pages > 1 {
+                                options_page = if options_page < pages - 1 { options_page + 1 } else { 0 };
+                                options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
-                        "left" | "h" => {
-                            let entries = build_options_entries(&config);
-                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
-                                if !is_bool && key_name == "color_theme" {
-                                    cycle_theme(&mut config, &mut theme, -1);
-                                    let base = format!(
-                                        "{}{}",
-                                        theme.c("main_fg"),
-                                        theme.c("main_bg").replace("38;2", "48;2"),
-                                    );
-                                    let _ = terminal.write_raw(&base);
+                        "left" | "right" | "h" | "l" | "enter" | "space" => {
+                            if let Some(opt_key) = menu::options_menu::opt_key(options_cat, options_page, options_selected, th) {
+                                let kind = if config.bools.contains_key(opt_key) {
+                                    menu::options_menu::OptKind::Bool
+                                } else if config.ints.contains_key(opt_key) {
+                                    menu::options_menu::OptKind::Int
+                                } else if !menu::options_menu::browsable_values(opt_key).is_empty() {
+                                    menu::options_menu::OptKind::Browsable
+                                } else {
+                                    menu::options_menu::OptKind::StringVal
+                                };
+
+                                let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
+
+                                match kind {
+                                    menu::options_menu::OptKind::Bool => {
+                                        config.flip(opt_key);
+                                        rounded = config.get_bool("rounded_corners");
+                                    }
+                                    menu::options_menu::OptKind::Int => {
+                                        menu::options_menu::step_int(opt_key, &mut config, dir);
+                                    }
+                                    menu::options_menu::OptKind::Browsable => {
+                                        menu::options_menu::cycle_browsable(opt_key, &mut config, dir as i32);
+                                        if opt_key == "color_theme" {
+                                            let name = config.get_string("color_theme").to_string();
+                                            theme = theme::Theme::from_name(&name);
+                                            let base = format!(
+                                                "{}{}",
+                                                theme.c("main_fg"),
+                                                theme.c("main_bg").replace("38;2", "48;2"),
+                                            );
+                                            let _ = terminal.write_raw(&base);
+                                        }
+                                    }
+                                    menu::options_menu::OptKind::StringVal => {
+                                        // No inline editing yet — strings shown read-only
+                                    }
                                 }
                             }
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         _ => {}
@@ -403,8 +459,10 @@ fn main() {
                             menu_state = MenuState::Help;
                         }
                         "o" | "f2" => {
+                            options_cat = 0;
                             options_selected = 0;
-                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            options_page = 0;
+                            let menu_out = draw_options_menu(tw, th, &config, &theme, options_cat, options_selected, options_page);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
@@ -475,66 +533,7 @@ fn clamp_proc_selection(procs: &[crate::domain::process::ProcInfo], box_height: 
     }
 }
 
-fn build_options_entries(config: &config::Config) -> Vec<(String, String, bool)> {
-    let theme_name = config.get_string("color_theme").to_string();
-    vec![
-        ("color_theme".into(), format!("◀ {} ▶", theme_name), false),
-        ("truecolor".into(), config.get_bool("truecolor").to_string(), true),
-        ("rounded_corners".into(), config.get_bool("rounded_corners").to_string(), true),
-        ("vim_keys".into(), config.get_bool("vim_keys").to_string(), true),
-        ("show_battery".into(), config.get_bool("show_battery").to_string(), true),
-        ("show_battery_watts".into(), config.get_bool("show_battery_watts").to_string(), true),
-        ("theme_background".into(), config.get_bool("theme_background").to_string(), true),
-        ("force_tty".into(), config.get_bool("force_tty").to_string(), true),
-        ("disable_mouse".into(), config.get_bool("disable_mouse").to_string(), true),
-        ("terminal_sync".into(), config.get_bool("terminal_sync").to_string(), true),
-        ("base_10_sizes".into(), config.get_bool("base_10_sizes").to_string(), true),
-        ("background_update".into(), config.get_bool("background_update").to_string(), true),
-        ("save_config_on_exit".into(), config.get_bool("save_config_on_exit").to_string(), true),
-        ("cpu_bottom".into(), config.get_bool("cpu_bottom").to_string(), true),
-        ("cpu_single_graph".into(), config.get_bool("cpu_single_graph").to_string(), true),
-        ("cpu_invert_lower".into(), config.get_bool("cpu_invert_lower").to_string(), true),
-        ("check_temp".into(), config.get_bool("check_temp").to_string(), true),
-        ("show_coretemp".into(), config.get_bool("show_coretemp").to_string(), true),
-        ("show_cpu_freq".into(), config.get_bool("show_cpu_freq").to_string(), true),
-        ("show_uptime".into(), config.get_bool("show_uptime").to_string(), true),
-        ("mem_graphs".into(), config.get_bool("mem_graphs").to_string(), true),
-        ("mem_below_net".into(), config.get_bool("mem_below_net").to_string(), true),
-        ("show_disks".into(), config.get_bool("show_disks").to_string(), true),
-        ("show_swap".into(), config.get_bool("show_swap").to_string(), true),
-        ("show_io_stat".into(), config.get_bool("show_io_stat").to_string(), true),
-        ("io_mode".into(), config.get_bool("io_mode").to_string(), true),
-        ("net_auto".into(), config.get_bool("net_auto").to_string(), true),
-        ("net_sync".into(), config.get_bool("net_sync").to_string(), true),
-        ("swap_upload_download".into(), config.get_bool("swap_upload_download").to_string(), true),
-        ("proc_left".into(), config.get_bool("proc_left").to_string(), true),
-        ("proc_tree".into(), config.get_bool("proc_tree").to_string(), true),
-        ("proc_colors".into(), config.get_bool("proc_colors").to_string(), true),
-        ("proc_gradient".into(), config.get_bool("proc_gradient").to_string(), true),
-        ("proc_per_core".into(), config.get_bool("proc_per_core").to_string(), true),
-        ("proc_mem_bytes".into(), config.get_bool("proc_mem_bytes").to_string(), true),
-        ("proc_cpu_graphs".into(), config.get_bool("proc_cpu_graphs").to_string(), true),
-        ("proc_reversed".into(), config.get_bool("proc_reversed").to_string(), true),
-        ("proc_filter_kernel".into(), config.get_bool("proc_filter_kernel").to_string(), true),
-    ]
-}
-
-fn draw_options_menu(tw: usize, th: usize, config: &config::Config, selected: usize, theme: &theme::Theme) -> String {
-    let entries = build_options_entries(config);
-    menu::options_menu::draw(tw, th, &entries, selected, theme)
-}
-
-fn cycle_theme(config: &mut config::Config, theme: &mut theme::Theme, direction: i32) {
-    let names = theme::THEME_NAMES;
-    let current = config.get_string("color_theme").to_string();
-    let idx = names.iter().position(|&n| n == current).unwrap_or(0);
-    let new_idx = if direction > 0 {
-        (idx + 1) % names.len()
-    } else {
-        if idx == 0 { names.len() - 1 } else { idx - 1 }
-    };
-    let new_name = names[new_idx];
-    config.set_string("color_theme", new_name);
-    *theme = theme::Theme::from_name(new_name);
+fn draw_options_menu(tw: usize, th: usize, config: &config::Config, theme: &theme::Theme, cat: usize, selected: usize, page: usize) -> String {
+    menu::options_menu::draw(tw, th, cat, selected, page, config, theme)
 }
 
