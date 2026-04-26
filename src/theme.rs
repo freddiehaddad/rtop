@@ -77,6 +77,64 @@ impl Theme {
         theme
     }
 
+    /// Load a theme by name from the bundled themes list.
+    /// Returns a new Theme. Falls back to default if name not found.
+    pub fn from_name(name: &str) -> Self {
+        if name == "Default" || name.is_empty() {
+            return Self::new();
+        }
+        if let Some(content) = get_bundled_theme(name) {
+            let mut theme = Self::new();
+            theme.load_from_string(content);
+            theme
+        } else {
+            Self::new()
+        }
+    }
+
+    /// Load theme colors from a theme file content string.
+    pub fn load_from_string(&mut self, content: &str) {
+        self.load_defaults();
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+
+            let Some(rest) = trimmed.strip_prefix("theme[") else {
+                continue;
+            };
+            let Some((key, rest)) = rest.split_once(']') else {
+                continue;
+            };
+            let Some((_, value)) = rest.split_once('=') else {
+                continue;
+            };
+            let value = value.trim().trim_matches('"');
+
+            if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
+                continue;
+            }
+            if value.is_empty() {
+                continue;
+            }
+
+            let rgb = if value.starts_with('#') {
+                parse_hex(value)
+            } else {
+                parse_decimal_rgb(value)
+            };
+
+            let escape = rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]);
+            self.rgbs.insert(key.to_string(), rgb);
+            self.colors.insert(key.to_string(), escape);
+        }
+
+        self.apply_fallbacks();
+        self.generate_gradients();
+    }
+
     fn load_defaults(&mut self) {
         for (key, hex) in DEFAULT_THEME {
             let rgb = parse_hex(hex);
@@ -339,6 +397,100 @@ fn interpolate(start: u8, end: u8, step: usize, total: usize) -> u8 {
     let s = start as i32;
     let e = end as i32;
     (s + (step as i32) * (e - s) / (total as i32)).clamp(0, 255) as u8
+}
+
+// --- Bundled themes ---
+
+/// All available theme names (Default + bundled).
+pub const THEME_NAMES: &[&str] = &[
+    "Default",
+    "adapta",
+    "adwaita-dark",
+    "adwaita",
+    "ayu",
+    "dracula",
+    "dusklight",
+    "elementarish",
+    "everforest-dark-hard",
+    "everforest-dark-medium",
+    "everforest-light-medium",
+    "flat-remix-light",
+    "flat-remix",
+    "flexoki-dark",
+    "flexoki-light",
+    "gotham",
+    "greyscale",
+    "gruvbox_dark",
+    "gruvbox_dark_v2",
+    "gruvbox_light",
+    "gruvbox_material_dark",
+    "horizon",
+    "HotPurpleTrafficLight",
+    "kanagawa-lotus",
+    "kanagawa-wave",
+    "kyli0x",
+    "matcha-dark-sea",
+    "monokai",
+    "night-owl",
+    "nord",
+    "onedark",
+    "orange",
+    "paper",
+    "phoenix-night",
+    "solarized_dark",
+    "solarized_light",
+    "tokyo-night",
+    "tokyo-storm",
+    "tomorrow-night",
+    "twilight",
+    "whiteout",
+];
+
+/// Get the content of a bundled theme by name.
+fn get_bundled_theme(name: &str) -> Option<&'static str> {
+    match name {
+        "adapta" => Some(include_str!("../themes/adapta.theme")),
+        "adwaita-dark" => Some(include_str!("../themes/adwaita-dark.theme")),
+        "adwaita" => Some(include_str!("../themes/adwaita.theme")),
+        "ayu" => Some(include_str!("../themes/ayu.theme")),
+        "dracula" => Some(include_str!("../themes/dracula.theme")),
+        "dusklight" => Some(include_str!("../themes/dusklight.theme")),
+        "elementarish" => Some(include_str!("../themes/elementarish.theme")),
+        "everforest-dark-hard" => Some(include_str!("../themes/everforest-dark-hard.theme")),
+        "everforest-dark-medium" => Some(include_str!("../themes/everforest-dark-medium.theme")),
+        "everforest-light-medium" => Some(include_str!("../themes/everforest-light-medium.theme")),
+        "flat-remix-light" => Some(include_str!("../themes/flat-remix-light.theme")),
+        "flat-remix" => Some(include_str!("../themes/flat-remix.theme")),
+        "flexoki-dark" => Some(include_str!("../themes/flexoki-dark.theme")),
+        "flexoki-light" => Some(include_str!("../themes/flexoki-light.theme")),
+        "gotham" => Some(include_str!("../themes/gotham.theme")),
+        "greyscale" => Some(include_str!("../themes/greyscale.theme")),
+        "gruvbox_dark" => Some(include_str!("../themes/gruvbox_dark.theme")),
+        "gruvbox_dark_v2" => Some(include_str!("../themes/gruvbox_dark_v2.theme")),
+        "gruvbox_light" => Some(include_str!("../themes/gruvbox_light.theme")),
+        "gruvbox_material_dark" => Some(include_str!("../themes/gruvbox_material_dark.theme")),
+        "horizon" => Some(include_str!("../themes/horizon.theme")),
+        "HotPurpleTrafficLight" => Some(include_str!("../themes/HotPurpleTrafficLight.theme")),
+        "kanagawa-lotus" => Some(include_str!("../themes/kanagawa-lotus.theme")),
+        "kanagawa-wave" => Some(include_str!("../themes/kanagawa-wave.theme")),
+        "kyli0x" => Some(include_str!("../themes/kyli0x.theme")),
+        "matcha-dark-sea" => Some(include_str!("../themes/matcha-dark-sea.theme")),
+        "monokai" => Some(include_str!("../themes/monokai.theme")),
+        "night-owl" => Some(include_str!("../themes/night-owl.theme")),
+        "nord" => Some(include_str!("../themes/nord.theme")),
+        "onedark" => Some(include_str!("../themes/onedark.theme")),
+        "orange" => Some(include_str!("../themes/orange.theme")),
+        "paper" => Some(include_str!("../themes/paper.theme")),
+        "phoenix-night" => Some(include_str!("../themes/phoenix-night.theme")),
+        "solarized_dark" => Some(include_str!("../themes/solarized_dark.theme")),
+        "solarized_light" => Some(include_str!("../themes/solarized_light.theme")),
+        "tokyo-night" => Some(include_str!("../themes/tokyo-night.theme")),
+        "tokyo-storm" => Some(include_str!("../themes/tokyo-storm.theme")),
+        "tomorrow-night" => Some(include_str!("../themes/tomorrow-night.theme")),
+        "twilight" => Some(include_str!("../themes/twilight.theme")),
+        "whiteout" => Some(include_str!("../themes/whiteout.theme")),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

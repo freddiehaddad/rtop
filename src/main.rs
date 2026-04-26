@@ -64,7 +64,7 @@ fn main() {
     };
 
     // Init theme
-    let theme = theme::Theme::new();
+    let mut theme = theme::Theme::new();
 
     // Set terminal base colors from theme
     let base_colors = format!(
@@ -240,13 +240,53 @@ fn main() {
                             let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
                         }
                         "enter" | "space" => {
-                            // Toggle the selected option
                             let entries = build_options_entries(&config);
                             if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
                                 if *is_bool {
                                     config.flip(key_name);
-                                    // Update rounded if changed
                                     rounded = config.get_bool("rounded_corners");
+                                } else if key_name == "color_theme" {
+                                    // Cycle to next theme
+                                    cycle_theme(&mut config, &mut theme, 1);
+                                    // Reapply terminal base colors
+                                    let base = format!(
+                                        "{}{}",
+                                        theme.c("main_fg"),
+                                        theme.c("main_bg").replace("38;2", "48;2"),
+                                    );
+                                    let _ = terminal.write_raw(&base);
+                                }
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "right" | "l" => {
+                            let entries = build_options_entries(&config);
+                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
+                                if !is_bool && key_name == "color_theme" {
+                                    cycle_theme(&mut config, &mut theme, 1);
+                                    let base = format!(
+                                        "{}{}",
+                                        theme.c("main_fg"),
+                                        theme.c("main_bg").replace("38;2", "48;2"),
+                                    );
+                                    let _ = terminal.write_raw(&base);
+                                }
+                            }
+                            let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "left" | "h" => {
+                            let entries = build_options_entries(&config);
+                            if let Some((key_name, _, is_bool)) = entries.get(options_selected) {
+                                if !is_bool && key_name == "color_theme" {
+                                    cycle_theme(&mut config, &mut theme, -1);
+                                    let base = format!(
+                                        "{}{}",
+                                        theme.c("main_fg"),
+                                        theme.c("main_bg").replace("38;2", "48;2"),
+                                    );
+                                    let _ = terminal.write_raw(&base);
                                 }
                             }
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
@@ -281,8 +321,9 @@ fn main() {
 }
 
 fn build_options_entries(config: &config::Config) -> Vec<(String, String, bool)> {
+    let theme_name = config.get_string("color_theme").to_string();
     vec![
-        ("color_theme".into(), config.get_string("color_theme").to_string(), false),
+        ("color_theme".into(), format!("◀ {} ▶", theme_name), false),
         ("truecolor".into(), config.get_bool("truecolor").to_string(), true),
         ("rounded_corners".into(), config.get_bool("rounded_corners").to_string(), true),
         ("vim_keys".into(), config.get_bool("vim_keys").to_string(), true),
@@ -326,5 +367,19 @@ fn build_options_entries(config: &config::Config) -> Vec<(String, String, bool)>
 fn draw_options_menu(tw: usize, th: usize, config: &config::Config, selected: usize, theme: &theme::Theme) -> String {
     let entries = build_options_entries(config);
     menu::options_menu::draw(tw, th, &entries, selected, theme)
+}
+
+fn cycle_theme(config: &mut config::Config, theme: &mut theme::Theme, direction: i32) {
+    let names = theme::THEME_NAMES;
+    let current = config.get_string("color_theme").to_string();
+    let idx = names.iter().position(|&n| n == current).unwrap_or(0);
+    let new_idx = if direction > 0 {
+        (idx + 1) % names.len()
+    } else {
+        if idx == 0 { names.len() - 1 } else { idx - 1 }
+    };
+    let new_name = names[new_idx];
+    config.set_string("color_theme", new_name);
+    *theme = theme::Theme::from_name(new_name);
 }
 
