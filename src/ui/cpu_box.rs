@@ -56,12 +56,11 @@ pub fn draw(
     let has_temp = !cpu.temp.is_empty();
     let show_temp: usize = if has_temp { 1 } else { 0 };
 
-    // b_columns = max(1, ceil((coreCount + 1) / (height - 5)))
-    // The +1 accounts for the CPU meter row
+    // b_columns = max(1, ceil(coreCount / (height - 5)))
     let b_columns = if core_count == 0 || height <= 5 {
         1usize
     } else {
-        1usize.max((core_count + 1).div_ceil(height - 5))
+        1usize.max(core_count.div_ceil(height - 5))
     };
 
     // Determine column size and b_width
@@ -81,12 +80,13 @@ pub fn draw(
         (0, w)
     };
 
-    // b_height = min(height-2, ceil(coreCount/b_columns) + 4)
+    // b_height: enough for cores + CPU meter(1) + load avg(1) + border(1) = +3
+    // max_rows = b_height - 3 = rows_for_cores
     let b_height = if b_width == 0 {
         0
     } else {
         let rows_for_cores = core_count.div_ceil(b_columns);
-        (height - 2).min(rows_for_cores + 4)
+        (height - 2).min(rows_for_cores + 3)
     };
 
     // b_x = x + width - b_width - 1
