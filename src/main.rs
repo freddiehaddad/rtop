@@ -72,7 +72,15 @@ fn main() {
     let rounded = config.get_bool("rounded_corners");
     let update_ms = config.get_int("update_ms") as u64;
 
-    let mut menu_active = false;
+    #[derive(PartialEq)]
+    enum MenuState {
+        None,
+        Main,
+        Help,
+        Options,
+    }
+
+    let mut menu_state = MenuState::None;
 
     // Main event loop
     loop {
@@ -82,7 +90,7 @@ fn main() {
         let tw = tw as usize;
         let th = th as usize;
 
-        if !menu_active {
+        if menu_state == MenuState::None {
             // Collect data
             runner.collect_all();
 
@@ -169,31 +177,74 @@ fn main() {
                 if key.is_empty() {
                     continue; // Skip empty events (key releases)
                 }
-                if menu_active {
-                    // Any key dismisses the menu
-                    match key.as_str() {
+                match menu_state {
+                    MenuState::Main => match key.as_str() {
                         "q" => break,
                         "escape" | "m" => {
-                            menu_active = false;
+                            menu_state = MenuState::None;
                         }
-                        _ => {
-                            menu_active = false;
-                        }
-                    }
-                } else {
-                    match key.as_str() {
-                        "q" => break,
-                        "escape" | "m" => {
-                            // Show menu overlay
-                            let menu_out = menu::main_menu::draw(tw, th);
+                        "o" | "f2" => {
+                            let menu_out = draw_options_menu(tw, th, &config);
                             let _ = terminal.write_raw(&menu_out);
-                            menu_active = true;
+                            menu_state = MenuState::Options;
+                        }
+                        "h" | "?" | "f1" => {
+                            // Show help menu
+                            let menu_out = menu::help_menu::draw(tw, th);
+                            let _ = terminal.write_raw(&menu_out);
+                            menu_state = MenuState::Help;
                         }
                         _ => {}
-                    }
+                    },
+                    MenuState::Help => match key.as_str() {
+                        "q" => break,
+                        "escape" | "h" | "?" | "f1" => {
+                            menu_state = MenuState::None;
+                        }
+                        _ => {}
+                    },
+                    MenuState::Options => match key.as_str() {
+                        "q" => break,
+                        "escape" | "o" | "f2" => {
+                            menu_state = MenuState::None;
+                        }
+                        _ => {}
+                    },
+                    MenuState::None => match key.as_str() {
+                        "q" => break,
+                        "escape" | "m" => {
+                            let menu_out = menu::main_menu::draw(tw, th);
+                            let _ = terminal.write_raw(&menu_out);
+                            menu_state = MenuState::Main;
+                        }
+                        "h" | "?" | "f1" => {
+                            let menu_out = menu::help_menu::draw(tw, th);
+                            let _ = terminal.write_raw(&menu_out);
+                            menu_state = MenuState::Help;
+                        }
+                        "o" | "f2" => {
+                            let menu_out = draw_options_menu(tw, th, &config);
+                            let _ = terminal.write_raw(&menu_out);
+                            menu_state = MenuState::Options;
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
     }
+}
+
+fn draw_options_menu(tw: usize, th: usize, config: &config::Config) -> String {
+    let update_ms_str = config.get_int("update_ms").to_string();
+    let entries: Vec<(&str, &str)> = vec![
+        ("color_theme", config.get_string("color_theme")),
+        ("update_ms", &update_ms_str),
+        ("rounded_corners", if config.get_bool("rounded_corners") { "True" } else { "False" }),
+        ("vim_keys", if config.get_bool("vim_keys") { "True" } else { "False" }),
+        ("show_battery", if config.get_bool("show_battery") { "True" } else { "False" }),
+        ("proc_tree", if config.get_bool("proc_tree") { "True" } else { "False" }),
+    ];
+    menu::options_menu::draw(tw, th, &entries)
 }
 
