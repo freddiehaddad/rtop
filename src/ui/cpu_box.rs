@@ -249,7 +249,7 @@ pub fn draw(
 
         // Per-core rows with multi-column wrapping (btop lines 878-923)
         let core_width: usize = if b_column_size == 0 { 2 } else { 3 };
-        let max_rows = b_height.saturating_sub(4); // rows available for cores
+        let max_rows = b_height.saturating_sub(3); // btop line 866: max_row = b_height - 3
         let col_w = if b_columns > 0 { panel_inner_w.checked_div(b_columns).unwrap_or(panel_inner_w) } else { panel_inner_w };
         let mut cx: usize = 0;
         let mut cy: usize = 1; // start at row 1 within core panel (row 0 is CPU meter)
@@ -351,9 +351,9 @@ pub fn draw(
             }
 
             cy += 1;
-            // btop line 920-923: wrap to next column, break if all columns filled
+            // btop line 920-923: wrap to next column when column is full
             let cores_per_col = core_count.div_ceil(b_columns).max(1);
-            if (cy > cores_per_col || cy > max_rows) && i != core_count - 1 {
+            if (cy > cores_per_col || cy >= max_rows) && i != core_count - 1 {
                 cc += 1;
                 if cc >= b_columns {
                     break;
