@@ -29,6 +29,7 @@ pub fn draw(
     let box_color = theme.c("mem_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
+    let hi = theme.c("hi_fg");
     let div_color = theme.c("div_line");
     let used_grad = theme.g("used");
     let free_grad = theme.g("free");
@@ -38,60 +39,51 @@ pub fn draw(
     let has_disks = !mem.disks.is_empty();
     let inner_h = height.saturating_sub(2);
 
-    // Split width between mem section and disks section
-    let (mem_w, disk_w) = if has_disks && width > 50 {
-        // btop: mem_width = ceil((width-3)/2), rounded to even; disks_width = width - mem_width - 2
-        let mw = ((width.saturating_sub(3) + 1) / 2 + 1) & !1; // ceil + round to even
-        let dw = width.saturating_sub(mw + 2);
-        (mw, dw)
+    // btop: mem_width = ceil((width-3)/2), rounded to even; disks_width = width - mem_width - 2
+    let (mem_w, disk_w, divider_col) = if has_disks && width > 50 {
+        let mw = ((width as f64 - 3.0) / 2.0).ceil() as usize;
+        let mw = mw + (mw % 2); // round up to even
+        let dw = width - mw - 2;
+        (mw, dw, x + mw)
     } else {
-        (width.saturating_sub(1), 0)
+        (width.saturating_sub(1), 0, 0)
     };
-    let divider_col = if disk_w > 0 { x + mem_w } else { 0 };
 
-    // Draw one full-width box with "mem" title
+    // One full-width box with "mem" title (btop line 2453)
     let mut out =
-        box_drawing::create_box(x, y, width, height, box_color, false, "mem", "", 0, rounded);
+        box_drawing::create_box(x, y, width, height, box_color, true, "mem", "", 2, rounded);
 
-    // Draw disk divider and title inside the single box
+    // "disks" title inset on the top border (btop line 2454)
+    // Placed at divider+2 using title_left + "d" highlighted + "isks" + title_right
     if disk_w > 0 {
-        // Top junction: ┬
+        let disks_title_x = divider_col + 3;
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}{}{}{}{}{}",
+            y + 1, disks_title_x,
+            box_color,
+            box_drawing::title_syms::TITLE_LEFT,
+            hi, "d",
+            title_color, "isks",
+            box_color,
+        ));
+        out.push_str(box_drawing::title_syms::TITLE_RIGHT);
+
+        // Divider: div_up at top, div_down at bottom, v_line in between (btop line 2458-2460)
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
-            y + 1,
-            divider_col + 1,
-            box_color,
-            symbols::DIV_UP
+            y + 1, divider_col + 1, box_color, symbols::DIV_UP
         ));
-        // Bottom junction: ┴
         out.push_str(&format!(
             "\x1b[{};{}H{}{}",
-            y + height,
-            divider_col + 1,
-            box_color,
-            symbols::DIV_DOWN
+            y + height, divider_col + 1, box_color, symbols::DIV_DOWN
         ));
-        // Vertical divider lines between top and bottom
+        out.push_str(div_color);
         for row_i in 1..height.saturating_sub(1) {
             out.push_str(&format!(
-                "\x1b[{};{}H{}{}",
-                y + 1 + row_i,
-                divider_col + 1,
-                div_color,
-                symbols::V_LINE
+                "\x1b[{};{}H{}",
+                y + 1 + row_i, divider_col + 1, symbols::V_LINE
             ));
         }
-        // "disks" title on top border after divider
-        out.push_str(&format!(
-            "\x1b[{};{}H{}{} {} {}{}",
-            y + 1,
-            divider_col + 2,
-            box_color,
-            symbols::H_LINE,
-            "disks",
-            symbols::H_LINE.repeat(disk_w.saturating_sub(9)),
-            "",
-        ));
     }
 
     let total_bytes = mem.stats.get("used").unwrap_or(&0)

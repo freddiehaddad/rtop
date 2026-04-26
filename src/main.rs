@@ -91,6 +91,7 @@ fn main() {
     let mut menu_state = MenuState::None;
 
     let mut options_selected: usize = 0;
+    let mut main_menu_selected: usize = 0;
     let mut proc_start: usize = 0;
     let mut proc_selected: usize = 0;
 
@@ -258,6 +259,38 @@ fn main() {
                             menu_state = MenuState::None;
                             needs_full_redraw = true;
                         }
+                        "up" | "k" | "shift_tab" => {
+                            main_menu_selected = if main_menu_selected == 0 { 2 } else { main_menu_selected - 1 };
+                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "down" | "j" | "tab" => {
+                            main_menu_selected = (main_menu_selected + 1) % 3;
+                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                        }
+                        "enter" | "space" => {
+                            match main_menu_selected {
+                                0 => {
+                                    // Options
+                                    options_selected = 0;
+                                    let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
+                                    let _ = terminal.write_raw(&menu_out);
+                                    menu_state = MenuState::Options;
+                                }
+                                1 => {
+                                    // Help
+                                    let menu_out = menu::help_menu::draw(tw, th);
+                                    let _ = terminal.write_raw(&menu_out);
+                                    menu_state = MenuState::Help;
+                                }
+                                2 => {
+                                    // Quit
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
                         "o" | "f2" => {
                             options_selected = 0;
                             let menu_out = draw_options_menu(tw, th, &config, options_selected, &theme);
@@ -359,7 +392,8 @@ fn main() {
                     MenuState::None => match key.as_str() {
                         "q" => break,
                         "escape" | "m" => {
-                            let menu_out = menu::main_menu::draw(tw, th);
+                            main_menu_selected = 0;
+                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Main;
                         }

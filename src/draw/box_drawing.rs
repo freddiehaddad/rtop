@@ -24,7 +24,22 @@ pub mod symbols {
     pub const METER_CHAR: &str = "■";
 }
 
-/// Create a box frame with optional title, fill, and line color.
+/// Box-drawing title inset characters (matching btop).
+/// These create a notch in the border line for the title text.
+pub mod title_syms {
+    pub const TITLE_LEFT: &str = "┐";
+    pub const TITLE_RIGHT: &str = "┌";
+    pub const TITLE_LEFT_DOWN: &str = "┘";
+    pub const TITLE_RIGHT_DOWN: &str = "└";
+}
+
+/// Create a box frame matching btop's createBox exactly.
+///
+/// btop's algorithm:
+/// 1. Draw horizontal lines (full width) on top and bottom rows
+/// 2. Draw vertical lines (and optional fill) on middle rows
+/// 3. Draw corners on top of the horizontal lines
+/// 4. Draw title at (y, x+2) using title_left/title_right inset chars
 pub fn create_box(
     x: usize,
     y: usize,
@@ -40,6 +55,8 @@ pub fn create_box(
     if width < 2 || height < 2 {
         return String::new();
     }
+
+    let color = if line_color.is_empty() { "" } else { line_color };
 
     let (tl, tr, bl, br) = if rounded {
         (
@@ -58,32 +75,24 @@ pub fn create_box(
     };
 
     let mut out = String::new();
+    out.push_str("\x1b[0m");
+    out.push_str(color);
 
-    // Move to position
-    out.push_str(&format!("\x1b[{};{}H", y + 1, x + 1));
-    out.push_str(line_color);
+    // Step 1: Draw horizontal lines on top and bottom
+    // Top line: full width of h_line at (y+1, x+1)
+    out.push_str(&format!(
+        "\x1b[{};{}H{}",
+        y + 1, x + 1,
+        symbols::H_LINE.repeat(width)
+    ));
+    // Bottom line
+    out.push_str(&format!(
+        "\x1b[{};{}H{}",
+        y + height, x + 1,
+        symbols::H_LINE.repeat(width)
+    ));
 
-    // Top border
-    out.push_str(tl);
-    if !title.is_empty() {
-        let title_str = format!(" {} ", title);
-        let remaining = width.saturating_sub(2 + title_str.len());
-        let left_dash = remaining / 2;
-        let right_dash = remaining - left_dash;
-        out.push_str(&symbols::H_LINE.repeat(left_dash));
-        out.push_str(&title_str);
-        out.push_str(&symbols::H_LINE.repeat(right_dash));
-    } else {
-        out.push_str(&symbols::H_LINE.repeat(width - 2));
-    }
-    // Add box number as superscript
-    if num > 0 && (num as usize) < symbols::SUPERSCRIPT.len() {
-        // Replace last h_line with superscript
-        out.push_str(symbols::SUPERSCRIPT[num as usize]);
-    }
-    out.push_str(tr);
-
-    // Middle rows
+    // Step 2: Draw vertical lines and fill on middle rows
     for row in 1..(height - 1) {
         out.push_str(&format!("\x1b[{};{}H", y + 1 + row, x + 1));
         out.push_str(symbols::V_LINE);
@@ -95,23 +104,44 @@ pub fn create_box(
         out.push_str(symbols::V_LINE);
     }
 
-    // Bottom border
-    out.push_str(&format!("\x1b[{};{}H", y + height, x + 1));
-    out.push_str(bl);
-    if !title2.is_empty() {
-        let title_str = format!(" {} ", title2);
-        let remaining = width.saturating_sub(2 + title_str.len());
-        let left_dash = remaining / 2;
-        let right_dash = remaining - left_dash;
-        out.push_str(&symbols::H_LINE.repeat(left_dash));
-        out.push_str(&title_str);
-        out.push_str(&symbols::H_LINE.repeat(right_dash));
-    } else {
-        out.push_str(&symbols::H_LINE.repeat(width - 2));
-    }
-    out.push_str(br);
+    // Step 3: Draw corners (overwriting the h_line at the corner positions)
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, x + 1, tl));
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, x + width, tr));
+    out.push_str(&format!("\x1b[{};{}H{}", y + height, x + 1, bl));
+    out.push_str(&format!("\x1b[{};{}H{}", y + height, x + width, br));
 
-    out.push_str("\x1b[0m"); // Reset
+    // Step 4: Draw title at (y, x+2) if defined — matching btop format:
+    // title_left + bold + numbering + title_color + title + unbold + line_color + title_right
+    if !title.is_empty() {
+        let numbering = if num > 0 && (num as usize) < symbols::SUPERSCRIPT.len() {
+            symbols::SUPERSCRIPT[num as usize]
+        } else {
+            ""
+        };
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}{}{}{}",
+            y + 1, x + 3,
+            title_syms::TITLE_LEFT,
+            numbering,
+            title,
+            color,
+            title_syms::TITLE_RIGHT,
+        ));
+    }
+
+    // Title2 on bottom border
+    if !title2.is_empty() {
+        out.push_str(&format!(
+            "\x1b[{};{}H{}{}{}{}",
+            y + height, x + 3,
+            title_syms::TITLE_LEFT_DOWN,
+            title2,
+            color,
+            title_syms::TITLE_RIGHT_DOWN,
+        ));
+    }
+
+    out.push_str(&format!("\x1b[0m\x1b[{};{}H", y + 2, x + 2));
     out
 }
 
@@ -143,8 +173,9 @@ mod tests {
 
     #[test]
     fn create_box_with_number() {
-        let b = create_box(0, 0, 10, 3, "", false, "", "", 1, false);
+        let b = create_box(0, 0, 20, 3, "", false, "test", "", 1, false);
         assert!(b.contains("¹"));
+        assert!(b.contains("test"));
     }
 
     #[test]
