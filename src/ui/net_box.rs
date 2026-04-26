@@ -1,6 +1,7 @@
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
+use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::theme::Theme;
 use crate::tools;
@@ -113,11 +114,20 @@ pub fn draw(
         out.push_str(&format!("\x1b[{};{}H{}{}", label_y, lx, ul_color, label));
     }
 
-    // Interface name at bottom border: "< Ethernet >"
+    // Interface name and keybind hints at bottom border
     let iface_label = format!("{}< {}{}{} >", fg, hi, iface, fg);
+    let nav_hints = format!(
+        " {}{}b{} ◀ {} {}{}n{} ▶{}",
+        title_syms::TITLE_LEFT_DOWN,
+        hi, fg,
+        title_syms::TITLE_RIGHT_DOWN,
+        title_syms::TITLE_LEFT_DOWN,
+        hi, fg,
+        title_syms::TITLE_RIGHT_DOWN,
+    );
     out.push_str(&format!(
-        "\x1b[{};{}H {}",
-        y + height, x + 2, iface_label
+        "\x1b[{};{}H {}{}{}",
+        y + height, x + 2, iface_label, box_color, nav_hints
     ));
 
     out.push_str("\x1b[0m");

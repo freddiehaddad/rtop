@@ -125,6 +125,7 @@ impl Config {
             ("followed_pid", 0),
             ("proc_start", 0),
             ("proc_selected", 0),
+            ("current_preset", -1),
         ];
         for (k, v) in int_defaults {
             self.ints.entry(k.to_string()).or_insert(*v);
@@ -156,6 +157,7 @@ impl Config {
         let clamped = match name {
             "update_ms" => value.clamp(100, 86_400_000),
             "net_download" | "net_upload" => value.clamp(0, 10_000_000),
+            "current_preset" | "detailed_pid" => value,
             _ => value.max(0),
         };
         self.ints.insert(name.to_string(), clamped);
@@ -264,6 +266,57 @@ impl Config {
         }
 
         out
+    }
+
+    /// Reload config from the stored config file path.
+    /// Returns warnings from parsing.
+    pub fn reload(&mut self) -> Vec<String> {
+        if let Some(path) = self.conf_file.clone() {
+            self.apply_defaults();
+            self.load(&path)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Parse the presets config string into a list of preset strings.
+    /// The default preset "cpu mem net proc" is always index 0.
+    pub fn preset_list(&self) -> Vec<String> {
+        let mut list = vec!["cpu:0:default,mem:0:default,net:0:default,proc:0:default".to_string()];
+        let presets_str = self.get_string("presets");
+        if !presets_str.is_empty() {
+            for preset in presets_str.split_whitespace() {
+                if !preset.is_empty() {
+                    list.push(preset.to_string());
+                }
+            }
+        }
+        list
+    }
+
+    /// Apply a preset string like "cpu:0:default,mem:0:default,net:0:default,proc:0:default".
+    /// Sets shown_boxes, cpu_bottom, mem_below_net, proc_left, and graph symbols.
+    pub fn apply_preset(&mut self, preset: &str) {
+        let mut boxes = Vec::new();
+        for part in preset.split(',') {
+            let vals: Vec<&str> = part.split(':').collect();
+            if vals.len() != 3 {
+                continue;
+            }
+            let box_name = vals[0];
+            let position = vals[1];
+            let _graph_sym = vals[2];
+
+            boxes.push(box_name.to_string());
+
+            match box_name {
+                "cpu" => self.set_bool("cpu_bottom", position != "0"),
+                "mem" => self.set_bool("mem_below_net", position != "0"),
+                "proc" => self.set_bool("proc_left", position != "0"),
+                _ => {}
+            }
+        }
+        self.set_string("shown_boxes", &boxes.join(" "));
     }
 
     /// Toggle a box's visibility in shown_boxes.
@@ -440,5 +493,51 @@ mod tests {
         assert!(config.bools.contains_key("show_battery"));
         assert!(config.ints.contains_key("update_ms"));
         assert!(config.ints.contains_key("net_download"));
+    }
+
+    #[test]
+    fn preset_list_default_has_one_entry() {
+        let config = Config::new();
+        let list = config.preset_list();
+        assert_eq!(list.len(), 1);
+        assert!(list[0].contains("cpu:0:default"));
+    }
+
+    #[test]
+    fn preset_list_with_custom_presets() {
+        let mut config = Config::new();
+        config.set_string("presets", "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default");
+        let list = config.preset_list();
+        assert_eq!(list.len(), 3);
+    }
+
+    #[test]
+    fn apply_preset_sets_shown_boxes() {
+        let mut config = Config::new();
+        config.apply_preset("cpu:0:default,proc:1:default");
+        assert_eq!(config.get_string("shown_boxes"), "cpu proc");
+        assert!(config.get_bool("proc_left"));
+    }
+
+    #[test]
+    fn apply_preset_cpu_bottom() {
+        let mut config = Config::new();
+        config.apply_preset("cpu:1:default,mem:0:default");
+        assert!(config.get_bool("cpu_bottom"));
+        assert!(!config.get_bool("mem_below_net"));
+    }
+
+    #[test]
+    fn current_preset_allows_negative() {
+        let mut config = Config::new();
+        config.set_int("current_preset", -1);
+        assert_eq!(config.get_int("current_preset"), -1);
+    }
+
+    #[test]
+    fn detailed_pid_allows_zero() {
+        let mut config = Config::new();
+        config.set_int("detailed_pid", 0);
+        assert_eq!(config.get_int("detailed_pid"), 0);
     }
 }

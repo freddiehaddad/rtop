@@ -1,6 +1,7 @@
 use crate::domain::cpu::CpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
+use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
@@ -247,6 +248,24 @@ pub fn draw(
             up_y, x + 2, graph_text_color, up_str
         ));
     }
+
+    // Bottom border keybind hints: menu, preset, -/+ update timer
+    let bottom_y = y + height;
+    let hints = format!(
+        "{}{}m{}enu{} {}{}p{}reset{} {}{}─{}{}+{}",
+        title_syms::TITLE_LEFT_DOWN,
+        hi, fg, title_syms::TITLE_RIGHT_DOWN,
+        title_syms::TITLE_LEFT_DOWN,
+        hi, fg, title_syms::TITLE_RIGHT_DOWN,
+        title_syms::TITLE_LEFT_DOWN,
+        hi, fg, hi, title_syms::TITLE_RIGHT_DOWN,
+    );
+    out.push_str(&format!(
+        "\x1b[{};{}H{}{}",
+        bottom_y, x + 2,
+        box_color,
+        hints
+    ));
 
     out.push_str("\x1b[0m");
     out

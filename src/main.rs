@@ -134,6 +134,13 @@ fn main() {
             let reversed = config.get_bool("proc_reversed");
             collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
 
+            // Build tree if tree mode is enabled
+            let tree_mode = config.get_bool("proc_tree");
+            if tree_mode {
+                let children = collect::process::build_tree(&runner.proc_collector.procs);
+                collect::process::generate_tree_prefixes(&mut runner.proc_collector.procs, &children);
+            }
+
             // Calculate layout
             let shown: Vec<String> = config
                 .get_string("shown_boxes")
@@ -199,6 +206,7 @@ fn main() {
             }
             if let Some(ref proc_dim) = layout.proc_box {
                 clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
+                let detailed_pid = config.get_int("detailed_pid") as u32;
                 output.push_str(&ui::proc_box::draw_with_sort(
                     &runner.proc_collector.procs,
                     proc_dim.x,
@@ -211,6 +219,8 @@ fn main() {
                     &theme,
                     &sort_by,
                     reversed,
+                    tree_mode,
+                    detailed_pid,
                 ));
             }
 
@@ -224,10 +234,16 @@ fn main() {
             needs_proc_redraw = false;
             let sort_by = config.get_string("proc_sorting").to_string();
             let reversed = config.get_bool("proc_reversed");
+            let tree_mode = config.get_bool("proc_tree");
             collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
+            if tree_mode {
+                let children = collect::process::build_tree(&runner.proc_collector.procs);
+                collect::process::generate_tree_prefixes(&mut runner.proc_collector.procs, &children);
+            }
             if let Some(ref layout) = cached_layout {
                 if let Some(ref proc_dim) = layout.proc_box {
                     clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
+                    let detailed_pid = config.get_int("detailed_pid") as u32;
                     let mut output = String::new();
                     output.push_str(term::SYNC_START);
                     output.push_str(&ui::proc_box::draw_with_sort(
@@ -242,6 +258,8 @@ fn main() {
                         &theme,
                         &sort_by,
                         reversed,
+                        tree_mode,
+                        detailed_pid,
                     ));
                     output.push_str(term::SYNC_END);
                     let _ = terminal.write_raw(&output);
@@ -478,6 +496,56 @@ fn main() {
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
+                        // Preset cycling
+                        "p" => {
+                            let presets = config.preset_list();
+                            if presets.len() > 1 {
+                                let cur = config.get_int("current_preset");
+                                let next = if cur < 0 {
+                                    0i64
+                                } else if (cur + 1) >= presets.len() as i64 {
+                                    0
+                                } else {
+                                    cur + 1
+                                };
+                                config.set_int("current_preset", next);
+                                config.apply_preset(&presets[next as usize]);
+                                needs_full_redraw = true;
+                            }
+                        }
+                        "P" => {
+                            let presets = config.preset_list();
+                            if presets.len() > 1 {
+                                let cur = config.get_int("current_preset");
+                                let next = if cur <= 0 {
+                                    presets.len() as i64 - 1
+                                } else {
+                                    cur - 1
+                                };
+                                config.set_int("current_preset", next);
+                                config.apply_preset(&presets[next as usize]);
+                                needs_full_redraw = true;
+                            }
+                        }
+                        // Config reload
+                        "ctrl_r" => {
+                            let warnings = config.reload();
+                            for w in &warnings {
+                                tracing::warn!("{}", w);
+                            }
+                            // Reapply theme
+                            let theme_name = config.get_string("color_theme").to_string();
+                            theme = theme::Theme::from_name(&theme_name);
+                            let base = format!(
+                                "{}{}",
+                                theme.c("main_fg"),
+                                theme.c("main_bg").replace("38;2", "48;2"),
+                            );
+                            let _ = terminal.write_raw(&base);
+                            rounded = config.get_bool("rounded_corners");
+                            update_ms = config.get_int("update_ms") as u64;
+                            needs_full_redraw = true;
+                        }
                         "up" | "k" => {
                             if proc_selected > 0 {
                                 proc_selected -= 1;
@@ -539,6 +607,7 @@ fn main() {
                         }
                         "e" => {
                             config.flip("proc_tree");
+                            // Reset tree-related state when toggling
                             needs_full_redraw = true;
                         }
                         "r" => {
@@ -578,10 +647,16 @@ fn main() {
                             }
                         }
                         "enter" => {
-                            // Show process details (store selected PID)
+                            // Toggle process detailed view
                             if proc_selected < runner.proc_collector.procs.len() {
                                 let pid = runner.proc_collector.procs[proc_selected].pid;
-                                config.set_int("detailed_pid", pid as i64);
+                                let current_detailed = config.get_int("detailed_pid");
+                                if current_detailed == pid as i64 {
+                                    // Close detail panel
+                                    config.set_int("detailed_pid", 0);
+                                } else {
+                                    config.set_int("detailed_pid", pid as i64);
+                                }
                                 needs_full_redraw = true;
                             }
                         }
@@ -613,6 +688,32 @@ fn main() {
                         "y" => {
                             config.flip("net_sync");
                             needs_full_redraw = true;
+                        }
+                        // Network zero reset
+                        "z" => {
+                            let iface = runner.net.selected_iface.clone();
+                            if let Some(net_info) = runner.net.current_net.get_mut(&iface) {
+                                let dl = net_info.stat.get("download").cloned().unwrap_or_default();
+                                let ul = net_info.stat.get("upload").cloned().unwrap_or_default();
+                                if dl.offset + ul.offset > 0 {
+                                    // Already offset — clear it
+                                    if let Some(d) = net_info.stat.get_mut("download") {
+                                        d.offset = 0;
+                                    }
+                                    if let Some(u) = net_info.stat.get_mut("upload") {
+                                        u.offset = 0;
+                                    }
+                                } else {
+                                    // Set offset to current last + rollover
+                                    if let Some(d) = net_info.stat.get_mut("download") {
+                                        d.offset = d.last + d.rollover;
+                                    }
+                                    if let Some(u) = net_info.stat.get_mut("upload") {
+                                        u.offset = u.last + u.rollover;
+                                    }
+                                }
+                                needs_full_redraw = true;
+                            }
                         }
                         // Update rate keybinds
                         "+" => {
