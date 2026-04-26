@@ -396,25 +396,57 @@ impl CpuCollector {
         };
 
         let mut package_temp: Option<i64> = None;
-        let mut raw_cores: Vec<(String, i64)> = Vec::new(); // (name, temp)
+        let mut core_temps: Vec<i64> = Vec::new();
 
-        // Walk the tree looking for "Temperatures" parent nodes
-        fn walk(node: &serde_json::Value, in_temps: bool, pkg: &mut Option<i64>, cores: &mut Vec<(String, i64)>) {
+        // Walk the tree looking for "Temperatures" under CPU hardware nodes.
+        // Generic approach: identify package-level temp by known keywords,
+        // treat everything else as per-core temps in discovery order.
+        fn walk(node: &serde_json::Value, in_temps: bool, in_cpu: bool,
+                pkg: &mut Option<i64>, cores: &mut Vec<i64>) {
             let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
+            let hw_id = node.get("HardwareId").and_then(|v| v.as_str()).unwrap_or("");
+
+            // Detect CPU hardware nodes by HardwareId or name
+            let is_cpu_hw = in_cpu
+                || hw_id.contains("cpu")
+                || hw_id.contains("intelcpu")
+                || hw_id.contains("amdcpu")
+                || text.to_lowercase().contains("cpu")
+                || text.to_lowercase().contains("core i")
+                || text.to_lowercase().contains("core ultra")
+                || text.to_lowercase().contains("ryzen")
+                || text.to_lowercase().contains("xeon")
+                || text.to_lowercase().contains("threadripper");
+
             let is_temps = text == "Temperatures";
 
-            if in_temps {
+            if in_temps && is_cpu_hw {
                 if let Some(val_str) = node.get("Value").and_then(|v| v.as_str()) {
                     if let Some(temp) = parse_temp_value(val_str) {
-                        if text == "CPU Package" || text == "CPU" || text == "Core Max" {
-                            if pkg.is_none() || text == "CPU Package" {
+                        // Skip non-temperature entries
+                        if text.contains("Distance") || text.contains("TjMax") {
+                            // Skip distance-to-max entries
+                        }
+                        // Package/aggregate temps
+                        else if text == "CPU Package" || text == "CPU"
+                            || text == "Core Max" || text == "Core Average"
+                            || text == "Tctl" || text == "Tdie"
+                            || text == "CPU (Tctl)" || text == "CPU (Tdie)"
+                        {
+                            // Prefer CPU Package > Tdie > Tctl > others
+                            if pkg.is_none()
+                                || text == "CPU Package"
+                                || (text == "Tdie" && pkg.is_none())
+                            {
                                 *pkg = Some(temp);
                             }
-                        } else if text.contains("Core #") || text.starts_with("P-Core") || text.starts_with("E-Core") {
-                            // Skip "Distance to TjMax" entries
-                            if !text.contains("Distance") {
-                                cores.push((text.to_string(), temp));
-                            }
+                        }
+                        // Everything else under CPU temps = per-core
+                        else if !text.contains("System") && !text.contains("VRM")
+                            && !text.contains("PCH") && !text.contains("Socket")
+                            && !text.contains("PCIe") && !text.contains("M2")
+                        {
+                            cores.push(temp);
                         }
                     }
                 }
@@ -422,25 +454,14 @@ impl CpuCollector {
 
             if let Some(children) = node.get("Children").and_then(|v| v.as_array()) {
                 for child in children {
-                    walk(child, is_temps, pkg, cores);
+                    walk(child, is_temps && is_cpu_hw, is_cpu_hw, pkg, cores);
                 }
             }
         }
 
-        walk(&json, false, &mut package_temp, &mut raw_cores);
+        walk(&json, false, false, &mut package_temp, &mut core_temps);
 
-        // Count P-Cores so E-Core indices offset correctly
-        let p_core_count = raw_cores.iter().filter(|(name, _)| name.starts_with("P-Core")).count();
-
-        // Parse names into indexed temps
-        let mut core_temps: Vec<(usize, i64)> = raw_cores.iter()
-            .filter_map(|(name, temp)| parse_core_index(name, p_core_count).map(|idx| (idx, *temp)))
-            .collect();
-
-        // Sort core temps by index
-        core_temps.sort_by_key(|&(idx, _)| idx);
-
-        // Total entries: 1 (package) + number of core temps
+        // Total entries: 1 (package) + per-core count
         let total = 1 + core_temps.len();
 
         // Ensure self.info.temp has enough VecDeques
@@ -452,8 +473,8 @@ impl CpuCollector {
         let pkg = package_temp.unwrap_or(0);
         push_history(&mut self.info.temp[0], pkg);
 
-        // Index 1+ = per-core temps
-        for (slot, &(_, temp)) in core_temps.iter().enumerate() {
+        // Index 1+ = per-core temps in discovery order
+        for (slot, &temp) in core_temps.iter().enumerate() {
             push_history(&mut self.info.temp[slot + 1], temp);
         }
     }
@@ -498,10 +519,8 @@ fn parse_temp_value(s: &str) -> Option<i64> {
     num_part.parse::<f64>().ok().map(|v| v as i64)
 }
 
+#[cfg(test)]
 /// Parse core temperature sensor names to a zero-indexed core number.
-/// Handles: "CPU Core #N", "P-Core #N", "E-Core #N", "Core #N"
-/// P-Cores are indexed first (0-based), E-Cores continue after P-Cores.
-/// `p_core_count` tracks how many P-Cores were seen so E-Cores offset correctly.
 fn parse_core_index(text: &str, p_core_count: usize) -> Option<usize> {
     if let Some(rest) = text.strip_prefix("CPU Core #") {
         return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
