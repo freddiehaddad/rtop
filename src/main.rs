@@ -72,6 +72,8 @@ fn main() {
     let rounded = config.get_bool("rounded_corners");
     let update_ms = config.get_int("update_ms") as u64;
 
+    let mut menu_active = false;
+
     // Main event loop
     loop {
         // Check resize
@@ -80,113 +82,112 @@ fn main() {
         let tw = tw as usize;
         let th = th as usize;
 
-        // Collect data
-        runner.collect_all();
+        if !menu_active {
+            // Collect data
+            runner.collect_all();
 
-        // Calculate layout
-        let shown: Vec<String> = config
-            .get_string("shown_boxes")
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect();
-        let layout = draw::layout::calc_sizes(
-            tw,
-            th,
-            &shown,
-            config.get_bool("cpu_bottom"),
-            config.get_bool("mem_below_net"),
-            config.get_bool("proc_left"),
-            runner.cpu.info.core_count,
-        );
+            // Calculate layout
+            let shown: Vec<String> = config
+                .get_string("shown_boxes")
+                .split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+            let layout = draw::layout::calc_sizes(
+                tw,
+                th,
+                &shown,
+                config.get_bool("cpu_bottom"),
+                config.get_bool("mem_below_net"),
+                config.get_bool("proc_left"),
+                runner.cpu.info.core_count,
+            );
 
-        // Build output
-        let mut output = String::new();
-        output.push_str(term::SYNC_START);
-        output.push_str("\x1b[2J");
+            // Build output
+            let mut output = String::new();
+            output.push_str(term::SYNC_START);
+            output.push_str("\x1b[2J");
 
-        if let Some(ref cpu_dim) = layout.cpu {
-            output.push_str(&ui::cpu_box::draw(
-                &mut cell_buffer::CellBuffer::new(tw, th),
-                &runner.cpu.info,
-                cpu_dim.x,
-                cpu_dim.y,
-                cpu_dim.width,
-                cpu_dim.height,
-                rounded,
-            ));
-        }
-        if let Some(ref mem_dim) = layout.mem {
-            output.push_str(&ui::mem_box::draw(
-                &runner.mem.info,
-                mem_dim.x,
-                mem_dim.y,
-                mem_dim.width,
-                mem_dim.height,
-                rounded,
-            ));
-        }
-        if let Some(ref net_dim) = layout.net {
-            let iface = &runner.net.selected_iface;
-            let net_info = runner
-                .net
-                .current_net
-                .get(iface)
-                .cloned()
-                .unwrap_or_default();
-            output.push_str(&ui::net_box::draw(
-                &net_info,
-                iface,
-                net_dim.x,
-                net_dim.y,
-                net_dim.width,
-                net_dim.height,
-                rounded,
-            ));
-        }
-        if let Some(ref proc_dim) = layout.proc_box {
-            output.push_str(&ui::proc_box::draw(
-                &runner.proc_collector.procs,
-                proc_dim.x,
-                proc_dim.y,
-                proc_dim.width,
-                proc_dim.height,
-                rounded,
-                0,
-                0,
-            ));
-        }
+            if let Some(ref cpu_dim) = layout.cpu {
+                output.push_str(&ui::cpu_box::draw(
+                    &mut cell_buffer::CellBuffer::new(tw, th),
+                    &runner.cpu.info,
+                    cpu_dim.x,
+                    cpu_dim.y,
+                    cpu_dim.width,
+                    cpu_dim.height,
+                    rounded,
+                ));
+            }
+            if let Some(ref mem_dim) = layout.mem {
+                output.push_str(&ui::mem_box::draw(
+                    &runner.mem.info,
+                    mem_dim.x,
+                    mem_dim.y,
+                    mem_dim.width,
+                    mem_dim.height,
+                    rounded,
+                ));
+            }
+            if let Some(ref net_dim) = layout.net {
+                let iface = &runner.net.selected_iface;
+                let net_info = runner
+                    .net
+                    .current_net
+                    .get(iface)
+                    .cloned()
+                    .unwrap_or_default();
+                output.push_str(&ui::net_box::draw(
+                    &net_info,
+                    iface,
+                    net_dim.x,
+                    net_dim.y,
+                    net_dim.width,
+                    net_dim.height,
+                    rounded,
+                ));
+            }
+            if let Some(ref proc_dim) = layout.proc_box {
+                output.push_str(&ui::proc_box::draw(
+                    &runner.proc_collector.procs,
+                    proc_dim.x,
+                    proc_dim.y,
+                    proc_dim.width,
+                    proc_dim.height,
+                    rounded,
+                    0,
+                    0,
+                ));
+            }
 
-        output.push_str(term::SYNC_END);
-        let _ = terminal.write_raw(&output);
+            output.push_str(term::SYNC_END);
+            let _ = terminal.write_raw(&output);
+        }
 
         // Poll for input
         if input::poll(update_ms) {
             if let Some(key) = input::get() {
-                match key.as_str() {
-                    "q" => break,
-                    "escape" | "m" => {
-                        // Toggle menu (simplified — show main menu once)
-                        let menu_out = menu::main_menu::draw(tw, th);
-                        let _ = terminal.write_raw(&menu_out);
-                        // Wait for next key to dismiss
-                        loop {
-                            if input::poll(60_000) {
-                                if let Some(k) = input::get() {
-                                    match k.as_str() {
-                                        "q" => {
-                                            // Quit from menu
-                                            let _ = terminal.write_raw(
-                                                &format!("{}\x1b[2J{}", term::SYNC_START, term::SYNC_END),
-                                            );
-                                            return;
-                                        }
-                                        _ => break, // dismiss menu
-                                    }
-                                }
-                            }
+                if menu_active {
+                    // Any key dismisses the menu
+                    match key.as_str() {
+                        "q" => break,
+                        "escape" | "m" => {
+                            menu_active = false;
+                        }
+                        _ => {
+                            menu_active = false;
                         }
                     }
-                    _ => {}
+                } else {
+                    match key.as_str() {
+                        "q" => break,
+                        "escape" | "m" => {
+                            // Show menu overlay
+                            let menu_out = menu::main_menu::draw(tw, th);
+                            let _ = terminal.write_raw(&menu_out);
+                            menu_active = true;
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
