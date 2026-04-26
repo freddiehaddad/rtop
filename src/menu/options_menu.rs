@@ -677,9 +677,6 @@ pub fn draw(
 
     let mut out = String::with_capacity(4096);
 
-    // Clear the screen to avoid artifacts when switching tabs
-    out.push_str("\x1b[2J");
-
     // Main box: create at (x, y+6) with height
     let tab_title = format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW);
     out.push_str(&box_drawing::create_box(&box_drawing::BoxConfig {
