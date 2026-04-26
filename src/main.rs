@@ -26,15 +26,19 @@ fn main() {
     }
 
     // Init logging
-    let log_dir = directories::BaseDirs::new()
-        .map(|d| d.data_local_dir().join("rtop"))
-        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_dir = tools::data_dir();
     log::init(&log_dir, "WARNING");
 
-    // Load config
+    // Load config (from CLI path or default location)
     let mut config = config::Config::new();
+    let default_conf_path = tools::config_dir().join("rtop.conf");
     if let Some(ref path) = cli.config_file {
         let warnings = config.load(path);
+        for w in &warnings {
+            tracing::warn!("{}", w);
+        }
+    } else if default_conf_path.exists() {
+        let warnings = config.load(&default_conf_path);
         for w in &warnings {
             tracing::warn!("{}", w);
         }
@@ -741,9 +745,7 @@ fn main() {
 
     // Save config on exit
     if config.get_bool("save_config_on_exit") {
-        let conf_path = directories::BaseDirs::new()
-            .map(|d| d.config_dir().join("rtop").join("rtop.conf"))
-            .unwrap_or_else(|| std::path::PathBuf::from("rtop.conf"));
+        let conf_path = tools::config_dir().join("rtop.conf");
         let _ = config.write(&conf_path);
     }
 }

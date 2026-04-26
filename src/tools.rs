@@ -281,6 +281,39 @@ pub fn username() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
+/// Get the rtop config directory.
+///
+/// Priority: `XDG_CONFIG_HOME/rtop` > `%APPDATA%/rtop` (via `directories` crate)
+pub fn config_dir() -> std::path::PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let p = std::path::PathBuf::from(xdg);
+        if p.is_absolute() {
+            return p.join("rtop");
+        }
+    }
+    directories::BaseDirs::new()
+        .map(|d| d.config_dir().join("rtop"))
+        .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
+}
+
+/// Get the rtop data/log directory.
+///
+/// Priority: `XDG_CONFIG_HOME/rtop` > `%LOCALAPPDATA%/rtop` (via `directories` crate)
+///
+/// Logs go alongside config when XDG_CONFIG_HOME is set, matching
+/// the XDG convention of keeping all app state under one tree.
+pub fn data_dir() -> std::path::PathBuf {
+    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let p = std::path::PathBuf::from(xdg);
+        if p.is_absolute() {
+            return p.join("rtop");
+        }
+    }
+    directories::BaseDirs::new()
+        .map(|d| d.data_local_dir().join("rtop"))
+        .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
+}
+
 /// Simple strftime without chrono dependency — handles common format specifiers.
 fn chrono_free_strftime(format: &str) -> String {
     use std::time::SystemTime;
@@ -563,5 +596,43 @@ mod tests {
     #[test]
     fn strip_ansi_no_codes() {
         assert_eq!(strip_ansi("hello"), "hello");
+    }
+
+    // --- config_dir / data_dir tests ---
+
+    #[test]
+    fn config_dir_returns_path_with_rtop_suffix() {
+        let dir = config_dir();
+        assert!(dir.ends_with("rtop"), "expected path ending with 'rtop', got: {:?}", dir);
+    }
+
+    #[test]
+    fn data_dir_returns_path_with_rtop_suffix() {
+        let dir = data_dir();
+        assert!(dir.ends_with("rtop"), "expected path ending with 'rtop', got: {:?}", dir);
+    }
+
+    #[test]
+    fn config_dir_respects_xdg_env() {
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", "C:\\custom\\xdg"); }
+        let dir = config_dir();
+        assert_eq!(dir, std::path::PathBuf::from("C:\\custom\\xdg\\rtop"));
+        match original {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v); },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME"); },
+        }
+    }
+
+    #[test]
+    fn config_dir_ignores_relative_xdg() {
+        let original = std::env::var("XDG_CONFIG_HOME").ok();
+        unsafe { std::env::set_var("XDG_CONFIG_HOME", "relative/path"); }
+        let dir = config_dir();
+        assert_ne!(dir, std::path::PathBuf::from("relative/path/rtop"));
+        match original {
+            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v); },
+            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME"); },
+        }
     }
 }
