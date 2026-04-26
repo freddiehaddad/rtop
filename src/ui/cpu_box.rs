@@ -49,12 +49,10 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.c("cpu_box");
-    let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
     let title_color = theme.c("title");
     let div_color = theme.c("div_line");
     let cpu_gradient = theme.g("cpu");
-    let temp_gradient = theme.g("temp");
     let graph_text_color = theme.c("graph_text");
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
@@ -222,153 +220,10 @@ pub fn draw(
         }
     }
 
-    // --- Core panel (btop_draw.cpp lines 866-938) ---
+    // --- Core panel ---
     if b_width > 0 && b_height > 0 {
-        let panel_inner_w = b_width; // chars between divider and right border
-        let meter_bg = theme.c("meter_bg");
-
-        // Row 0 of core panel: CPU meter line (btop line 842)
-        // "CPU " + meter + " ###%" [+ " " + temp_graph(5) + " ###°C"]
-        if let Some(total) = cpu.cpu_percent.get("total") {
-            if let Some(&pct) = total.back() {
-                let pct_color = if !cpu_gradient.is_empty() {
-                    &cpu_gradient[pct.clamp(0, 100) as usize]
-                } else {
-                    fg
-                };
-                let temp_suffix_len = if has_temp { 1 + 5 + 4 + 2 } else { 0 }; // " " + graph(5) + " ##°C"
-                let meter_w = panel_inner_w.saturating_sub(4 + 5 + temp_suffix_len).max(1);
-                let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
-                out.push_str(&format!(
-                    "{}{}CPU {}{}{}{}{}",
-                    term::mv(b_x + 2, b_y + 1),
-                    title_color,
-                    pct_color, meter.render(pct as i32),
-                    pct_color, tools::rjust(&pct.to_string(), 4, false),
-                    "%",
-                ));
-                if has_temp {
-                    // Package temp graph + value on CPU meter row
-                    if let Some(pkg_data) = cpu.temp.first() {
-                        let pkg_temp = pkg_data.back().copied().unwrap_or(0);
-                        let mut tg = Graph::new(5, 1, GraphSymbol::Braille, false, false, 100, 0);
-                        let tg_str = tg.render_row_colored(pkg_data, temp_gradient);
-                        let t_color = if !temp_gradient.is_empty() {
-                            &temp_gradient[(pkg_temp.clamp(0, 100)) as usize]
-                        } else {
-                            fg
-                        };
-                        out.push_str(&format!(
-                            " {}{}{:>3}°C",
-                            tg_str, t_color, pkg_temp
-                        ));
-                    }
-                }
-            }
-        }
-
-        // Per-core rows with multi-column wrapping (btop lines 878-923)
-        // Each core row must fit exactly in col_w visible characters.
-        let col_w = if b_columns > 0 { panel_inner_w.checked_div(b_columns).unwrap_or(panel_inner_w) } else { panel_inner_w };
-        let mut cx: usize = 0;
-        let mut cy: usize = 1;
-        let mut cc: usize = 0;
-
-        for (i, core_data) in cpu.core_percent.iter().enumerate() {
-            let pct = core_data.back().copied().unwrap_or(0);
-            let pct_color = if !cpu_gradient.is_empty() {
-                &cpu_gradient[pct.clamp(0, 100) as usize]
-            } else {
-                fg
-            };
-
-            let row_y = b_y + cy + 1;
-            let row_x = b_x + cx + 2;
-
-            // Build the core line with absolute positioning for each part.
-            // Layout (fitting in col_w chars):
-            //   "C##" (2-3 chars) + graph (variable) + " ##%" (4-5 chars) + " ##°C" (5 chars) + "│" (1 char if multi-col)
-            let label = if core_count >= 100 { format!("{:>3}", i) }
-                else if core_count >= 10 { format!("C{:<2}", i) }
-                else { format!("C{}", i) };
-            let label_w = label.len();
-
-            let sep_w: usize = if cc + 1 < b_columns { 1 } else { 0 }; // │ separator
-            let pct_w: usize = 4; // " ##%"
-            let temp_w: usize = if has_temp { 5 } else { 0 }; // " ##°C"
-            let fixed_w = label_w + pct_w + temp_w + sep_w;
-            let graph_w = col_w.saturating_sub(fixed_w);
-
-            // Position and write label
-            out.push_str(&format!("{}{}{}", term::mv(row_x, row_y), fg, label));
-
-            // Mini graph
-            if graph_w >= 3 {
-                let mut mini = Graph::new(graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
-                let mini_str = mini.render_row_colored(core_data, cpu_gradient);
-                out.push_str(&mini_str);
-            } else if graph_w > 0 {
-                out.push_str(&format!("\x1b[{}C", graph_w)); // skip space
-            }
-
-            // Percentage — positioned absolutely to ensure alignment
-            out.push_str(&format!("{}{:>3}{}%", pct_color, pct, fg));
-
-            // Per-core temperature
-            if has_temp {
-                // cpu.temp: index 0 = package, 1+ = per physical core
-                // If more logical cores than temp sensors (hyperthreading),
-                // map back to the physical core's temperature.
-                let num_core_temps = cpu.temp.len().saturating_sub(1); // exclude package
-                let temp_idx = if num_core_temps > 0 {
-                    (i % num_core_temps) + 1
-                } else {
-                    0
-                };
-                let core_temp = cpu.temp.get(temp_idx)
-                    .and_then(|dq| dq.back())
-                    .copied()
-                    .unwrap_or(0);
-                let t_color = if !temp_gradient.is_empty() {
-                    &temp_gradient[(core_temp.clamp(0, 100)) as usize]
-                } else {
-                    fg
-                };
-                out.push_str(&format!("{}{:>3}°C", t_color, core_temp));
-            }
-
-            // Column separator
-            if cc + 1 < b_columns {
-                out.push_str(&format!("{}{}", div_color, symbols::V_LINE));
-            }
-
-            cy += 1;
-            // btop line 920-923: wrap to next column when column is full
-            let cores_per_col = core_count.div_ceil(b_columns).max(1);
-            if cy > cores_per_col && i != core_count - 1 {
-                cc += 1;
-                if cc >= b_columns {
-                    break;
-                }
-                cy = 1;
-                cx = col_w * cc;
-            }
-        }
-
-        // Load average on bottom row of core panel (btop lines 927-938)
-        let lavg_y = b_y + b_height;
-        let lavg_str = format!(
-            "Load avg: {:.2} {:.2} {:.2}",
-            cpu.load_avg[0], cpu.load_avg[1], cpu.load_avg[2]
-        );
-        let lavg_vis_len = lavg_str.len();
-        if lavg_vis_len <= panel_inner_w {
-            let lavg_x = b_x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
-            out.push_str(&format!(
-                "{}{}{}",
-                term::mv(lavg_x, lavg_y), fg, lavg_str
-            ));
-        }
+        let panel = CorePanelArea { x: b_x, y: b_y, width: b_width, height: b_height, columns: b_columns };
+        out.push_str(&draw_core_panel(cpu, &panel, has_temp, theme));
     }
 
     // Uptime overlaid on lower-left of graph area
@@ -383,7 +238,191 @@ pub fn draw(
     }
 
     // Bottom border keybind hints
-    let bottom_y = y + height;
+    out.push_str(&draw_bottom_hints(x, y + height, update_ms, theme));
+
+    out.push_str("\x1b[0m");
+    out
+}
+
+/// Geometry of the per-core panel within the CPU box.
+struct CorePanelArea {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    columns: usize,
+}
+
+/// Render the per-core panel (CPU meter, mini-graphs, percentages, temperatures, load avg).
+fn draw_core_panel(
+    cpu: &CpuInfo,
+    panel: &CorePanelArea,
+    has_temp: bool,
+    theme: &Theme,
+) -> String {
+    let fg = theme.c("main_fg");
+    let title_color = theme.c("title");
+    let div_color = theme.c("div_line");
+    let cpu_gradient = theme.g("cpu");
+    let temp_gradient = theme.g("temp");
+    let mut out = String::new();
+    let core_count = cpu.core_percent.len();
+
+    let panel_inner_w = panel.width;
+    let meter_bg = theme.c("meter_bg");
+
+    // Row 0 of core panel: CPU meter line (btop line 842)
+    // "CPU " + meter + " ###%" [+ " " + temp_graph(5) + " ###°C"]
+    if let Some(total) = cpu.cpu_percent.get("total") {
+        if let Some(&pct) = total.back() {
+            let pct_color = if !cpu_gradient.is_empty() {
+                &cpu_gradient[pct.clamp(0, 100) as usize]
+            } else {
+                fg
+            };
+            let temp_suffix_len = if has_temp { 1 + 5 + 4 + 2 } else { 0 }; // " " + graph(5) + " ##°C"
+            let meter_w = panel_inner_w.saturating_sub(4 + 5 + temp_suffix_len).max(1);
+            let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
+            out.push_str(&format!(
+                "{}{}CPU {}{}{}{}{}",
+                term::mv(panel.x + 2, panel.y + 1),
+                title_color,
+                pct_color, meter.render(pct as i32),
+                pct_color, tools::rjust(&pct.to_string(), 4, false),
+                "%",
+            ));
+            if has_temp {
+                // Package temp graph + value on CPU meter row
+                if let Some(pkg_data) = cpu.temp.first() {
+                    let pkg_temp = pkg_data.back().copied().unwrap_or(0);
+                    let mut tg = Graph::new(5, 1, GraphSymbol::Braille, false, false, 100, 0);
+                    let tg_str = tg.render_row_colored(pkg_data, temp_gradient);
+                    let t_color = if !temp_gradient.is_empty() {
+                        &temp_gradient[(pkg_temp.clamp(0, 100)) as usize]
+                    } else {
+                        fg
+                    };
+                    out.push_str(&format!(
+                        " {}{}{:>3}°C",
+                        tg_str, t_color, pkg_temp
+                    ));
+                }
+            }
+        }
+    }
+
+    // Per-core rows with multi-column wrapping (btop lines 878-923)
+    // Each core row must fit exactly in col_w visible characters.
+    let col_w = if panel.columns > 0 { panel_inner_w.checked_div(panel.columns).unwrap_or(panel_inner_w) } else { panel_inner_w };
+    let mut cx: usize = 0;
+    let mut cy: usize = 1;
+    let mut cc: usize = 0;
+
+    for (i, core_data) in cpu.core_percent.iter().enumerate() {
+        let pct = core_data.back().copied().unwrap_or(0);
+        let pct_color = if !cpu_gradient.is_empty() {
+            &cpu_gradient[pct.clamp(0, 100) as usize]
+        } else {
+            fg
+        };
+
+        let row_y = panel.y + cy + 1;
+        let row_x = panel.x + cx + 2;
+
+        // Build the core line with absolute positioning for each part.
+        // Layout (fitting in col_w chars):
+        //   "C##" (2-3 chars) + graph (variable) + " ##%" (4-5 chars) + " ##°C" (5 chars) + "│" (1 char if multi-col)
+        let label = if core_count >= 100 { format!("{:>3}", i) }
+            else if core_count >= 10 { format!("C{:<2}", i) }
+            else { format!("C{}", i) };
+        let label_w = label.len();
+
+        let sep_w: usize = if cc + 1 < panel.columns { 1 } else { 0 }; // │ separator
+        let pct_w: usize = 4; // " ##%"
+        let temp_w: usize = if has_temp { 5 } else { 0 }; // " ##°C"
+        let fixed_w = label_w + pct_w + temp_w + sep_w;
+        let graph_w = col_w.saturating_sub(fixed_w);
+
+        // Position and write label
+        out.push_str(&format!("{}{}{}", term::mv(row_x, row_y), fg, label));
+
+        // Mini graph
+        if graph_w >= 3 {
+            let mut mini = Graph::new(graph_w, 1, GraphSymbol::Braille, false, false, 100, 0);
+            let mini_str = mini.render_row_colored(core_data, cpu_gradient);
+            out.push_str(&mini_str);
+        } else if graph_w > 0 {
+            out.push_str(&format!("\x1b[{}C", graph_w)); // skip space
+        }
+
+        // Percentage — positioned absolutely to ensure alignment
+        out.push_str(&format!("{}{:>3}{}%", pct_color, pct, fg));
+
+        // Per-core temperature
+        if has_temp {
+            // cpu.temp: index 0 = package, 1+ = per physical core
+            // If more logical cores than temp sensors (hyperthreading),
+            // map back to the physical core's temperature.
+            let num_core_temps = cpu.temp.len().saturating_sub(1); // exclude package
+            let temp_idx = if num_core_temps > 0 {
+                (i % num_core_temps) + 1
+            } else {
+                0
+            };
+            let core_temp = cpu.temp.get(temp_idx)
+                .and_then(|dq| dq.back())
+                .copied()
+                .unwrap_or(0);
+            let t_color = if !temp_gradient.is_empty() {
+                &temp_gradient[(core_temp.clamp(0, 100)) as usize]
+            } else {
+                fg
+            };
+            out.push_str(&format!("{}{:>3}°C", t_color, core_temp));
+        }
+
+        // Column separator
+        if cc + 1 < panel.columns {
+            out.push_str(&format!("{}{}", div_color, symbols::V_LINE));
+        }
+
+        cy += 1;
+        // btop line 920-923: wrap to next column when column is full
+        let cores_per_col = core_count.div_ceil(panel.columns).max(1);
+        if cy > cores_per_col && i != core_count - 1 {
+            cc += 1;
+            if cc >= panel.columns {
+                break;
+            }
+            cy = 1;
+            cx = col_w * cc;
+        }
+    }
+
+    // Load average on bottom row of core panel (btop lines 927-938)
+    let lavg_y = panel.y + panel.height;
+    let lavg_str = format!(
+        "Load avg: {:.2} {:.2} {:.2}",
+        cpu.load_avg[0], cpu.load_avg[1], cpu.load_avg[2]
+    );
+    let lavg_vis_len = lavg_str.len();
+    if lavg_vis_len <= panel_inner_w {
+        let lavg_x = panel.x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
+        out.push_str(&format!(
+            "{}{}{}",
+            term::mv(lavg_x, lavg_y), fg, lavg_str
+        ));
+    }
+
+    out
+}
+
+/// Render the bottom border keybind hints (menu, preset, update rate).
+fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, theme: &Theme) -> String {
+    let box_color = theme.c("cpu_box");
+    let fg = theme.c("main_fg");
+    let hi = theme.c("hi_fg");
+
     let rate_label = format!("{}ms", update_ms);
     let hints = format!(
         "{}{}{}m{}enu{}{} {}{}{}p{}reset{}{} {}{}{}─ {}{} {}+{}{}",
@@ -394,12 +433,5 @@ pub fn draw(
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
-    out.push_str(&format!(
-        "{}{}",
-        term::mv(x + 3, bottom_y),
-        hints
-    ));
-
-    out.push_str("\x1b[0m");
-    out
+    format!("{}{}", term::mv(x + 3, bottom_y), hints)
 }

@@ -256,7 +256,36 @@ pub fn draw_with_sort(
         }
     }
 
-    // TOP border: reverse, tree, ← sorting → (btop lines 1882-1909)
+    // TOP border: reverse, tree, sort
+    out.push_str(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
+
+    // BOTTOM border
+    let visible = procs.len().min(max_rows);
+    out.push_str(&draw_bottom_border(
+        &BottomBorderParams { x, bottom_y: y + height, width, filter, filtering, visible, total: procs.len() },
+        theme,
+    ));
+
+
+    out.push_str("\x1b[0m");
+    out
+}
+
+
+/// Render the top border with reverse, tree, and sort selector labels.
+fn draw_top_border(
+    x: usize,
+    y: usize,
+    width: usize,
+    sort_by: &str,
+    tree_mode: bool,
+    theme: &Theme,
+) -> String {
+    let box_color = theme.c("proc_box");
+    let hi = theme.c("hi_fg");
+    let title_color = theme.c("title");
+    let mut out = String::new();
+
     let sort_name = if sort_by.is_empty() { "cpu lazy" } else { sort_by };
     let tree_star = if tree_mode { "*" } else { "" };
 
@@ -297,8 +326,28 @@ pub fn draw_with_sort(
         out.push_str(&format!("{}{}", term::mv(pos, y + 1), rev_inset));
     }
 
-    // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘filter┘ (filter appended at end)
-    let bottom_y = y + height;
+    out
+}
+
+/// Parameters for the proc bottom border rendering.
+struct BottomBorderParams<'a> {
+    x: usize,
+    bottom_y: usize,
+    width: usize,
+    filter: &'a str,
+    filtering: bool,
+    visible: usize,
+    total: usize,
+}
+
+/// Render the bottom border with select, info, terminate, and filter labels.
+fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
+    let box_color = theme.c("proc_box");
+    let fg = theme.c("main_fg");
+    let hi = theme.c("hi_fg");
+    let title_color = theme.c("title");
+    let mut out = String::new();
+
     let bottom_hints = format!(
         "{}{}{}↑{} select {}↓{}{}{}{}{}info {}↵{}{}{}{}{}t{}erminate{}{}",
         box_color, title_syms::TITLE_LEFT_DOWN,
@@ -308,16 +357,16 @@ pub fn draw_with_sort(
         box_color, title_syms::TITLE_LEFT_DOWN,
         hi, title_color, box_color, title_syms::TITLE_RIGHT_DOWN,
     );
-    out.push_str(&format!("{}{}", term::mv(x + 3, bottom_y), bottom_hints));
+    out.push_str(&format!("{}{}", term::mv(p.x + 3, p.bottom_y), bottom_hints));
 
     // Filter label — appended after the other elements
-    let cursor = if filtering { "\x1b[4m \x1b[24m" } else { "" };
-    let filter_label = if !filter.is_empty() || filtering {
+    let cursor = if p.filtering { "\x1b[4m \x1b[24m" } else { "" };
+    let filter_label = if !p.filter.is_empty() || p.filtering {
         format!(
             "{}{}{}f{}ilter: {}{}{}{}{}",
             box_color, title_syms::TITLE_LEFT_DOWN,
             hi, title_color,
-            fg, filter, cursor,
+            fg, p.filter, cursor,
             box_color, title_syms::TITLE_RIGHT_DOWN,
         )
     } else {
@@ -331,18 +380,16 @@ pub fn draw_with_sort(
     out.push_str(&filter_label);
 
     // Right side: process count with border inset chars
-    let visible = procs.len().min(max_rows);
-    let count_str = format!("{}/{}", visible, procs.len());
-    let count_x = x + width.saturating_sub(count_str.len() + 3);
+    let count_str = format!("{}/{}", p.visible, p.total);
+    let count_x = p.x + p.width.saturating_sub(count_str.len() + 3);
     out.push_str(&format!(
         "{}{}{}{}{}{}{}",
-        term::mv(count_x, bottom_y),
+        term::mv(count_x, p.bottom_y),
         box_color, title_syms::TITLE_LEFT_DOWN,
         fg, count_str,
         box_color, title_syms::TITLE_RIGHT_DOWN,
     ));
 
-    out.push_str("\x1b[0m");
     out
 }
 
