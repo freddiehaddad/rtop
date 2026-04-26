@@ -497,38 +497,36 @@ fn main() {
                     },
                     MenuState::Filter => match key.as_str() {
                         "escape" => {
-                            // Cancel filter, restore previous
                             menu_state = MenuState::None;
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "enter" => {
-                            // Apply filter
                             config.set_string("proc_filter", &filter_text);
                             menu_state = MenuState::None;
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "backspace" => {
                             filter_text.pop();
                             config.set_string("proc_filter", &filter_text);
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         "delete" => {
                             filter_text.clear();
                             config.set_string("proc_filter", "");
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         s if s.len() == 1 && !s.starts_with('\x1b') => {
                             filter_text.push_str(s);
                             config.set_string("proc_filter", &filter_text);
                             proc_selected = 0;
                             proc_start = 0;
-                            needs_full_redraw = true;
+                            needs_proc_redraw = true;
                         }
                         _ => {}
                     },
