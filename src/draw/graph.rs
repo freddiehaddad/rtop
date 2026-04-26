@@ -52,9 +52,8 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
                 break;
             }
         } else {
-            // Single Unicode character
-            let ch = remaining.chars().next().unwrap();
-            let ch_len = ch.len_utf8();
+            // Single Unicode character — remaining is non-empty (loop guard)
+            let ch_len = remaining.chars().next().map_or(1, char::len_utf8);
             elements.push(&remaining[..ch_len]);
             remaining = &remaining[ch_len..];
         }

@@ -130,28 +130,24 @@ impl CpuCollector {
 
                 if total_delta > 0 {
                     let cpu_pct = ((total_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    push_history(
-                        self.info.cpu_percent.get_mut("total").unwrap(),
-                        cpu_pct,
-                    );
+                    if let Some(h) = self.info.cpu_percent.get_mut("total") {
+                        push_history(h, cpu_pct);
+                    }
 
                     let user_pct = (user_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    push_history(
-                        self.info.cpu_percent.get_mut("user").unwrap(),
-                        user_pct,
-                    );
+                    if let Some(h) = self.info.cpu_percent.get_mut("user") {
+                        push_history(h, user_pct);
+                    }
 
                     let system_pct = ((kernel_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    push_history(
-                        self.info.cpu_percent.get_mut("system").unwrap(),
-                        system_pct.max(0),
-                    );
+                    if let Some(h) = self.info.cpu_percent.get_mut("system") {
+                        push_history(h, system_pct.max(0));
+                    }
 
                     let idle_pct = (idle_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    push_history(
-                        self.info.cpu_percent.get_mut("idle").unwrap(),
-                        idle_pct,
-                    );
+                    if let Some(h) = self.info.cpu_percent.get_mut("idle") {
+                        push_history(h, idle_pct);
+                    }
                 }
 
                 self.prev_idle[0] = idle_val;
