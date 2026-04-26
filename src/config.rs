@@ -103,7 +103,7 @@ impl Config {
             ("swap_upload_download", false),
             ("base_10_sizes", false),
             ("net_auto", true),
-            ("net_sync", true),
+            ("net_sync", false),
             ("show_battery", true),
             ("show_battery_watts", true),
             ("vim_keys", false),

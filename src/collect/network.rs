@@ -131,10 +131,7 @@ impl NetCollector {
                 let if_index = adapter.Anonymous1.Anonymous.IfIndex;
                 let (rx_bytes, tx_bytes) = get_if_stats(if_index);
 
-                let entry = self
-                    .current_net
-                    .entry(name.clone())
-                    .or_insert_with(|| NetInfo::default());
+                let entry = self.current_net.entry(name.clone()).or_default();
 
                 entry.connected = connected;
                 entry.ipv4 = ipv4;
