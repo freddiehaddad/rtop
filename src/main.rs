@@ -94,14 +94,20 @@ fn main() {
     let mut options_selected: usize = 0;
 
     // Main event loop
+    let mut needs_redraw = true;
+
     loop {
         // Check resize
-        terminal.refresh();
+        if terminal.refresh() {
+            needs_redraw = true;
+        }
         let (tw, th) = terminal.size();
         let tw = tw as usize;
         let th = th as usize;
 
-        if menu_state == MenuState::None {
+        if menu_state == MenuState::None && needs_redraw {
+            needs_redraw = false;
+
             // Collect data
             runner.collect_all();
 
@@ -189,14 +195,21 @@ fn main() {
         // Poll for input
         if input::poll(update_ms) {
             if let Some(key) = input::get() {
-                if key.is_empty() {
-                    continue; // Skip empty events (key releases)
+                if key.is_empty()
+                    || key.starts_with("mouse_")  // Ignore all mouse events for now
+                    || key == "resize"
+                {
+                    if key == "resize" {
+                        needs_redraw = true;
+                    }
+                    continue;
                 }
                 match menu_state {
                     MenuState::Main => match key.as_str() {
                         "q" => break,
                         "escape" | "m" => {
                             menu_state = MenuState::None;
+                            needs_redraw = true;
                         }
                         "o" | "f2" => {
                             options_selected = 0;
@@ -216,6 +229,7 @@ fn main() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
                             menu_state = MenuState::None;
+                            needs_redraw = true;
                         }
                         _ => {}
                     },
@@ -223,6 +237,7 @@ fn main() {
                         "q" => break,
                         "escape" | "o" | "f2" => {
                             menu_state = MenuState::None;
+                            needs_redraw = true;
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
@@ -316,6 +331,9 @@ fn main() {
                     },
                 }
             }
+        } else {
+            // Poll timed out — no input received, time for periodic update
+            needs_redraw = true;
         }
     }
 }
