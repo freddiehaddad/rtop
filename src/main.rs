@@ -78,7 +78,7 @@ fn main() {
     let mut runner = runner::Runner::new();
 
     let mut rounded = config.get_bool("rounded_corners");
-    let update_ms = config.get_int("update_ms") as u64;
+    let mut update_ms = config.get_int("update_ms") as u64;
 
     #[derive(PartialEq)]
     enum MenuState {
@@ -128,6 +128,11 @@ fn main() {
 
             // Collect data
             runner.collect_all();
+
+            // Sort processes by configured column
+            let sort_by = config.get_string("proc_sorting").to_string();
+            let reversed = config.get_bool("proc_reversed");
+            collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
 
             // Calculate layout
             let shown: Vec<String> = config
@@ -194,7 +199,7 @@ fn main() {
             }
             if let Some(ref proc_dim) = layout.proc_box {
                 clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
-                output.push_str(&ui::proc_box::draw(
+                output.push_str(&ui::proc_box::draw_with_sort(
                     &runner.proc_collector.procs,
                     proc_dim.x,
                     proc_dim.y,
@@ -204,6 +209,8 @@ fn main() {
                     proc_start,
                     proc_selected,
                     &theme,
+                    &sort_by,
+                    reversed,
                 ));
             }
 
@@ -215,12 +222,15 @@ fn main() {
         // Proc-only redraw: just re-render the proc box without collecting data
         if menu_state == MenuState::None && needs_proc_redraw {
             needs_proc_redraw = false;
+            let sort_by = config.get_string("proc_sorting").to_string();
+            let reversed = config.get_bool("proc_reversed");
+            collect::process::sort_procs(&mut runner.proc_collector.procs, &sort_by, reversed);
             if let Some(ref layout) = cached_layout {
                 if let Some(ref proc_dim) = layout.proc_box {
                     clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                     let mut output = String::new();
                     output.push_str(term::SYNC_START);
-                    output.push_str(&ui::proc_box::draw(
+                    output.push_str(&ui::proc_box::draw_with_sort(
                         &runner.proc_collector.procs,
                         proc_dim.x,
                         proc_dim.y,
@@ -230,6 +240,8 @@ fn main() {
                         proc_start,
                         proc_selected,
                         &theme,
+                        &sort_by,
+                        reversed,
                     ));
                     output.push_str(term::SYNC_END);
                     let _ = terminal.write_raw(&output);
@@ -520,6 +532,103 @@ fn main() {
                             config.flip("show_disks");
                             needs_full_redraw = true;
                         }
+                        // Process keybinds
+                        "f" | "/" => {
+                            config.flip("proc_filter_kernel");
+                            needs_full_redraw = true;
+                        }
+                        "e" => {
+                            config.flip("proc_tree");
+                            needs_full_redraw = true;
+                        }
+                        "r" => {
+                            config.flip("proc_reversed");
+                            needs_full_redraw = true;
+                        }
+                        "c" => {
+                            config.flip("proc_per_core");
+                            needs_full_redraw = true;
+                        }
+                        "i" => {
+                            config.flip("io_mode");
+                            needs_full_redraw = true;
+                        }
+                        "left" => {
+                            let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
+                            let current = config.get_string("proc_sorting").to_string();
+                            let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
+                            let new_idx = if idx == 0 { sort_opts.len() - 1 } else { idx - 1 };
+                            config.set_string("proc_sorting", sort_opts[new_idx]);
+                            needs_full_redraw = true;
+                        }
+                        "right" => {
+                            let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
+                            let current = config.get_string("proc_sorting").to_string();
+                            let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
+                            let new_idx = (idx + 1) % sort_opts.len();
+                            config.set_string("proc_sorting", sort_opts[new_idx]);
+                            needs_full_redraw = true;
+                        }
+                        "t" => {
+                            // Terminate selected process
+                            if proc_selected < runner.proc_collector.procs.len() {
+                                let pid = runner.proc_collector.procs[proc_selected].pid;
+                                terminate_process(pid);
+                                needs_full_redraw = true;
+                            }
+                        }
+                        "enter" => {
+                            // Show process details (store selected PID)
+                            if proc_selected < runner.proc_collector.procs.len() {
+                                let pid = runner.proc_collector.procs[proc_selected].pid;
+                                config.set_int("detailed_pid", pid as i64);
+                                needs_full_redraw = true;
+                            }
+                        }
+                        // Network keybinds
+                        "b" => {
+                            if !runner.net.interfaces.is_empty() {
+                                let idx = runner.net.interfaces.iter()
+                                    .position(|s| s == &runner.net.selected_iface)
+                                    .unwrap_or(0);
+                                let new_idx = if idx == 0 { runner.net.interfaces.len() - 1 } else { idx - 1 };
+                                runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
+                                needs_full_redraw = true;
+                            }
+                        }
+                        "n" => {
+                            if !runner.net.interfaces.is_empty() {
+                                let idx = runner.net.interfaces.iter()
+                                    .position(|s| s == &runner.net.selected_iface)
+                                    .unwrap_or(0);
+                                let new_idx = (idx + 1) % runner.net.interfaces.len();
+                                runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
+                                needs_full_redraw = true;
+                            }
+                        }
+                        "a" => {
+                            config.flip("net_auto");
+                            needs_full_redraw = true;
+                        }
+                        "y" => {
+                            config.flip("net_sync");
+                            needs_full_redraw = true;
+                        }
+                        // Update rate keybinds
+                        "+" => {
+                            let step = if update_ms > 2000 { 1000 } else { 100 };
+                            let new_ms = (update_ms as i64 + step).min(86_400_000);
+                            config.set_int("update_ms", new_ms);
+                            update_ms = config.get_int("update_ms") as u64;
+                            needs_full_redraw = true;
+                        }
+                        "-" => {
+                            let step = if update_ms > 2000 { 1000 } else { 100 };
+                            let new_ms = (update_ms as i64 - step).max(100);
+                            config.set_int("update_ms", new_ms);
+                            update_ms = config.get_int("update_ms") as u64;
+                            needs_full_redraw = true;
+                        }
                         _ => {}
                     },
                 }
@@ -527,6 +636,14 @@ fn main() {
         }
         // No else branch needed — the wall-clock check at the top of the loop
         // handles periodic updates regardless of input activity.
+    }
+
+    // Save config on exit
+    if config.get_bool("save_config_on_exit") {
+        let conf_path = directories::BaseDirs::new()
+            .map(|d| d.config_dir().join("rtop").join("rtop.conf"))
+            .unwrap_or_else(|| std::path::PathBuf::from("rtop.conf"));
+        let _ = config.write(&conf_path);
     }
 }
 
@@ -555,5 +672,17 @@ fn clamp_proc_selection(procs: &[crate::domain::process::ProcInfo], box_height: 
 
 fn draw_options_menu(tw: usize, th: usize, config: &config::Config, theme: &theme::Theme, cat: usize, selected: usize, page: usize) -> String {
     menu::options_menu::draw(tw, th, cat, selected, page, config, theme)
+}
+
+fn terminate_process(pid: u32) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Threading::*;
+
+    unsafe {
+        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
+            let _ = TerminateProcess(handle, 1);
+            let _ = CloseHandle(handle);
+        }
+    }
 }
 
