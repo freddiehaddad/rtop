@@ -32,7 +32,7 @@ pub fn draw(
     let graph_text_color = theme.c("graph_text");
 
     let title = format!("{}net", fg);
-    let mut out = box_drawing::create_box(x, y, width, height, box_color, false, "net", "", 0, rounded);
+    let mut out = box_drawing::create_box(x, y, width, height, box_color, true, "net", "", 3, rounded);
 
     let graph_width = width.saturating_sub(2);
     let inner_h = height.saturating_sub(2);

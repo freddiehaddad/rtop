@@ -34,7 +34,7 @@ pub fn draw(
     let proc_grad = theme.g("process");
 
     let mut out = box_drawing::create_box(
-        x, y, width, height, box_color, false, "proc", "", 0, rounded,
+        x, y, width, height, box_color, true, "proc", "", 4, rounded,
     );
 
     let inner_w = width.saturating_sub(4);

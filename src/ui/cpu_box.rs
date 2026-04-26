@@ -35,7 +35,7 @@ pub fn draw(
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
 
-    let mut out = box_drawing::create_box(x, y, width, height, box_color, false, "cpu", "", 0, rounded);
+    let mut out = box_drawing::create_box(x, y, width, height, box_color, true, "cpu", "", 1, rounded);
 
     // Determine core panel width on the right side
     // Core panel shows: " C## ⣿⣷⣤⣠⣀ ###% " = ~20 chars minimum
