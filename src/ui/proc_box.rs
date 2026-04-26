@@ -58,7 +58,6 @@ pub fn draw_with_sort(
     let sel_bg = theme.c("selected_bg");
     let sel_bg_esc = sel_bg.replace("38;2", "48;2");
     let sel_fg = theme.c("selected_fg");
-    let inactive = theme.c("inactive_fg");
     let proc_grad = theme.g("process");
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
@@ -219,7 +218,7 @@ pub fn draw_with_sort(
         term::mv(x + 1, div_y),
         box_color,
         symbols::DIV_LEFT,
-        inactive,
+        box_color,
         symbols::H_LINE.repeat(width.saturating_sub(2)),
         box_color,
         symbols::DIV_RIGHT
@@ -233,7 +232,7 @@ pub fn draw_with_sort(
             term::mv(x + 1, detail_div_y),
             box_color,
             symbols::DIV_LEFT,
-            inactive,
+            box_color,
             symbols::H_LINE.repeat(width.saturating_sub(2)),
             box_color,
             symbols::DIV_RIGHT
