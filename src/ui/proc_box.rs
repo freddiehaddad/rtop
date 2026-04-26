@@ -211,26 +211,53 @@ pub fn draw_with_sort(
         }
     }
 
-    // Bottom border keybind hints
-    let bottom_y = y + height;
-
-    // Left side: filter, tree toggle, sort column
+    // TOP border: reverse, tree, ← sorting → (btop lines 1882-1909)
     let sort_name = if sort_by.is_empty() { "cpu lazy" } else { sort_by };
     let tree_star = if tree_mode { "*" } else { "" };
-    let left_hints = format!(
-        "{}{}{}f{}ilter{}{} {}{}{}e{}{}tree{}{} {}{}{}←{}{}{}{}→{}{}",
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, tree_star, box_color, title_syms::TITLE_RIGHT_DOWN,
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, sort_name, hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
+
+    // Sort selector on top border, right-aligned: ┐← sorting →┌
+    let sort_inset = format!(
+        "{}{}{}← {}{}{}  →{}{}",
+        box_color, title_syms::TITLE_LEFT,
+        hi, title_color, sort_name, hi,
+        box_color, title_syms::TITLE_RIGHT,
     );
-    out.push_str(&format!(
-        "\x1b[{};{}H{}",
-        bottom_y, x + 2,
-        left_hints
-    ));
+    let sort_vis_len = sort_name.len() + 6;
+    let sort_x = x + width.saturating_sub(sort_vis_len + 3);
+    out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x, sort_inset));
+
+    // Tree button: ┐tree┌
+    if sort_x > x + 20 {
+        let tree_inset = format!(
+            "{}{}{}tre{}{}e{}{}",
+            box_color, title_syms::TITLE_LEFT,
+            title_color, tree_star, hi, box_color, title_syms::TITLE_RIGHT,
+        );
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x.saturating_sub(7), tree_inset));
+    }
+
+    // Reverse button: ┐reverse┌
+    if sort_x > x + 30 {
+        let rev_inset = format!(
+            "{}{}{}r{}everse{}{}",
+            box_color, title_syms::TITLE_LEFT,
+            hi, title_color, box_color, title_syms::TITLE_RIGHT,
+        );
+        out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x.saturating_sub(16), rev_inset));
+    }
+
+    // BOTTOM border: ┘↑ select ↓┘ ┘info ↵┘ ┘terminate┘ ┘kill┘ (btop lines 1920-1937)
+    let bottom_y = y + height;
+    let bottom_hints = format!(
+        "{}{}{}↑{} select {}↓{}{}{}{}{}info {}↵{}{}{}{}{}t{}erminate{}{}",
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, title_color, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        title_color, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        hi, title_color, box_color, title_syms::TITLE_RIGHT_DOWN,
+    );
+    out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 2, bottom_hints));
 
     // Right side: process count
     let visible = procs.len().min(max_rows);
