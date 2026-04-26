@@ -7,16 +7,8 @@ const MENU_NORMAL: [&[&str]; 3] = [
         "│ │├─┘ │ ││ ││││└─┐",
         "└─┘┴   ┴ ┴└─┘┘└┘└─┘",
     ],
-    &[
-        "┬ ┬┌─┐┬  ┌─┐",
-        "├─┤├┤ │  ├─┘",
-        "┴ ┴└─┘┴─┘┴  ",
-    ],
-    &[
-        "┌─┐ ┬ ┬ ┬┌┬┐",
-        "│─┼┐│ │ │ │ ",
-        "└─┘└└─┘ ┴ ┴ ",
-    ],
+    &["┬ ┬┌─┐┬  ┌─┐", "├─┤├┤ │  ├─┘", "┴ ┴└─┘┴─┘┴  "],
+    &["┌─┐ ┬ ┬ ┬┌┬┐", "│─┼┐│ │ │ │ ", "└─┘└└─┘ ┴ ┴ "],
 ];
 
 const MENU_SELECTED: [&[&str]; 3] = [
@@ -25,25 +17,17 @@ const MENU_SELECTED: [&[&str]; 3] = [
         "║ ║╠═╝ ║ ║║ ║║║║╚═╗",
         "╚═╝╩   ╩ ╩╚═╝╝╚╝╚═╝",
     ],
-    &[
-        "╦ ╦╔═╗╦  ╔═╗",
-        "╠═╣╠╣ ║  ╠═╝",
-        "╩ ╩╚═╝╩═╝╩  ",
-    ],
-    &[
-        "╔═╗ ╦ ╦ ╦╔╦╗ ",
-        "║═╬╗║ ║ ║ ║  ",
-        "╚═╝╚╚═╝ ╩ ╩  ",
-    ],
+    &["╦ ╦╔═╗╦  ╔═╗", "╠═╣╠╣ ║  ╠═╝", "╩ ╩╚═╝╩═╝╩  "],
+    &["╔═╗ ╦ ╦ ╦╔╦╗ ", "║═╬╗║ ║ ║ ║  ", "╚═╝╚╚═╝ ╩ ╩  "],
 ];
 
 const MENU_WIDTHS: [usize; 3] = [19, 12, 12];
 
 /// Colors for the three menu rows: selected uses warm tones, normal uses grays
 const COLORS_SELECTED: [&str; 3] = [
-    "\x1b[38;2;230;37;37m",   // #E62525
-    "\x1b[38;2;179;29;29m",   // #B31D1D
-    "\x1b[38;2;128;20;20m",   // #801414
+    "\x1b[38;2;230;37;37m", // #E62525
+    "\x1b[38;2;179;29;29m", // #B31D1D
+    "\x1b[38;2;128;20;20m", // #801414
 ];
 const COLORS_NORMAL: [&str; 3] = [
     "\x1b[38;2;204;204;204m", // #CC
@@ -60,7 +44,10 @@ pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usiz
     let banner_y = if banner_y > 10 { banner_y - 10 } else { 1 };
 
     // Draw banner
-    out.push_str(&crate::banner::generate(banner_y, (term_width.saturating_sub(35)) / 2));
+    out.push_str(&crate::banner::generate(
+        banner_y,
+        (term_width.saturating_sub(35)) / 2,
+    ));
 
     // Menu items start below the banner (6 lines of banner + 1 gap)
     let mut cy = banner_y + 7;

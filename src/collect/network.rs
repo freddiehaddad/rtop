@@ -43,8 +43,13 @@ impl NetCollector {
             let mut buffer = vec![0u8; size as usize];
             let adapter_ptr = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
 
-            if GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, Some(adapter_ptr), &mut size)
-                != 0
+            if GetAdaptersAddresses(
+                AF_UNSPEC.0 as u32,
+                flags,
+                None,
+                Some(adapter_ptr),
+                &mut size,
+            ) != 0
             {
                 return &self.current_net;
             }
@@ -126,9 +131,10 @@ impl NetCollector {
                 let if_index = adapter.Anonymous1.Anonymous.IfIndex;
                 let (rx_bytes, tx_bytes) = get_if_stats(if_index);
 
-                let entry = self.current_net.entry(name.clone()).or_insert_with(|| {
-                    NetInfo::default()
-                });
+                let entry = self
+                    .current_net
+                    .entry(name.clone())
+                    .or_insert_with(|| NetInfo::default());
 
                 entry.connected = connected;
                 entry.ipv4 = ipv4;
@@ -141,21 +147,27 @@ impl NetCollector {
                 let dl_speed = speed_from_delta(rx_bytes, dl_stat.last, elapsed);
                 let ul_speed = speed_from_delta(tx_bytes, ul_stat.last, elapsed);
 
-                entry.stat.insert("download".into(), NetStat {
-                    speed: dl_speed,
-                    top: dl_stat.top.max(dl_speed),
-                    last: rx_bytes,
-                    offset: dl_stat.offset,
-                    rollover: dl_stat.rollover,
-                });
+                entry.stat.insert(
+                    "download".into(),
+                    NetStat {
+                        speed: dl_speed,
+                        top: dl_stat.top.max(dl_speed),
+                        last: rx_bytes,
+                        offset: dl_stat.offset,
+                        rollover: dl_stat.rollover,
+                    },
+                );
 
-                entry.stat.insert("upload".into(), NetStat {
-                    speed: ul_speed,
-                    top: ul_stat.top.max(ul_speed),
-                    last: tx_bytes,
-                    offset: ul_stat.offset,
-                    rollover: ul_stat.rollover,
-                });
+                entry.stat.insert(
+                    "upload".into(),
+                    NetStat {
+                        speed: ul_speed,
+                        top: ul_stat.top.max(ul_speed),
+                        last: tx_bytes,
+                        offset: ul_stat.offset,
+                        rollover: ul_stat.rollover,
+                    },
+                );
 
                 let bw_dl = entry.bandwidth.entry("download".into()).or_default();
                 bw_dl.push_back(dl_speed as i64);

@@ -27,8 +27,7 @@ type NvmlShutdownFn = unsafe extern "C" fn() -> u32;
 type NvmlDeviceGetCountV2 = unsafe extern "C" fn(*mut u32) -> u32;
 type NvmlDeviceGetHandleByIndexV2 = unsafe extern "C" fn(u32, *mut NvmlDevice) -> u32;
 type NvmlDeviceGetName = unsafe extern "C" fn(NvmlDevice, *mut c_char, u32) -> u32;
-type NvmlDeviceGetUtilizationRates =
-    unsafe extern "C" fn(NvmlDevice, *mut NvmlUtilization) -> u32;
+type NvmlDeviceGetUtilizationRates = unsafe extern "C" fn(NvmlDevice, *mut NvmlUtilization) -> u32;
 type NvmlDeviceGetTemperature = unsafe extern "C" fn(NvmlDevice, u32, *mut u32) -> u32;
 type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(NvmlDevice, *mut NvmlMemory) -> u32;
 type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
@@ -58,47 +57,69 @@ impl NvmlFunctions {
         use windows::core::PCSTR;
 
         let dll_name: Vec<u16> = "nvml.dll\0".encode_utf16().collect();
-        let handle = unsafe {
-            LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())).ok()?
-        };
+        let handle = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())).ok()? };
 
         unsafe {
             let load_fn = |name: &[u8]| -> Option<unsafe extern "C" fn()> {
                 let proc = GetProcAddress(handle, PCSTR(name.as_ptr()));
-                Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, unsafe extern "C" fn()>(proc?))
+                Some(std::mem::transmute::<
+                    unsafe extern "system" fn() -> isize,
+                    unsafe extern "C" fn(),
+                >(proc?))
             };
 
             macro_rules! nvml_fn {
-                ($name:expr) => {{
-                    load_fn(concat!($name, "\0").as_bytes())?
-                }};
+                ($name:expr) => {{ load_fn(concat!($name, "\0").as_bytes())? }};
             }
 
             Some(Self {
                 _handle: handle,
-                init: std::mem::transmute::<unsafe extern "C" fn(), NvmlInitV2>(nvml_fn!("nvmlInit_v2")),
-                shutdown: std::mem::transmute::<unsafe extern "C" fn(), NvmlShutdownFn>(nvml_fn!("nvmlShutdown")),
-                device_get_count: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetCountV2>(nvml_fn!("nvmlDeviceGetCount_v2")),
-                device_get_handle_by_index: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetHandleByIndexV2>(
-                    nvml_fn!("nvmlDeviceGetHandleByIndex_v2"),
+                init: std::mem::transmute::<unsafe extern "C" fn(), NvmlInitV2>(nvml_fn!(
+                    "nvmlInit_v2"
+                )),
+                shutdown: std::mem::transmute::<unsafe extern "C" fn(), NvmlShutdownFn>(nvml_fn!(
+                    "nvmlShutdown"
+                )),
+                device_get_count: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetCountV2>(
+                    nvml_fn!("nvmlDeviceGetCount_v2"),
                 ),
-                device_get_name: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetName>(nvml_fn!("nvmlDeviceGetName")),
-                device_get_utilization_rates: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetUtilizationRates>(
-                    nvml_fn!("nvmlDeviceGetUtilizationRates"),
+                device_get_handle_by_index: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetHandleByIndexV2,
+                >(nvml_fn!(
+                    "nvmlDeviceGetHandleByIndex_v2"
+                )),
+                device_get_name: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetName>(
+                    nvml_fn!("nvmlDeviceGetName"),
                 ),
-                device_get_temperature: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetTemperature>(
-                    nvml_fn!("nvmlDeviceGetTemperature"),
-                ),
-                device_get_memory_info: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetMemoryInfo>(
-                    nvml_fn!("nvmlDeviceGetMemoryInfo"),
-                ),
-                device_get_power_usage: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetPowerUsage>(
-                    nvml_fn!("nvmlDeviceGetPowerUsage"),
-                ),
-                device_get_clock_info: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetClockInfo>(nvml_fn!("nvmlDeviceGetClockInfo")),
-                device_get_power_management_limit: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetPowerManagementLimit>(
-                    nvml_fn!("nvmlDeviceGetPowerManagementLimit"),
-                ),
+                device_get_utilization_rates: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetUtilizationRates,
+                >(nvml_fn!(
+                    "nvmlDeviceGetUtilizationRates"
+                )),
+                device_get_temperature: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetTemperature,
+                >(nvml_fn!("nvmlDeviceGetTemperature")),
+                device_get_memory_info: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetMemoryInfo,
+                >(nvml_fn!("nvmlDeviceGetMemoryInfo")),
+                device_get_power_usage: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetPowerUsage,
+                >(nvml_fn!("nvmlDeviceGetPowerUsage")),
+                device_get_clock_info: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetClockInfo,
+                >(nvml_fn!("nvmlDeviceGetClockInfo")),
+                device_get_power_management_limit: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetPowerManagementLimit,
+                >(nvml_fn!(
+                    "nvmlDeviceGetPowerManagementLimit"
+                )),
             })
         }
     }
@@ -167,9 +188,7 @@ impl GpuCollector {
                 (nvml.device_get_name)(device, name_buf.as_mut_ptr() as *mut c_char, 256)
             };
             if ret == NVML_SUCCESS {
-                let name = unsafe {
-                    std::ffi::CStr::from_ptr(name_buf.as_ptr() as *const c_char)
-                };
+                let name = unsafe { std::ffi::CStr::from_ptr(name_buf.as_ptr() as *const c_char) };
                 info.name = name.to_string_lossy().into_owned();
             }
 
@@ -209,9 +228,8 @@ impl GpuCollector {
 
             // Temperature
             let mut temp: u32 = 0;
-            let ret = unsafe {
-                (nvml.device_get_temperature)(device, NVML_TEMPERATURE_GPU, &mut temp)
-            };
+            let ret =
+                unsafe { (nvml.device_get_temperature)(device, NVML_TEMPERATURE_GPU, &mut temp) };
             if ret == NVML_SUCCESS {
                 gpu.temp.push_back(temp as i64);
                 if gpu.temp.len() > MAX_HISTORY {
@@ -234,10 +252,7 @@ impl GpuCollector {
                 } else {
                     0
                 };
-                let vram_hist = gpu
-                    .gpu_percent
-                    .entry("gpu-vram-totals".into())
-                    .or_default();
+                let vram_hist = gpu.gpu_percent.entry("gpu-vram-totals".into()).or_default();
                 vram_hist.push_back(vram_pct);
                 if vram_hist.len() > MAX_HISTORY {
                     vram_hist.pop_front();
@@ -258,10 +273,7 @@ impl GpuCollector {
                 } else {
                     0
                 };
-                let pwr_hist = gpu
-                    .gpu_percent
-                    .entry("gpu-pwr-totals".into())
-                    .or_default();
+                let pwr_hist = gpu.gpu_percent.entry("gpu-pwr-totals".into()).or_default();
                 pwr_hist.push_back(pwr_pct);
                 if pwr_hist.len() > MAX_HISTORY {
                     pwr_hist.pop_front();
@@ -270,9 +282,8 @@ impl GpuCollector {
 
             // Clock speed (graphics)
             let mut clock: u32 = 0;
-            let ret = unsafe {
-                (nvml.device_get_clock_info)(device, NVML_CLOCK_GRAPHICS, &mut clock)
-            };
+            let ret =
+                unsafe { (nvml.device_get_clock_info)(device, NVML_CLOCK_GRAPHICS, &mut clock) };
             if ret == NVML_SUCCESS {
                 gpu.gpu_clock_speed = clock;
             }

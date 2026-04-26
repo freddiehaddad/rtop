@@ -99,7 +99,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Proc box width (right side, ~55% — or full width if no left-column boxes)
     let proc_width = if has_proc {
         if has_left {
-            (term_width * PROC_WIDTH_PCT / 100).max(MIN_PROC_WIDTH).min(term_width)
+            (term_width * PROC_WIDTH_PCT / 100)
+                .max(MIN_PROC_WIDTH)
+                .min(term_width)
         } else {
             term_width
         }
@@ -121,7 +123,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // Reserve disk height if visible
     let disk_height = if has_disk {
-        MIN_DISK_HEIGHT.max(remaining_height / 4).min(remaining_height / 2)
+        MIN_DISK_HEIGHT
+            .max(remaining_height / 4)
+            .min(remaining_height / 2)
     } else {
         0
     };
@@ -237,13 +241,25 @@ mod tests {
     }
 
     fn lc(tw: usize, th: usize, shown: &[String]) -> LayoutConfig<'_> {
-        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0 }
+        LayoutConfig {
+            term_width: tw,
+            term_height: th,
+            shown_boxes: shown,
+            cpu_bottom: false,
+            mem_below_net: false,
+            proc_left: false,
+            core_count: 4,
+            gpu_count: 0,
+        }
     }
 
     #[test]
     fn calc_sizes_all_boxes_shown() {
         let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { core_count: 8, ..lc(120, 40, &b) });
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 8,
+            ..lc(120, 40, &b)
+        });
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_some());
         assert!(layout.net.is_some());
@@ -272,14 +288,20 @@ mod tests {
     fn calc_sizes_cpu_bottom() {
         let b = boxes(&["cpu", "mem"]);
         let layout_top = calc_sizes(&lc(80, 40, &b));
-        let layout_bot = calc_sizes(&LayoutConfig { cpu_bottom: true, ..lc(80, 40, &b) });
+        let layout_bot = calc_sizes(&LayoutConfig {
+            cpu_bottom: true,
+            ..lc(80, 40, &b)
+        });
         assert!(layout_top.cpu.as_ref().unwrap().y < layout_bot.cpu.as_ref().unwrap().y);
     }
 
     #[test]
     fn calc_sizes_proc_left() {
         let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { proc_left: true, ..lc(120, 40, &b) });
+        let layout = calc_sizes(&LayoutConfig {
+            proc_left: true,
+            ..lc(120, 40, &b)
+        });
         let proc_x = layout.proc_box.as_ref().unwrap().x;
         let mem_x = layout.mem.as_ref().unwrap().x;
         assert!(proc_x < mem_x); // proc on left, mem on right
@@ -289,19 +311,21 @@ mod tests {
     fn calc_sizes_mem_below_net() {
         let b = boxes(&["cpu", "mem", "net"]);
         let layout_above = calc_sizes(&lc(80, 40, &b));
-        let layout_below = calc_sizes(&LayoutConfig { mem_below_net: true, ..lc(80, 40, &b) });
-        assert!(
-            layout_above.mem.as_ref().unwrap().y < layout_above.net.as_ref().unwrap().y
-        );
-        assert!(
-            layout_below.mem.as_ref().unwrap().y > layout_below.net.as_ref().unwrap().y
-        );
+        let layout_below = calc_sizes(&LayoutConfig {
+            mem_below_net: true,
+            ..lc(80, 40, &b)
+        });
+        assert!(layout_above.mem.as_ref().unwrap().y < layout_above.net.as_ref().unwrap().y);
+        assert!(layout_below.mem.as_ref().unwrap().y > layout_below.net.as_ref().unwrap().y);
     }
 
     #[test]
     fn calc_sizes_minimum_terminal_size() {
         let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { core_count: 2, ..lc(10, 5, &b) });
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 2,
+            ..lc(10, 5, &b)
+        });
         // Should not panic, boxes may have 0-size or be missing
         let _ = layout;
     }
@@ -309,7 +333,10 @@ mod tests {
     #[test]
     fn calc_sizes_respects_minimum_dimensions() {
         let b = boxes(&["cpu", "mem", "net", "proc"]);
-        let layout = calc_sizes(&LayoutConfig { core_count: 16, ..lc(200, 60, &b) });
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 16,
+            ..lc(200, 60, &b)
+        });
         if let Some(mem) = &layout.mem {
             assert!(mem.width >= MIN_MEM_WIDTH);
             assert!(mem.height >= MIN_MEM_HEIGHT);
@@ -322,7 +349,10 @@ mod tests {
     #[test]
     fn calc_sizes_disk_box_when_shown() {
         let b = boxes(&["cpu", "mem", "net", "proc", "disk"]);
-        let layout = calc_sizes(&LayoutConfig { core_count: 8, ..lc(120, 50, &b) });
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 8,
+            ..lc(120, 50, &b)
+        });
         assert!(layout.disk.is_some(), "disk box should be present");
         let disk = layout.disk.as_ref().unwrap();
         assert!(disk.height >= MIN_DISK_HEIGHT);

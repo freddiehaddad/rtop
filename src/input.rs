@@ -1,4 +1,6 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
 use std::time::Duration;
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.
@@ -84,21 +86,42 @@ mod tests {
 
     #[test]
     fn translate_escape_key() {
-        assert_eq!(translate_key(make_key(KeyCode::Esc, KeyModifiers::NONE)), "escape");
+        assert_eq!(
+            translate_key(make_key(KeyCode::Esc, KeyModifiers::NONE)),
+            "escape"
+        );
     }
 
     #[test]
     fn translate_arrow_keys() {
-        assert_eq!(translate_key(make_key(KeyCode::Up, KeyModifiers::NONE)), "up");
-        assert_eq!(translate_key(make_key(KeyCode::Down, KeyModifiers::NONE)), "down");
-        assert_eq!(translate_key(make_key(KeyCode::Left, KeyModifiers::NONE)), "left");
-        assert_eq!(translate_key(make_key(KeyCode::Right, KeyModifiers::NONE)), "right");
+        assert_eq!(
+            translate_key(make_key(KeyCode::Up, KeyModifiers::NONE)),
+            "up"
+        );
+        assert_eq!(
+            translate_key(make_key(KeyCode::Down, KeyModifiers::NONE)),
+            "down"
+        );
+        assert_eq!(
+            translate_key(make_key(KeyCode::Left, KeyModifiers::NONE)),
+            "left"
+        );
+        assert_eq!(
+            translate_key(make_key(KeyCode::Right, KeyModifiers::NONE)),
+            "right"
+        );
     }
 
     #[test]
     fn translate_function_keys() {
-        assert_eq!(translate_key(make_key(KeyCode::F(1), KeyModifiers::NONE)), "f1");
-        assert_eq!(translate_key(make_key(KeyCode::F(12), KeyModifiers::NONE)), "f12");
+        assert_eq!(
+            translate_key(make_key(KeyCode::F(1), KeyModifiers::NONE)),
+            "f1"
+        );
+        assert_eq!(
+            translate_key(make_key(KeyCode::F(12), KeyModifiers::NONE)),
+            "f12"
+        );
     }
 
     #[test]
@@ -111,8 +134,14 @@ mod tests {
 
     #[test]
     fn translate_regular_char() {
-        assert_eq!(translate_key(make_key(KeyCode::Char('q'), KeyModifiers::NONE)), "q");
-        assert_eq!(translate_key(make_key(KeyCode::Char('1'), KeyModifiers::NONE)), "1");
+        assert_eq!(
+            translate_key(make_key(KeyCode::Char('q'), KeyModifiers::NONE)),
+            "q"
+        );
+        assert_eq!(
+            translate_key(make_key(KeyCode::Char('1'), KeyModifiers::NONE)),
+            "1"
+        );
     }
 
     #[test]
@@ -122,5 +151,4 @@ mod tests {
             "backspace"
         );
     }
-
 }

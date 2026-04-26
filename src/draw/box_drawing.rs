@@ -96,7 +96,11 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         return String::new();
     }
 
-    let color = if cfg.line_color.is_empty() { "" } else { cfg.line_color };
+    let color = if cfg.line_color.is_empty() {
+        ""
+    } else {
+        cfg.line_color
+    };
 
     let (tl, tr, bl, br) = if rounded {
         (
@@ -158,14 +162,24 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         } else {
             ""
         };
-        let hi = if cfg.hi_color.is_empty() { color } else { cfg.hi_color };
-        let tc = if cfg.title_color.is_empty() { color } else { cfg.title_color };
+        let hi = if cfg.hi_color.is_empty() {
+            color
+        } else {
+            cfg.hi_color
+        };
+        let tc = if cfg.title_color.is_empty() {
+            color
+        } else {
+            cfg.title_color
+        };
         out.push_str(&format!(
             "{}{}\x1b[1m{}{}{}{}\x1b[22m{}{}",
             term::mv(x + 3, y + 1),
             title_syms::TITLE_LEFT,
-            hi, numbering,
-            tc, title,
+            hi,
+            numbering,
+            tc,
+            title,
             color,
             title_syms::TITLE_RIGHT,
         ));
@@ -192,7 +206,20 @@ mod tests {
     use super::*;
 
     fn cfg(x: usize, y: usize, w: usize, h: usize) -> BoxConfig<'static> {
-        BoxConfig { x, y, width: w, height: h, line_color: "", fill: false, title: "", title2: "", num: 0, rounded: false, hi_color: "", title_color: "" }
+        BoxConfig {
+            x,
+            y,
+            width: w,
+            height: h,
+            line_color: "",
+            fill: false,
+            title: "",
+            title2: "",
+            num: 0,
+            rounded: false,
+            hi_color: "",
+            title_color: "",
+        }
     }
 
     #[test]
@@ -206,27 +233,40 @@ mod tests {
 
     #[test]
     fn create_box_with_title() {
-        let b = create_box(&BoxConfig { title: "cpu", ..cfg(0, 0, 20, 5) });
+        let b = create_box(&BoxConfig {
+            title: "cpu",
+            ..cfg(0, 0, 20, 5)
+        });
         assert!(b.contains("cpu"));
     }
 
     #[test]
     fn create_box_rounded_corners() {
-        let b = create_box(&BoxConfig { rounded: true, ..cfg(0, 0, 10, 5) });
+        let b = create_box(&BoxConfig {
+            rounded: true,
+            ..cfg(0, 0, 10, 5)
+        });
         assert!(b.contains(symbols::ROUND_LEFT_UP));
         assert!(b.contains(symbols::ROUND_RIGHT_DOWN));
     }
 
     #[test]
     fn create_box_with_number() {
-        let b = create_box(&BoxConfig { title: "test", num: 1, ..cfg(0, 0, 20, 3) });
+        let b = create_box(&BoxConfig {
+            title: "test",
+            num: 1,
+            ..cfg(0, 0, 20, 3)
+        });
         assert!(b.contains("¹"));
         assert!(b.contains("test"));
     }
 
     #[test]
     fn create_box_fill() {
-        let b = create_box(&BoxConfig { fill: true, ..cfg(0, 0, 6, 4) });
+        let b = create_box(&BoxConfig {
+            fill: true,
+            ..cfg(0, 0, 6, 4)
+        });
         // Fill should contain spaces between vertical lines
         assert!(b.contains("    ")); // 4 spaces (width-2)
     }

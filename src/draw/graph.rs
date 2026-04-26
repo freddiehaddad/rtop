@@ -12,7 +12,11 @@ impl GraphSymbol {
     /// Parse a config string like "braille", "block", "tty", or "default" into a GraphSymbol.
     /// If `specific` is "default", falls back to `global`.
     pub fn from_config(specific: &str, global: &str) -> Self {
-        let s = if specific == "default" { global } else { specific };
+        let s = if specific == "default" {
+            global
+        } else {
+            specific
+        };
         match s {
             "block" => Self::Block,
             "tty" => Self::Tty,
@@ -23,13 +27,13 @@ impl GraphSymbol {
 
 /// Braille graph characters — 25 entries indexed by [prev_level * 5 + curr_level].
 pub const BRAILLE_UP: [&str; 25] = [
-    " ", "⢀", "⢠", "⢰", "⢸", "⡀", "⣀", "⣠", "⣰", "⣸", "⡄", "⣄", "⣤", "⣴", "⣼", "⡆",
-    "⣆", "⣦", "⣶", "⣾", "⡇", "⣇", "⣧", "⣷", "⣿",
+    " ", "⢀", "⢠", "⢰", "⢸", "⡀", "⣀", "⣠", "⣰", "⣸", "⡄", "⣄", "⣤", "⣴", "⣼", "⡆", "⣆", "⣦", "⣶",
+    "⣾", "⡇", "⣇", "⣧", "⣷", "⣿",
 ];
 /// Braille graph characters for inverted (bottom-up) graphs.
 pub const BRAILLE_DOWN: [&str; 25] = [
-    " ", "⠈", "⠘", "⠸", "⢸", "⠁", "⠉", "⠙", "⠹", "⢹", "⠃", "⠋", "⠛", "⠻", "⢻", "⠇",
-    "⠏", "⠟", "⠿", "⢿", "⡇", "⡏", "⡟", "⡿", "⣿",
+    " ", "⠈", "⠘", "⠸", "⢸", "⠁", "⠉", "⠙", "⠹", "⢹", "⠃", "⠋", "⠛", "⠻", "⢻", "⠇", "⠏", "⠟", "⠿",
+    "⢿", "⡇", "⡏", "⡟", "⡿", "⣿",
 ];
 /// Block graph characters — 5 levels from empty to full.
 const BLOCK_UP: [&str; 5] = [" ", "▄", "▄", "▀", "█"];
@@ -126,10 +130,7 @@ impl Graph {
             max_value: if max_value == 0 { 100 } else { max_value },
             offset,
             last: 0,
-            graphs: [
-                vec![String::new(); h],
-                vec![String::new(); h],
-            ],
+            graphs: [vec![String::new(); h], vec![String::new(); h]],
             current: true,
         }
     }
@@ -166,9 +167,14 @@ impl Graph {
             return (pct * 4 / 100).clamp(0, 4) as usize;
         }
 
-        let horizon = if self.invert { self.height - 1 - row } else { row };
+        let horizon = if self.invert {
+            self.height - 1 - row
+        } else {
+            row
+        };
         let cur_high = (100.0 * (self.height - horizon) as f64 / self.height as f64).round() as i64;
-        let cur_low = (100.0 * (self.height - (horizon + 1)) as f64 / self.height as f64).round() as i64;
+        let cur_low =
+            (100.0 * (self.height - (horizon + 1)) as f64 / self.height as f64).round() as i64;
 
         if pct < cur_low {
             0
@@ -217,11 +223,7 @@ impl Graph {
         for di in 0..data_cols {
             let data_idx = data_start + di;
             let curr = data[data_idx];
-            let prev = if data_idx > 0 {
-                data[data_idx - 1]
-            } else {
-                0
-            };
+            let prev = if data_idx > 0 { data[data_idx - 1] } else { 0 };
 
             for row in 0..h {
                 let mut prev_level = self.value_to_level(prev, row);
@@ -232,8 +234,12 @@ impl Graph {
                 // For inverted: baseline is row 0 (top, since horizon is flipped)
                 let is_baseline = if self.invert { row == 0 } else { row == h - 1 };
                 if self.no_zero && is_baseline {
-                    if prev_level == 0 { prev_level = 1; }
-                    if curr_level == 0 { curr_level = 1; }
+                    if prev_level == 0 {
+                        prev_level = 1;
+                    }
+                    if curr_level == 0 {
+                        curr_level = 1;
+                    }
                 }
 
                 // btop line 436: single-height with both 0 → cursor right instead of space
@@ -348,7 +354,9 @@ mod tests {
         let mut graph = Graph::new(10, 4, GraphSymbol::Braille, false, false, 100, 0);
         let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
         graph.create(&data);
-        let gradient: Vec<String> = (0..=100).map(|_| "\x1b[38;2;128;128;128m".to_string()).collect();
+        let gradient: Vec<String> = (0..=100)
+            .map(|_| "\x1b[38;2;128;128;128m".to_string())
+            .collect();
         let rows = graph.render_rows_colored(&data, &gradient);
         assert_eq!(rows.len(), 4);
     }

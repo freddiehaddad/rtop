@@ -16,11 +16,7 @@ use super::BoxArea;
 /// │ D: NTFS                    │
 /// │  ■■■░░░░░░░░ 1.2T / 3.6T  │
 /// ╰────────────────────────────╯
-pub fn draw(
-    disks: &DiskData,
-    area: &BoxArea,
-    theme: &Theme,
-) -> String {
+pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -37,9 +33,18 @@ pub fn draw(
     let inner_w = width.saturating_sub(4);
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
-        x, y, width, height, line_color: box_color, fill: true,
-        title: "disks", title2: "", num: 6, rounded,
-        hi_color: hi, title_color,
+        x,
+        y,
+        width,
+        height,
+        line_color: box_color,
+        fill: true,
+        title: "disks",
+        title2: "",
+        num: 6,
+        rounded,
+        hi_color: hi,
+        title_color,
     });
 
     let meter_w = inner_w.saturating_sub(16).max(5);

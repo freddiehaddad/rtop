@@ -25,7 +25,13 @@ impl ProcCollector {
 
     /// Rebuild `display_procs` from raw `procs` by sorting, filtering, and
     /// optionally building tree prefixes.
-    pub fn rebuild_display(&mut self, sort_by: &str, reversed: bool, filter: &str, tree_mode: bool) {
+    pub fn rebuild_display(
+        &mut self,
+        sort_by: &str,
+        reversed: bool,
+        filter: &str,
+        tree_mode: bool,
+    ) {
         self.display_procs = self.procs.clone();
         sort_procs(&mut self.display_procs, sort_by, reversed);
         if !filter.is_empty() {
@@ -39,11 +45,14 @@ impl ProcCollector {
 
     /// Collect process list.
     pub fn collect(&mut self, core_count: usize) -> &Vec<ProcInfo> {
-        use windows::Win32::System::Diagnostics::ToolHelp::*;
         use windows::Win32::Foundation::*;
+        use windows::Win32::System::Diagnostics::ToolHelp::*;
 
         let now = std::time::Instant::now();
-        let elapsed = now.duration_since(self.last_collect).as_secs_f64().max(0.001);
+        let elapsed = now
+            .duration_since(self.last_collect)
+            .as_secs_f64()
+            .max(0.001);
         self.last_collect = now;
 
         let mut new_procs = Vec::new();
@@ -133,11 +142,7 @@ fn get_process_details(
     let mut cmd = String::new();
 
     unsafe {
-        let handle = OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION,
-            false,
-            pid,
-        );
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
 
         if let Ok(handle) = handle {
             // CPU times
@@ -146,8 +151,14 @@ fn get_process_details(
             let mut kernel = FILETIME::default();
             let mut user_time = FILETIME::default();
 
-            if GetProcessTimes(handle, &mut creation, &mut exit, &mut kernel, &mut user_time)
-                .is_ok()
+            if GetProcessTimes(
+                handle,
+                &mut creation,
+                &mut exit,
+                &mut kernel,
+                &mut user_time,
+            )
+            .is_ok()
             {
                 let kt = filetime_to_u64(&kernel);
                 let ut = filetime_to_u64(&user_time);
@@ -157,8 +168,7 @@ fn get_process_details(
                     let delta = cpu_time.saturating_sub(prev_total);
                     let system_delta = (elapsed * 10_000_000.0) as u64;
                     if system_delta > 0 {
-                        cpu_p = (delta as f64 / system_delta as f64) * 100.0
-                            * core_count as f64;
+                        cpu_p = (delta as f64 / system_delta as f64) * 100.0 * core_count as f64;
                     }
                 }
             }
@@ -169,13 +179,7 @@ fn get_process_details(
                 cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
                 ..Default::default()
             };
-            if GetProcessMemoryInfo(
-                handle,
-                &mut mem_counters,
-                mem_counters.cb,
-            )
-            .is_ok()
-            {
+            if GetProcessMemoryInfo(handle, &mut mem_counters, mem_counters.cb).is_ok() {
                 mem = mem_counters.WorkingSetSize as u64;
             }
 
@@ -197,8 +201,8 @@ fn get_process_details(
 }
 
 fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
-    use windows::Win32::Security::*;
     use windows::Win32::Foundation::*;
+    use windows::Win32::Security::*;
 
     unsafe {
         let mut token = HANDLE::default();
@@ -291,11 +295,7 @@ fn get_process_cmdline(pid: u32) -> String {
 
     unsafe {
         // Need PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
-        let handle = match OpenProcess(
-            PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
-            false,
-            pid,
-        ) {
+        let handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
             Ok(h) => h,
             Err(_) => return String::new(),
         };
@@ -337,7 +337,8 @@ fn get_process_cmdline(pid: u32) -> String {
             &mut params_ptr as *mut usize as *mut std::ffi::c_void,
             std::mem::size_of::<usize>(),
             &mut bytes_read,
-        ) == 0 {
+        ) == 0
+        {
             let _ = CloseHandle(handle);
             return String::new();
         }
@@ -352,7 +353,8 @@ fn get_process_cmdline(pid: u32) -> String {
             &mut cmd_length as *mut u16 as *mut std::ffi::c_void,
             2,
             &mut bytes_read,
-        ) == 0 {
+        ) == 0
+        {
             let _ = CloseHandle(handle);
             return String::new();
         }
@@ -364,7 +366,8 @@ fn get_process_cmdline(pid: u32) -> String {
             &mut cmd_buffer_ptr as *mut usize as *mut std::ffi::c_void,
             std::mem::size_of::<usize>(),
             &mut bytes_read,
-        ) == 0 {
+        ) == 0
+        {
             let _ = CloseHandle(handle);
             return String::new();
         }
@@ -383,7 +386,8 @@ fn get_process_cmdline(pid: u32) -> String {
             cmd_buf.as_mut_ptr() as *mut std::ffi::c_void,
             cmd_length as usize,
             &mut bytes_read,
-        ) == 0 {
+        ) == 0
+        {
             let _ = CloseHandle(handle);
             return String::new();
         }
@@ -496,7 +500,10 @@ pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
             "threads" => a.threads.cmp(&b.threads),
             "user" => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
             "memory" => a.mem.cmp(&b.mem),
-            "cpu direct" | "cpu lazy" => a.cpu_p.partial_cmp(&b.cpu_p).unwrap_or(std::cmp::Ordering::Equal),
+            "cpu direct" | "cpu lazy" => a
+                .cpu_p
+                .partial_cmp(&b.cpu_p)
+                .unwrap_or(std::cmp::Ordering::Equal),
             _ => std::cmp::Ordering::Equal,
         };
         if reverse { cmp.reverse() } else { cmp }
@@ -557,10 +564,26 @@ mod tests {
     #[test]
     fn build_tree_from_ppid_map() {
         let procs = vec![
-            ProcInfo { pid: 1, ppid: 0, ..Default::default() },
-            ProcInfo { pid: 2, ppid: 1, ..Default::default() },
-            ProcInfo { pid: 3, ppid: 1, ..Default::default() },
-            ProcInfo { pid: 4, ppid: 2, ..Default::default() },
+            ProcInfo {
+                pid: 1,
+                ppid: 0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                ppid: 1,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                ppid: 1,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 4,
+                ppid: 2,
+                ..Default::default()
+            },
         ];
         let tree = build_tree(&procs);
         assert_eq!(tree.get(&1).unwrap().len(), 2); // pid 1 has 2 children
@@ -570,9 +593,21 @@ mod tests {
     #[test]
     fn sort_by_cpu() {
         let mut procs = vec![
-            ProcInfo { pid: 1, cpu_p: 10.0, ..Default::default() },
-            ProcInfo { pid: 2, cpu_p: 50.0, ..Default::default() },
-            ProcInfo { pid: 3, cpu_p: 5.0, ..Default::default() },
+            ProcInfo {
+                pid: 1,
+                cpu_p: 10.0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                cpu_p: 50.0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                cpu_p: 5.0,
+                ..Default::default()
+            },
         ];
         sort_procs(&mut procs, "cpu lazy", false);
         assert_eq!(procs[0].pid, 3);
@@ -582,9 +617,21 @@ mod tests {
     #[test]
     fn sort_by_memory() {
         let mut procs = vec![
-            ProcInfo { pid: 1, mem: 1000, ..Default::default() },
-            ProcInfo { pid: 2, mem: 5000, ..Default::default() },
-            ProcInfo { pid: 3, mem: 100, ..Default::default() },
+            ProcInfo {
+                pid: 1,
+                mem: 1000,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                mem: 5000,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                mem: 100,
+                ..Default::default()
+            },
         ];
         sort_procs(&mut procs, "memory", true); // Reverse = descending
         assert_eq!(procs[0].pid, 2);
@@ -594,9 +641,21 @@ mod tests {
     #[test]
     fn sort_by_name() {
         let mut procs = vec![
-            ProcInfo { pid: 1, name: "chrome.exe".into(), ..Default::default() },
-            ProcInfo { pid: 2, name: "Acrobat.exe".into(), ..Default::default() },
-            ProcInfo { pid: 3, name: "zsh.exe".into(), ..Default::default() },
+            ProcInfo {
+                pid: 1,
+                name: "chrome.exe".into(),
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                name: "Acrobat.exe".into(),
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                name: "zsh.exe".into(),
+                ..Default::default()
+            },
         ];
         sort_procs(&mut procs, "name", false);
         assert_eq!(procs[0].name, "Acrobat.exe");
@@ -635,9 +694,24 @@ mod tests {
     #[test]
     fn tree_prefix_generation() {
         let mut procs = vec![
-            ProcInfo { pid: 1, ppid: 0, depth: 0, ..Default::default() },
-            ProcInfo { pid: 2, ppid: 1, depth: 0, ..Default::default() },
-            ProcInfo { pid: 3, ppid: 1, depth: 0, ..Default::default() },
+            ProcInfo {
+                pid: 1,
+                ppid: 0,
+                depth: 0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                ppid: 1,
+                depth: 0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                ppid: 1,
+                depth: 0,
+                ..Default::default()
+            },
         ];
         let tree = build_tree(&procs);
         generate_tree_prefixes(&mut procs, &tree);

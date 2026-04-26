@@ -75,7 +75,7 @@ fn main() {
     let base_colors = format!(
         "{}{}",
         theme.c("main_fg"),
-        theme.c("main_bg").replace("38;2", "48;2")  // fg escape → bg escape
+        theme.c("main_bg").replace("38;2", "48;2") // fg escape → bg escape
     );
     let _ = terminal.write_raw(&base_colors);
 
@@ -101,4 +101,3 @@ fn main() {
 
     app::run(&mut config, &mut terminal, &mut theme, &mut runner);
 }
-

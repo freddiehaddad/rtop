@@ -68,7 +68,9 @@ pub fn run(
                 let reversed = config.get_bool("proc_reversed");
                 let filter = config.get_string("proc_filter");
                 let tree_mode = config.get_bool("proc_tree");
-                runner.proc_collector.rebuild_display(sort_by, reversed, filter, tree_mode);
+                runner
+                    .proc_collector
+                    .rebuild_display(sort_by, reversed, filter, tree_mode);
             }
 
             // Calculate layout (or reuse cached)
@@ -103,9 +105,19 @@ pub fn run(
 
             if dirty.intersects(Dirty::CPU_BOX) {
                 if let Some(ref cpu_dim) = layout.cpu {
-                    let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
+                    let area = ui::BoxArea {
+                        x: cpu_dim.x,
+                        y: cpu_dim.y,
+                        width: cpu_dim.width,
+                        height: cpu_dim.height,
+                        rounded,
+                    };
                     output.push_str(&ui::cpu_box::draw(
-                        &runner.cpu.info, &area, theme, config, update_ms,
+                        &runner.cpu.info,
+                        &area,
+                        theme,
+                        config,
+                        update_ms,
                         config.get_int("current_preset"),
                     ));
                 }
@@ -114,9 +126,19 @@ pub fn run(
             if dirty.intersects(Dirty::GPU_BOX) {
                 for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
                     if gi < runner.gpu.gpus.len() {
-                        let area = ui::BoxArea { x: gpu_dim.x, y: gpu_dim.y, width: gpu_dim.width, height: gpu_dim.height, rounded };
+                        let area = ui::BoxArea {
+                            x: gpu_dim.x,
+                            y: gpu_dim.y,
+                            width: gpu_dim.width,
+                            height: gpu_dim.height,
+                            rounded,
+                        };
                         output.push_str(&ui::gpu_box::draw(
-                            &runner.gpu.gpus[gi], gi, &area, theme, config,
+                            &runner.gpu.gpus[gi],
+                            gi,
+                            &area,
+                            theme,
+                            config,
                         ));
                     }
                 }
@@ -124,48 +146,81 @@ pub fn run(
 
             if dirty.intersects(Dirty::MEM_BOX) {
                 if let Some(ref mem_dim) = layout.mem {
-                    let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
-                    output.push_str(&ui::mem_box::draw(
-                        &runner.mem.info, &area, theme, config,
-                    ));
+                    let area = ui::BoxArea {
+                        x: mem_dim.x,
+                        y: mem_dim.y,
+                        width: mem_dim.width,
+                        height: mem_dim.height,
+                        rounded,
+                    };
+                    output.push_str(&ui::mem_box::draw(&runner.mem.info, &area, theme, config));
                 }
             }
 
             if dirty.intersects(Dirty::DISK_BOX) {
                 if let Some(ref disk_dim) = layout.disk {
-                    let area = ui::BoxArea { x: disk_dim.x, y: disk_dim.y, width: disk_dim.width, height: disk_dim.height, rounded };
-                    output.push_str(&ui::disk_box::draw(
-                        &runner.disk.data, &area, theme,
-                    ));
+                    let area = ui::BoxArea {
+                        x: disk_dim.x,
+                        y: disk_dim.y,
+                        width: disk_dim.width,
+                        height: disk_dim.height,
+                        rounded,
+                    };
+                    output.push_str(&ui::disk_box::draw(&runner.disk.data, &area, theme));
                 }
             }
 
             if dirty.intersects(Dirty::NET_BOX) {
                 if let Some(ref net_dim) = layout.net {
                     let iface = &runner.net.selected_iface;
-                    let net_info = runner.net.current_net.get(iface).cloned().unwrap_or_default();
-                    let area = ui::BoxArea { x: net_dim.x, y: net_dim.y, width: net_dim.width, height: net_dim.height, rounded };
-                    output.push_str(&ui::net_box::draw(
-                        &net_info, iface, &area, theme, config,
-                    ));
+                    let net_info = runner
+                        .net
+                        .current_net
+                        .get(iface)
+                        .cloned()
+                        .unwrap_or_default();
+                    let area = ui::BoxArea {
+                        x: net_dim.x,
+                        y: net_dim.y,
+                        width: net_dim.width,
+                        height: net_dim.height,
+                        rounded,
+                    };
+                    output.push_str(&ui::net_box::draw(&net_info, iface, &area, theme, config));
                 }
             }
 
             if dirty.intersects(Dirty::PROC_BOX) {
                 if let Some(ref proc_dim) = layout.proc_box {
                     let procs = &runner.proc_collector.display_procs;
-                    clamp_proc_selection(procs, proc_dim.height, &mut proc_selected, &mut proc_start);
+                    clamp_proc_selection(
+                        procs,
+                        proc_dim.height,
+                        &mut proc_selected,
+                        &mut proc_start,
+                    );
                     let sort_by = config.get_string("proc_sorting");
                     let reversed = config.get_bool("proc_reversed");
                     let tree_mode = config.get_bool("proc_tree");
                     let detailed_pid = config.get_int("detailed_pid") as u32;
                     let pf = config.get_string("proc_filter");
                     let is_filtering = menu_state == MenuState::Filter;
-                    let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
+                    let area = ui::BoxArea {
+                        x: proc_dim.x,
+                        y: proc_dim.y,
+                        width: proc_dim.width,
+                        height: proc_dim.height,
+                        rounded,
+                    };
                     let view = ui::ProcView {
-                        start: proc_start, selected: proc_selected,
-                        sort_by, sort_reversed: reversed,
-                        tree_mode, detailed_pid, filter: pf, filtering: is_filtering,
+                        start: proc_start,
+                        selected: proc_selected,
+                        sort_by,
+                        sort_reversed: reversed,
+                        tree_mode,
+                        detailed_pid,
+                        filter: pf,
+                        filtering: is_filtering,
                     };
                     output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, theme));
                 }
@@ -185,10 +240,7 @@ pub fn run(
 
         if input::poll(poll_ms) {
             if let Some(key) = input::get() {
-                if key.is_empty()
-                    || key.starts_with("mouse_")
-                    || key == "resize"
-                {
+                if key.is_empty() || key.starts_with("mouse_") || key == "resize" {
                     if key == "resize" {
                         dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                     }
@@ -202,14 +254,30 @@ pub fn run(
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "up" | "k" | "shift_tab" => {
-                            main_menu_selected = if main_menu_selected == 0 { 2 } else { main_menu_selected - 1 };
-                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            main_menu_selected = if main_menu_selected == 0 {
+                                2
+                            } else {
+                                main_menu_selected - 1
+                            };
+                            let menu_out =
+                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "down" | "j" | "tab" => {
                             main_menu_selected = (main_menu_selected + 1) % 3;
-                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out =
+                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "enter" | "space" => {
                             match main_menu_selected {
@@ -218,7 +286,15 @@ pub fn run(
                                     options_cat = 0;
                                     options_selected = 0;
                                     options_page = 0;
-                                    let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
+                                    let menu_out = draw_options_menu(
+                                        tw,
+                                        th,
+                                        config,
+                                        theme,
+                                        options_cat,
+                                        options_selected,
+                                        options_page,
+                                    );
                                     let _ = terminal.write_raw(&menu_out);
                                     menu_state = MenuState::Options;
                                 }
@@ -239,7 +315,15 @@ pub fn run(
                             options_cat = 0;
                             options_selected = 0;
                             options_page = 0;
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Options;
                         }
@@ -269,15 +353,41 @@ pub fn run(
                             options_cat = (options_cat + 1) % 7;
                             options_page = 0;
                             options_selected = 0;
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "shift_tab" => {
                             options_cat = if options_cat == 0 { 6 } else { options_cat - 1 };
                             options_page = 0;
                             options_selected = 0;
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
                             let new_cat = key.parse::<usize>().unwrap_or(0);
@@ -286,8 +396,21 @@ pub fn run(
                                 options_page = 0;
                                 options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
@@ -300,10 +423,24 @@ pub fn run(
                                 } else if pages > 1 {
                                     options_page = pages - 1;
                                 }
-                                options_selected = menu::options_menu::select_max(options_cat, options_page, th);
+                                options_selected =
+                                    menu::options_menu::select_max(options_cat, options_page, th);
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "down" | "j" => {
                             let sm = menu::options_menu::select_max(options_cat, options_page, th);
@@ -319,34 +456,87 @@ pub fn run(
                                 }
                                 options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "page_up" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
                             if pages > 1 {
-                                options_page = if options_page > 0 { options_page - 1 } else { pages - 1 };
+                                options_page = if options_page > 0 {
+                                    options_page - 1
+                                } else {
+                                    pages - 1
+                                };
                                 options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "page_down" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
                             if pages > 1 {
-                                options_page = if options_page < pages - 1 { options_page + 1 } else { 0 };
+                                options_page = if options_page < pages - 1 {
+                                    options_page + 1
+                                } else {
+                                    0
+                                };
                                 options_selected = 0;
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         "left" | "right" | "h" | "l" | "enter" | "space" => {
-                            if let Some(opt_key) = menu::options_menu::opt_key(options_cat, options_page, options_selected, th) {
+                            if let Some(opt_key) = menu::options_menu::opt_key(
+                                options_cat,
+                                options_page,
+                                options_selected,
+                                th,
+                            ) {
                                 let kind = if config.bools.contains_key(opt_key) {
                                     menu::options_menu::OptKind::Bool
                                 } else if config.ints.contains_key(opt_key) {
                                     menu::options_menu::OptKind::Int
-                                } else if !menu::options_menu::browsable_values(opt_key).is_empty() {
+                                } else if !menu::options_menu::browsable_values(opt_key).is_empty()
+                                {
                                     menu::options_menu::OptKind::Browsable
                                 } else {
                                     menu::options_menu::OptKind::StringVal
@@ -363,7 +553,9 @@ pub fn run(
                                         menu::options_menu::step_int(opt_key, config, dir);
                                     }
                                     menu::options_menu::OptKind::Browsable => {
-                                        menu::options_menu::cycle_browsable(opt_key, config, dir as i32);
+                                        menu::options_menu::cycle_browsable(
+                                            opt_key, config, dir as i32,
+                                        );
                                         if opt_key == "color_theme" {
                                             let name = config.get_string("color_theme").to_string();
                                             *theme = theme::Theme::from_name(&name);
@@ -380,8 +572,21 @@ pub fn run(
                                     }
                                 }
                             }
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&format!("{}{}{}", term::SYNC_START, menu_out, term::SYNC_END));
+                            let menu_out = draw_options_menu(
+                                tw,
+                                th,
+                                config,
+                                theme,
+                                options_cat,
+                                options_selected,
+                                options_page,
+                            );
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                         }
                         _ => {}
                     },
@@ -706,7 +911,12 @@ pub fn run(
     }
 }
 
-fn clamp_proc_selection(procs: &[crate::domain::process::ProcInfo], box_height: usize, selected: &mut usize, start: &mut usize) {
+fn clamp_proc_selection(
+    procs: &[crate::domain::process::ProcInfo],
+    box_height: usize,
+    selected: &mut usize,
+    start: &mut usize,
+) {
     let count = procs.len();
     let max_visible = box_height.saturating_sub(5);
     if count == 0 {
@@ -729,7 +939,15 @@ fn clamp_proc_selection(procs: &[crate::domain::process::ProcInfo], box_height: 
     }
 }
 
-fn draw_options_menu(tw: usize, th: usize, config: &config::Config, theme: &theme::Theme, cat: usize, selected: usize, page: usize) -> String {
+fn draw_options_menu(
+    tw: usize,
+    th: usize,
+    config: &config::Config,
+    theme: &theme::Theme,
+    cat: usize,
+    selected: usize,
+    page: usize,
+) -> String {
     menu::options_menu::draw(tw, th, cat, selected, page, config, theme)
 }
 

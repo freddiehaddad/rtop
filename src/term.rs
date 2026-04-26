@@ -1,7 +1,4 @@
-use crossterm::{
-    cursor, execute,
-    terminal,
-};
+use crossterm::{cursor, execute, terminal};
 use std::io::{self, Write};
 
 /// Terminal sequences for screen management.
@@ -82,4 +79,3 @@ impl Drop for Terminal {
         self.restore();
     }
 }
-

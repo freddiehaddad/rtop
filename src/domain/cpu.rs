@@ -30,7 +30,10 @@ impl Default for CpuInfo {
     fn default() -> Self {
         let keys = ["total", "user", "system", "idle", "irq", "dpc"];
         Self {
-            cpu_percent: keys.iter().map(|k| (k.to_string(), VecDeque::new())).collect(),
+            cpu_percent: keys
+                .iter()
+                .map(|k| (k.to_string(), VecDeque::new()))
+                .collect(),
             core_percent: Vec::new(),
             load_avg: [0.0; 3],
             cpu_name: String::new(),

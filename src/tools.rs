@@ -134,7 +134,11 @@ pub fn floating_humanizer(
     per_second: bool,
     base10: bool,
 ) -> String {
-    let mut val = if bit { value as f64 * 8.0 } else { value as f64 };
+    let mut val = if bit {
+        value as f64 * 8.0
+    } else {
+        value as f64
+    };
     let divisor: f64 = if base10 { 1000.0 } else { 1024.0 };
 
     let units_binary = if bit {
@@ -259,7 +263,9 @@ pub fn strf_time(format: &str, uptime_seconds: u64) -> String {
     let now = chrono_free_strftime(format);
 
     // Apply btop-specific replacements
-    let result = now.replace("/host", &hostname()).replace("/user", &username());
+    let result = now
+        .replace("/host", &hostname())
+        .replace("/user", &username());
 
     let uptime_str = sec_to_dhms(uptime_seconds, false, true);
     result.replace("/uptime", &uptime_str)
@@ -438,10 +444,7 @@ mod tests {
 
     #[test]
     fn floating_humanizer_bytes() {
-        assert_eq!(
-            floating_humanizer(0, false, 0, false, false, false),
-            "0 B"
-        );
+        assert_eq!(floating_humanizer(0, false, 0, false, false, false), "0 B");
     }
 
     #[test]
@@ -604,36 +607,56 @@ mod tests {
     #[test]
     fn config_dir_returns_path_with_rtop_suffix() {
         let dir = config_dir();
-        assert!(dir.ends_with("rtop"), "expected path ending with 'rtop', got: {:?}", dir);
+        assert!(
+            dir.ends_with("rtop"),
+            "expected path ending with 'rtop', got: {:?}",
+            dir
+        );
     }
 
     #[test]
     fn data_dir_returns_path_with_rtop_suffix() {
         let dir = data_dir();
-        assert!(dir.ends_with("rtop"), "expected path ending with 'rtop', got: {:?}", dir);
+        assert!(
+            dir.ends_with("rtop"),
+            "expected path ending with 'rtop', got: {:?}",
+            dir
+        );
     }
 
     #[test]
     fn config_dir_respects_xdg_env() {
         let original = std::env::var("XDG_CONFIG_HOME").ok();
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", "C:\\custom\\xdg"); }
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", "C:\\custom\\xdg");
+        }
         let dir = config_dir();
         assert_eq!(dir, std::path::PathBuf::from("C:\\custom\\xdg\\rtop"));
         match original {
-            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v); },
-            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME"); },
+            Some(v) => unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", v);
+            },
+            None => unsafe {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            },
         }
     }
 
     #[test]
     fn config_dir_ignores_relative_xdg() {
         let original = std::env::var("XDG_CONFIG_HOME").ok();
-        unsafe { std::env::set_var("XDG_CONFIG_HOME", "relative/path"); }
+        unsafe {
+            std::env::set_var("XDG_CONFIG_HOME", "relative/path");
+        }
         let dir = config_dir();
         assert_ne!(dir, std::path::PathBuf::from("relative/path/rtop"));
         match original {
-            Some(v) => unsafe { std::env::set_var("XDG_CONFIG_HOME", v); },
-            None => unsafe { std::env::remove_var("XDG_CONFIG_HOME"); },
+            Some(v) => unsafe {
+                std::env::set_var("XDG_CONFIG_HOME", v);
+            },
+            None => unsafe {
+                std::env::remove_var("XDG_CONFIG_HOME");
+            },
         }
     }
 }

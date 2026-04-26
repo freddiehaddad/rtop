@@ -150,8 +150,10 @@ impl Theme {
         if !self.rgbs.contains_key("meter_bg") {
             if let Some(rgb) = self.rgbs.get("inactive_fg").copied() {
                 self.rgbs.insert("meter_bg".to_string(), rgb);
-                self.colors
-                    .insert("meter_bg".to_string(), rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
+                self.colors.insert(
+                    "meter_bg".to_string(),
+                    rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]),
+                );
             }
         }
         // process_* defaults to cpu_*
@@ -170,15 +172,25 @@ impl Theme {
         if !self.rgbs.contains_key("graph_text") {
             if let Some(rgb) = self.rgbs.get("inactive_fg").copied() {
                 self.rgbs.insert("graph_text".to_string(), rgb);
-                self.colors
-                    .insert("graph_text".to_string(), rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
+                self.colors.insert(
+                    "graph_text".to_string(),
+                    rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]),
+                );
             }
         }
     }
 
     fn generate_gradients(&mut self) {
         let gradient_names = [
-            "temp", "cpu", "free", "cached", "available", "used", "download", "upload", "process",
+            "temp",
+            "cpu",
+            "free",
+            "cached",
+            "available",
+            "used",
+            "download",
+            "upload",
+            "process",
         ];
 
         for name in gradient_names {
@@ -186,7 +198,11 @@ impl Theme {
             let mid_key = format!("{name}_mid");
             let end_key = format!("{name}_end");
 
-            let start = self.rgbs.get(&start_key).copied().unwrap_or([128, 128, 128]);
+            let start = self
+                .rgbs
+                .get(&start_key)
+                .copied()
+                .unwrap_or([128, 128, 128]);
             let mid = self.rgbs.get(&mid_key).copied();
             let end = self.rgbs.get(&end_key).copied();
 
@@ -202,9 +218,11 @@ impl Theme {
 
     /// Get a gradient array by name (101 elements, indices 0–100).
     pub fn g(&self, name: &str) -> &[String] {
-        self.gradients.get(name).map(|v| v.as_slice()).unwrap_or(&[])
+        self.gradients
+            .get(name)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
-
 }
 
 impl Default for Theme {
@@ -251,11 +269,7 @@ pub fn rgb_to_fg_escape(r: u8, g: u8, b: u8) -> String {
 }
 
 /// Generate a 101-element gradient from start, optional mid, and optional end colors.
-fn generate_gradient(
-    start: [u8; 3],
-    mid: Option<[u8; 3]>,
-    end: Option<[u8; 3]>,
-) -> Vec<String> {
+fn generate_gradient(start: [u8; 3], mid: Option<[u8; 3]>, end: Option<[u8; 3]>) -> Vec<String> {
     let mut result = Vec::with_capacity(101);
 
     match (mid, end) {

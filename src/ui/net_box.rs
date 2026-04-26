@@ -37,9 +37,18 @@ pub fn draw(
     let hi = theme.c("hi_fg");
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
-        x, y, width, height, line_color: box_color, fill: true,
-        title: "net", title2: "", num: 3, rounded,
-        hi_color: hi, title_color,
+        x,
+        y,
+        width,
+        height,
+        line_color: box_color,
+        fill: true,
+        title: "net",
+        title2: "",
+        num: 3,
+        rounded,
+        hi_color: hi,
+        title_color,
     });
 
     let graph_width = width.saturating_sub(2);
@@ -50,18 +59,27 @@ pub fn draw(
         return out;
     }
 
-    let graph_sym = GraphSymbol::from_config(config.get_string("graph_symbol_net"), config.get_string("graph_symbol"));
+    let graph_sym = GraphSymbol::from_config(
+        config.get_string("graph_symbol_net"),
+        config.get_string("graph_symbol"),
+    );
     let net_auto = config.get_bool("net_auto");
     let net_sync = config.get_bool("net_sync");
 
     // Compute graph max values
     let dl_max_raw = if net_auto {
-        net.bandwidth.get("download").map(|bw| bw.iter().copied().max().unwrap_or(1).max(1)).unwrap_or(1)
+        net.bandwidth
+            .get("download")
+            .map(|bw| bw.iter().copied().max().unwrap_or(1).max(1))
+            .unwrap_or(1)
     } else {
         (config.get_int("net_download") * 1024).max(1)
     };
     let ul_max_raw = if net_auto {
-        net.bandwidth.get("upload").map(|bw| bw.iter().copied().max().unwrap_or(1).max(1)).unwrap_or(1)
+        net.bandwidth
+            .get("upload")
+            .map(|bw| bw.iter().copied().max().unwrap_or(1).max(1))
+            .unwrap_or(1)
     } else {
         (config.get_int("net_upload") * 1024).max(1)
     };
@@ -111,8 +129,7 @@ pub fn draw(
     if let Some(ul_bw) = net.bandwidth.get("upload") {
         if ul_rows > 0 {
             let ul_start_y = y + 2 + dl_rows;
-            let mut graph =
-                Graph::new(graph_width, ul_rows, graph_sym, true, true, 0, 0);
+            let mut graph = Graph::new(graph_width, ul_rows, graph_sym, true, true, 0, 0);
             graph.max_value = ul_max;
             graph.create(ul_bw);
             let rows = graph.render_rows_colored(ul_bw, ul_grad);
@@ -151,9 +168,14 @@ pub fn draw(
     // Interface selector: ┐←b Ethernet n→┌
     let iface_inset = format!(
         "{}{}{}←b {}{} {}n→{}{}",
-        box_color, title_syms::TITLE_LEFT,
-        hi, title_color, iface_display, hi,
-        box_color, title_syms::TITLE_RIGHT,
+        box_color,
+        title_syms::TITLE_LEFT,
+        hi,
+        title_color,
+        iface_display,
+        hi,
+        box_color,
+        title_syms::TITLE_RIGHT,
     );
     // visible chars: "←b " + name + " n→" = 3 + name + 3 = 6 + name, plus 2 inset chars
     let iface_vis_len = 6 + iface_display.len();
@@ -163,8 +185,12 @@ pub fn draw(
     // zero button: ┐zero┌
     let zero_inset = format!(
         "{}{}{}z{}ero{}{}",
-        box_color, title_syms::TITLE_LEFT,
-        hi, title_color, box_color, title_syms::TITLE_RIGHT,
+        box_color,
+        title_syms::TITLE_LEFT,
+        hi,
+        title_color,
+        box_color,
+        title_syms::TITLE_RIGHT,
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
@@ -174,8 +200,12 @@ pub fn draw(
     // auto button: ┐auto┌
     let auto_inset = format!(
         "{}{}{}a{}uto{}{}",
-        box_color, title_syms::TITLE_LEFT,
-        hi, title_color, box_color, title_syms::TITLE_RIGHT,
+        box_color,
+        title_syms::TITLE_LEFT,
+        hi,
+        title_color,
+        box_color,
+        title_syms::TITLE_RIGHT,
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
@@ -185,8 +215,13 @@ pub fn draw(
     // sync button: ┐sync┌
     let sync_inset = format!(
         "{}{}{}s{}y{}nc{}{}",
-        box_color, title_syms::TITLE_LEFT,
-        title_color, hi, title_color, box_color, title_syms::TITLE_RIGHT,
+        box_color,
+        title_syms::TITLE_LEFT,
+        title_color,
+        hi,
+        title_color,
+        box_color,
+        title_syms::TITLE_RIGHT,
     );
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {

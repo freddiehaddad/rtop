@@ -15,9 +15,18 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme) -> String {
     let fg = theme.c("main_fg");
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
-        x, y, width: w, height: h, line_color: hi, fill: true,
-        title: "help", title2: "", num: 0, rounded: true,
-        hi_color: hi, title_color: title_c,
+        x,
+        y,
+        width: w,
+        height: h,
+        line_color: hi,
+        fill: true,
+        title: "help",
+        title2: "",
+        num: 0,
+        rounded: true,
+        hi_color: hi,
+        title_color: title_c,
     });
 
     let lines = [
@@ -58,15 +67,19 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme) -> String {
             // Section header in title_color with bold
             out.push_str(&format!(
                 "{}\x1b[1m{}{}\x1b[22m",
-                term::mv(x + 2, y + 2 + i), title_c, trunc
+                term::mv(x + 2, y + 2 + i),
+                title_c,
+                trunc
             ));
         } else if let Some(split) = split_key_desc(&trunc) {
             // Key part in hi_fg, description in main_fg
             out.push_str(&format!(
                 "{}{}{}{}{}",
                 term::mv(x + 2, y + 2 + i),
-                hi, &trunc[..split],
-                fg, &trunc[split..],
+                hi,
+                &trunc[..split],
+                fg,
+                &trunc[split..],
             ));
         } else if !trunc.trim().is_empty() {
             out.push_str(&format!("{}{}{}", term::mv(x + 2, y + 2 + i), fg, trunc));
@@ -89,9 +102,14 @@ fn split_key_desc(line: &str) -> Option<usize> {
             i += 1;
             continue;
         }
-        if !seen_nonspace { i += 1; continue; }
+        if !seen_nonspace {
+            i += 1;
+            continue;
+        }
         let start = i;
-        while i < bytes.len() && bytes[i] == b' ' { i += 1; }
+        while i < bytes.len() && bytes[i] == b' ' {
+            i += 1;
+        }
         if i - start >= 4 && i < bytes.len() {
             return Some(start);
         }

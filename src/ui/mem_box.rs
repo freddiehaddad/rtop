@@ -41,15 +41,23 @@ pub fn draw(
 
     let inner_h = height.saturating_sub(2);
 
-    let mut out =
-        box_drawing::create_box(&box_drawing::BoxConfig {
-            x, y, width, height, line_color: box_color, fill: true,
-            title: "mem", title2: "", num: 2, rounded,
-            hi_color: hi, title_color,
-        });
+    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+        x,
+        y,
+        width,
+        height,
+        line_color: box_color,
+        fill: true,
+        title: "mem",
+        title2: "",
+        num: 2,
+        rounded,
+        hi_color: hi,
+        title_color,
+    });
 
-    let total_bytes = mem.stats.get("used").unwrap_or(&0)
-        + mem.stats.get("available").unwrap_or(&0);
+    let total_bytes =
+        mem.stats.get("used").unwrap_or(&0) + mem.stats.get("available").unwrap_or(&0);
     let meter_area = width.saturating_sub(4);
     let label_w = 6;
     let meter_w = meter_area.saturating_sub(label_w + 6).max(5);
@@ -130,39 +138,39 @@ pub fn draw(
 
     // Blank line before swap
     if config.get_bool("show_swap") {
-    if row < inner_h {
-        row += 1;
-    }
-
-    // Swap
-    let swap_used = *mem.stats.get("swap_used").unwrap_or(&0);
-    let swap_total = *mem.stats.get("swap_total").unwrap_or(&0);
-    if swap_total > 0 && row < inner_h {
-        let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
-        let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
-        out.push_str(&format!(
-            "{}{}Swap  {}  {}{}",
-            term::mv(x + 2, y + 2 + row),
-            title_color,
-            used_meter.render(swap_pct),
-            fg,
-            swap_str
-        ));
-        row += 1;
-
-        // Swap total line
         if row < inner_h {
-            let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
-            let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
-            out.push_str(&format!(
-                "{}{}  {} / {}",
-                term::mv(x + 2, y + 2 + row),
-                fg,
-                su,
-                st
-            ));
+            row += 1;
         }
-    }
+
+        // Swap
+        let swap_used = *mem.stats.get("swap_used").unwrap_or(&0);
+        let swap_total = *mem.stats.get("swap_total").unwrap_or(&0);
+        if swap_total > 0 && row < inner_h {
+            let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
+            let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
+            out.push_str(&format!(
+                "{}{}Swap  {}  {}{}",
+                term::mv(x + 2, y + 2 + row),
+                title_color,
+                used_meter.render(swap_pct),
+                fg,
+                swap_str
+            ));
+            row += 1;
+
+            // Swap total line
+            if row < inner_h {
+                let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
+                let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
+                out.push_str(&format!(
+                    "{}{}  {} / {}",
+                    term::mv(x + 2, y + 2 + row),
+                    fg,
+                    su,
+                    st
+                ));
+            }
+        }
     } // show_swap
 
     out.push_str("\x1b[0m");
@@ -175,4 +183,3 @@ fn gradient_color(gradient: &[String], pct: i64) -> &str {
     }
     &gradient[pct.clamp(0, 100) as usize]
 }
-

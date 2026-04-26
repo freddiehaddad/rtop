@@ -56,7 +56,10 @@ pub fn draw(
     let div_color = theme.c("div_line");
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
-    let graph_sym = GraphSymbol::from_config(config.get_string("graph_symbol_cpu"), config.get_string("graph_symbol"));
+    let graph_sym = GraphSymbol::from_config(
+        config.get_string("graph_symbol_cpu"),
+        config.get_string("graph_symbol"),
+    );
     let upper_key = match config.get_string("cpu_graph_upper") {
         "user" => "user",
         "system" => "system",
@@ -69,9 +72,18 @@ pub fn draw(
     };
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
-        x, y, width, height, line_color: box_color, fill: true,
-        title: "cpu", title2: "", num: 1, rounded,
-        hi_color: hi, title_color,
+        x,
+        y,
+        width,
+        height,
+        line_color: box_color,
+        fill: true,
+        title: "cpu",
+        title2: "",
+        num: 1,
+        rounded,
+        hi_color: hi,
+        title_color,
     });
 
     let core_count = cpu.core_percent.len();
@@ -122,7 +134,11 @@ pub fn draw(
     };
 
     // b_x = x + width - b_width - 1
-    let b_x = if b_width == 0 { x } else { x + width - b_width - 1 };
+    let b_x = if b_width == 0 {
+        x
+    } else {
+        x + width - b_width - 1
+    };
     // b_y = y + ceil((height-2)/2) - ceil(b_height/2) + 1
     let b_y = if b_height == 0 {
         y
@@ -142,25 +158,35 @@ pub fn draw(
     let has_lower = inner_h >= 4;
     let divider_row = if has_lower { inner_h / 2 } else { inner_h };
     let upper_h = divider_row;
-    let lower_h = if has_lower { inner_h - divider_row - 1 } else { 0 };
+    let lower_h = if has_lower {
+        inner_h - divider_row - 1
+    } else {
+        0
+    };
 
     // Draw the vertical divider for core panel
     if b_width > 0 {
         for row_i in 1..height.saturating_sub(1) {
             out.push_str(&format!(
                 "{}{}{}",
-                term::mv(b_x + 1, y + 1 + row_i), div_color, symbols::V_LINE
+                term::mv(b_x + 1, y + 1 + row_i),
+                div_color,
+                symbols::V_LINE
             ));
         }
         // T-junction at top border
         out.push_str(&format!(
             "{}{}{}",
-            term::mv(b_x + 1, y + 1), box_color, symbols::DIV_UP
+            term::mv(b_x + 1, y + 1),
+            box_color,
+            symbols::DIV_UP
         ));
         // Bottom junction
         out.push_str(&format!(
             "{}{}{}",
-            term::mv(b_x + 1, y + height), box_color, symbols::DIV_DOWN
+            term::mv(b_x + 1, y + height),
+            box_color,
+            symbols::DIV_DOWN
         ));
 
         // CPU frequency title inset on the top border
@@ -178,7 +204,8 @@ pub fn draw(
                     box_color,
                     symbols::H_LINE.repeat(dashes),
                     title_syms::TITLE_LEFT,
-                    title_color, hz_str,
+                    title_color,
+                    hz_str,
                     box_color,
                     title_syms::TITLE_RIGHT,
                 ));
@@ -208,7 +235,8 @@ pub fn draw(
         out.push_str(&format!(
             "{}{}{}{}{}{}{}",
             term::mv(x + 1, div_y),
-            box_color, symbols::DIV_LEFT,
+            box_color,
+            symbols::DIV_LEFT,
             div_color,
             symbols::H_LINE.repeat(left_dashes),
             mid_label,
@@ -217,7 +245,9 @@ pub fn draw(
         if b_width > 0 {
             out.push_str(&format!(
                 "{}{}{}",
-                term::mv(b_x + 1, div_y), box_color, symbols::DIV_RIGHT
+                term::mv(b_x + 1, div_y),
+                box_color,
+                symbols::DIV_RIGHT
             ));
         }
     }
@@ -237,9 +267,23 @@ pub fn draw(
 
     // --- Core panel ---
     if b_width > 0 && b_height > 0 {
-        let panel = CorePanelArea { x: b_x, y: b_y, width: b_width, height: b_height, columns: b_columns };
+        let panel = CorePanelArea {
+            x: b_x,
+            y: b_y,
+            width: b_width,
+            height: b_height,
+            columns: b_columns,
+        };
         let temp_scale = config.get_string("temp_scale");
-        out.push_str(&draw_core_panel(cpu, &panel, has_temp, show_coretemp_flag, temp_scale, graph_sym, theme));
+        out.push_str(&draw_core_panel(
+            cpu,
+            &panel,
+            has_temp,
+            show_coretemp_flag,
+            temp_scale,
+            graph_sym,
+            theme,
+        ));
     }
 
     // Uptime overlaid on lower-left of graph area
@@ -249,12 +293,20 @@ pub fn draw(
     if !uptime.is_empty() {
         out.push_str(&format!(
             "{}{}{}",
-            term::mv(x + 2, up_y), graph_text_color, up_str
+            term::mv(x + 2, up_y),
+            graph_text_color,
+            up_str
         ));
     }
 
     // Bottom border keybind hints
-    out.push_str(&draw_bottom_hints(x, y + height, update_ms, current_preset, theme));
+    out.push_str(&draw_bottom_hints(
+        x,
+        y + height,
+        update_ms,
+        current_preset,
+        theme,
+    ));
 
     out.push_str("\x1b[0m");
     out
@@ -306,8 +358,10 @@ fn draw_core_panel(
                 "{}{}CPU {}{}{}{}{}",
                 term::mv(panel.x + 2, panel.y + 1),
                 title_color,
-                pct_color, meter.render(pct as i32),
-                pct_color, tools::rjust(&pct.to_string(), 4, false),
+                pct_color,
+                meter.render(pct as i32),
+                pct_color,
+                tools::rjust(&pct.to_string(), 4, false),
                 "%",
             ));
             if has_temp {
@@ -333,7 +387,13 @@ fn draw_core_panel(
 
     // Per-core rows with multi-column wrapping (btop lines 878-923)
     // Each core row must fit exactly in col_w visible characters.
-    let col_w = if panel.columns > 0 { panel_inner_w.checked_div(panel.columns).unwrap_or(panel_inner_w) } else { panel_inner_w };
+    let col_w = if panel.columns > 0 {
+        panel_inner_w
+            .checked_div(panel.columns)
+            .unwrap_or(panel_inner_w)
+    } else {
+        panel_inner_w
+    };
     let mut cx: usize = 0;
     let mut cy: usize = 1;
     let mut cc: usize = 0;
@@ -352,9 +412,13 @@ fn draw_core_panel(
         // Build the core line with absolute positioning for each part.
         // Layout (fitting in col_w chars):
         //   "C##" (2-3 chars) + graph (variable) + " ##%" (4-5 chars) + " ##°C" (5 chars) + "│" (1 char if multi-col)
-        let label = if core_count >= 100 { format!("{:>3}", i) }
-            else if core_count >= 10 { format!("C{:<2}", i) }
-            else { format!("C{}", i) };
+        let label = if core_count >= 100 {
+            format!("{:>3}", i)
+        } else if core_count >= 10 {
+            format!("C{:<2}", i)
+        } else {
+            format!("C{}", i)
+        };
         let label_w = label.len();
 
         let sep_w: usize = if cc + 1 < panel.columns { 1 } else { 0 }; // │ separator
@@ -389,7 +453,9 @@ fn draw_core_panel(
             } else {
                 0
             };
-            let core_temp = cpu.temp.get(temp_idx)
+            let core_temp = cpu
+                .temp
+                .get(temp_idx)
                 .and_then(|dq| dq.back())
                 .copied()
                 .unwrap_or(0);
@@ -429,17 +495,20 @@ fn draw_core_panel(
     let lavg_vis_len = lavg_str.len();
     if lavg_vis_len <= panel_inner_w {
         let lavg_x = panel.x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(lavg_x, lavg_y), fg, lavg_str
-        ));
+        out.push_str(&format!("{}{}{}", term::mv(lavg_x, lavg_y), fg, lavg_str));
     }
 
     out
 }
 
 /// Render the bottom border keybind hints (menu, preset with number, update rate).
-fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, current_preset: i64, theme: &Theme) -> String {
+fn draw_bottom_hints(
+    x: usize,
+    bottom_y: usize,
+    update_ms: u64,
+    current_preset: i64,
+    theme: &Theme,
+) -> String {
     let box_color = theme.c("cpu_box");
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
@@ -448,12 +517,26 @@ fn draw_bottom_hints(x: usize, bottom_y: usize, update_ms: u64, current_preset: 
     let rate_label = format!("{}ms", update_ms);
     let hints = format!(
         "{}{}{}m{}enu{}{}{}{}{}{}{}{}{}{}{}─ {}{} {}+{}{}",
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, box_color, title_syms::TITLE_RIGHT_DOWN,
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, preset_label, box_color, title_syms::TITLE_RIGHT_DOWN,
-        box_color, title_syms::TITLE_LEFT_DOWN,
-        hi, fg, rate_label, hi, box_color, title_syms::TITLE_RIGHT_DOWN,
+        box_color,
+        title_syms::TITLE_LEFT_DOWN,
+        hi,
+        fg,
+        box_color,
+        title_syms::TITLE_RIGHT_DOWN,
+        box_color,
+        title_syms::TITLE_LEFT_DOWN,
+        hi,
+        preset_label,
+        box_color,
+        title_syms::TITLE_RIGHT_DOWN,
+        box_color,
+        title_syms::TITLE_LEFT_DOWN,
+        hi,
+        fg,
+        rate_label,
+        hi,
+        box_color,
+        title_syms::TITLE_RIGHT_DOWN,
     );
     format!("{}{}", term::mv(x + 3, bottom_y), hints)
 }

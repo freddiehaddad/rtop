@@ -41,12 +41,8 @@ impl MemCollector {
                 self.info.stats.insert("free".into(), available);
 
                 // Swap = Page file - Physical memory
-                let swap_total = mem_status
-                    .ullTotalPageFile
-                    .saturating_sub(total);
-                let swap_avail = mem_status
-                    .ullAvailPageFile
-                    .saturating_sub(available);
+                let swap_total = mem_status.ullTotalPageFile.saturating_sub(total);
+                let swap_avail = mem_status.ullAvailPageFile.saturating_sub(available);
                 let swap_used = swap_total.saturating_sub(swap_avail);
 
                 self.info.stats.insert("swap_total".into(), swap_total);
@@ -109,7 +105,12 @@ pub fn calculate_used(total: u64, available: u64) -> u64 {
 
 #[cfg(test)]
 /// Calculate swap from page file values (for unit testing).
-pub fn calculate_swap(total_page: u64, total_phys: u64, avail_page: u64, avail_phys: u64) -> (u64, u64, u64) {
+pub fn calculate_swap(
+    total_page: u64,
+    total_phys: u64,
+    avail_page: u64,
+    avail_phys: u64,
+) -> (u64, u64, u64) {
     let swap_total = total_page.saturating_sub(total_phys);
     let swap_avail = avail_page.saturating_sub(avail_phys);
     let swap_used = swap_total.saturating_sub(swap_avail);

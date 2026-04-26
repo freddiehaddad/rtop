@@ -13,7 +13,6 @@ enum TempSource {
 
 /// CPU data collector using Windows APIs.
 pub struct CpuCollector {
-
     pub info: CpuInfo,
     prev_idle: Vec<u64>,
     prev_kernel: Vec<u64>,
@@ -131,7 +130,9 @@ impl CpuCollector {
                 let total_delta = kernel_delta + user_delta;
 
                 if total_delta > 0 {
-                    let cpu_pct = ((total_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
+                    let cpu_pct = ((total_delta - idle_delta) * 100)
+                        .checked_div(total_delta)
+                        .unwrap_or(0) as i64;
                     if let Some(h) = self.info.cpu_percent.get_mut("total") {
                         push_history(h, cpu_pct);
                     }
@@ -141,7 +142,9 @@ impl CpuCollector {
                         push_history(h, user_pct);
                     }
 
-                    let system_pct = ((kernel_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
+                    let system_pct = ((kernel_delta - idle_delta) * 100)
+                        .checked_div(total_delta)
+                        .unwrap_or(0) as i64;
                     if let Some(h) = self.info.cpu_percent.get_mut("system") {
                         push_history(h, system_pct.max(0));
                     }
@@ -180,8 +183,8 @@ impl CpuCollector {
 
         if status == 0 {
             // status == STATUS_SUCCESS
-            let actual_count = (return_len as usize / std::mem::size_of::<ProcessorPerfInfo>())
-                .min(core_count);
+            let actual_count =
+                (return_len as usize / std::mem::size_of::<ProcessorPerfInfo>()).min(core_count);
 
             // Ensure vectors are sized correctly
             while self.prev_idle.len() < actual_count + 1 {
@@ -210,7 +213,9 @@ impl CpuCollector {
                 let user_delta = user_val.saturating_sub(self.prev_user[pi_idx]);
                 let total_delta = kernel_delta + user_delta;
 
-                let core_pct = ((total_delta - idle_delta) * 100).checked_div(total_delta).unwrap_or(0) as i64;
+                let core_pct = ((total_delta - idle_delta) * 100)
+                    .checked_div(total_delta)
+                    .unwrap_or(0) as i64;
 
                 push_history(&mut self.info.core_percent[i], core_pct);
 
@@ -237,16 +242,21 @@ impl CpuCollector {
 
         #[repr(C)]
         #[derive(Default)]
-        struct PdhVal { status: u32, value: f64 }
+        struct PdhVal {
+            status: u32,
+            value: f64,
+        }
 
         const PDH_FMT_DOUBLE: u32 = 0x00000200;
 
         // Initialize the persistent PDH query on first call
         if !self.pdh_initialized {
             let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
-                .encode_utf16().collect();
+                .encode_utf16()
+                .collect();
             let perf_path: Vec<u16> = "\\Processor Information(_Total)\\% Processor Performance\0"
-                .encode_utf16().collect();
+                .encode_utf16()
+                .collect();
 
             unsafe {
                 let mut q: isize = 0;
@@ -293,12 +303,20 @@ impl CpuCollector {
             let mut ct: u32 = 0;
 
             let freq_ok = PdhGetFormattedCounterValue(
-                self.pdh_freq_counter, PDH_FMT_DOUBLE, &mut ct, &mut freq_val
-            ) == 0 && freq_val.status == 0;
+                self.pdh_freq_counter,
+                PDH_FMT_DOUBLE,
+                &mut ct,
+                &mut freq_val,
+            ) == 0
+                && freq_val.status == 0;
 
             let perf_ok = PdhGetFormattedCounterValue(
-                self.pdh_perf_counter, PDH_FMT_DOUBLE, &mut ct, &mut perf_val
-            ) == 0 && perf_val.status == 0;
+                self.pdh_perf_counter,
+                PDH_FMT_DOUBLE,
+                &mut ct,
+                &mut perf_val,
+            ) == 0
+                && perf_val.status == 0;
 
             if freq_ok && perf_ok && freq_val.value > 0.0 && perf_val.value > 0.0 {
                 let actual_mhz = (freq_val.value * perf_val.value / 100.0) as u32;
@@ -348,9 +366,8 @@ impl CpuCollector {
     }
 
     fn collect_uptime(&mut self) {
-        self.info.uptime_seconds = unsafe {
-            windows::Win32::System::SystemInformation::GetTickCount64() / 1000
-        };
+        self.info.uptime_seconds =
+            unsafe { windows::Win32::System::SystemInformation::GetTickCount64() / 1000 };
     }
 
     fn update_load_avg(&mut self) {
@@ -399,10 +416,18 @@ impl CpuCollector {
         // Walk the tree looking for "Temperatures" under CPU hardware nodes.
         // Generic approach: identify package-level temp by known keywords,
         // treat everything else as per-core temps in discovery order.
-        fn walk(node: &serde_json::Value, in_temps: bool, in_cpu: bool,
-                pkg: &mut Option<i64>, cores: &mut Vec<i64>) {
+        fn walk(
+            node: &serde_json::Value,
+            in_temps: bool,
+            in_cpu: bool,
+            pkg: &mut Option<i64>,
+            cores: &mut Vec<i64>,
+        ) {
             let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
-            let hw_id = node.get("HardwareId").and_then(|v| v.as_str()).unwrap_or("");
+            let hw_id = node
+                .get("HardwareId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
 
             // Detect CPU hardware nodes by HardwareId or name
             let is_cpu_hw = in_cpu
@@ -426,10 +451,14 @@ impl CpuCollector {
                             // Skip distance-to-max entries
                         }
                         // Package/aggregate temps
-                        else if text == "CPU Package" || text == "CPU"
-                            || text == "Core Max" || text == "Core Average"
-                            || text == "Tctl" || text == "Tdie"
-                            || text == "CPU (Tctl)" || text == "CPU (Tdie)"
+                        else if text == "CPU Package"
+                            || text == "CPU"
+                            || text == "Core Max"
+                            || text == "Core Average"
+                            || text == "Tctl"
+                            || text == "Tdie"
+                            || text == "CPU (Tctl)"
+                            || text == "CPU (Tdie)"
                         {
                             // Prefer CPU Package > Tdie > Tctl > others
                             if pkg.is_none()
@@ -440,9 +469,12 @@ impl CpuCollector {
                             }
                         }
                         // Everything else under CPU temps = per-core
-                        else if !text.contains("System") && !text.contains("VRM")
-                            && !text.contains("PCH") && !text.contains("Socket")
-                            && !text.contains("PCIe") && !text.contains("M2")
+                        else if !text.contains("System")
+                            && !text.contains("VRM")
+                            && !text.contains("PCH")
+                            && !text.contains("Socket")
+                            && !text.contains("PCIe")
+                            && !text.contains("M2")
                         {
                             cores.push(temp);
                         }
@@ -489,12 +521,12 @@ fn lhm_http_fetch() -> Option<serde_json::Value> {
     use std::net::TcpStream;
     use std::time::Duration;
 
-    let mut stream = TcpStream::connect_timeout(
-        &"127.0.0.1:8085".parse().ok()?,
-        Duration::from_secs(2),
-    ).ok()?;
+    let mut stream =
+        TcpStream::connect_timeout(&"127.0.0.1:8085".parse().ok()?, Duration::from_secs(2)).ok()?;
     stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream.set_write_timeout(Some(Duration::from_secs(2))).ok()?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .ok()?;
 
     let request = "GET /data.json HTTP/1.1\r\nHost: localhost:8085\r\nConnection: close\r\n\r\n";
     stream.write_all(request.as_bytes()).ok()?;
@@ -504,7 +536,9 @@ fn lhm_http_fetch() -> Option<serde_json::Value> {
 
     let text = String::from_utf8_lossy(&response);
     // Find the start of the JSON body (after the blank line separating headers)
-    let body_start = text.find("\r\n\r\n").map(|i| i + 4)
+    let body_start = text
+        .find("\r\n\r\n")
+        .map(|i| i + 4)
         .or_else(|| text.find("\n\n").map(|i| i + 2))?;
     let body = &text[body_start..];
 
@@ -527,7 +561,10 @@ fn parse_core_index(text: &str, p_core_count: usize) -> Option<usize> {
         return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
     }
     if let Some(rest) = text.strip_prefix("E-Core #") {
-        return rest.parse::<usize>().ok().map(|n| p_core_count + n.saturating_sub(1));
+        return rest
+            .parse::<usize>()
+            .ok()
+            .map(|n| p_core_count + n.saturating_sub(1));
     }
     if let Some(rest) = text.strip_prefix("Core #") {
         return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));

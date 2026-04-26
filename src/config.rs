@@ -49,7 +49,10 @@ impl Config {
             ("net_iface", ""),
             ("log_level", "WARNING"),
             ("proc_filter", ""),
-            ("presets", "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default"),
+            (
+                "presets",
+                "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
+            ),
             ("custom_gpu_name0", ""),
             ("custom_gpu_name1", ""),
             ("custom_gpu_name2", ""),
@@ -58,7 +61,9 @@ impl Config {
             ("custom_gpu_name5", ""),
         ];
         for (k, v) in string_defaults {
-            self.strings.entry(k.to_string()).or_insert_with(|| v.to_string());
+            self.strings
+                .entry(k.to_string())
+                .or_insert_with(|| v.to_string());
         }
 
         // Bool defaults
@@ -290,9 +295,10 @@ impl Config {
         } else {
             initial
         };
-        let preset0_parts: Vec<String> = source.split_whitespace().map(|b| {
-            format!("{b}:0:default")
-        }).collect();
+        let preset0_parts: Vec<String> = source
+            .split_whitespace()
+            .map(|b| format!("{b}:0:default"))
+            .collect();
         let mut list = vec![preset0_parts.join(",")];
 
         let presets_str = self.get_string("presets");
@@ -309,8 +315,16 @@ impl Config {
     /// Save the current layout as a new preset and return its index.
     pub fn save_preset(&mut self) -> usize {
         let shown = self.get_string("shown_boxes").to_string();
-        let cpu_bottom = if self.get_bool("cpu_bottom") { "1" } else { "0" };
-        let mem_below_net = if self.get_bool("mem_below_net") { "1" } else { "0" };
+        let cpu_bottom = if self.get_bool("cpu_bottom") {
+            "1"
+        } else {
+            "0"
+        };
+        let mem_below_net = if self.get_bool("mem_below_net") {
+            "1"
+        } else {
+            "0"
+        };
         let proc_left = if self.get_bool("proc_left") { "1" } else { "0" };
 
         let mut parts = Vec::new();
@@ -349,7 +363,9 @@ impl Config {
         if custom_idx >= custom.len() {
             return false;
         }
-        let remaining: Vec<&str> = custom.iter().enumerate()
+        let remaining: Vec<&str> = custom
+            .iter()
+            .enumerate()
             .filter(|(i, _)| *i != custom_idx)
             .map(|(_, s)| *s)
             .collect();
@@ -391,8 +407,7 @@ impl Config {
     /// Toggle a box's visibility in shown_boxes.
     pub fn toggle_box(&mut self, box_name: &str) -> bool {
         let valid = [
-            "cpu", "mem", "net", "proc", "disk",
-            "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
+            "cpu", "mem", "net", "proc", "disk", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
         ];
         if !valid.contains(&box_name) {
             return false;
@@ -577,7 +592,10 @@ mod tests {
     #[test]
     fn preset_list_with_custom_presets() {
         let mut config = Config::new();
-        config.set_string("presets", "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default");
+        config.set_string(
+            "presets",
+            "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default",
+        );
         let list = config.preset_list();
         assert_eq!(list.len(), 3); // 1 hardcoded + 2 custom
     }
@@ -629,7 +647,10 @@ mod tests {
     #[test]
     fn delete_preset_removes_custom() {
         let mut config = Config::new();
-        config.set_string("presets", "cpu:0:default,proc:0:default mem:0:default,net:0:default");
+        config.set_string(
+            "presets",
+            "cpu:0:default,proc:0:default mem:0:default,net:0:default",
+        );
         let before = config.preset_list().len();
         assert!(config.delete_preset(1));
         let after = config.preset_list().len();

@@ -18,9 +18,12 @@ pub struct NetInfo {
 impl Default for NetInfo {
     fn default() -> Self {
         Self {
-            bandwidth: [("download".into(), VecDeque::new()), ("upload".into(), VecDeque::new())]
-                .into_iter()
-                .collect(),
+            bandwidth: [
+                ("download".into(), VecDeque::new()),
+                ("upload".into(), VecDeque::new()),
+            ]
+            .into_iter()
+            .collect(),
             stat: [
                 ("download".into(), NetStat::default()),
                 ("upload".into(), NetStat::default()),

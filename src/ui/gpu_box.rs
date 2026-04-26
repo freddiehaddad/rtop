@@ -46,12 +46,20 @@ pub fn draw(
 
     let title = format!("gpu{index}");
     let num = 5u8;
-    let mut out =
-        box_drawing::create_box(&box_drawing::BoxConfig {
-            x, y, width, height, line_color: box_color, fill: true,
-            title: &title, title2: "", num, rounded,
-            hi_color: hi, title_color,
-        });
+    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+        x,
+        y,
+        width,
+        height,
+        line_color: box_color,
+        fill: true,
+        title: &title,
+        title2: "",
+        num,
+        rounded,
+        hi_color: hi,
+        title_color,
+    });
 
     let inner_w = width.saturating_sub(2);
     if inner_w < 10 || height < 3 {
@@ -70,7 +78,8 @@ pub fn draw(
             term::mv(name_x, y + 1),
             box_color,
             box_drawing::title_syms::TITLE_LEFT,
-            title_color, name_trunc,
+            title_color,
+            name_trunc,
             box_color,
             box_drawing::title_syms::TITLE_RIGHT,
         ));
@@ -106,11 +115,7 @@ pub fn draw(
         ));
 
         // Row 2: VRAM usage meter + VRAM total + clock speed
-        let vram_pct = gpu
-            .mem_utilization_percent
-            .back()
-            .copied()
-            .unwrap_or(0);
+        let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0);
         let vram_used = fmt_bytes(gpu.mem_used);
         let vram_total = fmt_bytes(gpu.mem_total);
         let clock = gpu.gpu_clock_speed;

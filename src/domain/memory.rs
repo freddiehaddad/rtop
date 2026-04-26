@@ -23,11 +23,13 @@ impl Default for MemInfo {
         ];
         Self {
             stats: keys.iter().map(|k| (k.to_string(), 0u64)).collect(),
-            percent: keys.iter().map(|k| (k.to_string(), VecDeque::new())).collect(),
+            percent: keys
+                .iter()
+                .map(|k| (k.to_string(), VecDeque::new()))
+                .collect(),
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
