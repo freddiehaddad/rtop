@@ -81,6 +81,19 @@ fn main() {
     // Init runner (collectors)
     let mut runner = runner::Runner::new();
 
+    // Auto-add detected GPU boxes to shown_boxes if not already present
+    if runner.gpu.gpu_count() > 0 {
+        let shown = config.get_string("shown_boxes").to_string();
+        let mut boxes: Vec<String> = shown.split_whitespace().map(|s| s.to_string()).collect();
+        for i in 0..runner.gpu.gpu_count() {
+            let name = format!("gpu{i}");
+            if !boxes.iter().any(|b| b == &name) {
+                boxes.push(name);
+            }
+        }
+        config.set_string("shown_boxes", &boxes.join(" "));
+    }
+
     let mut rounded = config.get_bool("rounded_corners");
     let mut update_ms = config.get_int("update_ms") as u64;
 
@@ -159,6 +172,7 @@ fn main() {
                 config.get_bool("mem_below_net"),
                 config.get_bool("proc_left"),
                 runner.cpu.info.core_count,
+                runner.gpu.gpu_count(),
             );
 
             // Build output
@@ -177,6 +191,20 @@ fn main() {
                     rounded,
                     &theme,
                 ));
+            }
+            for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
+                if gi < runner.gpu.gpus.len() {
+                    output.push_str(&ui::gpu_box::draw(
+                        &runner.gpu.gpus[gi],
+                        gi,
+                        gpu_dim.x,
+                        gpu_dim.y,
+                        gpu_dim.width,
+                        gpu_dim.height,
+                        rounded,
+                        &theme,
+                    ));
+                }
             }
             if let Some(ref mem_dim) = layout.mem {
                 output.push_str(&ui::mem_box::draw(
@@ -598,6 +626,13 @@ fn main() {
                         }
                         "4" => {
                             config.toggle_box("proc");
+                            needs_full_redraw = true;
+                        }
+                        "5" => {
+                            // Toggle all detected GPU boxes
+                            for i in 0..runner.gpu.gpu_count() {
+                                config.toggle_box(&format!("gpu{i}"));
+                            }
                             needs_full_redraw = true;
                         }
                         "d" => {

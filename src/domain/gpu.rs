@@ -1,7 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
 /// GPU monitoring data for a single GPU device.
-#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
     /// GPU device name (e.g. "NVIDIA RTX 4090").
@@ -41,7 +40,6 @@ pub struct GpuInfo {
 }
 
 /// Flags indicating which GPU metrics are available for this device.
-#[cfg(feature = "gpu")]
 #[derive(Debug, Clone)]
 pub struct GpuSupported {
     pub gpu_utilization: bool,
@@ -58,7 +56,6 @@ pub struct GpuSupported {
     pub decoder_utilization: bool,
 }
 
-#[cfg(feature = "gpu")]
 impl Default for GpuSupported {
     fn default() -> Self {
         Self {
@@ -78,7 +75,6 @@ impl Default for GpuSupported {
     }
 }
 
-#[cfg(feature = "gpu")]
 impl Default for GpuInfo {
     fn default() -> Self {
         Self {
@@ -109,7 +105,7 @@ impl Default for GpuInfo {
     }
 }
 
-#[cfg(all(test, feature = "gpu"))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
