@@ -216,14 +216,16 @@ pub fn draw_with_sort(
     let tree_star = if tree_mode { "*" } else { "" };
 
     // Sort selector on top border, right-aligned: ┐← sorting →┌
+    // btop line 1908: title_left + ← + " " + sorting + " " + → + title_right
     let sort_inset = format!(
-        "{}{}{}← {}{}{}  →{}{}",
+        "{}{}{}← {}{} {}→{}{}",
         box_color, title_syms::TITLE_LEFT,
         hi, title_color, sort_name, hi,
         box_color, title_syms::TITLE_RIGHT,
     );
-    let sort_vis_len = sort_name.len() + 6;
-    let sort_x = x + width.saturating_sub(sort_vis_len + 3);
+    // btop line 1884: sort_pos = x + width - sort_len - 8
+    let sort_vis_len = sort_name.len() + 6; // "← " + name + " →"
+    let sort_x = x + width.saturating_sub(sort_vis_len + 2); // +2 for inset chars
     out.push_str(&format!("\x1b[{};{}H{}", y + 1, sort_x, sort_inset));
 
     // Tree button: ┐tree┌
