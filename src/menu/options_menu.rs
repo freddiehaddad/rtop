@@ -603,11 +603,11 @@ pub fn draw(
     let mut out = String::with_capacity(4096);
 
     // Main box: create at (x, y+6) with height
-    out.push_str(&box_drawing::create_box(
-        x, y + 6, box_w, height, hi, true,
-        &format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW),
-        "", 0, true,
-    ));
+    let tab_title = format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW);
+    out.push_str(&box_drawing::create_box(&box_drawing::BoxConfig {
+        x, y: y + 6, width: box_w, height, line_color: hi, fill: true,
+        title: &tab_title, title2: "", num: 0, rounded: true,
+    }));
 
     // Horizontal divider at row y+8 with T-junctions
     let h_left = symbols::H_LINE.repeat(29);

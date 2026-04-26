@@ -8,7 +8,10 @@ pub fn draw(term_width: usize, term_height: usize) -> String {
     let x = (term_width.saturating_sub(w)) / 2;
     let y = (term_height.saturating_sub(h)) / 2;
 
-    let mut out = box_drawing::create_box(x, y, w, h, "", true, "help", "", 0, true);
+    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+        x, y, width: w, height: h, line_color: "", fill: true,
+        title: "help", title2: "", num: 0, rounded: true,
+    });
 
     let lines = [
         "─── Global ───────────────────────",

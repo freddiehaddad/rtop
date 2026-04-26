@@ -15,6 +15,8 @@ fn fmt_bytes(bytes: u64) -> String {
     }
 }
 
+use super::BoxArea;
+
 /// Draw the GPU box into an ANSI string.
 ///
 /// Layout (4 rows):
@@ -22,17 +24,17 @@ fn fmt_bytes(bytes: u64) -> String {
 /// │ GPU 78% ■■■■■■■■■■■■■■░░░░  🌡 65°C  ⚡ 320W / 450W  │
 /// │ VRAM 45% ■■■■■■■■░░░░░░░░░  10.8G / 24.0G  2520 MHz  │
 /// ╰──────────────────────────────────────────────────────╯
-#[allow(clippy::too_many_arguments)]
 pub fn draw(
     gpu: &GpuInfo,
     index: usize,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    rounded: bool,
+    area: &BoxArea,
     theme: &Theme,
 ) -> String {
+    let x = area.x;
+    let y = area.y;
+    let width = area.width;
+    let height = area.height;
+    let rounded = area.rounded;
     let box_color = theme.c("cpu_box");
     let fg = theme.c("main_fg");
     let meter_bg = theme.c("meter_bg");
@@ -41,7 +43,10 @@ pub fn draw(
     let title = format!("gpu{index}");
     let num = 5u8;
     let mut out =
-        box_drawing::create_box(x, y, width, height, box_color, true, &title, "", num, rounded);
+        box_drawing::create_box(&box_drawing::BoxConfig {
+            x, y, width, height, line_color: box_color, fill: true,
+            title: &title, title2: "", num, rounded,
+        });
 
     let inner_w = width.saturating_sub(2);
     if inner_w < 10 || height < 3 {

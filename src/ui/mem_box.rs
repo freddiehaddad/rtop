@@ -5,6 +5,8 @@ use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::tools;
 
+use super::BoxArea;
+
 /// Draw the memory box into an ANSI string matching btop's layout.
 ///
 /// Layout with disks:
@@ -19,13 +21,14 @@ use crate::tools;
 /// ╰────────────────────────────╯╰──────────────────────────╯
 pub fn draw(
     mem: &MemInfo,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    rounded: bool,
+    area: &BoxArea,
     theme: &Theme,
 ) -> String {
+    let x = area.x;
+    let y = area.y;
+    let width = area.width;
+    let height = area.height;
+    let rounded = area.rounded;
     let box_color = theme.c("mem_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
@@ -51,7 +54,10 @@ pub fn draw(
 
     // One full-width box with "mem" title (btop line 2453)
     let mut out =
-        box_drawing::create_box(x, y, width, height, box_color, true, "mem", "", 2, rounded);
+        box_drawing::create_box(&box_drawing::BoxConfig {
+            x, y, width, height, line_color: box_color, fill: true,
+            title: "mem", title2: "", num: 2, rounded,
+        });
 
     // "disks" title inset on the top border (btop line 2454)
     // Placed at divider+2 using title_left + "d" highlighted + "isks" + title_right

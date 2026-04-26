@@ -163,16 +163,16 @@ fn main() {
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .collect();
-            let layout = draw::layout::calc_sizes(
-                tw,
-                th,
-                &shown,
-                config.get_bool("cpu_bottom"),
-                config.get_bool("mem_below_net"),
-                config.get_bool("proc_left"),
-                runner.cpu.info.core_count,
-                runner.gpu.gpu_count(),
-            );
+            let layout = draw::layout::calc_sizes(&draw::layout::LayoutConfig {
+                term_width: tw,
+                term_height: th,
+                shown_boxes: &shown,
+                cpu_bottom: config.get_bool("cpu_bottom"),
+                mem_below_net: config.get_bool("mem_below_net"),
+                proc_left: config.get_bool("proc_left"),
+                core_count: runner.cpu.info.core_count,
+                gpu_count: runner.gpu.gpu_count(),
+            });
 
             // Build output
             let mut output = String::new();
@@ -180,38 +180,29 @@ fn main() {
             output.push_str("\x1b[2J");
 
             if let Some(ref cpu_dim) = layout.cpu {
+                let area = ui::BoxArea { x: cpu_dim.x, y: cpu_dim.y, width: cpu_dim.width, height: cpu_dim.height, rounded };
                 output.push_str(&ui::cpu_box::draw(
                     &runner.cpu.info,
-                    cpu_dim.x,
-                    cpu_dim.y,
-                    cpu_dim.width,
-                    cpu_dim.height,
-                    rounded,
+                    &area,
                     &theme,
                 ));
             }
             for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
                 if gi < runner.gpu.gpus.len() {
+                    let area = ui::BoxArea { x: gpu_dim.x, y: gpu_dim.y, width: gpu_dim.width, height: gpu_dim.height, rounded };
                     output.push_str(&ui::gpu_box::draw(
                         &runner.gpu.gpus[gi],
                         gi,
-                        gpu_dim.x,
-                        gpu_dim.y,
-                        gpu_dim.width,
-                        gpu_dim.height,
-                        rounded,
+                        &area,
                         &theme,
                     ));
                 }
             }
             if let Some(ref mem_dim) = layout.mem {
+                let area = ui::BoxArea { x: mem_dim.x, y: mem_dim.y, width: mem_dim.width, height: mem_dim.height, rounded };
                 output.push_str(&ui::mem_box::draw(
                     &runner.mem.info,
-                    mem_dim.x,
-                    mem_dim.y,
-                    mem_dim.width,
-                    mem_dim.height,
-                    rounded,
+                    &area,
                     &theme,
                 ));
             }
@@ -223,34 +214,24 @@ fn main() {
                     .get(iface)
                     .cloned()
                     .unwrap_or_default();
+                let area = ui::BoxArea { x: net_dim.x, y: net_dim.y, width: net_dim.width, height: net_dim.height, rounded };
                 output.push_str(&ui::net_box::draw(
                     &net_info,
                     iface,
-                    net_dim.x,
-                    net_dim.y,
-                    net_dim.width,
-                    net_dim.height,
-                    rounded,
+                    &area,
                     &theme,
                 ));
             }
             if let Some(ref proc_dim) = layout.proc_box {
                 clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                 let detailed_pid = config.get_int("detailed_pid") as u32;
+                let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
+                let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid };
                 output.push_str(&ui::proc_box::draw_with_sort(
                     &runner.proc_collector.procs,
-                    proc_dim.x,
-                    proc_dim.y,
-                    proc_dim.width,
-                    proc_dim.height,
-                    rounded,
-                    proc_start,
-                    proc_selected,
+                    &area,
+                    &view,
                     &theme,
-                    &sort_by,
-                    reversed,
-                    tree_mode,
-                    detailed_pid,
                 ));
             }
 
@@ -274,22 +255,15 @@ fn main() {
                 if let Some(ref proc_dim) = layout.proc_box {
                     clamp_proc_selection(&runner.proc_collector.procs, proc_dim.height, &mut proc_selected, &mut proc_start);
                     let detailed_pid = config.get_int("detailed_pid") as u32;
+                    let area = ui::BoxArea { x: proc_dim.x, y: proc_dim.y, width: proc_dim.width, height: proc_dim.height, rounded };
+                    let view = ui::ProcView { start: proc_start, selected: proc_selected, sort_by: &sort_by, sort_reversed: reversed, tree_mode, detailed_pid };
                     let mut output = String::new();
                     output.push_str(term::SYNC_START);
                     output.push_str(&ui::proc_box::draw_with_sort(
                         &runner.proc_collector.procs,
-                        proc_dim.x,
-                        proc_dim.y,
-                        proc_dim.width,
-                        proc_dim.height,
-                        rounded,
-                        proc_start,
-                        proc_selected,
+                        &area,
+                        &view,
                         &theme,
-                        &sort_by,
-                        reversed,
-                        tree_mode,
-                        detailed_pid,
                     ));
                     output.push_str(term::SYNC_END);
                     let _ = terminal.write_raw(&output);

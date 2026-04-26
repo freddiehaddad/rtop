@@ -26,18 +26,28 @@ pub const MIN_NET_WIDTH: usize = 20;
 pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 4;
 
+/// Configuration for layout calculation.
+pub struct LayoutConfig<'a> {
+    pub term_width: usize,
+    pub term_height: usize,
+    pub shown_boxes: &'a [String],
+    pub cpu_bottom: bool,
+    pub mem_below_net: bool,
+    pub proc_left: bool,
+    pub core_count: usize,
+    pub gpu_count: usize,
+}
+
 /// Calculate box sizes and positions based on terminal dimensions and config.
-#[allow(clippy::too_many_arguments)]
-pub fn calc_sizes(
-    term_width: usize,
-    term_height: usize,
-    shown_boxes: &[String],
-    cpu_bottom: bool,
-    mem_below_net: bool,
-    proc_left: bool,
-    core_count: usize,
-    gpu_count: usize,
-) -> Layout {
+pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
+    let term_width = cfg.term_width;
+    let term_height = cfg.term_height;
+    let shown_boxes = cfg.shown_boxes;
+    let cpu_bottom = cfg.cpu_bottom;
+    let mem_below_net = cfg.mem_below_net;
+    let proc_left = cfg.proc_left;
+    let core_count = cfg.core_count;
+    let gpu_count = cfg.gpu_count;
     let has_cpu = shown_boxes.iter().any(|b| b == "cpu");
     let has_mem = shown_boxes.iter().any(|b| b == "mem");
     let has_net = shown_boxes.iter().any(|b| b == "net");
@@ -184,9 +194,14 @@ mod tests {
         names.iter().map(|s| s.to_string()).collect()
     }
 
+    fn lc(tw: usize, th: usize, shown: &[String]) -> LayoutConfig<'_> {
+        LayoutConfig { term_width: tw, term_height: th, shown_boxes: shown, cpu_bottom: false, mem_below_net: false, proc_left: false, core_count: 4, gpu_count: 0 }
+    }
+
     #[test]
     fn calc_sizes_all_boxes_shown() {
-        let layout = calc_sizes(120, 40, &boxes(&["cpu", "mem", "net", "proc"]), false, false, false, 8, 0);
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { core_count: 8, ..lc(120, 40, &b) });
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_some());
         assert!(layout.net.is_some());
@@ -195,7 +210,8 @@ mod tests {
 
     #[test]
     fn calc_sizes_cpu_only() {
-        let layout = calc_sizes(80, 24, &boxes(&["cpu"]), false, false, false, 4, 0);
+        let b = boxes(&["cpu"]);
+        let layout = calc_sizes(&lc(80, 24, &b));
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_none());
         assert!(layout.net.is_none());
@@ -204,21 +220,24 @@ mod tests {
 
     #[test]
     fn calc_sizes_proc_only() {
-        let layout = calc_sizes(80, 24, &boxes(&["proc"]), false, false, false, 4, 0);
+        let b = boxes(&["proc"]);
+        let layout = calc_sizes(&lc(80, 24, &b));
         assert!(layout.proc_box.is_some());
         assert!(layout.cpu.is_none());
     }
 
     #[test]
     fn calc_sizes_cpu_bottom() {
-        let layout_top = calc_sizes(80, 40, &boxes(&["cpu", "mem"]), false, false, false, 4, 0);
-        let layout_bot = calc_sizes(80, 40, &boxes(&["cpu", "mem"]), true, false, false, 4, 0);
+        let b = boxes(&["cpu", "mem"]);
+        let layout_top = calc_sizes(&lc(80, 40, &b));
+        let layout_bot = calc_sizes(&LayoutConfig { cpu_bottom: true, ..lc(80, 40, &b) });
         assert!(layout_top.cpu.as_ref().unwrap().y < layout_bot.cpu.as_ref().unwrap().y);
     }
 
     #[test]
     fn calc_sizes_proc_left() {
-        let layout = calc_sizes(120, 40, &boxes(&["cpu", "mem", "net", "proc"]), false, false, true, 4, 0);
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { proc_left: true, ..lc(120, 40, &b) });
         let proc_x = layout.proc_box.as_ref().unwrap().x;
         let mem_x = layout.mem.as_ref().unwrap().x;
         assert!(proc_x < mem_x); // proc on left, mem on right
@@ -226,8 +245,9 @@ mod tests {
 
     #[test]
     fn calc_sizes_mem_below_net() {
-        let layout_above = calc_sizes(80, 40, &boxes(&["cpu", "mem", "net"]), false, false, false, 4, 0);
-        let layout_below = calc_sizes(80, 40, &boxes(&["cpu", "mem", "net"]), false, true, false, 4, 0);
+        let b = boxes(&["cpu", "mem", "net"]);
+        let layout_above = calc_sizes(&lc(80, 40, &b));
+        let layout_below = calc_sizes(&LayoutConfig { mem_below_net: true, ..lc(80, 40, &b) });
         assert!(
             layout_above.mem.as_ref().unwrap().y < layout_above.net.as_ref().unwrap().y
         );
@@ -238,14 +258,16 @@ mod tests {
 
     #[test]
     fn calc_sizes_minimum_terminal_size() {
-        let layout = calc_sizes(10, 5, &boxes(&["cpu", "mem", "net", "proc"]), false, false, false, 2, 0);
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { core_count: 2, ..lc(10, 5, &b) });
         // Should not panic, boxes may have 0-size or be missing
         let _ = layout;
     }
 
     #[test]
     fn calc_sizes_respects_minimum_dimensions() {
-        let layout = calc_sizes(200, 60, &boxes(&["cpu", "mem", "net", "proc"]), false, false, false, 16, 0);
+        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let layout = calc_sizes(&LayoutConfig { core_count: 16, ..lc(200, 60, &b) });
         if let Some(mem) = &layout.mem {
             assert!(mem.width >= MIN_MEM_WIDTH);
             assert!(mem.height >= MIN_MEM_HEIGHT);

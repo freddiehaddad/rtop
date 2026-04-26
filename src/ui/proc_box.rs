@@ -5,6 +5,8 @@ use crate::draw::box_drawing::title_syms;
 use crate::theme::Theme;
 use crate::tools;
 
+use super::{BoxArea, ProcView};
+
 /// Draw the process list box into an ANSI string matching btop's layout.
 ///
 /// Layout:
@@ -15,22 +17,23 @@ use crate::tools;
 /// │ ...                                      │
 /// ╰──────────────────────── 25/350 ──────────╯
 /// Draw the process list box with sort indicator on the active column.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_with_sort(
     procs: &[ProcInfo],
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    rounded: bool,
-    start: usize,
-    selected: usize,
+    area: &BoxArea,
+    view: &ProcView,
     theme: &Theme,
-    sort_by: &str,
-    sort_reversed: bool,
-    tree_mode: bool,
-    detailed_pid: u32,
 ) -> String {
+    let x = area.x;
+    let y = area.y;
+    let width = area.width;
+    let height = area.height;
+    let rounded = area.rounded;
+    let start = view.start;
+    let selected = view.selected;
+    let sort_by = view.sort_by;
+    let sort_reversed = view.sort_reversed;
+    let tree_mode = view.tree_mode;
+    let detailed_pid = view.detailed_pid;
     let box_color = theme.c("proc_box");
     let fg = theme.c("main_fg");
     let title_color = theme.c("title");
@@ -40,9 +43,10 @@ pub fn draw_with_sort(
     let inactive = theme.c("inactive_fg");
     let proc_grad = theme.g("process");
 
-    let mut out = box_drawing::create_box(
-        x, y, width, height, box_color, true, "proc", "", 4, rounded,
-    );
+    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+        x, y, width, height, line_color: box_color, fill: true,
+        title: "proc", title2: "", num: 4, rounded,
+    });
 
     let inner_w = width.saturating_sub(4);
     if inner_w == 0 || height < 3 {

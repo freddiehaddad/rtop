@@ -31,6 +31,20 @@ pub mod title_syms {
     pub const TITLE_RIGHT_DOWN: &str = "└";
 }
 
+/// Configuration for drawing a box frame.
+pub struct BoxConfig<'a> {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+    pub line_color: &'a str,
+    pub fill: bool,
+    pub title: &'a str,
+    pub title2: &'a str,
+    pub num: u8,
+    pub rounded: bool,
+}
+
 /// Create a box frame matching btop's createBox exactly.
 ///
 /// btop's algorithm:
@@ -38,24 +52,21 @@ pub mod title_syms {
 /// 2. Draw vertical lines (and optional fill) on middle rows
 /// 3. Draw corners on top of the horizontal lines
 /// 4. Draw title at (y, x+2) using title_left/title_right inset chars
-#[allow(clippy::too_many_arguments)]
-pub fn create_box(
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    line_color: &str,
-    fill: bool,
-    title: &str,
-    title2: &str,
-    num: u8,
-    rounded: bool,
-) -> String {
+pub fn create_box(cfg: &BoxConfig) -> String {
+    let x = cfg.x;
+    let y = cfg.y;
+    let width = cfg.width;
+    let height = cfg.height;
+    let fill = cfg.fill;
+    let title = cfg.title;
+    let title2 = cfg.title2;
+    let num = cfg.num;
+    let rounded = cfg.rounded;
     if width < 2 || height < 2 {
         return String::new();
     }
 
-    let color = if line_color.is_empty() { "" } else { line_color };
+    let color = if cfg.line_color.is_empty() { "" } else { cfg.line_color };
 
     let (tl, tr, bl, br) = if rounded {
         (
@@ -149,9 +160,13 @@ pub fn create_box(
 mod tests {
     use super::*;
 
+    fn cfg(x: usize, y: usize, w: usize, h: usize) -> BoxConfig<'static> {
+        BoxConfig { x, y, width: w, height: h, line_color: "", fill: false, title: "", title2: "", num: 0, rounded: false }
+    }
+
     #[test]
     fn create_box_minimal() {
-        let b = create_box(0, 0, 4, 3, "", false, "", "", 0, false);
+        let b = create_box(&cfg(0, 0, 4, 3));
         assert!(b.contains(symbols::LEFT_UP));
         assert!(b.contains(symbols::RIGHT_DOWN));
         assert!(b.contains(symbols::H_LINE));
@@ -160,33 +175,33 @@ mod tests {
 
     #[test]
     fn create_box_with_title() {
-        let b = create_box(0, 0, 20, 5, "", false, "cpu", "", 0, false);
+        let b = create_box(&BoxConfig { title: "cpu", ..cfg(0, 0, 20, 5) });
         assert!(b.contains("cpu"));
     }
 
     #[test]
     fn create_box_rounded_corners() {
-        let b = create_box(0, 0, 10, 5, "", false, "", "", 0, true);
+        let b = create_box(&BoxConfig { rounded: true, ..cfg(0, 0, 10, 5) });
         assert!(b.contains(symbols::ROUND_LEFT_UP));
         assert!(b.contains(symbols::ROUND_RIGHT_DOWN));
     }
 
     #[test]
     fn create_box_with_number() {
-        let b = create_box(0, 0, 20, 3, "", false, "test", "", 1, false);
+        let b = create_box(&BoxConfig { title: "test", num: 1, ..cfg(0, 0, 20, 3) });
         assert!(b.contains("¹"));
         assert!(b.contains("test"));
     }
 
     #[test]
     fn create_box_fill() {
-        let b = create_box(0, 0, 6, 4, "", true, "", "", 0, false);
+        let b = create_box(&BoxConfig { fill: true, ..cfg(0, 0, 6, 4) });
         // Fill should contain spaces between vertical lines
         assert!(b.contains("    ")); // 4 spaces (width-2)
     }
 
     #[test]
     fn create_box_too_small_returns_empty() {
-        assert_eq!(create_box(0, 0, 1, 1, "", false, "", "", 0, false), "");
+        assert_eq!(create_box(&cfg(0, 0, 1, 1)), "");
     }
 }

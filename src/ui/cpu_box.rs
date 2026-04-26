@@ -7,6 +7,8 @@ use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::tools;
 
+use super::BoxArea;
+
 /// Draw the CPU box into an ANSI string matching btop's layout.
 ///
 /// Layout:
@@ -18,16 +20,16 @@ use crate::tools;
 /// │ <lower graph inv>  │ C2 ⣿⣷⣤ 55% │
 /// │up 3d12:45          │ C3 ⣿⣷⣤ 22% │
 /// ╰────────────────────┴──────────────╯
-#[allow(clippy::too_many_arguments)]
 pub fn draw(
     cpu: &CpuInfo,
-    x: usize,
-    y: usize,
-    width: usize,
-    height: usize,
-    rounded: bool,
+    area: &BoxArea,
     theme: &Theme,
 ) -> String {
+    let x = area.x;
+    let y = area.y;
+    let width = area.width;
+    let height = area.height;
+    let rounded = area.rounded;
     let box_color = theme.c("cpu_box");
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
@@ -36,7 +38,10 @@ pub fn draw(
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
 
-    let mut out = box_drawing::create_box(x, y, width, height, box_color, true, "cpu", "", 1, rounded);
+    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+        x, y, width, height, line_color: box_color, fill: true,
+        title: "cpu", title2: "", num: 1, rounded,
+    });
 
     // Determine core panel width on the right side
     // Core panel shows: " C## ⣿⣷⣤⣠⣀ ###% " = ~20 chars minimum
