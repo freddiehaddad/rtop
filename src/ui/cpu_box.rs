@@ -144,7 +144,8 @@ pub fn draw(
                 let pct_str = format!("{}%", pct);
                 let pct_len = pct_str.len() + 1; // " ##%"
                 let meter_w = panel_inner_w.saturating_sub(label_len + pct_len).max(3);
-                let meter = Meter::new(meter_w);
+                let meter_bg = theme.c("meter_bg");
+                let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
                 let pct_color = if !cpu_gradient.is_empty() {
                     &cpu_gradient[pct.clamp(0, 100) as usize]
                 } else {

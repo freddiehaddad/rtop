@@ -79,7 +79,11 @@ pub fn draw(
     let meter_area = mem_w.saturating_sub(4); // 2 border + 2 padding
     let label_w = 6; // "Used  ", "Avail ", etc.
     let meter_w = meter_area.saturating_sub(label_w + 6).max(5); // 6 for value display
-    let meter = Meter::new(meter_w);
+    let meter_bg = theme.c("meter_bg");
+    let used_meter = Meter::new(meter_w, used_grad, meter_bg);
+    let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
+    let cached_meter = Meter::new(meter_w, cached_grad, meter_bg);
+    let free_meter = Meter::new(meter_w, free_grad, meter_bg);
     let mut row = 0;
 
     // Used
@@ -93,12 +97,11 @@ pub fn draw(
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Used  {}{}  {}{}",
+            "\x1b[{};{}H{}Used  {}  {}{}",
             y + 2 + row,
             x + 2,
             title_color,
-            used_color,
-            meter.render(used_pct),
+            used_meter.render(used_pct),
             used_color,
             used_str
         ));
@@ -116,12 +119,11 @@ pub fn draw(
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Avail {}{}  {}{}",
+            "\x1b[{};{}H{}Avail {}  {}{}",
             y + 2 + row,
             x + 2,
             title_color,
-            avail_color,
-            meter.render(avail_pct),
+            avail_meter.render(avail_pct),
             avail_color,
             avail_str
         ));
@@ -139,12 +141,11 @@ pub fn draw(
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
         out.push_str(&format!(
-            "\x1b[{};{}H{}Cache {}{}  {}{}",
+            "\x1b[{};{}H{}Cache {}  {}{}",
             y + 2 + row,
             x + 2,
             title_color,
-            cache_color,
-            meter.render(cached_pct),
+            cached_meter.render(cached_pct),
             cache_color,
             cached_str
         ));
@@ -162,12 +163,11 @@ pub fn draw(
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
     if row < inner_h {
         out.push_str(&format!(
-            "\x1b[{};{}H{}Free  {}{}  {}{}",
+            "\x1b[{};{}H{}Free  {}  {}{}",
             y + 2 + row,
             x + 2,
             title_color,
-            free_color,
-            meter.render(free_pct),
+            free_meter.render(free_pct),
             free_color,
             free_str
         ));
@@ -184,16 +184,14 @@ pub fn draw(
     let swap_total = *mem.stats.get("swap_total").unwrap_or(&0);
     if swap_total > 0 && row < inner_h {
         let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
-        let swap_color = gradient_color(used_grad, swap_pct as i64);
         let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
         out.push_str(&format!(
-            "\x1b[{};{}H{}Swap  {}{}  {}{}",
+            "\x1b[{};{}H{}Swap  {}  {}{}",
             y + 2 + row,
             x + 2,
             title_color,
-            swap_color,
-            meter.render(swap_pct),
-            swap_color,
+            used_meter.render(swap_pct),
+            fg,
             swap_str
         ));
         row += 1;
@@ -218,7 +216,7 @@ pub fn draw(
         let disk_x = x + mem_w + 1; // inside disk box
         let disk_inner_w = disk_w.saturating_sub(3);
         let disk_meter_w = disk_inner_w.saturating_sub(16).max(5);
-        let disk_meter = Meter::new(disk_meter_w);
+        let disk_meter = Meter::new(disk_meter_w, avail_grad, meter_bg);
         let mut drow = 0;
 
         for disk_name in &mem.disks_order {
@@ -251,13 +249,12 @@ pub fn draw(
                     break;
                 }
 
-                // Row 2: " ■■■■■░░░░ 233G / 465G"
+                // Row 2: " ■■■■■■■■░ 233G / 465G"
                 let usage_label = format!("{} / {}", du, dt);
                 out.push_str(&format!(
-                    "\x1b[{};{}H {} {} {}{}",
+                    "\x1b[{};{}H {} {}{}",
                     y + 2 + drow,
                     disk_x + 1,
-                    disk_color,
                     disk_meter.render(disk.used_percent),
                     fg,
                     usage_label,
