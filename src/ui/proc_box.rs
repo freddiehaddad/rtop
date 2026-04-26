@@ -296,16 +296,17 @@ pub fn draw_with_sort(
     );
     out.push_str(&format!("\x1b[{};{}H{}", bottom_y, x + 3, bottom_hints));
 
-    // Right side: process count
+    // Right side: process count with border inset chars
     let visible = procs.len().min(max_rows);
     let count_str = format!("{}/{}", visible, procs.len());
-    let count_x = x + width.saturating_sub(count_str.len() + 3);
+    let count_x = x + width.saturating_sub(count_str.len() + 4); // +4 for inset chars + padding
     out.push_str(&format!(
-        "\x1b[{};{}H{} {} ",
+        "\x1b[{};{}H{}{}{}{}{}{}",
         bottom_y,
         count_x,
-        fg,
-        count_str
+        box_color, title_syms::TITLE_LEFT_DOWN,
+        fg, count_str,
+        box_color, title_syms::TITLE_RIGHT_DOWN,
     ));
 
     out.push_str("\x1b[0m");
