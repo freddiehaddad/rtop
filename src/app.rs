@@ -338,7 +338,15 @@ pub fn run(
                     MenuState::Help => match key.as_str() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
-                            menu_state = MenuState::None;
+                            menu_state = MenuState::Main;
+                            let menu_out =
+                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         _ => {}
@@ -346,7 +354,15 @@ pub fn run(
                     MenuState::Options => match key.as_str() {
                         "q" => break,
                         "escape" | "backspace" => {
-                            menu_state = MenuState::None;
+                            menu_state = MenuState::Main;
+                            let menu_out =
+                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let _ = terminal.write_raw(&format!(
+                                "{}{}{}",
+                                term::SYNC_START,
+                                menu_out,
+                                term::SYNC_END
+                            ));
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "tab" => {
