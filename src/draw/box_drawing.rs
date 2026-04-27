@@ -201,6 +201,68 @@ pub fn create_box(cfg: &BoxConfig) -> String {
     out
 }
 
+/// Render a title inset on a border: ┐text┌ (top) or ┘text└ (bottom).
+/// Returns the ANSI string (no positioning — caller handles cursor).
+pub fn title_inset(text: &str, border_color: &str, text_color: &str, bottom: bool) -> String {
+    let (left, right) = if bottom {
+        (title_syms::TITLE_LEFT_DOWN, title_syms::TITLE_RIGHT_DOWN)
+    } else {
+        (title_syms::TITLE_LEFT, title_syms::TITLE_RIGHT)
+    };
+    format!(
+        "{}{}{}{}{}{}",
+        border_color, left, text_color, text, border_color, right
+    )
+}
+
+/// Render a keybind-style inset: ┘h┌ighlighted (bottom border).
+/// The first char of `text` is rendered in `hi_color`, rest in `text_color`.
+pub fn keybind_inset(
+    text: &str,
+    border_color: &str,
+    hi_color: &str,
+    text_color: &str,
+    bottom: bool,
+) -> String {
+    let (left, right) = if bottom {
+        (title_syms::TITLE_LEFT_DOWN, title_syms::TITLE_RIGHT_DOWN)
+    } else {
+        (title_syms::TITLE_LEFT, title_syms::TITLE_RIGHT)
+    };
+    let mut chars = text.chars();
+    let first = chars.next().unwrap_or(' ');
+    let rest: String = chars.collect();
+    format!(
+        "{}{}{}{}{}{}{}{}",
+        border_color, left, hi_color, first, text_color, rest, border_color, right
+    )
+}
+
+/// Render a full-width section divider: ├──┐Section┌──────────┤
+/// `width` is the total width between the box borders (not including them).
+pub fn section_divider(
+    section: &str,
+    width: usize,
+    border_color: &str,
+    text_color: &str,
+) -> String {
+    let title_vis = section.len() + 2; // inset chars
+    let left_dashes = 2;
+    let right_dashes = width.saturating_sub(left_dashes + title_vis);
+    format!(
+        "{}{}{}{}{}{}{}{}",
+        border_color,
+        symbols::DIV_LEFT,
+        symbols::H_LINE.repeat(left_dashes),
+        title_syms::TITLE_LEFT,
+        text_color,
+        section,
+        border_color,
+        title_syms::TITLE_RIGHT,
+    ) + &symbols::H_LINE.repeat(right_dashes)
+        + symbols::DIV_RIGHT
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +336,53 @@ mod tests {
     #[test]
     fn create_box_too_small_returns_empty() {
         assert_eq!(create_box(&cfg(0, 0, 1, 1)), "");
+    }
+
+    #[test]
+    fn title_inset_top_format() {
+        let s = title_inset("cpu", "\x1b[32m", "\x1b[37m", false);
+        assert!(s.contains("cpu"));
+        assert!(s.contains(title_syms::TITLE_LEFT));
+        assert!(s.contains(title_syms::TITLE_RIGHT));
+    }
+
+    #[test]
+    fn title_inset_bottom_format() {
+        let s = title_inset("mem", "\x1b[32m", "\x1b[37m", true);
+        assert!(s.contains("mem"));
+        assert!(s.contains(title_syms::TITLE_LEFT_DOWN));
+        assert!(s.contains(title_syms::TITLE_RIGHT_DOWN));
+    }
+
+    #[test]
+    fn keybind_inset_splits_first_char() {
+        let s = keybind_inset("menu", "\x1b[32m", "\x1b[31m", "\x1b[37m", true);
+        assert!(s.contains("m"));
+        assert!(s.contains("enu"));
+        assert!(s.contains(title_syms::TITLE_LEFT_DOWN));
+        assert!(s.contains(title_syms::TITLE_RIGHT_DOWN));
+    }
+
+    #[test]
+    fn keybind_inset_empty_text() {
+        let s = keybind_inset("", "\x1b[32m", "\x1b[31m", "\x1b[37m", false);
+        assert!(s.contains(title_syms::TITLE_LEFT));
+        assert!(s.contains(title_syms::TITLE_RIGHT));
+    }
+
+    #[test]
+    fn section_divider_format() {
+        let s = section_divider("Global", 56, "\x1b[34m", "\x1b[37m");
+        assert!(s.contains("Global"));
+        assert!(s.contains(symbols::DIV_LEFT));
+        assert!(s.contains(symbols::DIV_RIGHT));
+    }
+
+    #[test]
+    fn section_divider_has_dashes() {
+        let s = section_divider("Net", 40, "\x1b[34m", "\x1b[37m");
+        assert!(s.contains(symbols::H_LINE));
+        assert!(s.contains(title_syms::TITLE_LEFT));
+        assert!(s.contains(title_syms::TITLE_RIGHT));
     }
 }

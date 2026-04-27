@@ -1,7 +1,6 @@
 use crate::domain::cpu::{CpuInfo, get_cpu_series};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
-use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
 use crate::term;
@@ -200,15 +199,11 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
                 let dashes = avail.saturating_sub(hz_vis_len + 1);
                 let hz_x = b_x + 2;
                 out.push_str(&format!(
-                    "{}{}{}{}{}{}{}{}",
+                    "{}{}{}{}",
                     term::mv(hz_x, y + 1),
                     box_color,
                     symbols::H_LINE.repeat(dashes),
-                    title_syms::TITLE_LEFT,
-                    title_color,
-                    hz_str,
-                    box_color,
-                    title_syms::TITLE_RIGHT,
+                    box_drawing::title_inset(hz_str, box_color, title_color, false),
                 ));
             }
         }
@@ -521,29 +516,11 @@ fn draw_bottom_hints(
 
     let preset_label = format!("p{}reset *{}", fg, current_preset);
     let rate_label = format!("{}ms", update_ms);
-    let hints = format!(
-        "{}{}{}m{}enu{}{}{}{}{}{}{}{}{}{}{}─ {}{} {}+{}{}",
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        hi,
-        fg,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        hi,
-        preset_label,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        hi,
-        fg,
-        rate_label,
-        hi,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-    );
+    let menu_inset = box_drawing::keybind_inset("menu", box_color, hi, fg, true);
+    let preset_inset = box_drawing::title_inset(&preset_label, box_color, hi, true);
+    let rate_text = format!("─ {}{} {}+", fg, rate_label, hi);
+    let rate_inset = box_drawing::title_inset(&rate_text, box_color, hi, true);
+    let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
     format!("{}{}", term::mv(x + 3, bottom_y), hints)
 }
 

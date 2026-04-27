@@ -1,4 +1,4 @@
-use crate::draw::box_drawing::{self, symbols, title_syms};
+use crate::draw::box_drawing;
 use crate::term;
 use crate::theme::Theme;
 use crate::tools;
@@ -215,24 +215,10 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
                 break;
             }
             current_section = kb.section;
-            // Visible chars in title portion: "┐Section┌" = 1 + name + 1 = name + 2
-            let title_vis = kb.section.len() + 2;
-            let left_dashes = 2;
-            let right_dashes = divider_w.saturating_sub(left_dashes + title_vis);
-            out.push_str(&format!(
-                "{}{}{}{}{}{}{}{}{}",
-                term::mv(x + 1, y + 2 + row),
-                help_c,
-                symbols::DIV_LEFT,
-                symbols::H_LINE.repeat(left_dashes),
-                title_syms::TITLE_LEFT,
-                title_c,
-                kb.section,
-                help_c,
-                title_syms::TITLE_RIGHT,
+            out.push_str(&term::mv(x + 1, y + 2 + row));
+            out.push_str(&box_drawing::section_divider(
+                kb.section, divider_w, help_c, title_c,
             ));
-            out.push_str(&symbols::H_LINE.repeat(right_dashes));
-            out.push_str(symbols::DIV_RIGHT);
             row += 1;
         }
         if row >= max_lines {

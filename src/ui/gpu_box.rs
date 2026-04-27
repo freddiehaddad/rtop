@@ -79,14 +79,9 @@ pub fn draw(
     if !name_trunc.is_empty() {
         let name_x = x + title.len() + 6;
         out.push_str(&format!(
-            "{}{}{}{}{}{}{}",
+            "{}{}",
             term::mv(name_x, y + 1),
-            box_color,
-            box_drawing::title_syms::TITLE_LEFT,
-            title_color,
-            name_trunc,
-            box_color,
-            box_drawing::title_syms::TITLE_RIGHT,
+            box_drawing::title_inset(&name_trunc, box_color, title_color, false),
         ));
     }
 

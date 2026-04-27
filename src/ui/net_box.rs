@@ -1,6 +1,5 @@
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
-use crate::draw::box_drawing::title_syms;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::term;
 use crate::theme::Theme;
@@ -176,63 +175,30 @@ pub fn draw(
     let mut top_x = x + width - 1; // start from right corner
 
     // Interface selector: ┐←b Ethernet n→┌
-    let iface_inset = format!(
-        "{}{}{}←b {}{} {}n→{}{}",
-        box_color,
-        title_syms::TITLE_LEFT,
-        hi,
-        title_color,
-        iface_display,
-        hi,
-        box_color,
-        title_syms::TITLE_RIGHT,
-    );
+    let iface_text = format!("←b {}{} {}n→", title_color, iface_display, hi);
+    let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, false);
     // visible chars: "←b " + name + " n→" = 3 + name + 3 = 6 + name, plus 2 inset chars
     let iface_vis_len = 6 + iface_display.len();
     top_x = top_x.saturating_sub(iface_vis_len + 2);
     out.push_str(&format!("{}{}", term::mv(top_x, y + 1), iface_inset));
 
     // zero button: ┐zero┌
-    let zero_inset = format!(
-        "{}{}{}z{}ero{}{}",
-        box_color,
-        title_syms::TITLE_LEFT,
-        hi,
-        title_color,
-        box_color,
-        title_syms::TITLE_RIGHT,
-    );
+    let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
         out.push_str(&format!("{}{}", term::mv(top_x, y + 1), zero_inset));
     }
 
     // auto button: ┐auto┌
-    let auto_inset = format!(
-        "{}{}{}a{}uto{}{}",
-        box_color,
-        title_syms::TITLE_LEFT,
-        hi,
-        title_color,
-        box_color,
-        title_syms::TITLE_RIGHT,
-    );
+    let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
         out.push_str(&format!("{}{}", term::mv(top_x, y + 1), auto_inset));
     }
 
     // sync button: ┐sync┌
-    let sync_inset = format!(
-        "{}{}{}s{}y{}nc{}{}",
-        box_color,
-        title_syms::TITLE_LEFT,
-        title_color,
-        hi,
-        title_color,
-        box_color,
-        title_syms::TITLE_RIGHT,
-    );
+    let sync_text = format!("s{}y{}nc", hi, title_color);
+    let sync_inset = box_drawing::title_inset(&sync_text, box_color, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
         out.push_str(&format!("{}{}", term::mv(top_x, y + 1), sync_inset));

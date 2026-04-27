@@ -1,7 +1,6 @@
 use crate::domain::process::ProcInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
-use crate::draw::box_drawing::title_syms;
 use crate::term;
 use crate::theme::Theme;
 use crate::tools;
@@ -373,17 +372,8 @@ fn draw_top_border(
     let mut pos = x + width - sort_name.len() - 7;
 
     // Sort selector: ┐← sorting →┌
-    let sort_inset = format!(
-        "{}{}{}← {}{} {}→{}{}",
-        box_color,
-        title_syms::TITLE_LEFT,
-        hi,
-        title_color,
-        sort_name,
-        hi,
-        box_color,
-        title_syms::TITLE_RIGHT,
-    );
+    let sort_text = format!("← {}{} {}→", title_color, sort_name, hi);
+    let sort_inset = box_drawing::title_inset(&sort_text, box_color, hi, false);
     out.push_str(&format!("{}{}", term::mv(pos, y + 1), sort_inset));
 
     // Tree button: ┐tree┌  (visible: "tree" = 4 + star, plus 2 inset chars)
@@ -391,31 +381,15 @@ fn draw_top_border(
     let tree_len = tree_content.len();
     if pos > x + 12 + tree_len {
         pos -= tree_len + 2;
-        let tree_inset = format!(
-            "{}{}{}tre{}{}e{}{}",
-            box_color,
-            title_syms::TITLE_LEFT,
-            title_color,
-            tree_star,
-            hi,
-            box_color,
-            title_syms::TITLE_RIGHT,
-        );
+        let tree_text = format!("tre{}{}e", tree_star, hi);
+        let tree_inset = box_drawing::title_inset(&tree_text, box_color, title_color, false);
         out.push_str(&format!("{}{}", term::mv(pos, y + 1), tree_inset));
     }
 
     // Reverse button: ┐reverse┌  (visible: "reverse" = 7, plus 2 inset chars)
     if pos > x + 12 {
         pos -= 9; // 7 + 2
-        let rev_inset = format!(
-            "{}{}{}r{}everse{}{}",
-            box_color,
-            title_syms::TITLE_LEFT,
-            hi,
-            title_color,
-            box_color,
-            title_syms::TITLE_RIGHT,
-        );
+        let rev_inset = box_drawing::keybind_inset("reverse", box_color, hi, title_color, false);
         out.push_str(&format!("{}{}", term::mv(pos, y + 1), rev_inset));
     }
 
@@ -441,28 +415,12 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     let title_color = theme.c("title");
     let mut out = String::new();
 
-    let bottom_hints = format!(
-        "{}{}{}↑{} select {}↓{}{}{}{}{}info {}↵{}{}{}{}{}t{}erminate{}{}",
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        hi,
-        title_color,
-        hi,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        title_color,
-        hi,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        hi,
-        title_color,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
-    );
+    let select_text = format!("↑{} select {}↓", title_color, hi);
+    let select_inset = box_drawing::title_inset(&select_text, box_color, hi, true);
+    let info_text = format!("info {}↵", hi);
+    let info_inset = box_drawing::title_inset(&info_text, box_color, title_color, true);
+    let term_inset = box_drawing::keybind_inset("terminate", box_color, hi, title_color, true);
+    let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
     out.push_str(&format!(
         "{}{}",
         term::mv(p.x + 3, p.bottom_y),
@@ -472,28 +430,10 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     // Filter label — appended after the other elements
     let cursor = if p.filtering { "\x1b[4m \x1b[24m" } else { "" };
     let filter_label = if !p.filter.is_empty() || p.filtering {
-        format!(
-            "{}{}{}f{}ilter: {}{}{}{}{}",
-            box_color,
-            title_syms::TITLE_LEFT_DOWN,
-            hi,
-            title_color,
-            fg,
-            p.filter,
-            cursor,
-            box_color,
-            title_syms::TITLE_RIGHT_DOWN,
-        )
+        let filter_text = format!("filter: {}{}{}", fg, p.filter, cursor);
+        box_drawing::keybind_inset(&filter_text, box_color, hi, title_color, true)
     } else {
-        format!(
-            "{}{}{}f{}ilter{}{}",
-            box_color,
-            title_syms::TITLE_LEFT_DOWN,
-            hi,
-            title_color,
-            box_color,
-            title_syms::TITLE_RIGHT_DOWN,
-        )
+        box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
     };
     out.push_str(&filter_label);
 
@@ -501,14 +441,9 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     let count_str = format!("{}/{}", p.visible, p.total);
     let count_x = p.x + p.width.saturating_sub(count_str.len() + 3);
     out.push_str(&format!(
-        "{}{}{}{}{}{}{}",
+        "{}{}",
         term::mv(count_x, p.bottom_y),
-        box_color,
-        title_syms::TITLE_LEFT_DOWN,
-        fg,
-        count_str,
-        box_color,
-        title_syms::TITLE_RIGHT_DOWN,
+        box_drawing::title_inset(&count_str, box_color, fg, true),
     ));
 
     out
