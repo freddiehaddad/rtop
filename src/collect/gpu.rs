@@ -1,6 +1,8 @@
 use crate::domain::gpu::GpuInfo;
 use std::ffi::{c_char, c_void};
 
+use super::Collector;
+
 const MAX_HISTORY: usize = 300;
 const NVML_SUCCESS: u32 = 0;
 const NVML_TEMPERATURE_GPU: u32 = 0;
@@ -206,7 +208,7 @@ impl GpuCollector {
     }
 
     /// Collect current GPU metrics for all detected devices.
-    pub fn collect(&mut self) {
+    fn collect_impl(&mut self) {
         let Some(nvml) = &self.nvml else {
             return;
         };
@@ -309,6 +311,12 @@ impl GpuCollector {
 impl Default for GpuCollector {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Collector for GpuCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 

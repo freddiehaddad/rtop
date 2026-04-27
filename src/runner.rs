@@ -1,3 +1,4 @@
+use crate::collect::Collector;
 use crate::collect::cpu::CpuCollector;
 use crate::collect::disk::DiskCollector;
 use crate::collect::gpu::GpuCollector;
@@ -37,8 +38,8 @@ impl Runner {
         self.gpu.collect();
         self.mem.collect();
         self.net.collect();
-        let core_count = self.cpu.info.core_count;
-        self.proc_collector.collect(core_count);
+        self.proc_collector.set_core_count(self.cpu.info.core_count);
+        self.proc_collector.collect();
     }
 }
 

@@ -1,6 +1,8 @@
 use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
 use std::collections::HashMap;
 
+use super::Collector;
+
 /// Canonical sort options for the process list.
 /// Used by app.rs keybinds, options_menu.rs browsable values, and sort_procs().
 pub const SORT_OPTIONS: &[&str] = &[
@@ -60,6 +62,7 @@ pub struct ProcCollector {
     pub display_procs: Vec<ProcInfo>,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
+    core_count: usize,
 }
 
 impl Default for ProcCollector {
@@ -76,7 +79,13 @@ impl ProcCollector {
             display_procs: Vec::new(),
             prev_times: HashMap::new(),
             last_collect: std::time::Instant::now(),
+            core_count: 1,
         }
+    }
+
+    /// Set the core count used for CPU percentage calculation.
+    pub fn set_core_count(&mut self, count: usize) {
+        self.core_count = count;
     }
 
     /// Rebuild `display_procs` from raw `procs` by sorting, filtering, and
@@ -100,8 +109,7 @@ impl ProcCollector {
         }
     }
 
-    /// Collect process list.
-    pub fn collect(&mut self, core_count: usize) -> &Vec<ProcInfo> {
+    fn collect_impl(&mut self) {
         use windows::Win32::Foundation::*;
         use windows::Win32::System::Diagnostics::ToolHelp::*;
 
@@ -112,12 +120,13 @@ impl ProcCollector {
             .max(0.001);
         self.last_collect = now;
 
+        let core_count = self.core_count;
         let mut new_procs = Vec::new();
 
         unsafe {
             let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
                 Ok(h) => h,
-                Err(_) => return &self.procs,
+                Err(_) => return,
             };
 
             let mut entry = PROCESSENTRY32W {
@@ -178,7 +187,12 @@ impl ProcCollector {
         }
 
         self.procs = new_procs;
-        &self.procs
+    }
+}
+
+impl Collector for ProcCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 
@@ -786,7 +800,8 @@ mod tests {
     #[test]
     fn collect_returns_current_process() {
         let mut collector = ProcCollector::new();
-        collector.collect(1);
+        collector.set_core_count(1);
+        collector.collect();
         let current_pid = std::process::id();
         assert!(collector.procs.iter().any(|p| p.pid == current_pid));
     }

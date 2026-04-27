@@ -1,6 +1,8 @@
 use crate::domain::network::{NetInfo, NetStat};
 use std::collections::HashMap;
 
+use super::Collector;
+
 /// Network data collector using Windows IPHLPAPI.
 pub struct NetCollector {
     pub interfaces: Vec<String>,
@@ -26,8 +28,7 @@ impl NetCollector {
         }
     }
 
-    /// Collect network interface data.
-    pub fn collect(&mut self) -> &HashMap<String, NetInfo> {
+    fn collect_impl(&mut self) {
         use windows::Win32::NetworkManagement::IpHelper::*;
         use windows::Win32::Networking::WinSock::*;
 
@@ -43,7 +44,7 @@ impl NetCollector {
             let _ = GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size);
 
             if size == 0 {
-                return &self.current_net;
+                return;
             }
 
             let mut buffer = vec![0u8; size as usize];
@@ -57,7 +58,7 @@ impl NetCollector {
                 &mut size,
             ) != 0
             {
-                return &self.current_net;
+                return;
             }
 
             self.interfaces.clear();
@@ -185,8 +186,12 @@ impl NetCollector {
         if self.selected_iface.is_empty() && !self.interfaces.is_empty() {
             self.selected_iface = self.interfaces[0].clone();
         }
+    }
+}
 
-        &self.current_net
+impl Collector for NetCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 

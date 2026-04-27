@@ -1,6 +1,8 @@
 use crate::domain::cpu::CpuInfo;
 use std::collections::VecDeque;
 
+use super::Collector;
+
 /// Maximum number of data points to retain in history deques.
 const MAX_HISTORY: usize = 300;
 
@@ -71,8 +73,7 @@ impl CpuCollector {
         }
     }
 
-    /// Collect current CPU data.
-    pub fn collect(&mut self) -> &CpuInfo {
+    fn collect_impl(&mut self) {
         if !self.initialized {
             self.init();
         }
@@ -82,8 +83,6 @@ impl CpuCollector {
         self.collect_uptime();
         self.update_load_avg();
         self.collect_temperatures();
-
-        &self.info
     }
 
     fn collect_cpu_times(&mut self) {
@@ -506,6 +505,12 @@ impl CpuCollector {
         for (slot, &temp) in core_temps.iter().enumerate() {
             push_history(&mut self.info.temp[slot + 1], temp);
         }
+    }
+}
+
+impl Collector for CpuCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 

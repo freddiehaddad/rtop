@@ -1,6 +1,8 @@
 use crate::domain::memory::MemInfo;
 use std::collections::VecDeque;
 
+use super::Collector;
+
 const MAX_HISTORY: usize = 300;
 
 /// Memory data collector using Windows APIs.
@@ -22,10 +24,8 @@ impl MemCollector {
         }
     }
 
-    /// Collect current memory and swap data.
-    pub fn collect(&mut self) -> &MemInfo {
+    fn collect_impl(&mut self) {
         self.collect_memory();
-        &self.info
     }
 
     fn collect_memory(&mut self) {
@@ -85,6 +85,12 @@ impl MemCollector {
                 }
             }
         }
+    }
+}
+
+impl Collector for MemCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 

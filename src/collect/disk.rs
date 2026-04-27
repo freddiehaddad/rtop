@@ -1,5 +1,7 @@
 use crate::domain::disk::{DiskData, DiskInfo};
 
+use super::Collector;
+
 /// Disk data collector using Windows APIs.
 pub struct DiskCollector {
     /// Collected disk data.
@@ -20,8 +22,7 @@ impl DiskCollector {
         }
     }
 
-    /// Collect information for all fixed and removable drives.
-    pub fn collect(&mut self) -> &DiskData {
+    fn collect_impl(&mut self) {
         use windows::Win32::Storage::FileSystem::*;
         use windows::core::*;
 
@@ -32,7 +33,7 @@ impl DiskCollector {
             let mut buf = [0u16; 512];
             let len = GetLogicalDriveStringsW(Some(&mut buf));
             if len == 0 {
-                return &self.data;
+                return;
             }
 
             let drives_str = String::from_utf16_lossy(&buf[..len as usize]);
@@ -90,7 +91,12 @@ impl DiskCollector {
                 }
             }
         }
-        &self.data
+    }
+}
+
+impl Collector for DiskCollector {
+    fn collect(&mut self) {
+        self.collect_impl();
     }
 }
 
