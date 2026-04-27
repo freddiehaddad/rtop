@@ -91,12 +91,7 @@ pub fn draw(
     }
 
     // Row 1: GPU utilization meter + temperature + power
-    let gpu_pct = gpu
-        .gpu_percent
-        .get("gpu-totals")
-        .and_then(|v| v.back())
-        .copied()
-        .unwrap_or(0);
+    let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0);
     let temp = gpu.temp.back().copied().unwrap_or(0);
     let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, settings.temp_scale);
     let pwr_w = gpu.pwr_usage as f64 / 1000.0;

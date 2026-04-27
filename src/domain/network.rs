@@ -1,40 +1,32 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+
+/// Bandwidth history for download and upload.
+#[derive(Debug, Clone, Default)]
+pub struct NetBandwidth {
+    pub download: VecDeque<i64>,
+    pub upload: VecDeque<i64>,
+}
+
+/// Cumulative statistics for download and upload.
+#[derive(Debug, Clone, Default)]
+pub struct NetStatPair {
+    pub download: NetStat,
+    pub upload: NetStat,
+}
 
 /// Network interface statistics.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct NetInfo {
-    /// Bandwidth history. Keys: "download", "upload" (values in bytes/sec).
-    pub bandwidth: HashMap<String, VecDeque<i64>>,
-    /// Cumulative statistics. Keys: "download", "upload".
-    pub stat: HashMap<String, NetStat>,
+    /// Bandwidth history (values in bytes/sec).
+    pub bandwidth: NetBandwidth,
+    /// Cumulative statistics.
+    pub stat: NetStatPair,
     /// IPv4 address of the interface.
     pub ipv4: String,
     /// IPv6 address of the interface.
     pub ipv6: String,
     /// Whether the interface is connected/operational.
     pub connected: bool,
-}
-
-impl Default for NetInfo {
-    fn default() -> Self {
-        Self {
-            bandwidth: [
-                ("download".into(), VecDeque::new()),
-                ("upload".into(), VecDeque::new()),
-            ]
-            .into_iter()
-            .collect(),
-            stat: [
-                ("download".into(), NetStat::default()),
-                ("upload".into(), NetStat::default()),
-            ]
-            .into_iter()
-            .collect(),
-            ipv4: String::new(),
-            ipv6: String::new(),
-            connected: false,
-        }
-    }
 }
 
 /// Cumulative transfer statistics for one direction (download or upload).
@@ -67,11 +59,11 @@ mod tests {
     }
 
     #[test]
-    fn net_info_has_download_upload_keys() {
+    fn net_info_default_has_empty_bandwidth() {
         let info = NetInfo::default();
-        assert!(info.bandwidth.contains_key("download"));
-        assert!(info.bandwidth.contains_key("upload"));
-        assert!(info.stat.contains_key("download"));
-        assert!(info.stat.contains_key("upload"));
+        assert!(info.bandwidth.download.is_empty());
+        assert!(info.bandwidth.upload.is_empty());
+        assert_eq!(info.stat.download.speed, 0);
+        assert_eq!(info.stat.upload.speed, 0);
     }
 }

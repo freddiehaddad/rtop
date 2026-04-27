@@ -219,7 +219,7 @@ impl GpuCollector {
             let ret = unsafe { (nvml.device_get_utilization_rates)(device, &mut util) };
             if ret == NVML_SUCCESS {
                 let pct = util.gpu as i64;
-                let totals = gpu.gpu_percent.entry("gpu-totals".into()).or_default();
+                let totals = &mut gpu.gpu_percent.utilization;
                 totals.push_back(pct);
                 if totals.len() > MAX_HISTORY {
                     totals.pop_front();
@@ -252,7 +252,7 @@ impl GpuCollector {
                 } else {
                     0
                 };
-                let vram_hist = gpu.gpu_percent.entry("gpu-vram-totals".into()).or_default();
+                let vram_hist = &mut gpu.gpu_percent.vram;
                 vram_hist.push_back(vram_pct);
                 if vram_hist.len() > MAX_HISTORY {
                     vram_hist.pop_front();
@@ -273,7 +273,7 @@ impl GpuCollector {
                 } else {
                     0
                 };
-                let pwr_hist = gpu.gpu_percent.entry("gpu-pwr-totals".into()).or_default();
+                let pwr_hist = &mut gpu.gpu_percent.power;
                 pwr_hist.push_back(pwr_pct);
                 if pwr_hist.len() > MAX_HISTORY {
                     pwr_hist.pop_front();

@@ -1,4 +1,4 @@
-use crate::domain::cpu::CpuInfo;
+use crate::domain::cpu::{CpuInfo, get_cpu_series};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::box_drawing::title_syms;
@@ -216,7 +216,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
 
     // Upper graph (normal orientation)
     if upper_h > 0 && graph_width > 0 {
-        if let Some(data) = cpu.cpu_percent.get(upper_key) {
+        if let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key) {
             let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, true, 100, 0);
             graph.create(data);
             let rows = graph.render_rows_colored(data, cpu_gradient);
@@ -259,7 +259,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
 
     // Lower graph (inverted orientation)
     if lower_h > 0 && graph_width > 0 {
-        if let Some(data) = cpu.cpu_percent.get(lower_key) {
+        if let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key) {
             let lower_start_y = y + 2 + divider_row + 1;
             let mut graph = Graph::new(graph_width, lower_h, graph_sym, true, true, 100, 0);
             graph.create(data);
@@ -349,7 +349,8 @@ fn draw_core_panel(
 
     // Row 0 of core panel: CPU meter line (btop line 842)
     // "CPU " + meter + " ###%" [+ " " + temp_graph(5) + " ###°C"]
-    if let Some(total) = cpu.cpu_percent.get("total") {
+    {
+        let total = &cpu.cpu_percent.total;
         if let Some(&pct) = total.back() {
             let pct_color = if !cpu_gradient.is_empty() {
                 &cpu_gradient[pct.clamp(0, 100) as usize]

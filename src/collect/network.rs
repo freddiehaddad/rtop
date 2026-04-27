@@ -144,41 +144,35 @@ impl NetCollector {
                 entry.ipv6 = ipv6;
 
                 // Calculate speeds
-                let dl_stat = entry.stat.get("download").cloned().unwrap_or_default();
-                let ul_stat = entry.stat.get("upload").cloned().unwrap_or_default();
+                let dl_stat = entry.stat.download.clone();
+                let ul_stat = entry.stat.upload.clone();
 
                 let dl_speed = speed_from_delta(rx_bytes, dl_stat.last, elapsed);
                 let ul_speed = speed_from_delta(tx_bytes, ul_stat.last, elapsed);
 
-                entry.stat.insert(
-                    "download".into(),
-                    NetStat {
-                        speed: dl_speed,
-                        top: dl_stat.top.max(dl_speed),
-                        last: rx_bytes,
-                        offset: dl_stat.offset,
-                        rollover: dl_stat.rollover,
-                    },
-                );
+                entry.stat.download = NetStat {
+                    speed: dl_speed,
+                    top: dl_stat.top.max(dl_speed),
+                    last: rx_bytes,
+                    offset: dl_stat.offset,
+                    rollover: dl_stat.rollover,
+                };
 
-                entry.stat.insert(
-                    "upload".into(),
-                    NetStat {
-                        speed: ul_speed,
-                        top: ul_stat.top.max(ul_speed),
-                        last: tx_bytes,
-                        offset: ul_stat.offset,
-                        rollover: ul_stat.rollover,
-                    },
-                );
+                entry.stat.upload = NetStat {
+                    speed: ul_speed,
+                    top: ul_stat.top.max(ul_speed),
+                    last: tx_bytes,
+                    offset: ul_stat.offset,
+                    rollover: ul_stat.rollover,
+                };
 
-                let bw_dl = entry.bandwidth.entry("download".into()).or_default();
+                let bw_dl = &mut entry.bandwidth.download;
                 bw_dl.push_back(dl_speed as i64);
                 while bw_dl.len() > 300 {
                     bw_dl.pop_front();
                 }
 
-                let bw_ul = entry.bandwidth.entry("upload".into()).or_default();
+                let bw_ul = &mut entry.bandwidth.upload;
                 bw_ul.push_back(ul_speed as i64);
                 while bw_ul.len() > 300 {
                     bw_ul.pop_front();

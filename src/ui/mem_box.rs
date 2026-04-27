@@ -51,8 +51,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         title_color,
     });
 
-    let total_bytes =
-        mem.stats.get("used").unwrap_or(&0) + mem.stats.get("available").unwrap_or(&0);
+    let total_bytes = mem.stats.used + mem.stats.available;
     let meter_area = width.saturating_sub(4);
     let label_w = 6;
     let meter_w = meter_area.saturating_sub(label_w + 6).max(5);
@@ -64,7 +63,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let mut row = 0;
 
     // Used
-    let used = *mem.stats.get("used").unwrap_or(&0);
+    let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct as i64);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
@@ -81,7 +80,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     }
 
     // Available
-    let avail = *mem.stats.get("available").unwrap_or(&0);
+    let avail = mem.stats.available;
     let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
@@ -98,7 +97,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     }
 
     // Cached
-    let cached = *mem.stats.get("cached").unwrap_or(&0);
+    let cached = mem.stats.cached;
     if cached > 0 && row < inner_h {
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
@@ -115,7 +114,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     }
 
     // Free
-    let free = *mem.stats.get("free").unwrap_or(&0);
+    let free = mem.stats.free;
     let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let free_color = gradient_color(free_grad, free_pct as i64);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
@@ -138,8 +137,8 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         }
 
         // Swap
-        let swap_used = *mem.stats.get("swap_used").unwrap_or(&0);
-        let swap_total = *mem.stats.get("swap_total").unwrap_or(&0);
+        let swap_used = mem.stats.swap_used;
+        let swap_total = mem.stats.swap_total;
         if swap_total > 0 && row < inner_h {
             let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
             let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);

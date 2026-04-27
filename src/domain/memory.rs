@@ -1,34 +1,35 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
-/// System memory and swap usage information.
-#[derive(Debug, Clone)]
-pub struct MemInfo {
-    /// Memory statistics in bytes. Keys: "used", "available", "cached", "free",
-    /// "swap_total", "swap_used", "swap_free".
-    pub stats: HashMap<String, u64>,
-    /// Percentage histories for each memory category (0-100).
-    pub percent: HashMap<String, VecDeque<i64>>,
+/// Memory statistics in bytes.
+#[derive(Debug, Clone, Default)]
+pub struct MemStats {
+    pub used: u64,
+    pub available: u64,
+    pub cached: u64,
+    pub free: u64,
+    pub swap_total: u64,
+    pub swap_used: u64,
+    pub swap_free: u64,
 }
 
-impl Default for MemInfo {
-    fn default() -> Self {
-        let keys = [
-            "used",
-            "available",
-            "cached",
-            "free",
-            "swap_total",
-            "swap_used",
-            "swap_free",
-        ];
-        Self {
-            stats: keys.iter().map(|k| (k.to_string(), 0u64)).collect(),
-            percent: keys
-                .iter()
-                .map(|k| (k.to_string(), VecDeque::new()))
-                .collect(),
-        }
-    }
+/// Percentage histories for each memory category (0-100).
+#[derive(Debug, Clone, Default)]
+pub struct MemPercent {
+    pub used: VecDeque<i64>,
+    pub available: VecDeque<i64>,
+    pub cached: VecDeque<i64>,
+    pub free: VecDeque<i64>,
+    pub swap_used: VecDeque<i64>,
+    pub swap_free: VecDeque<i64>,
+}
+
+/// System memory and swap usage information.
+#[derive(Debug, Clone, Default)]
+pub struct MemInfo {
+    /// Memory statistics in bytes.
+    pub stats: MemStats,
+    /// Percentage histories for each memory category (0-100).
+    pub percent: MemPercent,
 }
 
 #[cfg(test)]
@@ -36,19 +37,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mem_info_contains_all_stat_keys() {
+    fn mem_info_default_has_zero_stats() {
         let mem = MemInfo::default();
-        for key in &[
-            "used",
-            "available",
-            "cached",
-            "free",
-            "swap_total",
-            "swap_used",
-            "swap_free",
-        ] {
-            assert!(mem.stats.contains_key(*key), "missing stat key: {key}");
-            assert!(mem.percent.contains_key(*key), "missing percent key: {key}");
-        }
+        assert_eq!(mem.stats.used, 0);
+        assert_eq!(mem.stats.available, 0);
+        assert_eq!(mem.stats.cached, 0);
+        assert_eq!(mem.stats.free, 0);
+        assert_eq!(mem.stats.swap_total, 0);
+        assert_eq!(mem.stats.swap_used, 0);
+        assert_eq!(mem.stats.swap_free, 0);
+    }
+
+    #[test]
+    fn mem_info_default_has_empty_percent() {
+        let mem = MemInfo::default();
+        assert!(mem.percent.used.is_empty());
+        assert!(mem.percent.available.is_empty());
+        assert!(mem.percent.cached.is_empty());
+        assert!(mem.percent.free.is_empty());
+        assert!(mem.percent.swap_used.is_empty());
+        assert!(mem.percent.swap_free.is_empty());
     }
 }

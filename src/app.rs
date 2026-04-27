@@ -756,22 +756,14 @@ pub fn run(
                         "z" => {
                             let iface = runner.net.selected_iface.clone();
                             if let Some(net_info) = runner.net.current_net.get_mut(&iface) {
-                                let dl = net_info.stat.get("download").cloned().unwrap_or_default();
-                                let ul = net_info.stat.get("upload").cloned().unwrap_or_default();
+                                let dl = net_info.stat.download.clone();
+                                let ul = net_info.stat.upload.clone();
                                 if dl.offset + ul.offset > 0 {
-                                    if let Some(d) = net_info.stat.get_mut("download") {
-                                        d.offset = 0;
-                                    }
-                                    if let Some(u) = net_info.stat.get_mut("upload") {
-                                        u.offset = 0;
-                                    }
+                                    net_info.stat.download.offset = 0;
+                                    net_info.stat.upload.offset = 0;
                                 } else {
-                                    if let Some(d) = net_info.stat.get_mut("download") {
-                                        d.offset = d.last + d.rollover;
-                                    }
-                                    if let Some(u) = net_info.stat.get_mut("upload") {
-                                        u.offset = u.last + u.rollover;
-                                    }
+                                    net_info.stat.download.offset = dl.last + dl.rollover;
+                                    net_info.stat.upload.offset = ul.last + ul.rollover;
                                 }
                                 dirty |= Dirty::NET_BOX;
                             }

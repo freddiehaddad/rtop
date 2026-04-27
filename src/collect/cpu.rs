@@ -141,26 +141,18 @@ impl CpuCollector {
                     let cpu_pct = ((total_delta - idle_delta) * 100)
                         .checked_div(total_delta)
                         .unwrap_or(0) as i64;
-                    if let Some(h) = self.info.cpu_percent.get_mut("total") {
-                        push_history(h, cpu_pct);
-                    }
+                    push_history(&mut self.info.cpu_percent.total, cpu_pct);
 
                     let user_pct = (user_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    if let Some(h) = self.info.cpu_percent.get_mut("user") {
-                        push_history(h, user_pct);
-                    }
+                    push_history(&mut self.info.cpu_percent.user, user_pct);
 
                     let system_pct = ((kernel_delta - idle_delta) * 100)
                         .checked_div(total_delta)
                         .unwrap_or(0) as i64;
-                    if let Some(h) = self.info.cpu_percent.get_mut("system") {
-                        push_history(h, system_pct.max(0));
-                    }
+                    push_history(&mut self.info.cpu_percent.system, system_pct.max(0));
 
                     let idle_pct = (idle_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
-                    if let Some(h) = self.info.cpu_percent.get_mut("idle") {
-                        push_history(h, idle_pct);
-                    }
+                    push_history(&mut self.info.cpu_percent.idle, idle_pct);
                 }
 
                 self.prev_idle[0] = idle_val;
@@ -379,33 +371,32 @@ impl CpuCollector {
     }
 
     fn update_load_avg(&mut self) {
-        if let Some(total) = self.info.cpu_percent.get("total") {
-            if let Some(&last) = total.back() {
-                let sample = last as f64 / 100.0;
-                self.load_avg_samples.push_back(sample);
-                if self.load_avg_samples.len() > 900 {
-                    self.load_avg_samples.pop_front();
-                }
-
-                // Compute rolling averages
-                let len = self.load_avg_samples.len();
-                let samples = self.load_avg_samples.make_contiguous();
-                let avg_fn = |window: usize| -> f64 {
-                    let start = len.saturating_sub(window);
-                    let slice = &samples[start..];
-                    if slice.is_empty() {
-                        0.0
-                    } else {
-                        slice.iter().sum::<f64>() / slice.len() as f64
-                    }
-                };
-
-                self.info.load_avg = [
-                    avg_fn(60),  // ~1 min (at 1 sample/sec)
-                    avg_fn(300), // ~5 min
-                    avg_fn(900), // ~15 min
-                ];
+        let total = &self.info.cpu_percent.total;
+        if let Some(&last) = total.back() {
+            let sample = last as f64 / 100.0;
+            self.load_avg_samples.push_back(sample);
+            if self.load_avg_samples.len() > 900 {
+                self.load_avg_samples.pop_front();
             }
+
+            // Compute rolling averages
+            let len = self.load_avg_samples.len();
+            let samples = self.load_avg_samples.make_contiguous();
+            let avg_fn = |window: usize| -> f64 {
+                let start = len.saturating_sub(window);
+                let slice = &samples[start..];
+                if slice.is_empty() {
+                    0.0
+                } else {
+                    slice.iter().sum::<f64>() / slice.len() as f64
+                }
+            };
+
+            self.info.load_avg = [
+                avg_fn(60),  // ~1 min (at 1 sample/sec)
+                avg_fn(300), // ~5 min
+                avg_fn(900), // ~15 min
+            ];
         }
     }
 

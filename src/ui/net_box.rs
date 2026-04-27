@@ -76,24 +76,16 @@ pub fn draw(
     // Using the full history would cause old peaks to flatten new data.
     let visible = graph_width;
     let dl_max_raw = if net_auto {
-        net.bandwidth
-            .get("download")
-            .map(|bw| {
-                let start = bw.len().saturating_sub(visible);
-                bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
-            })
-            .unwrap_or(1)
+        let bw = &net.bandwidth.download;
+        let start = bw.len().saturating_sub(visible);
+        bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
     } else {
         (settings.max_download * 1024).max(1)
     };
     let ul_max_raw = if net_auto {
-        net.bandwidth
-            .get("upload")
-            .map(|bw| {
-                let start = bw.len().saturating_sub(visible);
-                bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
-            })
-            .unwrap_or(1)
+        let bw = &net.bandwidth.upload;
+        let start = bw.len().saturating_sub(visible);
+        bw.iter().skip(start).copied().max().unwrap_or(1).max(1)
     } else {
         (settings.max_upload * 1024).max(1)
     };
@@ -109,7 +101,8 @@ pub fn draw(
     let ul_rows = inner_h - dl_rows;
 
     // Download graph (normal orientation, top half)
-    if let Some(dl_bw) = net.bandwidth.get("download") {
+    {
+        let dl_bw = &net.bandwidth.download;
         if dl_rows > 0 {
             let mut graph = Graph::new(graph_width, dl_rows, graph_sym, false, true, 0, 0);
             graph.max_value = dl_max;
@@ -122,7 +115,8 @@ pub fn draw(
     }
 
     // Download speed label overlaid at top-right: "▼ 1.2M/s"
-    if let Some(dl) = net.stat.get("download") {
+    {
+        let dl = &net.stat.download;
         let speed = tools::floating_humanizer(dl.speed, true, 0, false, true, false);
         let dl_color = if !dl_grad.is_empty() {
             let idx = if dl.top > 0 {
@@ -140,7 +134,8 @@ pub fn draw(
     }
 
     // Upload graph (inverted orientation, bottom half)
-    if let Some(ul_bw) = net.bandwidth.get("upload") {
+    {
+        let ul_bw = &net.bandwidth.upload;
         if ul_rows > 0 {
             let ul_start_y = y + 2 + dl_rows;
             let mut graph = Graph::new(graph_width, ul_rows, graph_sym, true, true, 0, 0);
@@ -154,7 +149,8 @@ pub fn draw(
     }
 
     // Upload speed label overlaid at bottom-right: "▲ 0.5M/s"
-    if let Some(ul) = net.stat.get("upload") {
+    {
+        let ul = &net.stat.upload;
         let speed = tools::floating_humanizer(ul.speed, true, 0, false, true, false);
         let ul_color = if !ul_grad.is_empty() {
             let idx = if ul.top > 0 {

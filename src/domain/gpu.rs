@@ -1,12 +1,20 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
+
+/// GPU usage percentage histories.
+#[derive(Debug, Clone, Default)]
+pub struct GpuPercent {
+    pub utilization: VecDeque<i64>,
+    pub vram: VecDeque<i64>,
+    pub power: VecDeque<i64>,
+}
 
 /// GPU monitoring data for a single GPU device.
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
     /// GPU device name (e.g. "NVIDIA RTX 4090").
     pub name: String,
-    /// Usage histories. Keys: "gpu-totals", "gpu-vram-totals", "gpu-pwr-totals".
-    pub gpu_percent: HashMap<String, VecDeque<i64>>,
+    /// Usage histories.
+    pub gpu_percent: GpuPercent,
     /// GPU core clock speed in MHz.
     pub gpu_clock_speed: u32,
     /// Current power draw in milliwatts.
@@ -27,13 +35,7 @@ impl Default for GpuInfo {
     fn default() -> Self {
         Self {
             name: String::new(),
-            gpu_percent: [
-                ("gpu-totals".into(), VecDeque::new()),
-                ("gpu-vram-totals".into(), VecDeque::new()),
-                ("gpu-pwr-totals".into(), VecDeque::new()),
-            ]
-            .into_iter()
-            .collect(),
+            gpu_percent: GpuPercent::default(),
             gpu_clock_speed: 0,
             pwr_usage: 0,
             pwr_max_usage: 255_000,
@@ -50,10 +52,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gpu_info_default_has_correct_keys() {
+    fn gpu_info_default_has_empty_percent() {
         let gpu = GpuInfo::default();
-        assert!(gpu.gpu_percent.contains_key("gpu-totals"));
-        assert!(gpu.gpu_percent.contains_key("gpu-vram-totals"));
-        assert!(gpu.gpu_percent.contains_key("gpu-pwr-totals"));
+        assert!(gpu.gpu_percent.utilization.is_empty());
+        assert!(gpu.gpu_percent.vram.is_empty());
+        assert!(gpu.gpu_percent.power.is_empty());
     }
 }

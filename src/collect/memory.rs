@@ -42,28 +42,28 @@ impl MemCollector {
                 let available = mem_status.ullAvailPhys;
                 let used = total - available;
 
-                self.info.stats.insert("used".into(), used);
-                self.info.stats.insert("available".into(), available);
-                self.info.stats.insert("free".into(), available);
+                self.info.stats.used = used;
+                self.info.stats.available = available;
+                self.info.stats.free = available;
 
                 // Swap = Page file - Physical memory
                 let swap_total = mem_status.ullTotalPageFile.saturating_sub(total);
                 let swap_avail = mem_status.ullAvailPageFile.saturating_sub(available);
                 let swap_used = swap_total.saturating_sub(swap_avail);
 
-                self.info.stats.insert("swap_total".into(), swap_total);
-                self.info.stats.insert("swap_used".into(), swap_used);
-                self.info.stats.insert("swap_free".into(), swap_avail);
+                self.info.stats.swap_total = swap_total;
+                self.info.stats.swap_used = swap_used;
+                self.info.stats.swap_free = swap_avail;
 
                 // Percentages
                 if total > 0 {
-                    push_pct(&mut self.info.percent, "used", used, total);
-                    push_pct(&mut self.info.percent, "available", available, total);
-                    push_pct(&mut self.info.percent, "free", available, total);
+                    push_pct(&mut self.info.percent.used, used, total);
+                    push_pct(&mut self.info.percent.available, available, total);
+                    push_pct(&mut self.info.percent.free, available, total);
                 }
                 if swap_total > 0 {
-                    push_pct(&mut self.info.percent, "swap_used", swap_used, swap_total);
-                    push_pct(&mut self.info.percent, "swap_free", swap_avail, swap_total);
+                    push_pct(&mut self.info.percent.swap_used, swap_used, swap_total);
+                    push_pct(&mut self.info.percent.swap_free, swap_avail, swap_total);
                 }
             }
         }
@@ -78,25 +78,18 @@ impl MemCollector {
         unsafe {
             if GetPerformanceInfo(&mut perf, perf.cb).is_ok() {
                 let cached = perf.SystemCache as u64 * perf.PageSize as u64;
-                self.info.stats.insert("cached".into(), cached);
-                let total = *self.info.stats.get("used").unwrap_or(&0)
-                    + *self.info.stats.get("available").unwrap_or(&0);
+                self.info.stats.cached = cached;
+                let total = self.info.stats.used + self.info.stats.available;
                 if total > 0 {
-                    push_pct(&mut self.info.percent, "cached", cached, total);
+                    push_pct(&mut self.info.percent.cached, cached, total);
                 }
             }
         }
     }
 }
 
-fn push_pct(
-    map: &mut std::collections::HashMap<String, VecDeque<i64>>,
-    key: &str,
-    value: u64,
-    total: u64,
-) {
+fn push_pct(deque: &mut VecDeque<i64>, value: u64, total: u64) {
     let pct = (value * 100 / total.max(1)) as i64;
-    let deque = map.entry(key.to_string()).or_default();
     deque.push_back(pct);
     while deque.len() > MAX_HISTORY {
         deque.pop_front();
@@ -145,6 +138,6 @@ mod tests {
     fn collect_returns_valid_mem_info() {
         let mut collector = MemCollector::new();
         collector.collect();
-        assert!(*collector.info.stats.get("used").unwrap() > 0);
+        assert!(collector.info.stats.used > 0);
     }
 }
