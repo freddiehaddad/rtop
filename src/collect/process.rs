@@ -98,14 +98,19 @@ impl ProcCollector {
         tree_mode: bool,
     ) {
         self.display_procs = self.procs.clone();
-        sort_procs(&mut self.display_procs, sort_by, reversed);
         let parsed = ParsedFilter::parse(filter);
         if !filter.is_empty() {
             self.display_procs.retain(|p| parsed.matches(p));
         }
         if tree_mode {
+            // In tree mode: sort children within each parent by the selected column,
+            // build tree structure, then flatten by tree_index for display order.
+            sort_procs(&mut self.display_procs, sort_by, reversed);
             let children = build_tree(&self.display_procs);
             generate_tree_prefixes(&mut self.display_procs, &children);
+            self.display_procs.sort_by_key(|p| p.tree_index);
+        } else {
+            sort_procs(&mut self.display_procs, sort_by, reversed);
         }
     }
 
