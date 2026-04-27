@@ -241,3 +241,116 @@ pub fn draw(
     out.push_str("\x1b[0m");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::network::{NetBandwidth, NetStatPair, NetStat};
+    use std::collections::VecDeque;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if in_escape {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_escape = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            result.push(ch);
+        }
+        result
+    }
+
+    fn make_net_info() -> NetInfo {
+        NetInfo {
+            bandwidth: NetBandwidth {
+                download: VecDeque::from([1024, 2048, 4096]),
+                upload: VecDeque::from([512, 1024, 2048]),
+            },
+            stat: NetStatPair {
+                download: NetStat {
+                    speed: 4096,
+                    top: 8192,
+                    ..NetStat::default()
+                },
+                upload: NetStat {
+                    speed: 2048,
+                    top: 4096,
+                    ..NetStat::default()
+                },
+            },
+            ipv4: "192.168.1.100".into(),
+            ipv6: String::new(),
+            connected: true,
+        }
+    }
+
+    fn make_area() -> BoxArea {
+        BoxArea {
+            x: 1,
+            y: 1,
+            width: 60,
+            height: 14,
+            rounded: true,
+        }
+    }
+
+    fn make_settings() -> NetBoxSettings {
+        NetBoxSettings {
+            auto_scale: true,
+            sync_scale: false,
+            max_download: 100,
+            max_upload: 100,
+            graph_symbol: GraphSymbol::Braille,
+        }
+    }
+
+    #[test]
+    fn draw_contains_net_title() {
+        let output = draw(
+            &make_net_info(),
+            "Ethernet",
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("net"), "output should contain 'net' title");
+    }
+
+    #[test]
+    fn draw_contains_interface_name() {
+        let output = draw(
+            &make_net_info(),
+            "Ethernet",
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("Ethernet"),
+            "output should contain interface name 'Ethernet'"
+        );
+    }
+
+    #[test]
+    fn draw_contains_direction_indicators() {
+        let output = draw(
+            &make_net_info(),
+            "Ethernet",
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(plain.contains('▼'), "output should contain download indicator '▼'");
+        assert!(plain.contains('▲'), "output should contain upload indicator '▲'");
+    }
+}

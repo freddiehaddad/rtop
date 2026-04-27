@@ -95,3 +95,91 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
     out.push_str("\x1b[0m");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::disk::DiskInfo;
+    use std::collections::HashMap;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if in_escape {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_escape = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            result.push(ch);
+        }
+        result
+    }
+
+    const GIB: u64 = 1024 * 1024 * 1024;
+
+    fn make_disk_data() -> DiskData {
+        let mut disks = HashMap::new();
+        disks.insert(
+            "C:".into(),
+            DiskInfo {
+                name: "C:".into(),
+                fstype: "NTFS".into(),
+                total: 500 * GIB,
+                used: 250 * GIB,
+                used_percent: 50,
+            },
+        );
+        disks.insert(
+            "D:".into(),
+            DiskInfo {
+                name: "D:".into(),
+                fstype: "NTFS".into(),
+                total: 1000 * GIB,
+                used: 300 * GIB,
+                used_percent: 30,
+            },
+        );
+        DiskData {
+            disks,
+            disks_order: vec!["C:".into(), "D:".into()],
+        }
+    }
+
+    fn make_area() -> BoxArea {
+        BoxArea {
+            x: 1,
+            y: 1,
+            width: 40,
+            height: 12,
+            rounded: true,
+        }
+    }
+
+    #[test]
+    fn draw_contains_disks_title() {
+        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("disks"), "output should contain 'disks' title");
+    }
+
+    #[test]
+    fn draw_contains_drive_letters() {
+        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("C:"), "output should contain 'C:'");
+        assert!(plain.contains("D:"), "output should contain 'D:'");
+    }
+
+    #[test]
+    fn draw_contains_filesystem_type() {
+        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("NTFS"), "output should contain filesystem type 'NTFS'");
+    }
+}

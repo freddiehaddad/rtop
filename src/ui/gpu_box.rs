@@ -150,3 +150,80 @@ pub fn draw(
     out.push_str("\x1b[0m");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::gpu::GpuPercent;
+    use std::collections::VecDeque;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if in_escape {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_escape = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            result.push(ch);
+        }
+        result
+    }
+
+    fn make_gpu_info() -> GpuInfo {
+        GpuInfo {
+            name: "Test GPU RTX 5090".into(),
+            gpu_percent: GpuPercent {
+                utilization: VecDeque::from([78]),
+                vram: VecDeque::from([45]),
+                power: VecDeque::from([70]),
+            },
+            gpu_clock_speed: 2520,
+            pwr_usage: 320_000,
+            pwr_max_usage: 450_000,
+            temp: VecDeque::from([65]),
+            mem_total: 24 * 1024 * 1024 * 1024,
+            mem_used: 10 * 1024 * 1024 * 1024,
+            mem_utilization_percent: VecDeque::from([42]),
+        }
+    }
+
+    fn make_area() -> BoxArea {
+        BoxArea {
+            x: 1,
+            y: 1,
+            width: 60,
+            height: 4,
+            rounded: true,
+        }
+    }
+
+    fn make_settings() -> GpuBoxSettings<'static> {
+        GpuBoxSettings {
+            temp_scale: "celsius",
+        }
+    }
+
+    #[test]
+    fn draw_contains_gpu_title() {
+        let output = draw(&make_gpu_info(), 0, &make_area(), &Theme::default(), &make_settings());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("gpu0"), "output should contain 'gpu0' title");
+    }
+
+    #[test]
+    fn draw_contains_gpu_name() {
+        let output = draw(&make_gpu_info(), 0, &make_area(), &Theme::default(), &make_settings());
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("Test GPU RTX 5090"),
+            "output should contain GPU name 'Test GPU RTX 5090'"
+        );
+    }
+}

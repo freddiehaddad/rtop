@@ -625,3 +625,136 @@ fn draw_detail_panel(
 
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::process::{ProcState, PriorityClass};
+
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if in_escape {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_escape = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            result.push(ch);
+        }
+        result
+    }
+
+    fn make_procs() -> Vec<ProcInfo> {
+        vec![
+            ProcInfo {
+                pid: 100,
+                name: "alpha.exe".into(),
+                cmd: "alpha.exe --flag".into(),
+                threads: 4,
+                user: "SYSTEM".into(),
+                mem: 1024 * 1024 * 100,
+                cpu_p: 12.5,
+                state: ProcState::Running,
+                priority: PriorityClass::Normal,
+                ppid: 1,
+                cpu_time: 0,
+                io_read: 0,
+                io_write: 0,
+                prefix: String::new(),
+                depth: 0,
+                tree_index: 0,
+            },
+            ProcInfo {
+                pid: 200,
+                name: "beta.exe".into(),
+                cmd: "beta.exe".into(),
+                threads: 2,
+                user: "User".into(),
+                mem: 1024 * 1024 * 50,
+                cpu_p: 5.0,
+                state: ProcState::Running,
+                priority: PriorityClass::Normal,
+                ppid: 1,
+                cpu_time: 0,
+                io_read: 0,
+                io_write: 0,
+                prefix: String::new(),
+                depth: 0,
+                tree_index: 1,
+            },
+            ProcInfo {
+                pid: 300,
+                name: "gamma.exe".into(),
+                cmd: "gamma.exe --verbose".into(),
+                threads: 8,
+                user: "Admin".into(),
+                mem: 1024 * 1024 * 200,
+                cpu_p: 25.0,
+                state: ProcState::Running,
+                priority: PriorityClass::High,
+                ppid: 1,
+                cpu_time: 0,
+                io_read: 0,
+                io_write: 0,
+                prefix: String::new(),
+                depth: 0,
+                tree_index: 2,
+            },
+        ]
+    }
+
+    fn make_area() -> BoxArea {
+        BoxArea {
+            x: 1,
+            y: 1,
+            width: 80,
+            height: 20,
+            rounded: true,
+        }
+    }
+
+    fn make_view() -> ProcView<'static> {
+        ProcView {
+            start: 0,
+            selected: 0,
+            sort_by: "cpu lazy",
+            sort_reversed: false,
+            tree_mode: false,
+            detailed_pid: 0,
+            filter: "",
+            filtering: false,
+        }
+    }
+
+    #[test]
+    fn draw_contains_proc_title() {
+        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("proc"), "output should contain 'proc' title");
+    }
+
+    #[test]
+    fn draw_contains_process_names() {
+        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("alpha.exe"), "output should contain 'alpha.exe'");
+        assert!(plain.contains("beta.exe"), "output should contain 'beta.exe'");
+        assert!(plain.contains("gamma.exe"), "output should contain 'gamma.exe'");
+    }
+
+    #[test]
+    fn draw_contains_sort_column_indicator() {
+        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains('▲') || plain.contains('▼'),
+            "output should contain a sort direction indicator (▲ or ▼)"
+        );
+    }
+}

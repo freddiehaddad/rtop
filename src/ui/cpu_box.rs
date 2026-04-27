@@ -546,3 +546,99 @@ fn draw_bottom_hints(
     );
     format!("{}{}", term::mv(x + 3, bottom_y), hints)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    /// Strip ANSI escape codes so we can assert on visible text.
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut in_escape = false;
+        for ch in s.chars() {
+            if in_escape {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_escape = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_escape = true;
+                continue;
+            }
+            result.push(ch);
+        }
+        result
+    }
+
+    fn make_cpu_info() -> CpuInfo {
+        let mut cpu = CpuInfo::default();
+        cpu.cpu_name = "Test CPU".into();
+        cpu.cpu_hz = "3.50 GHz".into();
+        cpu.core_count = 4;
+        cpu.uptime_seconds = 86400;
+        cpu.cpu_percent.total = VecDeque::from([50]);
+        cpu.cpu_percent.user = VecDeque::from([30]);
+        cpu.cpu_percent.system = VecDeque::from([20]);
+        cpu.cpu_percent.idle = VecDeque::from([50]);
+        cpu.core_percent = vec![
+            VecDeque::from([40]),
+            VecDeque::from([60]),
+            VecDeque::from([30]),
+            VecDeque::from([80]),
+        ];
+        cpu
+    }
+
+    fn make_area() -> BoxArea {
+        BoxArea {
+            x: 1,
+            y: 1,
+            width: 80,
+            height: 20,
+            rounded: true,
+        }
+    }
+
+    fn make_settings() -> CpuBoxSettings<'static> {
+        CpuBoxSettings {
+            graph_symbol: GraphSymbol::Braille,
+            upper_source: "user",
+            lower_source: "system",
+            check_temp: false,
+            show_coretemp: false,
+            temp_scale: "celsius",
+            update_ms: 2000,
+            current_preset: 0,
+        }
+    }
+
+    #[test]
+    fn draw_contains_cpu_title() {
+        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("cpu"), "output should contain 'cpu' title");
+    }
+
+    #[test]
+    fn draw_contains_preset_label() {
+        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("reset"), "output should contain preset label");
+        assert!(plain.contains("*0"), "output should contain preset number '*0'");
+    }
+
+    #[test]
+    fn draw_contains_update_rate() {
+        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("2000ms"), "output should contain update rate '2000ms'");
+    }
+
+    #[test]
+    fn draw_output_is_non_empty() {
+        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        assert!(!output.is_empty(), "draw output should not be empty");
+    }
+}
