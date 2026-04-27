@@ -5,7 +5,7 @@ use crate::{
     draw, input, menu, runner, term, theme, tools, ui,
 };
 
-#[derive(PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 enum MenuState {
     None,
     Main,
@@ -33,6 +33,7 @@ pub fn run(
     let mut proc_start: usize = 0;
     let mut proc_selected: usize = 0;
     let mut filter_text = String::new();
+    let mut menu_return_to = MenuState::None;
 
     // Main event loop — timer-based collection with per-box dirty tracking.
     let mut dirty = Dirty::FULL;
@@ -160,6 +161,7 @@ pub fn run(
                     proc_start: &mut proc_start,
                     filter_text: &mut filter_text,
                     cached_layout: &cached_layout,
+                    menu_return_to: &mut menu_return_to,
                     tw,
                     th,
                 };
@@ -204,6 +206,8 @@ struct InputContext<'a> {
     proc_start: &'a mut usize,
     filter_text: &'a mut String,
     cached_layout: &'a Option<draw::layout::Layout>,
+    /// Where Options/Help was opened from — return here on escape.
+    menu_return_to: &'a mut MenuState,
     tw: usize,
     th: usize,
 }
@@ -257,12 +261,14 @@ fn handle_main_menu_input(key: &str, ctx: &mut InputContext) -> bool {
                         *ctx.options_page,
                     );
                     let _ = ctx.terminal.write_raw(&menu_out);
+                    *ctx.menu_return_to = MenuState::Main;
                     *ctx.menu_state = MenuState::Options;
                 }
                 1 => {
                     // Help
                     let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
                     let _ = ctx.terminal.write_raw(&menu_out);
+                    *ctx.menu_return_to = MenuState::Main;
                     *ctx.menu_state = MenuState::Help;
                 }
                 2 => {
@@ -286,11 +292,13 @@ fn handle_main_menu_input(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.options_page,
             );
             let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_return_to = MenuState::Main;
             *ctx.menu_state = MenuState::Options;
         }
         "h" | "?" | "f1" => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
             let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_return_to = MenuState::Main;
             *ctx.menu_state = MenuState::Help;
         }
         _ => {}
@@ -303,7 +311,8 @@ fn handle_help_input(key: &str, ctx: &mut InputContext) -> bool {
     match key {
         "q" => return true,
         "escape" | "h" | "?" | "f1" => {
-            *ctx.menu_state = MenuState::Main;
+            let return_to = *ctx.menu_return_to;
+            *ctx.menu_state = return_to;
             if let Some(layout) = ctx.cached_layout.as_ref() {
                 let params = RenderParams {
                     dirty: Dirty::ALL_BOXES,
@@ -318,13 +327,18 @@ fn handle_help_input(key: &str, ctx: &mut InputContext) -> bool {
                 let mut out = String::new();
                 out.push_str("\x1b[2J");
                 out.push_str(&render_all(&params, ctx.proc_selected, ctx.proc_start));
-                out.push_str(&menu::main_menu::draw_with_selection(
-                    ctx.tw,
-                    ctx.th,
-                    *ctx.main_menu_selected,
-                    ctx.theme,
-                ));
+                if return_to == MenuState::Main {
+                    out.push_str(&menu::main_menu::draw_with_selection(
+                        ctx.tw,
+                        ctx.th,
+                        *ctx.main_menu_selected,
+                        ctx.theme,
+                    ));
+                }
                 let _ = ctx.terminal.write_synced(&out);
+            }
+            if return_to == MenuState::None {
+                *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
             }
         }
         _ => {}
@@ -337,7 +351,8 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
     match key {
         "q" => return true,
         "escape" | "backspace" => {
-            *ctx.menu_state = MenuState::Main;
+            let return_to = *ctx.menu_return_to;
+            *ctx.menu_state = return_to;
             if let Some(layout) = ctx.cached_layout.as_ref() {
                 let params = RenderParams {
                     dirty: Dirty::ALL_BOXES,
@@ -352,13 +367,18 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                 let mut out = String::new();
                 out.push_str("\x1b[2J");
                 out.push_str(&render_all(&params, ctx.proc_selected, ctx.proc_start));
-                out.push_str(&menu::main_menu::draw_with_selection(
-                    ctx.tw,
-                    ctx.th,
-                    *ctx.main_menu_selected,
-                    ctx.theme,
-                ));
+                if return_to == MenuState::Main {
+                    out.push_str(&menu::main_menu::draw_with_selection(
+                        ctx.tw,
+                        ctx.th,
+                        *ctx.main_menu_selected,
+                        ctx.theme,
+                    ));
+                }
                 let _ = ctx.terminal.write_synced(&out);
+            }
+            if return_to == MenuState::None {
+                *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
             }
         }
         "tab" => {
@@ -624,6 +644,7 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         "h" | "?" | "f1" => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
             let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_return_to = MenuState::None;
             *ctx.menu_state = MenuState::Help;
         }
         "o" | "f2" => {
@@ -640,6 +661,7 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.options_page,
             );
             let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_return_to = MenuState::None;
             *ctx.menu_state = MenuState::Options;
         }
         // Preset cycling
