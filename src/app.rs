@@ -54,9 +54,7 @@ pub fn run(
 
         // ── Phase 2: Execute dirty work (skip if menu overlay is active) ──
 
-        let render_ui = menu_state == MenuState::None
-            || menu_state == MenuState::Filter
-            || menu_state == MenuState::Main;
+        let render_ui = menu_state == MenuState::None || menu_state == MenuState::Filter;
 
         if render_ui && !dirty.is_empty() {
             // Collect data from OS
@@ -105,142 +103,21 @@ pub fn run(
                 output.push_str("\x1b[2J");
             }
 
-            if dirty.intersects(Dirty::CPU_BOX) {
-                if let Some(ref cpu_dim) = layout.cpu {
-                    let area = ui::BoxArea {
-                        x: cpu_dim.x,
-                        y: cpu_dim.y,
-                        width: cpu_dim.width,
-                        height: cpu_dim.height,
-                        rounded,
-                    };
-                    output.push_str(&ui::cpu_box::draw(
-                        &runner.cpu.info,
-                        &area,
-                        theme,
-                        config,
-                        update_ms,
-                        config.get_int("current_preset"),
-                    ));
-                }
-            }
-
-            if dirty.intersects(Dirty::GPU_BOX) {
-                for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
-                    if gi < runner.gpu.gpus.len() {
-                        let area = ui::BoxArea {
-                            x: gpu_dim.x,
-                            y: gpu_dim.y,
-                            width: gpu_dim.width,
-                            height: gpu_dim.height,
-                            rounded,
-                        };
-                        output.push_str(&ui::gpu_box::draw(
-                            &runner.gpu.gpus[gi],
-                            gi,
-                            &area,
-                            theme,
-                            config,
-                        ));
-                    }
-                }
-            }
-
-            if dirty.intersects(Dirty::MEM_BOX) {
-                if let Some(ref mem_dim) = layout.mem {
-                    let area = ui::BoxArea {
-                        x: mem_dim.x,
-                        y: mem_dim.y,
-                        width: mem_dim.width,
-                        height: mem_dim.height,
-                        rounded,
-                    };
-                    output.push_str(&ui::mem_box::draw(&runner.mem.info, &area, theme, config));
-                }
-            }
-
-            if dirty.intersects(Dirty::DISK_BOX) {
-                if let Some(ref disk_dim) = layout.disk {
-                    let area = ui::BoxArea {
-                        x: disk_dim.x,
-                        y: disk_dim.y,
-                        width: disk_dim.width,
-                        height: disk_dim.height,
-                        rounded,
-                    };
-                    output.push_str(&ui::disk_box::draw(&runner.disk.data, &area, theme));
-                }
-            }
-
-            if dirty.intersects(Dirty::NET_BOX) {
-                if let Some(ref net_dim) = layout.net {
-                    let iface = &runner.net.selected_iface;
-                    let net_info = runner
-                        .net
-                        .current_net
-                        .get(iface)
-                        .cloned()
-                        .unwrap_or_default();
-                    let area = ui::BoxArea {
-                        x: net_dim.x,
-                        y: net_dim.y,
-                        width: net_dim.width,
-                        height: net_dim.height,
-                        rounded,
-                    };
-                    output.push_str(&ui::net_box::draw(&net_info, iface, &area, theme, config));
-                }
-            }
-
-            if dirty.intersects(Dirty::PROC_BOX) {
-                if let Some(ref proc_dim) = layout.proc_box {
-                    let procs = &runner.proc_collector.display_procs;
-                    clamp_proc_selection(
-                        procs,
-                        proc_dim.height,
-                        &mut proc_selected,
-                        &mut proc_start,
-                    );
-                    let sort_by = config.get_string("proc_sorting");
-                    let reversed = config.get_bool("proc_reversed");
-                    let tree_mode = config.get_bool("proc_tree");
-                    let detailed_pid = config.get_int("detailed_pid") as u32;
-                    let pf = config.get_string("proc_filter");
-                    let is_filtering = menu_state == MenuState::Filter;
-                    let area = ui::BoxArea {
-                        x: proc_dim.x,
-                        y: proc_dim.y,
-                        width: proc_dim.width,
-                        height: proc_dim.height,
-                        rounded,
-                    };
-                    let view = ui::ProcView {
-                        start: proc_start,
-                        selected: proc_selected,
-                        sort_by,
-                        sort_reversed: reversed,
-                        tree_mode,
-                        detailed_pid,
-                        filter: pf,
-                        filtering: is_filtering,
-                    };
-                    output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, theme));
-                }
-            }
+            let is_filtering = menu_state == MenuState::Filter;
+            let params = RenderParams {
+                dirty,
+                layout,
+                runner,
+                config,
+                theme,
+                rounded,
+                update_ms,
+                is_filtering,
+            };
+            output.push_str(&render_all(&params, &mut proc_selected, &mut proc_start));
 
             output.push_str(term::SYNC_END);
             let _ = terminal.write_raw(&output);
-
-            // If main menu is active, draw it on top of the freshly rendered UI
-            if menu_state == MenuState::Main {
-                let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
-                let _ = terminal.write_raw(&format!(
-                    "{}{}{}",
-                    term::SYNC_START,
-                    menu_out,
-                    term::SYNC_END
-                ));
-            }
 
             dirty = Dirty::empty();
         }
@@ -351,19 +228,68 @@ pub fn run(
                     MenuState::Help => match key.as_str() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
-                            // Force full UI redraw to clear help overlay, then show main menu
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                             menu_state = MenuState::Main;
+                            if let Some(ref layout) = cached_layout {
+                                let params = RenderParams {
+                                    dirty: Dirty::ALL_BOXES,
+                                    layout,
+                                    runner,
+                                    config,
+                                    theme,
+                                    rounded,
+                                    update_ms,
+                                    is_filtering: false,
+                                };
+                                let mut out = String::new();
+                                out.push_str(term::SYNC_START);
+                                out.push_str("\x1b[2J");
+                                out.push_str(&render_all(
+                                    &params,
+                                    &mut proc_selected,
+                                    &mut proc_start,
+                                ));
+                                out.push_str(&menu::main_menu::draw_with_selection(
+                                    tw,
+                                    th,
+                                    main_menu_selected,
+                                ));
+                                out.push_str(term::SYNC_END);
+                                let _ = terminal.write_raw(&out);
+                            }
                         }
                         _ => {}
                     },
                     MenuState::Options => match key.as_str() {
                         "q" => break,
                         "escape" | "backspace" => {
-                            // Force full UI redraw to clear options overlay, then show main menu
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                             menu_state = MenuState::Main;
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+                            if let Some(ref layout) = cached_layout {
+                                let params = RenderParams {
+                                    dirty: Dirty::ALL_BOXES,
+                                    layout,
+                                    runner,
+                                    config,
+                                    theme,
+                                    rounded,
+                                    update_ms,
+                                    is_filtering: false,
+                                };
+                                let mut out = String::new();
+                                out.push_str(term::SYNC_START);
+                                out.push_str("\x1b[2J");
+                                out.push_str(&render_all(
+                                    &params,
+                                    &mut proc_selected,
+                                    &mut proc_start,
+                                ));
+                                out.push_str(&menu::main_menu::draw_with_selection(
+                                    tw,
+                                    th,
+                                    main_menu_selected,
+                                ));
+                                out.push_str(term::SYNC_END);
+                                let _ = terminal.write_raw(&out);
+                            }
                         }
                         "tab" => {
                             options_cat = (options_cat + 1) % 7;
@@ -977,4 +903,151 @@ fn terminate_process(pid: u32) {
             let _ = CloseHandle(handle);
         }
     }
+}
+
+/// Parameters for rendering the UI boxes.
+struct RenderParams<'a> {
+    dirty: Dirty,
+    layout: &'a draw::layout::Layout,
+    runner: &'a runner::Runner,
+    config: &'a config::Config,
+    theme: &'a theme::Theme,
+    rounded: bool,
+    update_ms: u64,
+    is_filtering: bool,
+}
+
+/// Render UI boxes into an ANSI output string.
+///
+/// Only renders boxes whose corresponding dirty flag is set.
+/// Pass `Dirty::ALL_BOXES` to render everything.
+fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut usize) -> String {
+    let dirty = params.dirty;
+    let layout = params.layout;
+    let runner = params.runner;
+    let config = params.config;
+    let theme = params.theme;
+    let rounded = params.rounded;
+    let update_ms = params.update_ms;
+    let is_filtering = params.is_filtering;
+    let mut output = String::new();
+
+    if dirty.intersects(Dirty::CPU_BOX) {
+        if let Some(ref cpu_dim) = layout.cpu {
+            let area = ui::BoxArea {
+                x: cpu_dim.x,
+                y: cpu_dim.y,
+                width: cpu_dim.width,
+                height: cpu_dim.height,
+                rounded,
+            };
+            output.push_str(&ui::cpu_box::draw(
+                &runner.cpu.info,
+                &area,
+                theme,
+                config,
+                update_ms,
+                config.get_int("current_preset"),
+            ));
+        }
+    }
+
+    if dirty.intersects(Dirty::GPU_BOX) {
+        for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
+            if gi < runner.gpu.gpus.len() {
+                let area = ui::BoxArea {
+                    x: gpu_dim.x,
+                    y: gpu_dim.y,
+                    width: gpu_dim.width,
+                    height: gpu_dim.height,
+                    rounded,
+                };
+                output.push_str(&ui::gpu_box::draw(
+                    &runner.gpu.gpus[gi],
+                    gi,
+                    &area,
+                    theme,
+                    config,
+                ));
+            }
+        }
+    }
+
+    if dirty.intersects(Dirty::MEM_BOX) {
+        if let Some(ref mem_dim) = layout.mem {
+            let area = ui::BoxArea {
+                x: mem_dim.x,
+                y: mem_dim.y,
+                width: mem_dim.width,
+                height: mem_dim.height,
+                rounded,
+            };
+            output.push_str(&ui::mem_box::draw(&runner.mem.info, &area, theme, config));
+        }
+    }
+
+    if dirty.intersects(Dirty::DISK_BOX) {
+        if let Some(ref disk_dim) = layout.disk {
+            let area = ui::BoxArea {
+                x: disk_dim.x,
+                y: disk_dim.y,
+                width: disk_dim.width,
+                height: disk_dim.height,
+                rounded,
+            };
+            output.push_str(&ui::disk_box::draw(&runner.disk.data, &area, theme));
+        }
+    }
+
+    if dirty.intersects(Dirty::NET_BOX) {
+        if let Some(ref net_dim) = layout.net {
+            let iface = &runner.net.selected_iface;
+            let net_info = runner
+                .net
+                .current_net
+                .get(iface)
+                .cloned()
+                .unwrap_or_default();
+            let area = ui::BoxArea {
+                x: net_dim.x,
+                y: net_dim.y,
+                width: net_dim.width,
+                height: net_dim.height,
+                rounded,
+            };
+            output.push_str(&ui::net_box::draw(&net_info, iface, &area, theme, config));
+        }
+    }
+
+    if dirty.intersects(Dirty::PROC_BOX) {
+        if let Some(ref proc_dim) = layout.proc_box {
+            let procs = &runner.proc_collector.display_procs;
+            clamp_proc_selection(procs, proc_dim.height, proc_selected, proc_start);
+            let sort_by = config.get_string("proc_sorting");
+            let reversed = config.get_bool("proc_reversed");
+            let tree_mode = config.get_bool("proc_tree");
+            let detailed_pid = config.get_int("detailed_pid") as u32;
+            let pf = config.get_string("proc_filter");
+            let area = ui::BoxArea {
+                x: proc_dim.x,
+                y: proc_dim.y,
+                width: proc_dim.width,
+                height: proc_dim.height,
+                rounded,
+            };
+            let view = ui::ProcView {
+                start: *proc_start,
+                selected: *proc_selected,
+                sort_by,
+                sort_reversed: reversed,
+                tree_mode,
+                detailed_pid,
+                filter: pf,
+                filtering: is_filtering,
+            };
+            output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, theme));
+        }
+    }
+
+    output
 }
