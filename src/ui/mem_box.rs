@@ -1,7 +1,7 @@
 use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
+use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -36,7 +36,8 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
 
     let inner_h = height.saturating_sub(2);
 
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -49,7 +50,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let total_bytes = mem.stats.used + mem.stats.available;
     let meter_area = width.saturating_sub(4);
@@ -68,14 +69,13 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let used_color = gradient_color(used_grad, used_pct as i64);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
     if row < inner_h {
-        out.push_str(&format!(
-            "{}{}Used  {}  {}{}",
-            term::mv(x + 2, y + 2 + row),
-            title_color,
-            used_meter.render(used_pct),
-            used_color,
-            used_str
-        ));
+        buf.mv(x + 2, y + 2 + row)
+            .color(title_color)
+            .text("Used  ")
+            .raw(used_meter.render(used_pct))
+            .text("  ")
+            .color(used_color)
+            .text(&used_str);
         row += 1;
     }
 
@@ -85,14 +85,13 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
     if row < inner_h {
-        out.push_str(&format!(
-            "{}{}Avail {}  {}{}",
-            term::mv(x + 2, y + 2 + row),
-            title_color,
-            avail_meter.render(avail_pct),
-            avail_color,
-            avail_str
-        ));
+        buf.mv(x + 2, y + 2 + row)
+            .color(title_color)
+            .text("Avail ")
+            .raw(avail_meter.render(avail_pct))
+            .text("  ")
+            .color(avail_color)
+            .text(&avail_str);
         row += 1;
     }
 
@@ -102,14 +101,13 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
-        out.push_str(&format!(
-            "{}{}Cache {}  {}{}",
-            term::mv(x + 2, y + 2 + row),
-            title_color,
-            cached_meter.render(cached_pct),
-            cache_color,
-            cached_str
-        ));
+        buf.mv(x + 2, y + 2 + row)
+            .color(title_color)
+            .text("Cache ")
+            .raw(cached_meter.render(cached_pct))
+            .text("  ")
+            .color(cache_color)
+            .text(&cached_str);
         row += 1;
     }
 
@@ -119,14 +117,13 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let free_color = gradient_color(free_grad, free_pct as i64);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
     if row < inner_h {
-        out.push_str(&format!(
-            "{}{}Free  {}  {}{}",
-            term::mv(x + 2, y + 2 + row),
-            title_color,
-            free_meter.render(free_pct),
-            free_color,
-            free_str
-        ));
+        buf.mv(x + 2, y + 2 + row)
+            .color(title_color)
+            .text("Free  ")
+            .raw(free_meter.render(free_pct))
+            .text("  ")
+            .color(free_color)
+            .text(&free_str);
         row += 1;
     }
 
@@ -142,33 +139,26 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         if swap_total > 0 && row < inner_h {
             let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
             let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
-            out.push_str(&format!(
-                "{}{}Swap  {}  {}{}",
-                term::mv(x + 2, y + 2 + row),
-                title_color,
-                used_meter.render(swap_pct),
-                fg,
-                swap_str
-            ));
+            buf.mv(x + 2, y + 2 + row)
+                .color(title_color)
+                .text("Swap  ")
+                .raw(used_meter.render(swap_pct))
+                .text("  ")
+                .color(fg)
+                .text(&swap_str);
             row += 1;
 
             // Swap total line
             if row < inner_h {
                 let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
                 let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
-                out.push_str(&format!(
-                    "{}{}  {} / {}",
-                    term::mv(x + 2, y + 2 + row),
-                    fg,
-                    su,
-                    st
-                ));
+                let swap_line = format!("  {} / {}", su, st);
+                buf.mv(x + 2, y + 2 + row).color(fg).text(&swap_line);
             }
         }
     } // show_swap
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 fn gradient_color(gradient: &[String], pct: i64) -> &str {

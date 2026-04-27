@@ -1,7 +1,7 @@
 use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
+use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::term;
 use crate::theme::Theme;
 
 /// Format bytes into a short human-readable string (e.g., "10.8G").
@@ -51,7 +51,8 @@ pub fn draw(
 
     let title = format!("gpu{index}");
     let num = 5u8;
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -64,12 +65,11 @@ pub fn draw(
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let inner_w = width.saturating_sub(2);
     if inner_w < 10 || height < 3 {
-        out.push_str("\x1b[0m");
-        return out;
+        return buf.finish();
     }
 
     // GPU name on the top border after the title
@@ -78,10 +78,11 @@ pub fn draw(
     let name_trunc: String = name_display.chars().take(name_max).collect();
     if !name_trunc.is_empty() {
         let name_x = x + title.len() + 6;
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(name_x, y + 1),
-            box_drawing::title_inset(&name_trunc, box_color, title_color, false),
+        buf.mv(name_x, y + 1).raw(&box_drawing::title_inset(
+            &name_trunc,
+            box_color,
+            title_color,
+            false,
         ));
     }
 
@@ -99,15 +100,12 @@ pub fn draw(
     if height >= 4 {
         // We have 2 inner rows
         let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
-        out.push_str(&format!(
-            "{}{}{}{}{}{}",
-            term::mv(x + 2, y + 2),
-            fg,
-            label,
-            meter.render(gpu_pct as i32),
-            fg,
-            suffix,
-        ));
+        buf.mv(x + 2, y + 2)
+            .color(fg)
+            .text(&label)
+            .raw(meter.render(gpu_pct as i32))
+            .color(fg)
+            .text(&suffix);
 
         // Row 2: VRAM usage meter + VRAM total + clock speed
         let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0);
@@ -119,31 +117,24 @@ pub fn draw(
         let vsuffix = format!("  {vram_used}/{vram_total}  {clock} MHz ");
         let vmeter_w = inner_w.saturating_sub(vlabel.len() + vsuffix.len());
         let vmeter = Meter::new(vmeter_w.max(1), cpu_gradient, meter_bg);
-        out.push_str(&format!(
-            "{}{}{}{}{}{}",
-            term::mv(x + 2, y + 3),
-            fg,
-            vlabel,
-            vmeter.render(vram_pct as i32),
-            fg,
-            vsuffix,
-        ));
+        buf.mv(x + 2, y + 3)
+            .color(fg)
+            .text(&vlabel)
+            .raw(vmeter.render(vram_pct as i32))
+            .color(fg)
+            .text(&vsuffix);
     } else {
         // Only 1 inner row — compact view
         let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
-        out.push_str(&format!(
-            "{}{}{}{}{}{}",
-            term::mv(x + 2, y + 2),
-            fg,
-            label,
-            meter.render(gpu_pct as i32),
-            fg,
-            suffix,
-        ));
+        buf.mv(x + 2, y + 2)
+            .color(fg)
+            .text(&label)
+            .raw(meter.render(gpu_pct as i32))
+            .color(fg)
+            .text(&suffix);
     }
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 #[cfg(test)]

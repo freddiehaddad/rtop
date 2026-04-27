@@ -1,7 +1,7 @@
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
+use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphSymbol};
-use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -44,7 +44,8 @@ pub fn draw(
     let ul_grad = theme.g("upload");
     let hi = theme.c("hi_fg");
 
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -57,14 +58,13 @@ pub fn draw(
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let graph_width = width.saturating_sub(2);
     let inner_h = height.saturating_sub(2);
 
     if inner_h == 0 || graph_width == 0 {
-        out.push_str("\x1b[0m");
-        return out;
+        return buf.finish();
     }
 
     let graph_sym = settings.graph_symbol;
@@ -72,7 +72,6 @@ pub fn draw(
     let net_sync = settings.sync_scale;
 
     // Compute graph max values from the visible window only.
-    // Using the full history would cause old peaks to flatten new data.
     let visible = graph_width;
     let dl_max_raw = if net_auto {
         let bw = &net.bandwidth.download;
@@ -108,7 +107,7 @@ pub fn draw(
             graph.create(dl_bw);
             let rows = graph.render_rows_colored(dl_bw, dl_grad);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), row));
+                buf.mv(x + 2, y + 2 + i).raw(row);
             }
         }
     }
@@ -129,7 +128,7 @@ pub fn draw(
         };
         let label = format!("▼ {}", speed);
         let lx = x + width.saturating_sub(label.len() + 2);
-        out.push_str(&format!("{}{}{}", term::mv(lx, y + 2), dl_color, label));
+        buf.mv(lx, y + 2).color(dl_color).text(&label);
     }
 
     // Upload graph (inverted orientation, bottom half)
@@ -142,7 +141,7 @@ pub fn draw(
             graph.create(ul_bw);
             let rows = graph.render_rows_colored(ul_bw, ul_grad);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("{}{}", term::mv(x + 2, ul_start_y + i), row));
+                buf.mv(x + 2, ul_start_y + i).raw(row);
             }
         }
     }
@@ -164,36 +163,34 @@ pub fn draw(
         let label = format!("▲ {}", speed);
         let lx = x + width.saturating_sub(label.len() + 2);
         let label_y = y + height - 1;
-        out.push_str(&format!("{}{}{}", term::mv(lx, label_y), ul_color, label));
+        buf.mv(lx, label_y).color(ul_color).text(&label);
     }
 
-    // Interface selector and buttons on TOP border (btop lines 1504-1519)
-    // All on the top border, right-aligned: ┐sync┌ ┐auto┌ ┐zero┌ ┐←b Ethernet n→┌
+    // Interface selector and buttons on TOP border
     let iface_display = tools::uresize(iface, 15, false);
 
     // Build right-to-left on top border
-    let mut top_x = x + width - 1; // start from right corner
+    let mut top_x = x + width - 1;
 
     // Interface selector: ┐←b Ethernet n→┌
     let iface_text = format!("←b {}{} {}n→", title_color, iface_display, hi);
     let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, false);
-    // visible chars: "←b " + name + " n→" = 3 + name + 3 = 6 + name, plus 2 inset chars
     let iface_vis_len = 6 + iface_display.len();
     top_x = top_x.saturating_sub(iface_vis_len + 2);
-    out.push_str(&format!("{}{}", term::mv(top_x, y + 1), iface_inset));
+    buf.mv(top_x, y + 1).raw(&iface_inset);
 
     // zero button: ┐zero┌
     let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), zero_inset));
+        buf.mv(top_x, y + 1).raw(&zero_inset);
     }
 
     // auto button: ┐auto┌
     let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), auto_inset));
+        buf.mv(top_x, y + 1).raw(&auto_inset);
     }
 
     // sync button: ┐sync┌
@@ -201,11 +198,10 @@ pub fn draw(
     let sync_inset = box_drawing::title_inset(&sync_text, box_color, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        out.push_str(&format!("{}{}", term::mv(top_x, y + 1), sync_inset));
+        buf.mv(top_x, y + 1).raw(&sync_inset);
     }
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 #[cfg(test)]

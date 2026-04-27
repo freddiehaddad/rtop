@@ -1,9 +1,9 @@
 use crate::domain::cpu::{CpuInfo, get_cpu_series};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
+use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
-use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -71,7 +71,8 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         _ => "total",
     };
 
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -84,14 +85,13 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let core_count = cpu.core_percent.len();
     let inner_h = height.saturating_sub(2);
 
     if inner_h == 0 || width < 6 {
-        out.push_str("\x1b[0m");
-        return out;
+        return buf.finish();
     }
 
     // --- btop core panel sizing (calcSizes from btop_draw.cpp:2297-2327) ---
@@ -167,27 +167,18 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     // Draw the vertical divider for core panel
     if b_width > 0 {
         for row_i in 1..height.saturating_sub(1) {
-            out.push_str(&format!(
-                "{}{}{}",
-                term::mv(b_x + 1, y + 1 + row_i),
-                box_color,
-                symbols::V_LINE
-            ));
+            buf.mv(b_x + 1, y + 1 + row_i)
+                .color(box_color)
+                .text(symbols::V_LINE);
         }
         // T-junction at top border
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(b_x + 1, y + 1),
-            box_color,
-            symbols::DIV_UP
-        ));
+        buf.mv(b_x + 1, y + 1)
+            .color(box_color)
+            .text(symbols::DIV_UP);
         // Bottom junction
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(b_x + 1, y + height),
-            box_color,
-            symbols::DIV_DOWN
-        ));
+        buf.mv(b_x + 1, y + height)
+            .color(box_color)
+            .text(symbols::DIV_DOWN);
 
         // CPU frequency title inset on the top border
         if !cpu.cpu_hz.is_empty() {
@@ -198,13 +189,15 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             if hz_vis_len + 2 <= avail {
                 let dashes = avail.saturating_sub(hz_vis_len + 1);
                 let hz_x = b_x + 2;
-                out.push_str(&format!(
-                    "{}{}{}{}",
-                    term::mv(hz_x, y + 1),
-                    box_color,
-                    symbols::H_LINE.repeat(dashes),
-                    box_drawing::title_inset(hz_str, box_color, title_color, false),
-                ));
+                buf.mv(hz_x, y + 1)
+                    .color(box_color)
+                    .text(&symbols::H_LINE.repeat(dashes))
+                    .raw(&box_drawing::title_inset(
+                        hz_str,
+                        box_color,
+                        title_color,
+                        false,
+                    ));
             }
         }
     }
@@ -216,7 +209,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             graph.create(data);
             let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("{}{}", term::mv(x + 2, y + 2 + i), row));
+                buf.mv(x + 2, y + 2 + i).raw(row);
             }
         }
     }
@@ -232,23 +225,17 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         let label_vis_len = 7 + upper_key.len() + lower_key.len();
         let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
         let right_dashes = graph_width.saturating_sub(label_vis_len + left_dashes);
-        out.push_str(&format!(
-            "{}{}{}{}{}{}{}",
-            term::mv(x + 1, div_y),
-            box_color,
-            symbols::DIV_LEFT,
-            box_color,
-            symbols::H_LINE.repeat(left_dashes),
-            mid_label,
-            symbols::H_LINE.repeat(right_dashes),
-        ));
+        buf.mv(x + 1, div_y)
+            .color(box_color)
+            .text(symbols::DIV_LEFT)
+            .color(box_color)
+            .text(&symbols::H_LINE.repeat(left_dashes))
+            .raw(&mid_label)
+            .text(&symbols::H_LINE.repeat(right_dashes));
         if b_width > 0 {
-            out.push_str(&format!(
-                "{}{}{}",
-                term::mv(b_x + 1, div_y),
-                box_color,
-                symbols::DIV_RIGHT
-            ));
+            buf.mv(b_x + 1, div_y)
+                .color(box_color)
+                .text(symbols::DIV_RIGHT);
         }
     }
 
@@ -260,7 +247,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             graph.create(data);
             let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                out.push_str(&format!("{}{}", term::mv(x + 2, lower_start_y + i), row));
+                buf.mv(x + 2, lower_start_y + i).raw(row);
             }
         }
     }
@@ -275,7 +262,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             columns: b_columns,
         };
         let temp_scale = settings.temp_scale;
-        out.push_str(&draw_core_panel(
+        buf.raw(&draw_core_panel(
             cpu,
             &panel,
             has_temp,
@@ -291,16 +278,11 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     let up_str = format!("up {}", uptime);
     let up_y = y + 2;
     if !uptime.is_empty() {
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(x + 2, up_y),
-            graph_text_color,
-            up_str
-        ));
+        buf.mv(x + 2, up_y).color(graph_text_color).text(&up_str);
     }
 
     // Bottom border keybind hints
-    out.push_str(&draw_bottom_hints(
+    buf.raw(&draw_bottom_hints(
         x,
         y + height,
         settings.update_ms,
@@ -308,8 +290,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         theme,
     ));
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 /// Geometry of the per-core panel within the CPU box.
@@ -336,14 +317,13 @@ fn draw_core_panel(
     let box_color = theme.c("cpu_box");
     let cpu_gradient = theme.g("cpu");
     let temp_gradient = theme.g("temp");
-    let mut out = String::new();
+    let mut buf = AnsiBuffer::new();
     let core_count = cpu.core_percent.len();
 
     let panel_inner_w = panel.width;
     let meter_bg = theme.c("meter_bg");
 
     // Row 0 of core panel: CPU meter line (btop line 842)
-    // "CPU " + meter + " ###%" [+ " " + temp_graph(5) + " ###°C"]
     {
         let total = &cpu.cpu_percent.total;
         if let Some(&pct) = total.back() {
@@ -352,21 +332,18 @@ fn draw_core_panel(
             } else {
                 fg
             };
-            let temp_suffix_len = if has_temp { 1 + 5 + 4 + 2 } else { 0 }; // " " + graph(5) + " ##°C"
+            let temp_suffix_len = if has_temp { 1 + 5 + 4 + 2 } else { 0 };
             let meter_w = panel_inner_w.saturating_sub(4 + 5 + temp_suffix_len).max(1);
             let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
-            out.push_str(&format!(
-                "{}{}CPU {}{}{}{}{}",
-                term::mv(panel.x + 2, panel.y + 1),
-                title_color,
-                pct_color,
-                meter.render(pct as i32),
-                pct_color,
-                tools::rjust(&pct.to_string(), 4, false),
-                "%",
-            ));
+            buf.mv(panel.x + 2, panel.y + 1)
+                .color(title_color)
+                .text("CPU ")
+                .color(pct_color)
+                .raw(meter.render(pct as i32))
+                .color(pct_color)
+                .text(&tools::rjust(&pct.to_string(), 4, false))
+                .text("%");
             if has_temp {
-                // Package temp graph + value on CPU meter row
                 if let Some(pkg_data) = cpu.temp.first() {
                     let pkg_temp = pkg_data.back().copied().unwrap_or(0);
                     let mut tg = Graph::new(5, 1, graph_sym, false, false, 100, 0);
@@ -377,17 +354,14 @@ fn draw_core_panel(
                         fg
                     };
                     let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, temp_scale);
-                    out.push_str(&format!(
-                        " {}{}{:>3}{}",
-                        tg_str, t_color, conv_temp, temp_unit
-                    ));
+                    let temp_text = format!("{:>3}{}", conv_temp, temp_unit);
+                    buf.text(" ").raw(&tg_str).color(t_color).text(&temp_text);
                 }
             }
         }
     }
 
-    // Per-core rows with multi-column wrapping (btop lines 878-923)
-    // Each core row must fit exactly in col_w visible characters.
+    // Per-core rows with multi-column wrapping
     let col_w = if panel.columns > 0 {
         panel_inner_w
             .checked_div(panel.columns)
@@ -410,9 +384,6 @@ fn draw_core_panel(
         let row_y = panel.y + cy + 1;
         let row_x = panel.x + cx + 2;
 
-        // Build the core line with absolute positioning for each part.
-        // Layout (fitting in col_w chars):
-        //   "C##" (2-3 chars) + graph (variable) + " ##%" (4-5 chars) + " ##°C" (5 chars) + "│" (1 char if multi-col)
         let label = if core_count >= 100 {
             format!("{:>3}", i)
         } else if core_count >= 10 {
@@ -422,33 +393,32 @@ fn draw_core_panel(
         };
         let label_w = label.len();
 
-        let sep_w: usize = if cc + 1 < panel.columns { 1 } else { 0 }; // │ separator
-        let pct_w: usize = 4; // " ##%"
-        let temp_w: usize = if has_temp && show_coretemp { 5 } else { 0 }; // " ##°C"
+        let sep_w: usize = if cc + 1 < panel.columns { 1 } else { 0 };
+        let pct_w: usize = 4;
+        let temp_w: usize = if has_temp && show_coretemp { 5 } else { 0 };
         let fixed_w = label_w + pct_w + temp_w + sep_w;
         let graph_w = col_w.saturating_sub(fixed_w);
 
         // Position and write label
-        out.push_str(&format!("{}{}{}", term::mv(row_x, row_y), fg, label));
+        buf.mv(row_x, row_y).color(fg).text(&label);
 
         // Mini graph
         if graph_w >= 3 {
             let mut mini = Graph::new(graph_w, 1, graph_sym, false, false, 100, 0);
             let mini_str = mini.render_row_colored(core_data, cpu_gradient);
-            out.push_str(&mini_str);
+            buf.raw(&mini_str);
         } else if graph_w > 0 {
-            out.push_str(&format!("\x1b[{}C", graph_w)); // skip space
+            let skip = format!("\x1b[{}C", graph_w);
+            buf.raw(&skip);
         }
 
-        // Percentage — positioned absolutely to ensure alignment
-        out.push_str(&format!("{}{:>3}{}%", pct_color, pct, fg));
+        // Percentage
+        let pct_text = format!("{:>3}%", pct);
+        buf.color(pct_color).text(&pct_text).color(fg);
 
         // Per-core temperature
         if has_temp && show_coretemp {
-            // cpu.temp: index 0 = package, 1+ = per physical core
-            // If more logical cores than temp sensors (hyperthreading),
-            // map back to the physical core's temperature.
-            let num_core_temps = cpu.temp.len().saturating_sub(1); // exclude package
+            let num_core_temps = cpu.temp.len().saturating_sub(1);
             let temp_idx = if num_core_temps > 0 {
                 (i % num_core_temps) + 1
             } else {
@@ -466,16 +436,16 @@ fn draw_core_panel(
                 fg
             };
             let (conv_temp, temp_unit) = crate::tools::celsius_to(core_temp, temp_scale);
-            out.push_str(&format!("{}{:>3}{}", t_color, conv_temp, temp_unit));
+            let temp_text = format!("{:>3}{}", conv_temp, temp_unit);
+            buf.color(t_color).text(&temp_text);
         }
 
         // Column separator
         if cc + 1 < panel.columns {
-            out.push_str(&format!("{}{}", box_color, symbols::V_LINE));
+            buf.color(box_color).text(symbols::V_LINE);
         }
 
         cy += 1;
-        // btop line 920-923: wrap to next column when column is full
         let cores_per_col = core_count.div_ceil(panel.columns).max(1);
         if cy > cores_per_col && i != core_count - 1 {
             cc += 1;
@@ -487,7 +457,7 @@ fn draw_core_panel(
         }
     }
 
-    // Load average on bottom row of core panel (btop lines 927-938)
+    // Load average on bottom row of core panel
     let lavg_y = panel.y + panel.height;
     let lavg_str = format!(
         "Load avg: {:.2} {:.2} {:.2}",
@@ -496,10 +466,10 @@ fn draw_core_panel(
     let lavg_vis_len = lavg_str.len();
     if lavg_vis_len <= panel_inner_w {
         let lavg_x = panel.x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
-        out.push_str(&format!("{}{}{}", term::mv(lavg_x, lavg_y), fg, lavg_str));
+        buf.mv(lavg_x, lavg_y).color(fg).text(&lavg_str);
     }
 
-    out
+    buf.finish()
 }
 
 /// Render the bottom border keybind hints (menu, preset with number, update rate).
@@ -521,7 +491,10 @@ fn draw_bottom_hints(
     let rate_text = format!("─ {}{} {}+", fg, rate_label, hi);
     let rate_inset = box_drawing::title_inset(&rate_text, box_color, hi, true);
     let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
-    format!("{}{}", term::mv(x + 3, bottom_y), hints)
+
+    let mut buf = AnsiBuffer::new();
+    buf.mv(x + 3, bottom_y).raw(&hints);
+    buf.finish()
 }
 
 #[cfg(test)]

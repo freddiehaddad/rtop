@@ -1,7 +1,7 @@
 use crate::domain::disk::DiskData;
 use crate::draw::box_drawing;
+use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::term;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -32,7 +32,8 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
     let inner_h = height.saturating_sub(2);
     let inner_w = width.saturating_sub(4);
 
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -45,7 +46,7 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let meter_w = inner_w.saturating_sub(16).max(5);
     let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
@@ -65,14 +66,11 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
             } else {
                 format!(" {}", disk.fstype)
             };
-            out.push_str(&format!(
-                "{}{}{}{}{}",
-                term::mv(x + 2, y + 2 + row),
-                title_color,
-                tools::uresize(&disk.name, 4, false),
-                fg,
-                fstype_label,
-            ));
+            buf.mv(x + 2, y + 2 + row)
+                .color(title_color)
+                .text(&tools::uresize(&disk.name, 4, false))
+                .color(fg)
+                .text(&fstype_label);
             row += 1;
 
             if row >= inner_h {
@@ -81,19 +79,17 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
 
             // Row 2: " ■■■■■■■■░ 233G / 465G"
             let usage_label = format!("{} / {}", du, dt);
-            out.push_str(&format!(
-                "{} {} {}{}",
-                term::mv(x + 2, y + 2 + row),
-                disk_meter.render(disk.used_percent),
-                fg,
-                usage_label,
-            ));
+            buf.mv(x + 2, y + 2 + row)
+                .text(" ")
+                .raw(disk_meter.render(disk.used_percent))
+                .text(" ")
+                .color(fg)
+                .text(&usage_label);
             row += 1;
         }
     }
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 #[cfg(test)]

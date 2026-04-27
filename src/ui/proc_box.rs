@@ -1,7 +1,7 @@
 use crate::domain::process::ProcInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
-use crate::term;
+use crate::draw::buffer::AnsiBuffer;
 use crate::theme::Theme;
 use crate::tools;
 
@@ -59,7 +59,8 @@ pub fn draw_with_sort(
     let sel_fg = theme.c("selected_fg");
     let proc_grad = theme.g("process");
 
-    let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
+    let mut buf = AnsiBuffer::new();
+    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -72,12 +73,11 @@ pub fn draw_with_sort(
         rounded,
         hi_color: hi,
         title_color,
-    });
+    }));
 
     let inner_w = width.saturating_sub(4);
     if inner_w == 0 || height < 3 {
-        out.push_str("\x1b[0m");
-        return out;
+        return buf.finish();
     }
 
     // Detailed view panel
@@ -88,7 +88,7 @@ pub fn draw_with_sort(
     };
     if detailed_pid > 0 && detail_rows > 0 {
         if let Some(proc) = procs.iter().find(|p| p.pid == detailed_pid) {
-            out.push_str(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
+            buf.raw(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
         }
     }
 
@@ -152,23 +152,15 @@ pub fn draw_with_sort(
     // PID column
     let pid_str = format!("{:<pid_w$}", pid_label, pid_w = pid_w);
     let pid_color = if is_sort("pid") { hi } else { title_color };
-    out.push_str(&format!(
-        "{}{}{}",
-        term::mv(col_x, header_row_y),
-        pid_color,
-        pid_str
-    ));
+    buf.mv(col_x, header_row_y).color(pid_color).text(&pid_str);
     col_x += pid_w + 1;
 
     // Program column
     let name_str = format!("{:<name_w$}", name_label, name_w = name_w);
     let name_color = if is_sort("name") { hi } else { title_color };
-    out.push_str(&format!(
-        "{}{}{}",
-        term::mv(col_x, header_row_y),
-        name_color,
-        name_str
-    ));
+    buf.mv(col_x, header_row_y)
+        .color(name_color)
+        .text(&name_str);
     col_x += name_w + 1;
 
     // Command column (when terminal is wide enough)
@@ -180,62 +172,44 @@ pub fn draw_with_sort(
         };
         let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = cmd_w);
         let cmd_color = if is_sort("command") { hi } else { title_color };
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(col_x, header_row_y),
-            cmd_color,
-            cmd_str
-        ));
+        buf.mv(col_x, header_row_y).color(cmd_color).text(&cmd_str);
         col_x += cmd_w + 1;
     }
 
     // Cpu% column
     let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = cpu_w);
     let cpu_color = if is_sort("cpu") { hi } else { title_color };
-    out.push_str(&format!(
-        "{}{}{}",
-        term::mv(col_x, header_row_y),
-        cpu_color,
-        cpu_str
-    ));
+    buf.mv(col_x, header_row_y).color(cpu_color).text(&cpu_str);
     col_x += cpu_w + 1;
 
     // Mem% column
     let mem_str = format!("{:>mem_w$}", mem_label, mem_w = mem_w);
     let mem_color = if is_sort("mem") { hi } else { title_color };
-    out.push_str(&format!(
-        "{}{}{}\x1b[0m",
-        term::mv(col_x, header_row_y),
-        mem_color,
-        mem_str
-    ));
+    buf.mv(col_x, header_row_y)
+        .color(mem_color)
+        .text(&mem_str)
+        .reset();
 
     // Divider line under header
     let div_y = y + 3 + detail_rows;
-    out.push_str(&format!(
-        "{}{}{}{}{}{}{}",
-        term::mv(x + 1, div_y),
-        box_color,
-        symbols::DIV_LEFT,
-        box_color,
-        symbols::H_LINE.repeat(width.saturating_sub(2)),
-        box_color,
-        symbols::DIV_RIGHT
-    ));
+    buf.mv(x + 1, div_y)
+        .color(box_color)
+        .text(symbols::DIV_LEFT)
+        .color(box_color)
+        .text(&symbols::H_LINE.repeat(width.saturating_sub(2)))
+        .color(box_color)
+        .text(symbols::DIV_RIGHT);
 
     // If we have a detail panel, draw a divider between detail and header
     if detail_rows > 0 {
         let detail_div_y = y + 1 + detail_rows;
-        out.push_str(&format!(
-            "{}{}{}{}{}{}{}",
-            term::mv(x + 1, detail_div_y),
-            box_color,
-            symbols::DIV_LEFT,
-            box_color,
-            symbols::H_LINE.repeat(width.saturating_sub(2)),
-            box_color,
-            symbols::DIV_RIGHT
-        ));
+        buf.mv(x + 1, detail_div_y)
+            .color(box_color)
+            .text(symbols::DIV_LEFT)
+            .color(box_color)
+            .text(&symbols::H_LINE.repeat(width.saturating_sub(2)))
+            .color(box_color)
+            .text(symbols::DIV_RIGHT);
     }
 
     // Process rows
@@ -306,30 +280,23 @@ pub fn draw_with_sort(
         if i + start == selected {
             // Selected row: highlight with selected colors
             let bg_esc = &sel_bg_esc;
-            out.push_str(&format!(
-                "{}{}{}{}{}\x1b[0m",
-                term::mv(x + 2, row),
-                bg_esc,
-                sel_fg,
-                tools::ljust(&line_trunc, inner_w, false),
-                "\x1b[49m"
-            ));
+            buf.mv(x + 2, row)
+                .raw(bg_esc)
+                .color(sel_fg)
+                .text(&tools::ljust(&line_trunc, inner_w, false))
+                .raw("\x1b[49m")
+                .reset();
         } else {
-            out.push_str(&format!(
-                "{}{}{}",
-                term::mv(x + 2, row),
-                proc_color,
-                line_trunc
-            ));
+            buf.mv(x + 2, row).color(proc_color).text(&line_trunc);
         }
     }
 
     // TOP border: reverse, tree, sort
-    out.push_str(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
+    buf.raw(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
 
     // BOTTOM border
     let visible = procs.len().min(max_rows);
-    out.push_str(&draw_bottom_border(
+    buf.raw(&draw_bottom_border(
         &BottomBorderParams {
             x,
             bottom_y: y + height,
@@ -342,8 +309,7 @@ pub fn draw_with_sort(
         theme,
     ));
 
-    out.push_str("\x1b[0m");
-    out
+    buf.finish()
 }
 
 /// Render the top border with reverse, tree, and sort selector labels.
@@ -358,7 +324,7 @@ fn draw_top_border(
     let box_color = theme.c("proc_box");
     let hi = theme.c("hi_fg");
     let title_color = theme.c("title");
-    let mut out = String::new();
+    let mut buf = AnsiBuffer::new();
 
     let sort_name = if sort_by.is_empty() {
         "cpu lazy"
@@ -368,32 +334,31 @@ fn draw_top_border(
     let tree_star = if tree_mode { "*" } else { "" };
 
     // Build positions right-to-left from the right corner
-    // btop line 1884: sort_pos = x + width - sort_len - 8
     let mut pos = x + width - sort_name.len() - 7;
 
     // Sort selector: ┐← sorting →┌
     let sort_text = format!("← {}{} {}→", title_color, sort_name, hi);
     let sort_inset = box_drawing::title_inset(&sort_text, box_color, hi, false);
-    out.push_str(&format!("{}{}", term::mv(pos, y + 1), sort_inset));
+    buf.mv(pos, y + 1).raw(&sort_inset);
 
-    // Tree button: ┐tree┌  (visible: "tree" = 4 + star, plus 2 inset chars)
+    // Tree button: ┐tree┌
     let tree_content = format!("tre{}{}", tree_star, "e");
     let tree_len = tree_content.len();
     if pos > x + 12 + tree_len {
         pos -= tree_len + 2;
         let tree_text = format!("tre{}{}e", tree_star, hi);
         let tree_inset = box_drawing::title_inset(&tree_text, box_color, title_color, false);
-        out.push_str(&format!("{}{}", term::mv(pos, y + 1), tree_inset));
+        buf.mv(pos, y + 1).raw(&tree_inset);
     }
 
-    // Reverse button: ┐reverse┌  (visible: "reverse" = 7, plus 2 inset chars)
+    // Reverse button: ┐reverse┌
     if pos > x + 12 {
-        pos -= 9; // 7 + 2
+        pos -= 9;
         let rev_inset = box_drawing::keybind_inset("reverse", box_color, hi, title_color, false);
-        out.push_str(&format!("{}{}", term::mv(pos, y + 1), rev_inset));
+        buf.mv(pos, y + 1).raw(&rev_inset);
     }
 
-    out
+    buf.finish()
 }
 
 /// Parameters for the proc bottom border rendering.
@@ -413,7 +378,7 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     let fg = theme.c("main_fg");
     let hi = theme.c("hi_fg");
     let title_color = theme.c("title");
-    let mut out = String::new();
+    let mut buf = AnsiBuffer::new();
 
     let select_text = format!("↑{} select {}↓", title_color, hi);
     let select_inset = box_drawing::title_inset(&select_text, box_color, hi, true);
@@ -421,13 +386,9 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     let info_inset = box_drawing::title_inset(&info_text, box_color, title_color, true);
     let term_inset = box_drawing::keybind_inset("terminate", box_color, hi, title_color, true);
     let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
-    out.push_str(&format!(
-        "{}{}",
-        term::mv(p.x + 3, p.bottom_y),
-        bottom_hints
-    ));
+    buf.mv(p.x + 3, p.bottom_y).raw(&bottom_hints);
 
-    // Filter label — appended after the other elements
+    // Filter label
     let cursor = if p.filtering { "\x1b[4m \x1b[24m" } else { "" };
     let filter_label = if !p.filter.is_empty() || p.filtering {
         let filter_text = format!("filter: {}{}{}", fg, p.filter, cursor);
@@ -435,18 +396,15 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     } else {
         box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
     };
-    out.push_str(&filter_label);
+    buf.raw(&filter_label);
 
     // Right side: process count with border inset chars
     let count_str = format!("{}/{}", p.visible, p.total);
     let count_x = p.x + p.width.saturating_sub(count_str.len() + 3);
-    out.push_str(&format!(
-        "{}{}",
-        term::mv(count_x, p.bottom_y),
-        box_drawing::title_inset(&count_str, box_color, fg, true),
-    ));
+    buf.mv(count_x, p.bottom_y)
+        .raw(&box_drawing::title_inset(&count_str, box_color, fg, true));
 
-    out
+    buf.finish()
 }
 
 /// Draw the detailed process info panel at the top of the proc box.
@@ -463,18 +421,15 @@ fn draw_detail_panel(
     let hi = theme.c("hi_fg");
     let inner_w = width.saturating_sub(4);
 
-    let mut out = String::new();
+    let mut buf = AnsiBuffer::new();
 
     // Row 0: Title showing PID and name
     let detail_title = format!(" {} [{}] ", proc.name, proc.pid);
     let title_x = x + 2;
     if rows > 0 {
-        out.push_str(&format!(
-            "{}{}{}",
-            term::mv(title_x, y + 2),
-            hi,
-            tools::uresize(&detail_title, inner_w, false)
-        ));
+        buf.mv(title_x, y + 2)
+            .color(hi)
+            .text(&tools::uresize(&detail_title, inner_w, false));
     }
 
     // Row 1: Command
@@ -485,7 +440,7 @@ fn draw_detail_panel(
             fg,
             tools::uresize(&proc.cmd, inner_w.saturating_sub(5), false)
         );
-        out.push_str(&format!("{}{}", term::mv(title_x, y + 3), cmd_line));
+        buf.mv(title_x, y + 3).raw(&cmd_line);
     }
 
     // Row 2: User and status
@@ -499,11 +454,8 @@ fn draw_detail_panel(
             fg,
             proc.state
         );
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(title_x, y + 4),
-            tools::uresize(&info, inner_w, false)
-        ));
+        buf.mv(title_x, y + 4)
+            .text(&tools::uresize(&info, inner_w, false));
     }
 
     // Row 3: Threads, PPID
@@ -512,11 +464,8 @@ fn draw_detail_panel(
             "{}Threads: {}{:<6} {}Parent: {}{}",
             title_color, fg, proc.threads, title_color, fg, proc.ppid
         );
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(title_x, y + 5),
-            tools::uresize(&info, inner_w, false)
-        ));
+        buf.mv(title_x, y + 5)
+            .text(&tools::uresize(&info, inner_w, false));
     }
 
     // Row 4: CPU and Memory
@@ -526,11 +475,8 @@ fn draw_detail_panel(
             "{}Cpu: {}{:.1}%    {}Mem: {}{}",
             title_color, fg, proc.cpu_p, title_color, fg, mem_str
         );
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(title_x, y + 6),
-            tools::uresize(&info, inner_w, false)
-        ));
+        buf.mv(title_x, y + 6)
+            .text(&tools::uresize(&info, inner_w, false));
     }
 
     // Row 5: IO
@@ -541,24 +487,18 @@ fn draw_detail_panel(
             "{}IO Read: {}{:<8} {}IO Write: {}{}",
             title_color, fg, io_r, title_color, fg, io_w
         );
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(title_x, y + 7),
-            tools::uresize(&info, inner_w, false)
-        ));
+        buf.mv(title_x, y + 7)
+            .text(&tools::uresize(&info, inner_w, false));
     }
 
     // Row 6: Priority
     if rows > 6 {
         let info = format!("{}Priority: {}{}", title_color, fg, proc.priority);
-        out.push_str(&format!(
-            "{}{}",
-            term::mv(title_x, y + 8),
-            tools::uresize(&info, inner_w, false)
-        ));
+        buf.mv(title_x, y + 8)
+            .text(&tools::uresize(&info, inner_w, false));
     }
 
-    out
+    buf.finish()
 }
 
 #[cfg(test)]
