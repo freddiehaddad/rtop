@@ -92,8 +92,7 @@ pub fn draw(
     let name_trunc: String = name_display.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
         let inset = box_drawing::title_inset(&name_trunc, box_color, title_color, false);
-        let inset_x =
-            box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
+        let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
         buf.mv(inset_x, y + 1).text(&inset);
     }
 
@@ -154,7 +153,11 @@ pub fn draw(
             .text("Temp  ")
             .text(temp_meter.render(temp_pct))
             .color(fg)
-            .text(&tools::rjust(&format!("{}{}", conv_temp, temp_unit), val_w, true));
+            .text(&tools::rjust(
+                &format!("{}{}", conv_temp, temp_unit),
+                val_w,
+                true,
+            ));
         row += 1;
     }
 
@@ -172,7 +175,11 @@ pub fn draw(
             .text("Watts ")
             .text(power_meter.render(pwr_pct))
             .color(fg)
-            .text(&tools::rjust(&format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w), val_w, true));
+            .text(&tools::rjust(
+                &format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w),
+                val_w,
+                true,
+            ));
         row += 1;
     }
 
@@ -186,7 +193,11 @@ pub fn draw(
             .text("VRAM  ")
             .text(vram_meter.render(vram_pct))
             .color(fg)
-            .text(&tools::rjust(&format!("{}/{}", vram_used, vram_total), val_w, true));
+            .text(&tools::rjust(
+                &format!("{}/{}", vram_used, vram_total),
+                val_w,
+                true,
+            ));
     }
 
     buf.finish()

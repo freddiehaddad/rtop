@@ -7,6 +7,7 @@ mod config_keys;
 mod dirty;
 mod domain;
 mod draw;
+mod handlers;
 mod input;
 mod log;
 mod menu;
