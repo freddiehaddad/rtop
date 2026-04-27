@@ -34,8 +34,6 @@ pub const MIN_GPU_HEIGHT: usize = 4;
 pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
 const PROC_WIDTH_PCT: usize = 60;
-/// Fixed height for the memory box (4 meters + blank + swap meter + swap total + 2 borders).
-const MEM_FIXED_HEIGHT: usize = 9;
 
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
@@ -47,6 +45,10 @@ pub struct LayoutConfig<'a> {
     pub proc_left: bool,
     pub core_count: usize,
     pub gpu_count: usize,
+    /// Number of disks to display (drives content height).
+    pub disk_count: usize,
+    /// Whether swap is active (adds 3 rows to mem height).
+    pub has_swap: bool,
 }
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
@@ -123,11 +125,10 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Reserve GPU height in left column
     let gpu_height_total = if has_gpu { total_gpu_height } else { 0 };
 
-    // Reserve disk height if visible
+    // Reserve disk height if visible — 2 rows per disk + 2 borders
     let disk_height = if has_disk {
-        MIN_DISK_HEIGHT
-            .max(remaining_height / 4)
-            .min(remaining_height / 2)
+        let content_rows = cfg.disk_count * 2;
+        (content_rows + 2).max(MIN_DISK_HEIGHT)
     } else {
         0
     };
@@ -135,9 +136,13 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         .saturating_sub(disk_height)
         .saturating_sub(gpu_height_total);
 
+    // MEM height: 4 base rows + 3 if swap active + 2 borders
+    let mem_content = 4 + if cfg.has_swap { 3 } else { 0 };
+    let mem_fixed = mem_content + 2;
+
     // MEM and NET heights from the remaining left column space
     let (mem_height, net_height) = if has_mem && has_net {
-        let mh = MEM_FIXED_HEIGHT.min(left_remaining);
+        let mh = mem_fixed.min(left_remaining);
         let nh = left_remaining.saturating_sub(mh).max(MIN_NET_HEIGHT);
         (mh, nh)
     } else if has_mem {
@@ -250,6 +255,8 @@ mod tests {
             proc_left: false,
             core_count: 4,
             gpu_count: 0,
+            disk_count: 2,
+            has_swap: false,
         }
     }
 
@@ -339,7 +346,7 @@ mod tests {
         });
         if let Some(mem) = &layout.mem {
             assert!(mem.width >= MIN_MEM_WIDTH);
-            assert!(mem.height >= MEM_FIXED_HEIGHT);
+            assert!(mem.height >= 6); // minimum: 4 rows + 2 borders
         }
         if let Some(proc_b) = &layout.proc_box {
             assert!(proc_b.width >= MIN_PROC_WIDTH);

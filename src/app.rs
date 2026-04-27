@@ -95,6 +95,8 @@ pub fn run(
                     proc_left: config.get_bool(bk::PROC_LEFT),
                     core_count: runner.cpu.info.core_count,
                     gpu_count: runner.gpu.gpu_count(),
+                    disk_count: runner.disk.data.disks.len(),
+                    has_swap: runner.mem.info.stats.swap_total > 0,
                 }));
             }
             let layout = cached_layout
