@@ -58,8 +58,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     // Total memory inset on top border (like CPU frequency)
     let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, false);
     let inset = box_drawing::title_inset(&total_str, box_color, title_color, false);
-    let inset_vis = tools::ulen(&total_str, false) + 2;
-    let inset_x = x + width - inset_vis - 1;
+    let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
 
     let meter_area = width.saturating_sub(4);

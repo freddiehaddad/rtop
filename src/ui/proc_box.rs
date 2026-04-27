@@ -422,7 +422,7 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
 
     // Right side: process count with border inset chars
     let count_str = format!("{}/{}", p.visible, p.total);
-    let count_x = p.x + p.width.saturating_sub(count_str.len() + 3);
+    let count_x = box_drawing::right_inset_x(p.x, p.width, box_drawing::inset_width(&count_str));
     buf.mv(count_x, p.bottom_y)
         .text(&box_drawing::title_inset(&count_str, box_color, fg, true));
 

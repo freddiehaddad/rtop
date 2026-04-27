@@ -196,6 +196,18 @@ pub fn title_inset(text: &str, border_color: &str, text_color: &str, bottom: boo
     )
 }
 
+/// Visible display width of an inset (text width + 2 inset chars).
+pub fn inset_width(text: &str) -> usize {
+    crate::tools::ulen(text, false) + 2
+}
+
+/// X position to place an inset flush against the right border of a box.
+///
+/// `box_x` is the box's left edge, `box_width` is the box's total width.
+pub fn right_inset_x(box_x: usize, box_width: usize, inset_vis_width: usize) -> usize {
+    box_x + box_width - inset_vis_width - 1
+}
+
 /// Render a keybind-style inset: ┘h┌ighlighted (bottom border).
 /// The first char of `text` is rendered in `hi_color`, rest in `text_color`.
 pub fn keybind_inset(
