@@ -2,6 +2,11 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Valid box names that can appear in shown_boxes.
+pub const VALID_BOX_NAMES: &[&str] = &[
+    "cpu", "mem", "net", "proc", "disk", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
+];
+
 /// All configuration state for rtop.
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -406,10 +411,7 @@ impl Config {
 
     /// Toggle a box's visibility in shown_boxes.
     pub fn toggle_box(&mut self, box_name: &str) -> bool {
-        let valid = [
-            "cpu", "mem", "net", "proc", "disk", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
-        ];
-        if !valid.contains(&box_name) {
+        if !VALID_BOX_NAMES.contains(&box_name) {
             return false;
         }
 

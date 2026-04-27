@@ -91,7 +91,9 @@ pub fn run(
                     gpu_count: runner.gpu.gpu_count(),
                 }));
             }
-            let layout = cached_layout.as_ref().unwrap();
+            let layout = cached_layout
+                .as_ref()
+                .expect("layout must be initialized before rendering");
 
             // ── Phase 3: Render dirty boxes ───────────────────────────────
 
