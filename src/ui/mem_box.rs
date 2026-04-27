@@ -61,12 +61,12 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
 
-    // Layout: " {label} {meter} {value} " — 1 space each side
-    // Value column width: enough for the widest value
-    let val_w = 5; // e.g. " 157G" or "0.0B"
+    // Layout: " {label}{meter}{value} " — 1 space padding each side of border
+    // Content area: width - 4 (2 borders + 1 space each side)
+    let val_w = 5; // right-aligned value column
     let label_w = 6; // "Used  ", "Avail ", etc.
-    let inner_w = width.saturating_sub(4); // 2 borders + 2 side padding
-    let meter_w = inner_w.saturating_sub(label_w + val_w + 1).max(5); // +1 for space before value
+    let inner_w = width.saturating_sub(4);
+    let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
     let meter_bg = theme.c(tc::METER_BG);
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);

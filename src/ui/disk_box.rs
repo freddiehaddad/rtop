@@ -71,7 +71,7 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
                 format!("{} {} ", disk.name, disk.fstype)
             };
             let label_len = label.len();
-            let meter_w = inner_w.saturating_sub(label_len + val_w + 1).max(5);
+            let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
             let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
 
             buf.mv(x + 2, y + 2 + row)
