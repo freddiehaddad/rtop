@@ -61,9 +61,12 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
 
-    let meter_area = width.saturating_sub(4);
-    let label_w = 6;
-    let meter_w = meter_area.saturating_sub(label_w + 6).max(5);
+    // Layout: " {label} {meter} {value} " — 1 space each side
+    // Value column width: enough for the widest value
+    let val_w = 5; // e.g. " 157G" or "0.0B"
+    let label_w = 6; // "Used  ", "Avail ", etc.
+    let inner_w = width.saturating_sub(4); // 2 borders + 2 side padding
+    let meter_w = inner_w.saturating_sub(label_w + val_w + 1).max(5); // +1 for space before value
     let meter_bg = theme.c(tc::METER_BG);
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
@@ -71,19 +74,39 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let free_meter = Meter::new(meter_w, free_grad, meter_bg);
     let mut row = 0;
 
+    // Helper: render " Label meter  Value " with right-aligned value
+    let render_row = |buf: &mut AnsiBuffer,
+                      label: &str,
+                      meter_str: &str,
+                      value: &str,
+                      label_color: &str,
+                      val_color: &str,
+                      rx: usize,
+                      ry: usize| {
+        buf.mv(rx, ry)
+            .color(label_color)
+            .text(label)
+            .text(meter_str)
+            .color(val_color)
+            .text(&tools::rjust(value, val_w, false));
+    };
+
     // Used
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct as i64);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
     if row < inner_h {
-        buf.mv(x + 2, y + 2 + row)
-            .color(title_color)
-            .text("Used  ")
-            .text(used_meter.render(used_pct))
-            .text("  ")
-            .color(used_color)
-            .text(&used_str);
+        render_row(
+            &mut buf,
+            "Used  ",
+            used_meter.render(used_pct),
+            &used_str,
+            title_color,
+            used_color,
+            x + 2,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -93,13 +116,16 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
     if row < inner_h {
-        buf.mv(x + 2, y + 2 + row)
-            .color(title_color)
-            .text("Avail ")
-            .text(avail_meter.render(avail_pct))
-            .text("  ")
-            .color(avail_color)
-            .text(&avail_str);
+        render_row(
+            &mut buf,
+            "Avail ",
+            avail_meter.render(avail_pct),
+            &avail_str,
+            title_color,
+            avail_color,
+            x + 2,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -109,13 +135,16 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
-        buf.mv(x + 2, y + 2 + row)
-            .color(title_color)
-            .text("Cache ")
-            .text(cached_meter.render(cached_pct))
-            .text("  ")
-            .color(cache_color)
-            .text(&cached_str);
+        render_row(
+            &mut buf,
+            "Cache ",
+            cached_meter.render(cached_pct),
+            &cached_str,
+            title_color,
+            cache_color,
+            x + 2,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -125,48 +154,42 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let free_color = gradient_color(free_grad, free_pct as i64);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
     if row < inner_h {
-        buf.mv(x + 2, y + 2 + row)
-            .color(title_color)
-            .text("Free  ")
-            .text(free_meter.render(free_pct))
-            .text("  ")
-            .color(free_color)
-            .text(&free_str);
+        render_row(
+            &mut buf,
+            "Free  ",
+            free_meter.render(free_pct),
+            &free_str,
+            title_color,
+            free_color,
+            x + 2,
+            y + 2 + row,
+        );
         row += 1;
     }
 
-    // Blank line before swap
+    // Swap (no blank line, no separate total line — meter shows ratio)
     if show_swap {
-        if row < inner_h {
-            row += 1;
-        }
-
-        // Swap
         let swap_used = mem.stats.swap_used;
         let swap_total = mem.stats.swap_total;
-        if swap_total > 0 && row < inner_h {
-            let swap_pct = (swap_used * 100 / swap_total.max(1)) as i32;
-            let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
-            buf.mv(x + 2, y + 2 + row)
-                .color(title_color)
-                .text("Swap  ")
-                .text(used_meter.render(swap_pct))
-                .text("  ")
-                .color(fg)
-                .text(&swap_str);
-            row += 1;
-
-            // Swap total line — right aligned under the meter
-            if row < inner_h {
-                let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
-                let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
-                let swap_line = format!("{} / {}", su, st);
-                let meter_end = x + 2 + label_w + meter_w;
-                let line_x = meter_end.saturating_sub(swap_line.len() + 1);
-                buf.mv(line_x, y + 2 + row).color(fg).text(&swap_line);
-            }
+        let swap_pct = if swap_total > 0 {
+            (swap_used * 100 / swap_total.max(1)) as i32
+        } else {
+            0
+        };
+        let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
+        if row < inner_h {
+            render_row(
+                &mut buf,
+                "Swap  ",
+                used_meter.render(swap_pct),
+                &swap_str,
+                title_color,
+                fg,
+                x + 2,
+                y + 2 + row,
+            );
         }
-    } // show_swap
+    }
 
     buf.finish()
 }

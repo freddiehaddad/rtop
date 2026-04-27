@@ -51,40 +51,35 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
 
     let mut row = 0;
 
+    // Layout: " {label} {meter} {used/total} " — single row per disk
+    // Value column: "274G/1.6T" = up to 10 chars
+    let val_w = 10;
+
     for disk_name in &disks.disks_order {
-        if row + 1 >= inner_h {
+        if row >= inner_h {
             break;
         }
         if let Some(disk) = disks.disks.get(disk_name) {
             let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
             let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
+            let value = format!("{}/{}", du, dt);
 
-            // Row 1: "C: NTFS"
-            let fstype_label = if disk.fstype.is_empty() {
-                String::new()
+            // Label: "C: NTFS " — drive + fstype
+            let label = if disk.fstype.is_empty() {
+                format!("{} ", disk.name)
             } else {
-                format!(" {}", disk.fstype)
+                format!("{} {} ", disk.name, disk.fstype)
             };
+            let label_len = label.len();
+            let meter_w = inner_w.saturating_sub(label_len + val_w + 1).max(5);
+            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
+
             buf.mv(x + 2, y + 2 + row)
                 .color(title_color)
-                .text(&tools::uresize(&disk.name, 4, false))
-                .color(fg)
-                .text(&fstype_label);
-            row += 1;
-
-            if row >= inner_h {
-                break;
-            }
-
-            // Row 2: " ■■■■■■■■░ 233G / 465G"
-            let usage_label = format!(" {} / {}", du, dt);
-            let label_len = usage_label.len();
-            let meter_w = inner_w.saturating_sub(label_len + 1).max(5);
-            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
-            buf.mv(x + 2, y + 2 + row)
+                .text(&label)
                 .text(disk_meter.render(disk.used_percent))
                 .color(fg)
-                .text(&usage_label);
+                .text(&tools::rjust(&value, val_w, false));
             row += 1;
         }
     }

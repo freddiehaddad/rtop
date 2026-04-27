@@ -127,7 +127,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // Reserve disk height if visible — 2 rows per disk + 2 borders
     let disk_height = if has_disk {
-        let content_rows = cfg.disk_count * 2;
+        let content_rows = cfg.disk_count;
         (content_rows + 2).max(MIN_DISK_HEIGHT)
     } else {
         0
@@ -137,7 +137,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         .saturating_sub(gpu_height_total);
 
     // MEM height: 4 base rows + 3 if swap active + 2 borders
-    let mem_content = 4 + if cfg.has_swap { 3 } else { 0 };
+    let mem_content = 4 + if cfg.has_swap { 1 } else { 0 };
     let mem_fixed = mem_content + 2;
 
     // MEM and NET heights from the remaining left column space
