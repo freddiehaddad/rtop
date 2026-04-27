@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::cpu::{CpuInfo, get_cpu_series};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
@@ -50,7 +51,13 @@ const BOX_BORDER_ROWS: usize = 2;
 /// │ <lower graph inv>  │ C2 ⣿⣷⣤ 55% │
 /// │up 3d12:45          │ C3 ⣿⣷⣤ 22% │
 /// ╰────────────────────┴──────────────╯
-pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSettings) -> String {
+pub fn draw(
+    cpu: &CpuInfo,
+    area: &BoxArea,
+    theme: &Theme,
+    settings: &CpuBoxSettings,
+    status: &CollectStatus,
+) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -88,6 +95,8 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, "cpu", x, y, box_color, title_color);
 
     let core_count = cpu.core_percent.len();
     let inner_h = height.saturating_sub(2);
@@ -577,6 +586,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(plain.contains("cpu"), "output should contain 'cpu' title");
@@ -589,6 +599,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -608,6 +619,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -623,6 +635,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         assert!(!output.is_empty(), "draw output should not be empty");
     }

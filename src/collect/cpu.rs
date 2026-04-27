@@ -16,6 +16,7 @@ enum TempSource {
 /// CPU data collector using Windows APIs.
 pub struct CpuCollector {
     pub info: CpuInfo,
+    pub status: super::CollectStatus,
     prev_idle: Vec<u64>,
     prev_kernel: Vec<u64>,
     prev_user: Vec<u64>,
@@ -43,6 +44,7 @@ impl CpuCollector {
     pub fn new() -> Self {
         Self {
             info: CpuInfo::default(),
+            status: super::CollectStatus::Ok,
             prev_idle: Vec::new(),
             prev_kernel: Vec::new(),
             prev_user: Vec::new(),
@@ -74,6 +76,8 @@ impl CpuCollector {
     }
 
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
+
         if !self.initialized {
             self.init();
         }
@@ -171,6 +175,9 @@ impl CpuCollector {
         // --- Per-core CPU times via NtQuerySystemInformation ---
         let core_count = self.info.core_count;
         if core_count == 0 {
+            tracing::warn!("CPU: core_count is 0, skipping per-core collection");
+            self.status
+                .downgrade(super::CollectStatus::Failed("no cores detected"));
             return;
         }
 
@@ -429,6 +436,9 @@ impl CpuCollector {
         }
 
         let Some(json) = lhm_http_fetch() else {
+            tracing::warn!("CPU: LHM HTTP fetch failed, no temperature data");
+            self.status
+                .downgrade(super::CollectStatus::Degraded("no temp data"));
             return;
         };
 

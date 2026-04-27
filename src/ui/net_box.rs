@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
@@ -45,6 +46,7 @@ pub fn draw(
     area: &BoxArea,
     theme: &Theme,
     settings: &NetBoxSettings,
+    status: &CollectStatus,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -73,6 +75,8 @@ pub fn draw(
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, "net", x, y, box_color, title_color);
 
     let graph_width = width.saturating_sub(2);
     let inner_h = height.saturating_sub(2);
@@ -288,6 +292,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(plain.contains("net"), "output should contain 'net' title");
@@ -301,6 +306,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -317,6 +323,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(

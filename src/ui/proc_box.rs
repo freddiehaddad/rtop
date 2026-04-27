@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::process::ProcInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
@@ -37,6 +38,7 @@ pub fn draw_with_sort(
     area: &BoxArea,
     view: &ProcView,
     theme: &Theme,
+    status: &CollectStatus,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -75,6 +77,8 @@ pub fn draw_with_sort(
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, "proc", x, y, box_color, title_color);
 
     let inner_w = width.saturating_sub(4);
     if inner_w == 0 || height < 3 {
@@ -631,14 +635,26 @@ mod tests {
 
     #[test]
     fn draw_contains_proc_title() {
-        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let output = draw_with_sort(
+            &make_procs(),
+            &make_area(),
+            &make_view(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("proc"), "output should contain 'proc' title");
     }
 
     #[test]
     fn draw_contains_process_names() {
-        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let output = draw_with_sort(
+            &make_procs(),
+            &make_area(),
+            &make_view(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("alpha.exe"),
@@ -656,7 +672,13 @@ mod tests {
 
     #[test]
     fn draw_contains_sort_column_indicator() {
-        let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
+        let output = draw_with_sort(
+            &make_procs(),
+            &make_area(),
+            &make_view(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains('▲') || plain.contains('▼'),

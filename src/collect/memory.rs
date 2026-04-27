@@ -8,6 +8,7 @@ const MAX_HISTORY: usize = 300;
 /// Memory data collector using Windows APIs.
 pub struct MemCollector {
     pub info: MemInfo,
+    pub status: super::CollectStatus,
 }
 
 impl Default for MemCollector {
@@ -21,10 +22,12 @@ impl MemCollector {
     pub fn new() -> Self {
         Self {
             info: MemInfo::default(),
+            status: super::CollectStatus::Ok,
         }
     }
 
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
         self.collect_memory();
     }
 
@@ -68,6 +71,10 @@ impl MemCollector {
                     push_pct(&mut self.info.percent.swap_used, swap_used, swap_total);
                     push_pct(&mut self.info.percent.swap_free, swap_avail, swap_total);
                 }
+            } else {
+                tracing::warn!("Memory: GlobalMemoryStatusEx failed");
+                self.status
+                    .downgrade(super::CollectStatus::Failed("memory query failed"));
             }
         }
 

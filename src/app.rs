@@ -292,6 +292,7 @@ pub(crate) fn render_all(
                 &area,
                 theme,
                 &cpu_settings,
+                &runner.cpu.status,
             ));
         }
     }
@@ -309,6 +310,7 @@ pub(crate) fn render_all(
                     &area,
                     theme,
                     &gpu_settings,
+                    &runner.gpu.status,
                 ));
             }
         }
@@ -322,6 +324,7 @@ pub(crate) fn render_all(
                 &area,
                 theme,
                 config.get_bool(bk::SHOW_SWAP),
+                &runner.mem.status,
             ));
         }
     }
@@ -329,7 +332,12 @@ pub(crate) fn render_all(
     if dirty.intersects(Dirty::DISK_BOX) {
         if let Some(ref disk_dim) = layout.disk {
             let area = ui::BoxArea::from_dim(disk_dim, rounded);
-            output.push_str(&ui::disk_box::draw(&runner.disk.data, &area, theme));
+            output.push_str(&ui::disk_box::draw(
+                &runner.disk.data,
+                &area,
+                theme,
+                &runner.disk.status,
+            ));
         }
     }
 
@@ -355,6 +363,7 @@ pub(crate) fn render_all(
                 &area,
                 theme,
                 &net_settings,
+                &runner.net.status,
             ));
         }
     }
@@ -390,7 +399,13 @@ pub(crate) fn render_all(
                 filter: pf,
                 filtering: is_filtering,
             };
-            output.push_str(&ui::proc_box::draw_with_sort(procs, &area, &view, theme));
+            output.push_str(&ui::proc_box::draw_with_sort(
+                procs,
+                &area,
+                &view,
+                theme,
+                &runner.proc_collector.status,
+            ));
         }
     }
 

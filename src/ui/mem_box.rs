@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
@@ -20,7 +21,13 @@ use super::BoxArea;
 /// │ Swap  ■■░░░░░░░░░░░░ 1.0G │
 /// │   1.0G / 8.0G              │
 /// ╰────────────────────────────╯
-pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> String {
+pub fn draw(
+    mem: &MemInfo,
+    area: &BoxArea,
+    theme: &Theme,
+    show_swap: bool,
+    status: &CollectStatus,
+) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -52,6 +59,8 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, "mem", x, y, box_color, title_color);
 
     let total_bytes = mem.stats.used + mem.stats.available;
 
@@ -255,21 +264,39 @@ mod tests {
 
     #[test]
     fn draw_contains_mem_title() {
-        let output = draw(&make_mem_info(), &make_area(), &Theme::default(), true);
+        let output = draw(
+            &make_mem_info(),
+            &make_area(),
+            &Theme::default(),
+            true,
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("mem"), "output should contain 'mem' title");
     }
 
     #[test]
     fn draw_contains_used_label() {
-        let output = draw(&make_mem_info(), &make_area(), &Theme::default(), true);
+        let output = draw(
+            &make_mem_info(),
+            &make_area(),
+            &Theme::default(),
+            true,
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("Used"), "output should contain 'Used' label");
     }
 
     #[test]
     fn draw_shows_swap_when_enabled() {
-        let output = draw(&make_mem_info(), &make_area(), &Theme::default(), true);
+        let output = draw(
+            &make_mem_info(),
+            &make_area(),
+            &Theme::default(),
+            true,
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("Swap"),
@@ -279,7 +306,13 @@ mod tests {
 
     #[test]
     fn draw_hides_swap_when_disabled() {
-        let output = draw(&make_mem_info(), &make_area(), &Theme::default(), false);
+        let output = draw(
+            &make_mem_info(),
+            &make_area(),
+            &Theme::default(),
+            false,
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             !plain.contains("Swap"),

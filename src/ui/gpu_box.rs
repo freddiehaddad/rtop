@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
@@ -43,6 +44,7 @@ pub fn draw(
     area: &BoxArea,
     theme: &Theme,
     settings: &GpuBoxSettings,
+    status: &CollectStatus,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -78,6 +80,8 @@ pub fn draw(
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, &title, x, y, box_color, title_color);
 
     let inner_w = width.saturating_sub(4);
     let inner_h = height.saturating_sub(2);
@@ -266,6 +270,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(plain.contains("gpu0"), "output should contain 'gpu0' title");
@@ -279,6 +284,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -295,6 +301,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(plain.contains("GPU"), "should contain GPU row");
@@ -312,6 +319,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -328,6 +336,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         assert!(
@@ -344,6 +353,7 @@ mod tests {
             &make_area(),
             &Theme::default(),
             &make_settings(),
+            &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
         // floating_humanizer output

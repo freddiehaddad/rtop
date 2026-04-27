@@ -8,6 +8,7 @@ pub struct NetCollector {
     pub interfaces: Vec<String>,
     pub current_net: HashMap<String, NetInfo>,
     pub selected_iface: String,
+    pub status: super::CollectStatus,
     last_time: std::time::Instant,
 }
 
@@ -24,11 +25,14 @@ impl NetCollector {
             interfaces: Vec::new(),
             current_net: HashMap::new(),
             selected_iface: String::new(),
+            status: super::CollectStatus::Ok,
             last_time: std::time::Instant::now(),
         }
     }
 
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
+
         use windows::Win32::NetworkManagement::IpHelper::*;
         use windows::Win32::Networking::WinSock::*;
 
@@ -49,6 +53,9 @@ impl NetCollector {
             let _ = GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size);
 
             if size == 0 {
+                tracing::warn!("Network: GetAdaptersAddresses size query returned 0");
+                self.status
+                    .downgrade(super::CollectStatus::Failed("no adapters"));
                 return;
             }
 
@@ -63,6 +70,9 @@ impl NetCollector {
                 &mut size,
             ) != 0
             {
+                tracing::warn!("Network: GetAdaptersAddresses failed");
+                self.status
+                    .downgrade(super::CollectStatus::Failed("adapter query failed"));
                 return;
             }
 

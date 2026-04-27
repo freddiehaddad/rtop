@@ -1,3 +1,4 @@
+use crate::collect::CollectStatus;
 use crate::domain::disk::DiskData;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
@@ -17,7 +18,7 @@ use super::BoxArea;
 /// │ D: NTFS                    │
 /// │  ■■■░░░░░░░░ 1.2T / 3.6T  │
 /// ╰────────────────────────────╯
-pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
+pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme, status: &CollectStatus) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -49,6 +50,8 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
         hi_color: hi,
         title_color,
     }));
+
+    super::draw_status_inset(&mut buf, status, "disks", x, y, box_color, title_color);
 
     let mut row = 0;
 
@@ -155,7 +158,12 @@ mod tests {
 
     #[test]
     fn draw_contains_disks_title() {
-        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("disks"),
@@ -165,7 +173,12 @@ mod tests {
 
     #[test]
     fn draw_contains_drive_letters() {
-        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("C:"), "output should contain 'C:'");
         assert!(plain.contains("D:"), "output should contain 'D:'");
@@ -173,7 +186,12 @@ mod tests {
 
     #[test]
     fn draw_contains_filesystem_type() {
-        let output = draw(&make_disk_data(), &make_area(), &Theme::default());
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("NTFS"),

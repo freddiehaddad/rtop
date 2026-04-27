@@ -6,6 +6,7 @@ use super::Collector;
 pub struct DiskCollector {
     /// Collected disk data.
     pub data: DiskData,
+    pub status: super::CollectStatus,
 }
 
 impl Default for DiskCollector {
@@ -19,10 +20,13 @@ impl DiskCollector {
     pub fn new() -> Self {
         Self {
             data: DiskData::default(),
+            status: super::CollectStatus::Ok,
         }
     }
 
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
+
         use windows::Win32::Storage::FileSystem::*;
         use windows::core::*;
 
@@ -37,6 +41,9 @@ impl DiskCollector {
             let mut buf = [0u16; 512];
             let len = GetLogicalDriveStringsW(Some(&mut buf));
             if len == 0 {
+                tracing::warn!("Disk: GetLogicalDriveStringsW returned 0");
+                self.status
+                    .downgrade(super::CollectStatus::Failed("drive query failed"));
                 return;
             }
 

@@ -60,6 +60,7 @@ pub struct ProcCollector {
     /// Derived display list — sorted, filtered, tree-prefixed.
     /// Rebuilt from `procs` whenever PROC_LIST dirty flag is set.
     pub display_procs: Vec<ProcInfo>,
+    pub status: super::CollectStatus,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
     core_count: usize,
@@ -77,6 +78,7 @@ impl ProcCollector {
         Self {
             procs: Vec::new(),
             display_procs: Vec::new(),
+            status: super::CollectStatus::Ok,
             prev_times: HashMap::new(),
             last_collect: std::time::Instant::now(),
             core_count: 1,
@@ -115,6 +117,8 @@ impl ProcCollector {
     }
 
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
+
         use windows::Win32::Foundation::*;
         use windows::Win32::System::Diagnostics::ToolHelp::*;
 
@@ -135,7 +139,12 @@ impl ProcCollector {
         unsafe {
             let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
                 Ok(h) => h,
-                Err(_) => return,
+                Err(_) => {
+                    tracing::warn!("Process: CreateToolhelp32Snapshot failed");
+                    self.status
+                        .downgrade(super::CollectStatus::Failed("snapshot failed"));
+                    return;
+                }
             };
 
             let mut entry = PROCESSENTRY32W {

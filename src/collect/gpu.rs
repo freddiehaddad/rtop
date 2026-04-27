@@ -145,6 +145,7 @@ pub struct GpuCollector {
     device_count: u32,
     devices: Vec<NvmlDevice>,
     pub gpus: Vec<GpuInfo>,
+    pub status: super::CollectStatus,
     initialized: bool,
 }
 
@@ -156,6 +157,7 @@ impl GpuCollector {
             device_count: 0,
             devices: Vec::new(),
             gpus: Vec::new(),
+            status: super::CollectStatus::Ok,
             initialized: false,
         };
         collector.init();
@@ -245,7 +247,10 @@ impl GpuCollector {
 
     /// Collect current GPU metrics for all detected devices.
     fn collect_impl(&mut self) {
+        self.status = super::CollectStatus::Ok;
+
         let Some(nvml) = &self.nvml else {
+            self.status = super::CollectStatus::Failed("no NVML");
             return;
         };
 
@@ -393,8 +398,13 @@ mod tests {
             device_count: 0,
             devices: Vec::new(),
             gpus: Vec::new(),
+            status: crate::collect::CollectStatus::Ok,
             initialized: false,
         };
         collector.collect(); // should not panic
+        assert_eq!(
+            collector.status,
+            crate::collect::CollectStatus::Failed("no NVML")
+        );
     }
 }
