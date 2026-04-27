@@ -32,6 +32,7 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
 
     let inner_h = height.saturating_sub(2);
     let inner_w = width.saturating_sub(4);
+    let content_x = x + 3;
 
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
@@ -74,7 +75,7 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
             let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
             let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
 
-            buf.mv(x + 2, y + 2 + row)
+            buf.mv(content_x, y + 2 + row)
                 .color(title_color)
                 .text(&label)
                 .text(disk_meter.render(disk.used_percent))

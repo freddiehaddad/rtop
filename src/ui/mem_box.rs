@@ -61,12 +61,13 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
 
-    // Layout: " {label}{meter}{value} " — 1 space padding each side of border
-    // Content area: width - 4 (2 borders + 1 space each side)
+    // Content area: width - 4 (border + space on each side)
+    // Content starts at x + 3 (border at x+1, space at x+2)
     let val_w = 5; // right-aligned value column
     let label_w = 6; // "Used  ", "Avail ", etc.
     let inner_w = width.saturating_sub(4);
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
+    let content_x = x + 3;
     let meter_bg = theme.c(tc::METER_BG);
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
@@ -104,7 +105,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
             &used_str,
             title_color,
             used_color,
-            x + 2,
+            content_x,
             y + 2 + row,
         );
         row += 1;
@@ -123,7 +124,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
             &avail_str,
             title_color,
             avail_color,
-            x + 2,
+            content_x,
             y + 2 + row,
         );
         row += 1;
@@ -142,7 +143,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
             &cached_str,
             title_color,
             cache_color,
-            x + 2,
+            content_x,
             y + 2 + row,
         );
         row += 1;
@@ -161,7 +162,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
             &free_str,
             title_color,
             free_color,
-            x + 2,
+            content_x,
             y + 2 + row,
         );
         row += 1;
@@ -185,7 +186,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
                 &swap_str,
                 title_color,
                 fg,
-                x + 2,
+                content_x,
                 y + 2 + row,
             );
         }
