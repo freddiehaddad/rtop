@@ -68,9 +68,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let has_disk = shown_boxes.iter().any(|b| b == "disk");
 
     // Count how many gpu boxes are shown
-    let gpu_shown: Vec<usize> = (0..gpu_count)
+    let gpu_count_shown = (0..gpu_count)
         .filter(|i| shown_boxes.iter().any(|b| b == &format!("gpu{i}")))
-        .collect();
+        .count();
 
     let mut layout = Layout::default();
 
@@ -79,7 +79,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     }
 
     // GPU boxes — each takes MIN_GPU_HEIGHT, stacked below CPU
-    let total_gpu_height = gpu_shown.len() * MIN_GPU_HEIGHT;
+    let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
 
     // CPU box height based on core count
     let cpu_height = if has_cpu {
@@ -167,8 +167,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     } else {
         cpu_height
     };
-    for (i, &gpu_idx) in gpu_shown.iter().enumerate() {
-        let _ = gpu_idx;
+    for i in 0..gpu_count_shown {
         layout.gpu.push(BoxDimensions {
             x: 0,
             y: gpu_start_y + i * MIN_GPU_HEIGHT,

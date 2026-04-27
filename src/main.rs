@@ -87,7 +87,7 @@ fn main() {
     // Auto-add detected GPU boxes to shown_boxes if not already present
     if runner.gpu.gpu_count() > 0 {
         let shown = config.get_string(sk::SHOWN_BOXES).to_string();
-        let mut boxes: Vec<String> = shown.split_whitespace().map(|s| s.to_string()).collect();
+        let mut boxes: Vec<String> = shown.split_whitespace().map(String::from).collect();
         for i in 0..runner.gpu.gpu_count() {
             let name = format!("gpu{i}");
             if !boxes.iter().any(|b| b == &name) {

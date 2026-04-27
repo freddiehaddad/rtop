@@ -84,7 +84,7 @@ pub fn run(
                 let shown: Vec<String> = config
                     .get_string(sk::SHOWN_BOXES)
                     .split_whitespace()
-                    .map(|s| s.to_string())
+                    .map(String::from)
                     .collect();
                 cached_layout = Some(draw::layout::calc_sizes(&draw::layout::LayoutConfig {
                     term_width: tw,
@@ -166,11 +166,11 @@ pub fn run(
                     th,
                 };
                 let quit = match *ctx.menu_state {
-                    MenuState::Main => handle_main_menu_input(key.as_str(), &mut ctx),
-                    MenuState::Help => handle_help_input(key.as_str(), &mut ctx),
-                    MenuState::Options => handle_options_input(key.as_str(), &mut ctx),
-                    MenuState::Filter => handle_filter_input(key.as_str(), &mut ctx),
-                    MenuState::None => handle_normal_input(key.as_str(), &mut ctx),
+                    MenuState::Main => handle_main_menu_input(&key, &mut ctx),
+                    MenuState::Help => handle_help_input(&key, &mut ctx),
+                    MenuState::Options => handle_options_input(&key, &mut ctx),
+                    MenuState::Filter => handle_filter_input(&key, &mut ctx),
+                    MenuState::None => handle_normal_input(&key, &mut ctx),
                 };
                 if quit {
                     break;

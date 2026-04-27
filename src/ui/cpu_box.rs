@@ -214,23 +214,29 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         }
     }
 
-    // Divider line with source labels: "──── ▲ user ── system ▼ ────"
+    // Divider line: ├──┐▲user┌──┐system▼┌──────────┤
     if has_lower {
         let div_y = y + 2 + divider_row;
-        let mid_label = format!(
-            " {}▲ {}{}{}── {}{} {}▼ {}",
-            hi, title_color, upper_key, box_color, title_color, lower_key, hi, box_color,
-        );
-        // Visible length: " ▲ user ── system ▼ "
-        let label_vis_len = 7 + upper_key.len() + lower_key.len();
-        let left_dashes = (graph_width.saturating_sub(label_vis_len)) / 2;
-        let right_dashes = graph_width.saturating_sub(label_vis_len + left_dashes);
+        let upper_label = format!("▲{}", upper_key);
+        let lower_label = format!("{}▼", lower_key);
+        let upper_inset = box_drawing::title_inset(&upper_label, box_color, title_color, false);
+        let lower_inset = box_drawing::title_inset(&lower_label, box_color, title_color, false);
+        // Visible: ├ + left_dashes + ┐▲user┌ + ──  + ┐system▼┌ + right_dashes + ┤ (if core panel)
+        let upper_vis = upper_label.len() + 2; // inset chars
+        let lower_vis = lower_label.len() + 2;
+        let mid_dashes = 2;
+        let fixed = upper_vis + mid_dashes + lower_vis;
+        let left_dashes = (graph_width.saturating_sub(fixed)) / 2;
+        let right_dashes = graph_width.saturating_sub(fixed + left_dashes);
         buf.mv(x + 1, div_y)
             .color(box_color)
             .text(symbols::DIV_LEFT)
-            .color(box_color)
             .text(&symbols::H_LINE.repeat(left_dashes))
-            .raw(&mid_label)
+            .raw(&upper_inset)
+            .color(box_color)
+            .text(&symbols::H_LINE.repeat(mid_dashes))
+            .raw(&lower_inset)
+            .color(box_color)
             .text(&symbols::H_LINE.repeat(right_dashes));
         if b_width > 0 {
             buf.mv(b_x + 1, div_y)

@@ -1,6 +1,7 @@
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
+use std::borrow::Cow;
 use std::time::Duration;
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.
@@ -8,65 +9,67 @@ pub fn poll(timeout_ms: u64) -> bool {
     event::poll(Duration::from_millis(timeout_ms)).unwrap_or(false)
 }
 
-/// Read and translate one input event to a btop key name.
-pub fn get() -> Option<String> {
+/// Read and translate one input event to a key name.
+pub fn get() -> Option<Cow<'static, str>> {
     match event::read() {
-        Ok(Event::Key(key)) => Some(translate_key(key)),
+        Ok(Event::Key(key)) => {
+            let k = translate_key(key);
+            if k.is_empty() { None } else { Some(k) }
+        }
         Ok(Event::Mouse(mouse)) => Some(translate_mouse(mouse)),
-        Ok(Event::Resize(_, _)) => Some("resize".to_string()),
+        Ok(Event::Resize(_, _)) => Some(Cow::Borrowed("resize")),
         _ => None,
     }
 }
 
-/// Translate a crossterm KeyEvent to a btop key name.
-fn translate_key(key: KeyEvent) -> String {
-    // Only process key press events, ignore release and repeat
+/// Translate a crossterm KeyEvent to a key name.
+fn translate_key(key: KeyEvent) -> Cow<'static, str> {
     if key.kind != KeyEventKind::Press {
-        return String::new();
+        return Cow::Borrowed("");
     }
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
-            KeyCode::Char('r') => return "ctrl_r".to_string(),
-            KeyCode::Char('s') => return "ctrl_s".to_string(),
-            KeyCode::Char('d') => return "ctrl_d".to_string(),
-            KeyCode::Char('c') => return "q".to_string(),
+            KeyCode::Char('r') => return Cow::Borrowed("ctrl_r"),
+            KeyCode::Char('s') => return Cow::Borrowed("ctrl_s"),
+            KeyCode::Char('d') => return Cow::Borrowed("ctrl_d"),
+            KeyCode::Char('c') => return Cow::Borrowed("q"),
             _ => {}
         }
     }
 
     match key.code {
-        KeyCode::Esc => "escape".to_string(),
-        KeyCode::Enter => "enter".to_string(),
-        KeyCode::Char(' ') => "space".to_string(),
-        KeyCode::Backspace => "backspace".to_string(),
-        KeyCode::Up => "up".to_string(),
-        KeyCode::Down => "down".to_string(),
-        KeyCode::Left => "left".to_string(),
-        KeyCode::Right => "right".to_string(),
-        KeyCode::Insert => "insert".to_string(),
-        KeyCode::Delete => "delete".to_string(),
-        KeyCode::Home => "home".to_string(),
-        KeyCode::End => "end".to_string(),
-        KeyCode::PageUp => "page_up".to_string(),
-        KeyCode::PageDown => "page_down".to_string(),
-        KeyCode::Tab => "tab".to_string(),
-        KeyCode::BackTab => "shift_tab".to_string(),
-        KeyCode::F(n) => format!("f{n}"),
-        KeyCode::Char(c) => c.to_string(),
-        _ => String::new(),
+        KeyCode::Esc => Cow::Borrowed("escape"),
+        KeyCode::Enter => Cow::Borrowed("enter"),
+        KeyCode::Char(' ') => Cow::Borrowed("space"),
+        KeyCode::Backspace => Cow::Borrowed("backspace"),
+        KeyCode::Up => Cow::Borrowed("up"),
+        KeyCode::Down => Cow::Borrowed("down"),
+        KeyCode::Left => Cow::Borrowed("left"),
+        KeyCode::Right => Cow::Borrowed("right"),
+        KeyCode::Insert => Cow::Borrowed("insert"),
+        KeyCode::Delete => Cow::Borrowed("delete"),
+        KeyCode::Home => Cow::Borrowed("home"),
+        KeyCode::End => Cow::Borrowed("end"),
+        KeyCode::PageUp => Cow::Borrowed("page_up"),
+        KeyCode::PageDown => Cow::Borrowed("page_down"),
+        KeyCode::Tab => Cow::Borrowed("tab"),
+        KeyCode::BackTab => Cow::Borrowed("shift_tab"),
+        KeyCode::F(n) => Cow::Owned(format!("f{n}")),
+        KeyCode::Char(c) => Cow::Owned(c.to_string()),
+        _ => Cow::Borrowed(""),
     }
 }
 
-/// Translate a crossterm MouseEvent to a btop mouse event name.
-fn translate_mouse(mouse: MouseEvent) -> String {
+/// Translate a crossterm MouseEvent to a mouse event name.
+fn translate_mouse(mouse: MouseEvent) -> Cow<'static, str> {
     match mouse.kind {
-        MouseEventKind::Down(_) => "mouse_click".to_string(),
-        MouseEventKind::Up(_) => "mouse_release".to_string(),
-        MouseEventKind::Drag(_) => "mouse_drag".to_string(),
-        MouseEventKind::ScrollUp => "mouse_scroll_up".to_string(),
-        MouseEventKind::ScrollDown => "mouse_scroll_down".to_string(),
-        _ => String::new(),
+        MouseEventKind::Down(_) => Cow::Borrowed("mouse_click"),
+        MouseEventKind::Up(_) => Cow::Borrowed("mouse_release"),
+        MouseEventKind::Drag(_) => Cow::Borrowed("mouse_drag"),
+        MouseEventKind::ScrollUp => Cow::Borrowed("mouse_scroll_up"),
+        MouseEventKind::ScrollDown => Cow::Borrowed("mouse_scroll_down"),
+        _ => Cow::Borrowed(""),
     }
 }
 
