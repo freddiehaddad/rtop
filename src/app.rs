@@ -117,7 +117,9 @@ pub fn run(
             };
             output.push_str(&render_all(&params, &mut proc_selected, &mut proc_start));
 
-            let _ = terminal.write_synced(&output);
+            if let Err(e) = terminal.write_synced(&output) {
+                tracing::debug!("terminal write failed: {e}");
+            }
 
             dirty = Dirty::empty();
         }
@@ -155,7 +157,9 @@ pub fn run(
                                 main_menu_selected,
                                 theme,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "down" | "j" | "tab" => {
                             main_menu_selected = (main_menu_selected + 1) % 3;
@@ -165,7 +169,9 @@ pub fn run(
                                 main_menu_selected,
                                 theme,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "enter" | "space" => {
                             match main_menu_selected {
@@ -183,13 +189,17 @@ pub fn run(
                                         options_selected,
                                         options_page,
                                     );
-                                    let _ = terminal.write_raw(&menu_out);
+                                    if let Err(e) = terminal.write_raw(&menu_out) {
+                                        tracing::debug!("terminal write failed: {e}");
+                                    }
                                     menu_state = MenuState::Options;
                                 }
                                 1 => {
                                     // Help
                                     let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                                    let _ = terminal.write_raw(&menu_out);
+                                    if let Err(e) = terminal.write_raw(&menu_out) {
+                                        tracing::debug!("terminal write failed: {e}");
+                                    }
                                     menu_state = MenuState::Help;
                                 }
                                 2 => {
@@ -212,13 +222,17 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&menu_out);
+                            if let Err(e) = terminal.write_raw(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             menu_state = MenuState::Options;
                         }
                         "h" | "?" | "f1" => {
                             // Show help menu
                             let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                            let _ = terminal.write_raw(&menu_out);
+                            if let Err(e) = terminal.write_raw(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             menu_state = MenuState::Help;
                         }
                         _ => {}
@@ -251,7 +265,9 @@ pub fn run(
                                     main_menu_selected,
                                     theme,
                                 ));
-                                let _ = terminal.write_synced(&out);
+                                if let Err(e) = terminal.write_synced(&out) {
+                                    tracing::debug!("terminal write failed: {e}");
+                                }
                             }
                         }
                         _ => {}
@@ -284,7 +300,9 @@ pub fn run(
                                     main_menu_selected,
                                     theme,
                                 ));
-                                let _ = terminal.write_synced(&out);
+                                if let Err(e) = terminal.write_synced(&out) {
+                                    tracing::debug!("terminal write failed: {e}");
+                                }
                             }
                         }
                         "tab" => {
@@ -300,7 +318,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "shift_tab" => {
                             options_cat = if options_cat == 0 { 6 } else { options_cat - 1 };
@@ -315,7 +335,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
                             let new_cat = key.parse::<usize>().unwrap_or(0);
@@ -333,7 +355,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
@@ -358,7 +382,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "down" | "j" => {
                             let sm = menu::options_menu::select_max(options_cat, options_page, th);
@@ -383,7 +409,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "page_up" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
@@ -404,7 +432,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "page_down" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
@@ -425,7 +455,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         "left" | "right" | "h" | "l" | "enter" | "space" => {
                             if let Some(opt_key) = menu::options_menu::opt_key(
@@ -467,7 +499,9 @@ pub fn run(
                                                 theme.c("main_fg"),
                                                 theme.c("main_bg").replace("38;2", "48;2"),
                                             );
-                                            let _ = terminal.write_raw(&base);
+                                            if let Err(e) = terminal.write_raw(&base) {
+                                                tracing::debug!("terminal write failed: {e}");
+                                            }
                                         }
                                     }
                                     menu::options_menu::OptKind::StringVal => {
@@ -484,7 +518,9 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_synced(&menu_out);
+                            if let Err(e) = terminal.write_synced(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                         }
                         _ => {}
                     },
@@ -528,12 +564,16 @@ pub fn run(
                         "escape" | "m" => {
                             main_menu_selected = 0;
                             let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected, theme);
-                            let _ = terminal.write_raw(&menu_out);
+                            if let Err(e) = terminal.write_raw(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             menu_state = MenuState::Main;
                         }
                         "h" | "?" | "f1" => {
                             let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                            let _ = terminal.write_raw(&menu_out);
+                            if let Err(e) = terminal.write_raw(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             menu_state = MenuState::Help;
                         }
                         "o" | "f2" => {
@@ -541,7 +581,9 @@ pub fn run(
                             options_selected = 0;
                             options_page = 0;
                             let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            let _ = terminal.write_raw(&menu_out);
+                            if let Err(e) = terminal.write_raw(&menu_out) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             menu_state = MenuState::Options;
                         }
                         // Preset cycling
@@ -605,7 +647,9 @@ pub fn run(
                                 theme.c("main_fg"),
                                 theme.c("main_bg").replace("38;2", "48;2"),
                             );
-                            let _ = terminal.write_raw(&base);
+                            if let Err(e) = terminal.write_raw(&base) {
+                                tracing::debug!("terminal write failed: {e}");
+                            }
                             rounded = config.get_bool("rounded_corners");
                             update_ms = config.get_int("update_ms") as u64;
                             dirty |= Dirty::FULL;

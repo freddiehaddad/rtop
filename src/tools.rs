@@ -302,14 +302,11 @@ pub fn config_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
 }
 
-/// Get the rtop data/log directory.
+/// Get the rtop log/state directory.
 ///
-/// Priority: `XDG_CONFIG_HOME/rtop` > `%LOCALAPPDATA%/rtop` (via `directories` crate)
-///
-/// Logs go alongside config when XDG_CONFIG_HOME is set, matching
-/// the XDG convention of keeping all app state under one tree.
+/// Priority: `XDG_STATE_HOME/rtop` > `%LOCALAPPDATA%/rtop` (via `directories` crate)
 pub fn data_dir() -> std::path::PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
         let p = std::path::PathBuf::from(xdg);
         if p.is_absolute() {
             return p.join("rtop");
