@@ -2,7 +2,7 @@ use crate::{
     config,
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
-    draw, input, menu, runner, term, theme, tools, ui,
+    draw, input, menu, runner, term, theme, theme_keys as tc, tools, ui,
 };
 
 #[derive(Clone, Copy, PartialEq)]
@@ -559,8 +559,8 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                             *ctx.theme = theme::Theme::from_name(&name);
                             let base = format!(
                                 "{}{}",
-                                ctx.theme.c("main_fg"),
-                                ctx.theme.c("main_bg").replace("38;2", "48;2"),
+                                ctx.theme.c(tc::MAIN_FG),
+                                ctx.theme.bg(tc::MAIN_BG),
                             );
                             let _ = ctx.terminal.write_raw(&base);
                         }
@@ -722,8 +722,8 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
             *ctx.theme = theme::Theme::from_name(&theme_name);
             let base = format!(
                 "{}{}",
-                ctx.theme.c("main_fg"),
-                ctx.theme.c("main_bg").replace("38;2", "48;2"),
+                ctx.theme.c(tc::MAIN_FG),
+                ctx.theme.bg(tc::MAIN_BG),
             );
             let _ = ctx.terminal.write_raw(&base);
             *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
@@ -1054,12 +1054,8 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
     if dirty.intersects(Dirty::NET_BOX) {
         if let Some(ref net_dim) = layout.net {
             let iface = &runner.net.selected_iface;
-            let net_info = runner
-                .net
-                .current_net
-                .get(iface)
-                .cloned()
-                .unwrap_or_default();
+            let default_net = crate::domain::network::NetInfo::default();
+            let net_info = runner.net.current_net.get(iface).unwrap_or(&default_net);
             let area = ui::BoxArea::from_dim(net_dim, rounded);
             let net_settings = ui::net_box::NetBoxSettings {
                 auto_scale: config.get_bool(bk::NET_AUTO),
@@ -1072,7 +1068,7 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
                 ),
             };
             output.push_str(&ui::net_box::draw(
-                &net_info,
+                net_info,
                 iface,
                 &area,
                 theme,

@@ -5,6 +5,7 @@ use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 use super::BoxArea;
@@ -54,11 +55,11 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("cpu_box");
-    let hi = theme.c("hi_fg");
-    let title_color = theme.c("title");
-    let cpu_gradient = theme.g("cpu");
-    let graph_text_color = theme.c("graph_text");
+    let box_color = theme.c(tc::CPU_BOX);
+    let hi = theme.c(tc::HI_FG);
+    let title_color = theme.c(tc::TITLE);
+    let cpu_gradient = theme.g(tc::GRAD_CPU);
+    let graph_text_color = theme.c(tc::GRAPH_TEXT);
     let graph_sym = settings.graph_symbol;
     let upper_key = match settings.upper_source {
         "user" => "user",
@@ -72,7 +73,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     };
 
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -192,7 +193,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
                 buf.mv(hz_x, y + 1)
                     .color(box_color)
                     .text(&symbols::H_LINE.repeat(dashes))
-                    .raw(&box_drawing::title_inset(
+                    .text(&box_drawing::title_inset(
                         hz_str,
                         box_color,
                         title_color,
@@ -209,7 +210,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             graph.create(data);
             let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, y + 2 + i).raw(row);
+                buf.mv(x + 2, y + 2 + i).text(row);
             }
         }
     }
@@ -232,10 +233,10 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             .color(box_color)
             .text(symbols::DIV_LEFT)
             .text(&symbols::H_LINE.repeat(left_dashes))
-            .raw(&upper_inset)
+            .text(&upper_inset)
             .color(box_color)
             .text(&symbols::H_LINE.repeat(mid_dashes))
-            .raw(&lower_inset)
+            .text(&lower_inset)
             .color(box_color)
             .text(&symbols::H_LINE.repeat(right_dashes));
         if b_width > 0 {
@@ -253,7 +254,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             graph.create(data);
             let rows = graph.render_rows_colored(data, cpu_gradient);
             for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, lower_start_y + i).raw(row);
+                buf.mv(x + 2, lower_start_y + i).text(row);
             }
         }
     }
@@ -268,7 +269,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             columns: b_columns,
         };
         let temp_scale = settings.temp_scale;
-        buf.raw(&draw_core_panel(
+        buf.text(&draw_core_panel(
             cpu,
             &panel,
             has_temp,
@@ -288,7 +289,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     }
 
     // Bottom border keybind hints
-    buf.raw(&draw_bottom_hints(
+    buf.text(&draw_bottom_hints(
         x,
         y + height,
         settings.update_ms,
@@ -318,16 +319,16 @@ fn draw_core_panel(
     graph_sym: GraphSymbol,
     theme: &Theme,
 ) -> String {
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let box_color = theme.c("cpu_box");
-    let cpu_gradient = theme.g("cpu");
-    let temp_gradient = theme.g("temp");
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let box_color = theme.c(tc::CPU_BOX);
+    let cpu_gradient = theme.g(tc::GRAD_CPU);
+    let temp_gradient = theme.g(tc::GRAD_TEMP);
     let mut buf = AnsiBuffer::new();
     let core_count = cpu.core_percent.len();
 
     let panel_inner_w = panel.width;
-    let meter_bg = theme.c("meter_bg");
+    let meter_bg = theme.c(tc::METER_BG);
 
     // Row 0 of core panel: CPU meter line (btop line 842)
     {
@@ -345,7 +346,7 @@ fn draw_core_panel(
                 .color(title_color)
                 .text("CPU ")
                 .color(pct_color)
-                .raw(meter.render(pct as i32))
+                .text(meter.render(pct as i32))
                 .color(pct_color)
                 .text(&tools::rjust(&pct.to_string(), 4, false))
                 .text("%");
@@ -361,7 +362,7 @@ fn draw_core_panel(
                     };
                     let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, temp_scale);
                     let temp_text = format!("{:>3}{}", conv_temp, temp_unit);
-                    buf.text(" ").raw(&tg_str).color(t_color).text(&temp_text);
+                    buf.text(" ").text(&tg_str).color(t_color).text(&temp_text);
                 }
             }
         }
@@ -412,10 +413,10 @@ fn draw_core_panel(
         if graph_w >= 3 {
             let mut mini = Graph::new(graph_w, 1, graph_sym, false, false, 100, 0);
             let mini_str = mini.render_row_colored(core_data, cpu_gradient);
-            buf.raw(&mini_str);
+            buf.text(&mini_str);
         } else if graph_w > 0 {
             let skip = format!("\x1b[{}C", graph_w);
-            buf.raw(&skip);
+            buf.text(&skip);
         }
 
         // Percentage
@@ -486,9 +487,9 @@ fn draw_bottom_hints(
     current_preset: i64,
     theme: &Theme,
 ) -> String {
-    let box_color = theme.c("cpu_box");
-    let fg = theme.c("main_fg");
-    let hi = theme.c("hi_fg");
+    let box_color = theme.c(tc::CPU_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let hi = theme.c(tc::HI_FG);
 
     let preset_label = format!("p{}reset *{}", fg, current_preset);
     let rate_label = format!("{}ms", update_ms);
@@ -499,7 +500,7 @@ fn draw_bottom_hints(
     let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
 
     let mut buf = AnsiBuffer::new();
-    buf.mv(x + 3, bottom_y).raw(&hints);
+    buf.mv(x + 3, bottom_y).text(&hints);
     buf.finish()
 }
 

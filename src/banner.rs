@@ -1,5 +1,6 @@
 use crate::term;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 
 /// ASCII art banner lines for the rtop splash/menu screen.
 pub const BANNER: &[&str] = &[
@@ -43,7 +44,7 @@ pub fn gradient3(rgb: [u8; 3]) -> [String; 3] {
 
 /// Render the banner positioned at (x, y) with a vertical gradient derived from the theme.
 pub fn generate(y: usize, x: usize, theme: &Theme) -> String {
-    let rgb = theme.rgbs.get("hi_fg").copied().unwrap_or_default();
+    let rgb = theme.rgbs.get(tc::HI_FG).copied().unwrap_or_default();
     let gradient = gradient6(rgb);
     let mut out = String::new();
     for (i, line) in BANNER.iter().enumerate() {

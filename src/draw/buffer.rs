@@ -32,12 +32,6 @@ impl AnsiBuffer {
         self
     }
 
-    /// Append raw ANSI content (for pre-formatted output like graph rows or meter bars).
-    pub fn raw(&mut self, s: &str) -> &mut Self {
-        self.buf.push_str(s);
-        self
-    }
-
     /// Reset all formatting.
     pub fn reset(&mut self) -> &mut Self {
         self.buf.push_str("\x1b[0m");

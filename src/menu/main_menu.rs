@@ -1,6 +1,7 @@
 use crate::banner;
 use crate::term;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 
 /// Menu item ASCII art: normal (thin lines) and selected (thick lines)
 const MENU_NORMAL: [&[&str]; 3] = [
@@ -33,8 +34,8 @@ pub fn draw_with_selection(
     selected: usize,
     theme: &Theme,
 ) -> String {
-    let hi_rgb = theme.rgbs.get("hi_fg").copied().unwrap_or_default();
-    let fg_rgb = theme.rgbs.get("main_fg").copied().unwrap_or_default();
+    let hi_rgb = theme.rgbs.get(tc::HI_FG).copied().unwrap_or_default();
+    let fg_rgb = theme.rgbs.get(tc::MAIN_FG).copied().unwrap_or_default();
     let colors_selected = banner::gradient3(hi_rgb);
     let colors_normal = banner::gradient3(fg_rgb);
 

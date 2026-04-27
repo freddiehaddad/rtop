@@ -3,6 +3,7 @@ use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 use super::{BoxArea, ProcView};
@@ -50,17 +51,16 @@ pub fn draw_with_sort(
     let detailed_pid = view.detailed_pid;
     let filter = view.filter;
     let filtering = view.filtering;
-    let box_color = theme.c("proc_box");
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let hi = theme.c("hi_fg");
-    let sel_bg = theme.c("selected_bg");
-    let sel_bg_esc = sel_bg.replace("38;2", "48;2");
-    let sel_fg = theme.c("selected_fg");
-    let proc_grad = theme.g("process");
+    let box_color = theme.c(tc::PROC_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let hi = theme.c(tc::HI_FG);
+    let sel_bg_esc = theme.bg(tc::SELECTED_BG);
+    let sel_fg = theme.c(tc::SELECTED_FG);
+    let proc_grad = theme.g(tc::GRAD_PROCESS);
 
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -88,7 +88,7 @@ pub fn draw_with_sort(
     };
     if detailed_pid > 0 && detail_rows > 0 {
         if let Some(proc) = procs.iter().find(|p| p.pid == detailed_pid) {
-            buf.raw(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
+            buf.text(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
         }
     }
 
@@ -281,10 +281,10 @@ pub fn draw_with_sort(
             // Selected row: highlight with selected colors
             let bg_esc = &sel_bg_esc;
             buf.mv(x + 2, row)
-                .raw(bg_esc)
+                .text(bg_esc)
                 .color(sel_fg)
                 .text(&tools::ljust(&line_trunc, inner_w, false))
-                .raw("\x1b[49m")
+                .text("\x1b[49m")
                 .reset();
         } else {
             buf.mv(x + 2, row).color(proc_color).text(&line_trunc);
@@ -292,11 +292,11 @@ pub fn draw_with_sort(
     }
 
     // TOP border: reverse, tree, sort
-    buf.raw(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
+    buf.text(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
 
     // BOTTOM border
     let visible = procs.len().min(max_rows);
-    buf.raw(&draw_bottom_border(
+    buf.text(&draw_bottom_border(
         &BottomBorderParams {
             x,
             bottom_y: y + height,
@@ -321,9 +321,9 @@ fn draw_top_border(
     tree_mode: bool,
     theme: &Theme,
 ) -> String {
-    let box_color = theme.c("proc_box");
-    let hi = theme.c("hi_fg");
-    let title_color = theme.c("title");
+    let box_color = theme.c(tc::PROC_BOX);
+    let hi = theme.c(tc::HI_FG);
+    let title_color = theme.c(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
     let sort_name = if sort_by.is_empty() {
@@ -339,7 +339,7 @@ fn draw_top_border(
     // Sort selector: ┐← sorting →┌
     let sort_text = format!("← {}{} {}→", title_color, sort_name, hi);
     let sort_inset = box_drawing::title_inset(&sort_text, box_color, hi, false);
-    buf.mv(pos, y + 1).raw(&sort_inset);
+    buf.mv(pos, y + 1).text(&sort_inset);
 
     // Tree button: ┐tree┌
     let tree_content = format!("tre{}{}", tree_star, "e");
@@ -348,14 +348,14 @@ fn draw_top_border(
         pos -= tree_len + 2;
         let tree_text = format!("tre{}{}e", tree_star, hi);
         let tree_inset = box_drawing::title_inset(&tree_text, box_color, title_color, false);
-        buf.mv(pos, y + 1).raw(&tree_inset);
+        buf.mv(pos, y + 1).text(&tree_inset);
     }
 
     // Reverse button: ┐reverse┌
     if pos > x + 12 {
         pos -= 9;
         let rev_inset = box_drawing::keybind_inset("reverse", box_color, hi, title_color, false);
-        buf.mv(pos, y + 1).raw(&rev_inset);
+        buf.mv(pos, y + 1).text(&rev_inset);
     }
 
     buf.finish()
@@ -374,10 +374,10 @@ struct BottomBorderParams<'a> {
 
 /// Render the bottom border with select, info, terminate, and filter labels.
 fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
-    let box_color = theme.c("proc_box");
-    let fg = theme.c("main_fg");
-    let hi = theme.c("hi_fg");
-    let title_color = theme.c("title");
+    let box_color = theme.c(tc::PROC_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let hi = theme.c(tc::HI_FG);
+    let title_color = theme.c(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
     let select_text = format!("↑{} select {}↓", title_color, hi);
@@ -386,7 +386,7 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     let info_inset = box_drawing::title_inset(&info_text, box_color, title_color, true);
     let term_inset = box_drawing::keybind_inset("terminate", box_color, hi, title_color, true);
     let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
-    buf.mv(p.x + 3, p.bottom_y).raw(&bottom_hints);
+    buf.mv(p.x + 3, p.bottom_y).text(&bottom_hints);
 
     // Filter label
     let cursor = if p.filtering { "\x1b[4m \x1b[24m" } else { "" };
@@ -396,13 +396,13 @@ fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
     } else {
         box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
     };
-    buf.raw(&filter_label);
+    buf.text(&filter_label);
 
     // Right side: process count with border inset chars
     let count_str = format!("{}/{}", p.visible, p.total);
     let count_x = p.x + p.width.saturating_sub(count_str.len() + 3);
     buf.mv(count_x, p.bottom_y)
-        .raw(&box_drawing::title_inset(&count_str, box_color, fg, true));
+        .text(&box_drawing::title_inset(&count_str, box_color, fg, true));
 
     buf.finish()
 }
@@ -416,9 +416,9 @@ fn draw_detail_panel(
     rows: usize,
     theme: &Theme,
 ) -> String {
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let hi = theme.c("hi_fg");
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let hi = theme.c(tc::HI_FG);
     let inner_w = width.saturating_sub(4);
 
     let mut buf = AnsiBuffer::new();
@@ -440,7 +440,7 @@ fn draw_detail_panel(
             fg,
             tools::uresize(&proc.cmd, inner_w.saturating_sub(5), false)
         );
-        buf.mv(title_x, y + 3).raw(&cmd_line);
+        buf.mv(title_x, y + 3).text(&cmd_line);
     }
 
     // Row 2: User and status

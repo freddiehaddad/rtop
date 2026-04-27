@@ -3,6 +3,7 @@ use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 use super::BoxArea;
@@ -22,18 +23,18 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("disk_box");
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let hi = theme.c("hi_fg");
-    let avail_grad = theme.g("available");
-    let meter_bg = theme.c("meter_bg");
+    let box_color = theme.c(tc::DISK_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let hi = theme.c(tc::HI_FG);
+    let avail_grad = theme.g(tc::GRAD_AVAILABLE);
+    let meter_bg = theme.c(tc::METER_BG);
 
     let inner_h = height.saturating_sub(2);
     let inner_w = width.saturating_sub(4);
 
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -81,7 +82,7 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
             let usage_label = format!("{} / {}", du, dt);
             buf.mv(x + 2, y + 2 + row)
                 .text(" ")
-                .raw(disk_meter.render(disk.used_percent))
+                .text(disk_meter.render(disk.used_percent))
                 .text(" ")
                 .color(fg)
                 .text(&usage_label);

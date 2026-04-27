@@ -13,10 +13,12 @@ mod menu;
 mod runner;
 mod term;
 mod theme;
+mod theme_keys;
 mod tools;
 mod ui;
 
 use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
+use crate::theme_keys as tc;
 use clap::Parser;
 
 fn main() {
@@ -74,11 +76,7 @@ fn main() {
     let mut theme = theme::Theme::new();
 
     // Set terminal base colors from theme
-    let base_colors = format!(
-        "{}{}",
-        theme.c("main_fg"),
-        theme.c("main_bg").replace("38;2", "48;2") // fg escape → bg escape
-    );
+    let base_colors = format!("{}{}", theme.c(tc::MAIN_FG), theme.bg(tc::MAIN_BG));
     let _ = terminal.write_raw(&base_colors);
 
     // Init runner (collectors)

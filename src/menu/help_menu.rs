@@ -1,6 +1,7 @@
 use crate::draw::box_drawing;
 use crate::term;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 /// A single keybind entry: (key display, description, section).
@@ -176,10 +177,10 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
     let x = (term_width.saturating_sub(w)) / 2;
     let y = (term_height.saturating_sub(h)) / 2;
 
-    let hi = theme.c("hi_fg");
-    let title_c = theme.c("title");
-    let fg = theme.c("main_fg");
-    let help_c = theme.c("help_box");
+    let hi = theme.c(tc::HI_FG);
+    let title_c = theme.c(tc::TITLE);
+    let fg = theme.c(tc::MAIN_FG);
+    let help_c = theme.c(tc::HELP_BOX);
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x,

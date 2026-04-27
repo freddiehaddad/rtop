@@ -3,6 +3,7 @@ use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 use crate::draw::box_drawing::{self, symbols};
 use crate::term;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 
 // ---------------------------------------------------------------------------
 // Option type classification
@@ -859,12 +860,12 @@ pub fn draw(
         .saturating_sub(1);
     let selected = selected.min(select_max);
 
-    let hi = theme.c("hi_fg");
-    let title_c = theme.c("title");
-    let fg = theme.c("main_fg");
-    let sel_bg = theme.c("selected_bg");
-    let sel_fg = theme.c("selected_fg");
-    let opts_c = theme.c("options_box");
+    let hi = theme.c(tc::HI_FG);
+    let title_c = theme.c(tc::TITLE);
+    let fg = theme.c(tc::MAIN_FG);
+    let sel_bg = theme.c(tc::SELECTED_BG);
+    let sel_fg = theme.c(tc::SELECTED_FG);
+    let opts_c = theme.c(tc::OPTIONS_BOX);
     let reset = "\x1b[0m";
 
     let mut out = String::with_capacity(4096);

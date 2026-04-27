@@ -3,6 +3,7 @@ use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphSymbol};
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 use super::BoxArea;
@@ -37,15 +38,15 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("net_box");
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let dl_grad = theme.g("download");
-    let ul_grad = theme.g("upload");
-    let hi = theme.c("hi_fg");
+    let box_color = theme.c(tc::NET_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let dl_grad = theme.g(tc::GRAD_DOWNLOAD);
+    let ul_grad = theme.g(tc::GRAD_UPLOAD);
+    let hi = theme.c(tc::HI_FG);
 
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -107,7 +108,7 @@ pub fn draw(
             graph.create(dl_bw);
             let rows = graph.render_rows_colored(dl_bw, dl_grad);
             for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, y + 2 + i).raw(row);
+                buf.mv(x + 2, y + 2 + i).text(row);
             }
         }
     }
@@ -141,7 +142,7 @@ pub fn draw(
             graph.create(ul_bw);
             let rows = graph.render_rows_colored(ul_bw, ul_grad);
             for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, ul_start_y + i).raw(row);
+                buf.mv(x + 2, ul_start_y + i).text(row);
             }
         }
     }
@@ -177,20 +178,20 @@ pub fn draw(
     let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, false);
     let iface_vis_len = 6 + iface_display.len();
     top_x = top_x.saturating_sub(iface_vis_len + 2);
-    buf.mv(top_x, y + 1).raw(&iface_inset);
+    buf.mv(top_x, y + 1).text(&iface_inset);
 
     // zero button: ┐zero┌
     let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        buf.mv(top_x, y + 1).raw(&zero_inset);
+        buf.mv(top_x, y + 1).text(&zero_inset);
     }
 
     // auto button: ┐auto┌
     let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        buf.mv(top_x, y + 1).raw(&auto_inset);
+        buf.mv(top_x, y + 1).text(&auto_inset);
     }
 
     // sync button: ┐sync┌
@@ -198,7 +199,7 @@ pub fn draw(
     let sync_inset = box_drawing::title_inset(&sync_text, box_color, title_color, false);
     top_x = top_x.saturating_sub(6);
     if top_x > x + 10 {
-        buf.mv(top_x, y + 1).raw(&sync_inset);
+        buf.mv(top_x, y + 1).text(&sync_inset);
     }
 
     buf.finish()

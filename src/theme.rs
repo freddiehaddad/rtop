@@ -214,6 +214,12 @@ impl Theme {
         self.colors.get(name).map(|s| s.as_str()).unwrap_or("")
     }
 
+    /// Get a background color escape string for a theme color name.
+    /// Converts the foreground escape (38;2;r;g;b) to background (48;2;r;g;b).
+    pub fn bg(&self, name: &str) -> String {
+        self.c(name).replace("38;2", "48;2")
+    }
+
     /// Get a gradient array by name (101 elements, indices 0–100).
     pub fn g(&self, name: &str) -> &[String] {
         self.gradients
@@ -411,6 +417,7 @@ fn get_bundled_theme(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme_keys as tc;
 
     // --- hex parsing ---
 
@@ -499,15 +506,15 @@ mod tests {
     #[test]
     fn default_theme_has_gradients() {
         let theme = Theme::new();
-        assert_eq!(theme.g("cpu").len(), 101);
-        assert_eq!(theme.g("temp").len(), 101);
-        assert_eq!(theme.g("download").len(), 101);
+        assert_eq!(theme.g(tc::GRAD_CPU).len(), 101);
+        assert_eq!(theme.g(tc::GRAD_TEMP).len(), 101);
+        assert_eq!(theme.g(tc::GRAD_DOWNLOAD).len(), 101);
     }
 
     #[test]
     fn theme_c_accessor() {
         let theme = Theme::new();
-        let color = theme.c("main_fg");
+        let color = theme.c(tc::MAIN_FG);
         assert!(color.starts_with("\x1b[38;2;"));
     }
 

@@ -3,6 +3,7 @@ use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 use crate::tools;
 
 use super::BoxArea;
@@ -25,19 +26,19 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("mem_box");
-    let fg = theme.c("main_fg");
-    let title_color = theme.c("title");
-    let hi = theme.c("hi_fg");
-    let used_grad = theme.g("used");
-    let free_grad = theme.g("free");
-    let cached_grad = theme.g("cached");
-    let avail_grad = theme.g("available");
+    let box_color = theme.c(tc::MEM_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let title_color = theme.c(tc::TITLE);
+    let hi = theme.c(tc::HI_FG);
+    let used_grad = theme.g(tc::GRAD_USED);
+    let free_grad = theme.g(tc::GRAD_FREE);
+    let cached_grad = theme.g(tc::GRAD_CACHED);
+    let avail_grad = theme.g(tc::GRAD_AVAILABLE);
 
     let inner_h = height.saturating_sub(2);
 
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -56,7 +57,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
     let meter_area = width.saturating_sub(4);
     let label_w = 6;
     let meter_w = meter_area.saturating_sub(label_w + 6).max(5);
-    let meter_bg = theme.c("meter_bg");
+    let meter_bg = theme.c(tc::METER_BG);
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
     let cached_meter = Meter::new(meter_w, cached_grad, meter_bg);
@@ -72,7 +73,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         buf.mv(x + 2, y + 2 + row)
             .color(title_color)
             .text("Used  ")
-            .raw(used_meter.render(used_pct))
+            .text(used_meter.render(used_pct))
             .text("  ")
             .color(used_color)
             .text(&used_str);
@@ -88,7 +89,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         buf.mv(x + 2, y + 2 + row)
             .color(title_color)
             .text("Avail ")
-            .raw(avail_meter.render(avail_pct))
+            .text(avail_meter.render(avail_pct))
             .text("  ")
             .color(avail_color)
             .text(&avail_str);
@@ -104,7 +105,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         buf.mv(x + 2, y + 2 + row)
             .color(title_color)
             .text("Cache ")
-            .raw(cached_meter.render(cached_pct))
+            .text(cached_meter.render(cached_pct))
             .text("  ")
             .color(cache_color)
             .text(&cached_str);
@@ -120,7 +121,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
         buf.mv(x + 2, y + 2 + row)
             .color(title_color)
             .text("Free  ")
-            .raw(free_meter.render(free_pct))
+            .text(free_meter.render(free_pct))
             .text("  ")
             .color(free_color)
             .text(&free_str);
@@ -142,7 +143,7 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
             buf.mv(x + 2, y + 2 + row)
                 .color(title_color)
                 .text("Swap  ")
-                .raw(used_meter.render(swap_pct))
+                .text(used_meter.render(swap_pct))
                 .text("  ")
                 .color(fg)
                 .text(&swap_str);

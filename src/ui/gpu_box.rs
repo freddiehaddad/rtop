@@ -3,6 +3,7 @@ use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
+use crate::theme_keys as tc;
 
 /// Format bytes into a short human-readable string (e.g., "10.8G").
 fn fmt_bytes(bytes: u64) -> String {
@@ -42,17 +43,17 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c("gpu_box");
-    let fg = theme.c("main_fg");
-    let hi = theme.c("hi_fg");
-    let title_color = theme.c("title");
-    let meter_bg = theme.c("meter_bg");
-    let cpu_gradient = theme.g("cpu");
+    let box_color = theme.c(tc::GPU_BOX);
+    let fg = theme.c(tc::MAIN_FG);
+    let hi = theme.c(tc::HI_FG);
+    let title_color = theme.c(tc::TITLE);
+    let meter_bg = theme.c(tc::METER_BG);
+    let cpu_gradient = theme.g(tc::GRAD_CPU);
 
     let title = format!("gpu{index}");
     let num = 5u8;
     let mut buf = AnsiBuffer::new();
-    buf.raw(&box_drawing::create_box(&box_drawing::BoxConfig {
+    buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width,
@@ -78,7 +79,7 @@ pub fn draw(
     let name_trunc: String = name_display.chars().take(name_max).collect();
     if !name_trunc.is_empty() {
         let name_x = x + title.len() + 6;
-        buf.mv(name_x, y + 1).raw(&box_drawing::title_inset(
+        buf.mv(name_x, y + 1).text(&box_drawing::title_inset(
             &name_trunc,
             box_color,
             title_color,
@@ -103,7 +104,7 @@ pub fn draw(
         buf.mv(x + 2, y + 2)
             .color(fg)
             .text(&label)
-            .raw(meter.render(gpu_pct as i32))
+            .text(meter.render(gpu_pct as i32))
             .color(fg)
             .text(&suffix);
 
@@ -120,7 +121,7 @@ pub fn draw(
         buf.mv(x + 2, y + 3)
             .color(fg)
             .text(&vlabel)
-            .raw(vmeter.render(vram_pct as i32))
+            .text(vmeter.render(vram_pct as i32))
             .color(fg)
             .text(&vsuffix);
     } else {
@@ -129,7 +130,7 @@ pub fn draw(
         buf.mv(x + 2, y + 2)
             .color(fg)
             .text(&label)
-            .raw(meter.render(gpu_pct as i32))
+            .text(meter.render(gpu_pct as i32))
             .color(fg)
             .text(&suffix);
     }

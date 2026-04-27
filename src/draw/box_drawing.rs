@@ -1,4 +1,4 @@
-use crate::term;
+use crate::draw::buffer::AnsiBuffer;
 
 /// Box-drawing characters.
 pub mod symbols {
@@ -118,41 +118,30 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         )
     };
 
-    let mut out = String::new();
-    out.push_str("\x1b[0m");
-    out.push_str(color);
+    let mut buf = AnsiBuffer::new();
+    buf.reset().color(color);
 
     // Step 1: Draw horizontal lines on top and bottom
-    // Top line: full width of h_line at (y+1, x+1)
-    out.push_str(&format!(
-        "{}{}",
-        term::mv(x + 1, y + 1),
-        symbols::H_LINE.repeat(width)
-    ));
-    // Bottom line
-    out.push_str(&format!(
-        "{}{}",
-        term::mv(x + 1, y + height),
-        symbols::H_LINE.repeat(width)
-    ));
+    buf.mv(x + 1, y + 1).text(&symbols::H_LINE.repeat(width));
+    buf.mv(x + 1, y + height)
+        .text(&symbols::H_LINE.repeat(width));
 
     // Step 2: Draw vertical lines and fill on middle rows
     for row in 1..(height - 1) {
-        out.push_str(&term::mv(x + 1, y + 1 + row));
-        out.push_str(symbols::V_LINE);
+        buf.mv(x + 1, y + 1 + row).text(symbols::V_LINE);
         if fill {
-            out.push_str(&" ".repeat(width - 2));
+            buf.text(&" ".repeat(width - 2));
         } else {
-            out.push_str(&format!("\x1b[{}C", width - 2));
+            buf.text(&format!("\x1b[{}C", width - 2));
         }
-        out.push_str(symbols::V_LINE);
+        buf.text(symbols::V_LINE);
     }
 
     // Step 3: Draw corners (overwriting the h_line at the corner positions)
-    out.push_str(&format!("{}{}", term::mv(x + 1, y + 1), tl));
-    out.push_str(&format!("{}{}", term::mv(x + width, y + 1), tr));
-    out.push_str(&format!("{}{}", term::mv(x + 1, y + height), bl));
-    out.push_str(&format!("{}{}", term::mv(x + width, y + height), br));
+    buf.mv(x + 1, y + 1).text(tl);
+    buf.mv(x + width, y + 1).text(tr);
+    buf.mv(x + 1, y + height).text(bl);
+    buf.mv(x + width, y + height).text(br);
 
     // Step 4: Draw title at (y, x+2) if defined — matching btop format:
     // title_left + bold + hi_fg_numbering + title_color + title + unbold + line_color + title_right
@@ -172,33 +161,25 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         } else {
             cfg.title_color
         };
-        out.push_str(&format!(
-            "{}{}\x1b[1m{}{}{}{}\x1b[22m{}{}",
-            term::mv(x + 3, y + 1),
-            title_syms::TITLE_LEFT,
-            hi,
-            numbering,
-            tc,
-            title,
-            color,
-            title_syms::TITLE_RIGHT,
+        buf.mv(x + 3, y + 1).text(title_syms::TITLE_LEFT);
+        buf.text(&format!(
+            "\x1b[1m{}{}{}{}\x1b[22m",
+            hi, numbering, tc, title,
         ));
+        buf.color(color).text(title_syms::TITLE_RIGHT);
     }
 
     // Title2 on bottom border
     if !title2.is_empty() {
-        out.push_str(&format!(
-            "{}{}{}{}{}",
-            term::mv(x + 3, y + height),
-            title_syms::TITLE_LEFT_DOWN,
-            title2,
-            color,
-            title_syms::TITLE_RIGHT_DOWN,
-        ));
+        buf.mv(x + 3, y + height)
+            .text(title_syms::TITLE_LEFT_DOWN)
+            .text(title2)
+            .color(color)
+            .text(title_syms::TITLE_RIGHT_DOWN);
     }
 
-    out.push_str(&format!("\x1b[0m{}", term::mv(x + 2, y + 2)));
-    out
+    buf.reset().mv(x + 2, y + 2);
+    buf.finish()
 }
 
 /// Render a title inset on a border: ┐text┌ (top) or ┘text└ (bottom).
