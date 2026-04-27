@@ -94,7 +94,7 @@ pub fn draw(
 
     // Consistent layout: label(6) + meter + value(val_w), like mem/disk
     let label_w = 6; // "GPU   ", "MHz   ", etc.
-    let val_w = 13; // right-aligned value column (fits "2.5GHz/3.0GHz")
+    let val_w = 14; // right-aligned value column (fits "210MHz/3.1GHz" + 1 space pad)
 
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
     let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
@@ -107,7 +107,7 @@ pub fn draw(
             .text(label)
             .text(meter.render(pct))
             .color(fg)
-            .text(&tools::rjust(value, val_w, false));
+            .text(&tools::rjust(value, val_w, true));
     };
 
     // Row 1: GPU utilization
