@@ -89,6 +89,8 @@ impl CpuCollector {
         use windows::Win32::Foundation::FILETIME;
 
         // GetSystemTimes for aggregate totals
+        // SAFETY: FFI declaration for kernel32 GetSystemTimes; signature matches
+        // the Windows API ABI with properly typed FILETIME output pointers.
         #[link(name = "kernel32")]
         unsafe extern "system" {
             fn GetSystemTimes(
@@ -99,6 +101,7 @@ impl CpuCollector {
         }
 
         // NtQuerySystemInformation for per-core data
+
         #[repr(C)]
         #[derive(Default, Clone, Copy)]
         struct ProcessorPerfInfo {
@@ -110,6 +113,8 @@ impl CpuCollector {
             interrupt_count: u32,
         }
 
+        // SAFETY: FFI declaration for ntdll NtQuerySystemInformation; signature
+        // matches the NT API with correctly sized buffer and return-length pointer.
         #[link(name = "ntdll")]
         unsafe extern "system" {
             fn NtQuerySystemInformation(
@@ -125,6 +130,9 @@ impl CpuCollector {
         let mut kernel = FILETIME::default();
         let mut user = FILETIME::default();
 
+        // SAFETY: GetSystemTimes writes to valid, properly-aligned FILETIME
+        // pointers allocated on the stack. The return value is checked before
+        // using the output.
         unsafe {
             if GetSystemTimes(&mut idle, &mut kernel, &mut user) != 0 {
                 let idle_val = filetime_to_u64(&idle);
@@ -171,6 +179,9 @@ impl CpuCollector {
         let mut return_len = 0u32;
 
         // SystemProcessorPerformanceInformation = 8
+        // SAFETY: perf_info is a Vec of repr(C) structs sized to core_count.
+        // buf_size matches the allocation. return_len receives the actual bytes
+        // written and is used to bound iteration over the results.
         let status = unsafe {
             NtQuerySystemInformation(
                 8,
@@ -230,6 +241,8 @@ impl CpuCollector {
         // % Processor Performance is a rate counter that needs TWO PdhCollectQueryData
         // calls with a time gap. We keep the query persistent across frames.
 
+        // SAFETY: FFI declarations for pdh.dll Performance Data Helper
+        // functions; signatures match the Windows PDH API.
         #[link(name = "pdh")]
         unsafe extern "system" {
             fn PdhOpenQueryW(ds: *const u16, ud: usize, q: *mut isize) -> i32;
@@ -257,6 +270,9 @@ impl CpuCollector {
                 .encode_utf16()
                 .collect();
 
+            // SAFETY: PDH functions receive valid pointers to stack-allocated
+            // handles and null-terminated UTF-16 counter path strings. Return
+            // values are checked; the query is closed on failure.
             unsafe {
                 let mut q: isize = 0;
                 if PdhOpenQueryW(std::ptr::null(), 0, &mut q) != 0 {
@@ -286,6 +302,9 @@ impl CpuCollector {
         }
 
         // Collect new sample
+        // SAFETY: self.pdh_query and counter handles were successfully
+        // initialized by a prior PdhOpenQueryW/PdhAddCounterW call.
+        // PdhVal is repr(C) and properly aligned for the API output.
         unsafe {
             if PdhCollectQueryData(self.pdh_query) != 0 {
                 self.collect_frequency_fallback();
@@ -336,6 +355,10 @@ impl CpuCollector {
         use windows::Win32::System::Registry::*;
         use windows::core::*;
 
+        // SAFETY: RegOpenKeyExW and RegQueryValueExW receive valid
+        // null-terminated wide-string key/value names. The output buffer
+        // is a stack-allocated u32 with its size passed correctly.
+        // The key handle is closed after use.
         unsafe {
             let mut key = Default::default();
             let subkey = w!("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
@@ -365,6 +388,7 @@ impl CpuCollector {
     }
 
     fn collect_uptime(&mut self) {
+        // SAFETY: GetTickCount64 requires no arguments and always succeeds.
         self.info.uptime_seconds =
             unsafe { windows::Win32::System::SystemInformation::GetTickCount64() / 1000 };
     }
@@ -580,6 +604,9 @@ fn get_cpu_name() -> String {
     use windows::Win32::System::Registry::*;
     use windows::core::*;
 
+    // SAFETY: RegOpenKeyExW and RegQueryValueExW receive valid null-terminated
+    // wide-string paths. The buffer is a stack-allocated u16 array with its
+    // byte size passed correctly. The key handle is closed on all paths.
     unsafe {
         let mut key = Default::default();
         let subkey = w!("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
@@ -611,6 +638,8 @@ fn get_core_count() -> usize {
     use windows::Win32::System::SystemInformation::*;
 
     let mut info = SYSTEM_INFO::default();
+    // SAFETY: GetSystemInfo writes to a valid, properly-aligned SYSTEM_INFO
+    // struct allocated on the stack and always succeeds.
     unsafe {
         GetSystemInfo(&mut info);
     }

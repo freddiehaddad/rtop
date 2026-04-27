@@ -36,6 +36,11 @@ impl NetCollector {
         let elapsed = now.duration_since(self.last_time).as_secs_f64().max(0.001);
         self.last_time = now;
 
+        // SAFETY: GetAdaptersAddresses is called twice: first with a null buffer
+        // to query the required size, then with a properly sized allocation.
+        // The linked-list traversal checks each pointer for null before
+        // dereferencing. FriendlyName is null-checked before use. Socket
+        // address casts follow the sa_family discriminant.
         unsafe {
             let mut size = 0u32;
             let flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_ANYCAST;
@@ -205,6 +210,8 @@ fn get_if_stats(if_index: u32) -> (u64, u64, u64) {
         ..Default::default()
     };
 
+    // SAFETY: row is a properly initialized MIB_IF_ROW2 with InterfaceIndex
+    // set. GetIfEntry2 writes to the struct and the return value is checked.
     unsafe {
         if GetIfEntry2(&mut row) == windows::Win32::Foundation::WIN32_ERROR(0) {
             (row.InOctets, row.OutOctets, row.TransmitLinkSpeed)

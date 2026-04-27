@@ -29,6 +29,10 @@ impl DiskCollector {
         self.data.disks.clear();
         self.data.disks_order.clear();
 
+        // SAFETY: GetLogicalDriveStringsW writes to a stack-allocated u16 buffer
+        // sized to 512 elements. GetDriveTypeW and GetDiskFreeSpaceExW receive
+        // valid null-terminated wide strings from the drive enumeration. Return
+        // values are checked before using the output.
         unsafe {
             let mut buf = [0u16; 512];
             let len = GetLogicalDriveStringsW(Some(&mut buf));

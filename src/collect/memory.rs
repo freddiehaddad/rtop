@@ -36,6 +36,9 @@ impl MemCollector {
             ..Default::default()
         };
 
+        // SAFETY: mem_status is a properly initialized MEMORYSTATUSEX with
+        // dwLength set to the struct size. GlobalMemoryStatusEx writes to
+        // this valid, properly-aligned struct and the return value is checked.
         unsafe {
             if GlobalMemoryStatusEx(&mut mem_status).is_ok() {
                 let total = mem_status.ullTotalPhys;
@@ -75,6 +78,9 @@ impl MemCollector {
             cb: std::mem::size_of::<PERFORMANCE_INFORMATION>() as u32,
             ..Default::default()
         };
+        // SAFETY: perf is a properly initialized PERFORMANCE_INFORMATION with
+        // cb set to the struct size. GetPerformanceInfo writes to this valid,
+        // properly-aligned struct and the return value is checked.
         unsafe {
             if GetPerformanceInfo(&mut perf, perf.cb).is_ok() {
                 let cached = perf.SystemCache as u64 * perf.PageSize as u64;

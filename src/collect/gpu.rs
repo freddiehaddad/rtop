@@ -61,8 +61,14 @@ impl NvmlFunctions {
         use windows::core::PCSTR;
 
         let dll_name: Vec<u16> = "nvml.dll\0".encode_utf16().collect();
+        // SAFETY: LoadLibraryW receives a valid null-terminated UTF-16 DLL name.
+        // The returned handle is checked via ok()? before use.
         let handle = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())).ok()? };
 
+        // SAFETY: GetProcAddress returns function pointers from the loaded DLL.
+        // Each pointer is non-null (checked via Option unwrap in load_fn) and
+        // transmuted to the matching NVML function signature. The NVML C API
+        // uses the C calling convention, matching the declared type aliases.
         unsafe {
             let load_fn = |name: &[u8]| -> Option<unsafe extern "C" fn()> {
                 let proc = GetProcAddress(handle, PCSTR(name.as_ptr()));
@@ -161,6 +167,8 @@ impl GpuCollector {
             return;
         };
 
+        // SAFETY: nvml.init was loaded from nvml.dll and matches the
+        // nvmlInit_v2 signature. It requires no arguments.
         let ret = unsafe { (nvml.init)() };
         if ret != NVML_SUCCESS {
             tracing::warn!("nvmlInit_v2 failed with error {ret}");
@@ -169,6 +177,7 @@ impl GpuCollector {
         }
 
         let mut count: u32 = 0;
+        // SAFETY: count is a valid pointer to a stack-allocated u32.
         let ret = unsafe { (nvml.device_get_count)(&mut count) };
         if ret != NVML_SUCCESS {
             tracing::warn!("nvmlDeviceGetCount_v2 failed with error {ret}");
@@ -182,6 +191,8 @@ impl GpuCollector {
 
         for i in 0..count {
             let mut device: NvmlDevice = std::ptr::null_mut();
+            // SAFETY: i is within 0..count as reported by nvmlDeviceGetCount.
+            // device is a valid pointer to a stack-allocated NvmlDevice.
             let ret = unsafe { (nvml.device_get_handle_by_index)(i, &mut device) };
             if ret != NVML_SUCCESS {
                 continue;
@@ -192,16 +203,24 @@ impl GpuCollector {
 
             // Get device name
             let mut name_buf = [0u8; 256];
+            // SAFETY: device is a valid handle from nvmlDeviceGetHandleByIndex.
+            // name_buf is a stack-allocated 256-byte array, matching the length
+            // argument passed to the function.
             let ret = unsafe {
                 (nvml.device_get_name)(device, name_buf.as_mut_ptr() as *mut c_char, 256)
             };
             if ret == NVML_SUCCESS {
+                // SAFETY: name_buf was written by nvmlDeviceGetName which
+                // null-terminates the output, and the buffer is stack-local
+                // so the pointer remains valid for the duration of this call.
                 let name = unsafe { std::ffi::CStr::from_ptr(name_buf.as_ptr() as *const c_char) };
                 info.name = name.to_string_lossy().into_owned();
             }
 
             // Get power management limit
             let mut pwr_limit: u32 = 0;
+            // SAFETY: device is a valid NVML handle; pwr_limit is a valid
+            // pointer to a stack-allocated u32.
             let ret = unsafe { (nvml.device_get_power_management_limit)(device, &mut pwr_limit) };
             if ret == NVML_SUCCESS {
                 info.pwr_max_usage = pwr_limit as i64;
@@ -209,6 +228,8 @@ impl GpuCollector {
 
             // Get max GPU clock speed
             let mut max_clock: u32 = 0;
+            // SAFETY: device is a valid NVML handle; NVML_CLOCK_GRAPHICS is a
+            // valid clock type constant; max_clock is a valid u32 pointer.
             let ret = unsafe {
                 (nvml.device_get_max_clock_info)(device, NVML_CLOCK_GRAPHICS, &mut max_clock)
             };
@@ -233,6 +254,8 @@ impl GpuCollector {
 
             // Utilization rates
             let mut util = NvmlUtilization { gpu: 0, memory: 0 };
+            // SAFETY: device is a valid NVML handle obtained during init.
+            // util is a valid pointer to a stack-allocated repr(C) struct.
             let ret = unsafe { (nvml.device_get_utilization_rates)(device, &mut util) };
             if ret == NVML_SUCCESS {
                 let pct = util.gpu as i64;
@@ -245,6 +268,8 @@ impl GpuCollector {
 
             // Temperature
             let mut temp: u32 = 0;
+            // SAFETY: device is a valid NVML handle; NVML_TEMPERATURE_GPU is
+            // a valid sensor type; temp is a valid u32 pointer.
             let ret =
                 unsafe { (nvml.device_get_temperature)(device, NVML_TEMPERATURE_GPU, &mut temp) };
             if ret == NVML_SUCCESS {
@@ -260,6 +285,8 @@ impl GpuCollector {
                 free: 0,
                 used: 0,
             };
+            // SAFETY: device is a valid NVML handle; mem is a valid pointer
+            // to a stack-allocated repr(C) NvmlMemory struct.
             let ret = unsafe { (nvml.device_get_memory_info)(device, &mut mem) };
             if ret == NVML_SUCCESS {
                 gpu.mem_total = mem.total;
@@ -282,6 +309,8 @@ impl GpuCollector {
 
             // Power usage (milliwatts)
             let mut power_mw: u32 = 0;
+            // SAFETY: device is a valid NVML handle; power_mw is a valid
+            // pointer to a stack-allocated u32.
             let ret = unsafe { (nvml.device_get_power_usage)(device, &mut power_mw) };
             if ret == NVML_SUCCESS {
                 gpu.pwr_usage = power_mw as i64;
@@ -299,6 +328,8 @@ impl GpuCollector {
 
             // Clock speed (graphics)
             let mut clock: u32 = 0;
+            // SAFETY: device is a valid NVML handle; NVML_CLOCK_GRAPHICS is a
+            // valid clock type constant; clock is a valid u32 pointer.
             let ret =
                 unsafe { (nvml.device_get_clock_info)(device, NVML_CLOCK_GRAPHICS, &mut clock) };
             if ret == NVML_SUCCESS {
@@ -315,6 +346,9 @@ impl GpuCollector {
     /// Shutdown NVML cleanly.
     pub fn shutdown(&mut self) {
         if let Some(nvml) = &self.nvml {
+            // SAFETY: nvml.shutdown was loaded from nvml.dll and matches the
+            // nvmlShutdown signature. Called once during cleanup while the DLL
+            // handle is still valid.
             unsafe {
                 (nvml.shutdown)();
             }

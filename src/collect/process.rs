@@ -128,6 +128,10 @@ impl ProcCollector {
         let core_count = self.core_count;
         let mut new_procs = Vec::new();
 
+        // SAFETY: CreateToolhelp32Snapshot returns a valid handle (checked via
+        // Err). PROCESSENTRY32W has dwSize set correctly. Process32FirstW and
+        // Process32NextW iterate the snapshot using the OS-managed list. The
+        // snapshot handle is closed after iteration.
         unsafe {
             let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
                 Ok(h) => h,
@@ -217,6 +221,10 @@ fn get_process_details(
     let mut user = String::new();
     let mut cmd = String::new();
 
+    // SAFETY: OpenProcess is called with limited query rights. The returned
+    // handle is checked via Ok before use. FILETIME and PROCESS_MEMORY_COUNTERS
+    // are stack-allocated with correct sizes. All API return values are checked.
+    // The handle is closed on all paths.
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
 
@@ -280,9 +288,15 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
     use windows::Win32::Foundation::*;
     use windows::Win32::Security::*;
 
+    // SAFETY: The process handle is valid (passed from caller). Token handle
+    // lifetime is scoped to this function and closed on all paths. Buffer size
+    // is queried first, then allocated accordingly. TOKEN_USER is cast from a
+    // buffer that was filled by GetTokenInformation with verified size.
     unsafe {
         let mut token = HANDLE::default();
-        // Use raw FFI for OpenProcessToken
+        // SAFETY: FFI declaration for advapi32 OpenProcessToken; signature
+        // matches the Windows API with a process handle, access mask, and
+        // output token handle pointer.
         #[link(name = "advapi32")]
         unsafe extern "system" {
             fn OpenProcessToken(process: HANDLE, access: u32, token: *mut HANDLE) -> i32;
@@ -358,6 +372,8 @@ fn get_process_cmdline(pid: u32) -> String {
         reserved3: usize,
     }
 
+    // SAFETY: FFI declaration for ntdll NtQueryInformationProcess; signature
+    // matches the NT API with correctly typed parameters.
     #[link(name = "ntdll")]
     unsafe extern "system" {
         fn NtQueryInformationProcess(
@@ -369,6 +385,12 @@ fn get_process_cmdline(pid: u32) -> String {
         ) -> i32;
     }
 
+    // SAFETY: OpenProcess is called with VM_READ rights; the handle is checked.
+    // NtQueryInformationProcess fills a properly-sized repr(C) struct.
+    // ReadProcessMemory calls pass valid local buffer pointers and check return
+    // values before proceeding. All reads use sizes derived from the target
+    // process's own data structures (PEB offsets for 64-bit Windows). The
+    // handle is closed on all exit paths.
     unsafe {
         // Need PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
         let handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
@@ -396,6 +418,9 @@ fn get_process_cmdline(pid: u32) -> String {
         let mut params_ptr: usize = 0;
         let mut bytes_read: usize = 0;
 
+        // SAFETY: FFI declaration for kernel32 ReadProcessMemory; signature
+        // matches the Windows API with a process handle, remote address,
+        // local buffer, size, and bytes-read output pointer.
         #[link(name = "kernel32")]
         unsafe extern "system" {
             fn ReadProcessMemory(
