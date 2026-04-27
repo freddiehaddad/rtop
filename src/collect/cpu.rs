@@ -28,6 +28,14 @@ pub struct CpuCollector {
     temp_source: TempSource,
 }
 
+impl Default for CpuCollector {
+    /// Creates a new `CpuCollector`. Note: `init()` must be called separately
+    /// to populate CPU name, core count, and temperature source.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CpuCollector {
     /// Create a new CPU collector with default state.
     pub fn new() -> Self {

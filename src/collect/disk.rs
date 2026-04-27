@@ -6,6 +6,12 @@ pub struct DiskCollector {
     pub data: DiskData,
 }
 
+impl Default for DiskCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DiskCollector {
     /// Create a new disk collector.
     pub fn new() -> Self {

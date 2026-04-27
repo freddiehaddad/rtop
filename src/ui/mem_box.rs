@@ -19,12 +19,7 @@ use super::BoxArea;
 /// │ Swap  ■■░░░░░░░░░░░░ 1.0G │
 /// │   1.0G / 8.0G              │
 /// ╰────────────────────────────╯
-pub fn draw(
-    mem: &MemInfo,
-    area: &BoxArea,
-    theme: &Theme,
-    config: &crate::config::Config,
-) -> String {
+pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -137,7 +132,7 @@ pub fn draw(
     }
 
     // Blank line before swap
-    if config.get_bool("show_swap") {
+    if show_swap {
         if row < inner_h {
             row += 1;
         }

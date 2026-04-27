@@ -1,6 +1,56 @@
 use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
 use std::collections::HashMap;
 
+/// Canonical sort options for the process list.
+/// Used by app.rs keybinds, options_menu.rs browsable values, and sort_procs().
+pub const SORT_OPTIONS: &[&str] = &[
+    "pid",
+    "name",
+    "command",
+    "threads",
+    "user",
+    "memory",
+    "cpu lazy",
+    "cpu direct",
+];
+
+/// Pre-parsed process filter for efficient per-process matching.
+pub enum ParsedFilter {
+    None,
+    /// Case-insensitive substring match (already lowercased).
+    Substring(String),
+    /// Regex match (from `!pattern` syntax).
+    Regex(regex::Regex),
+}
+
+impl ParsedFilter {
+    /// Parse a raw filter string into a `ParsedFilter`.
+    pub fn parse(filter: &str) -> Self {
+        if filter.is_empty() {
+            Self::None
+        } else if let Some(pattern) = filter.strip_prefix('!') {
+            match regex::Regex::new(pattern) {
+                Ok(re) => Self::Regex(re),
+                Err(_) => Self::None,
+            }
+        } else {
+            Self::Substring(filter.to_lowercase())
+        }
+    }
+
+    /// Return true if the given process matches this filter.
+    pub fn matches(&self, proc: &ProcInfo) -> bool {
+        match self {
+            Self::None => true,
+            Self::Substring(s) => {
+                proc.name.to_lowercase().contains(s.as_str())
+                    || proc.cmd.to_lowercase().contains(s.as_str())
+            }
+            Self::Regex(re) => re.is_match(&proc.name) || re.is_match(&proc.cmd),
+        }
+    }
+}
+
 /// Process data collector using Windows APIs.
 pub struct ProcCollector {
     /// Raw collected process data — never sorted/filtered in place.
@@ -10,6 +60,12 @@ pub struct ProcCollector {
     pub display_procs: Vec<ProcInfo>,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
+}
+
+impl Default for ProcCollector {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProcCollector {
@@ -34,8 +90,9 @@ impl ProcCollector {
     ) {
         self.display_procs = self.procs.clone();
         sort_procs(&mut self.display_procs, sort_by, reversed);
+        let parsed = ParsedFilter::parse(filter);
         if !filter.is_empty() {
-            self.display_procs.retain(|p| matches_filter(p, filter));
+            self.display_procs.retain(|p| parsed.matches(p));
         }
         if tree_mode {
             let children = build_tree(&self.display_procs);
@@ -512,6 +569,10 @@ pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
 
 /// Test if a process matches a filter string.
 /// Return true if a process matches the filter (substring or `!regex`).
+///
+/// Deprecated: prefer `ParsedFilter::parse(filter).matches(proc)` to avoid
+/// re-compiling the regex on every call.
+#[cfg(test)]
 pub fn matches_filter(proc: &ProcInfo, filter: &str) -> bool {
     if filter.is_empty() {
         return true;

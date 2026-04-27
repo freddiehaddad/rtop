@@ -9,6 +9,12 @@ pub struct NetCollector {
     last_time: std::time::Instant,
 }
 
+impl Default for NetCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NetCollector {
     /// Create a new network collector.
     pub fn new() -> Self {

@@ -18,6 +18,11 @@ fn fmt_bytes(bytes: u64) -> String {
 
 use super::BoxArea;
 
+/// Extracted settings for the GPU box, decoupled from Config.
+pub struct GpuBoxSettings<'a> {
+    pub temp_scale: &'a str,
+}
+
 /// Draw the GPU box into an ANSI string.
 ///
 /// Layout (4 rows):
@@ -30,7 +35,7 @@ pub fn draw(
     index: usize,
     area: &BoxArea,
     theme: &Theme,
-    config: &crate::config::Config,
+    settings: &GpuBoxSettings,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -93,7 +98,7 @@ pub fn draw(
         .copied()
         .unwrap_or(0);
     let temp = gpu.temp.back().copied().unwrap_or(0);
-    let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, config.get_string("temp_scale"));
+    let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, settings.temp_scale);
     let pwr_w = gpu.pwr_usage as f64 / 1000.0;
     let pwr_max_w = gpu.pwr_max_usage as f64 / 1000.0;
 

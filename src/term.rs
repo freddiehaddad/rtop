@@ -72,6 +72,11 @@ impl Terminal {
         stdout.write_all(s.as_bytes())?;
         stdout.flush()
     }
+
+    /// Write content wrapped in terminal sync sequences and flush.
+    pub fn write_synced(&self, content: &str) -> io::Result<()> {
+        self.write_raw(&format!("{}{}{}", SYNC_START, content, SYNC_END))
+    }
 }
 
 impl Drop for Terminal {

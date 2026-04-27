@@ -10,6 +10,18 @@ use crate::tools;
 
 use super::BoxArea;
 
+/// Extracted settings for the CPU box, decoupled from Config.
+pub struct CpuBoxSettings<'a> {
+    pub graph_symbol: GraphSymbol,
+    pub upper_source: &'a str,
+    pub lower_source: &'a str,
+    pub check_temp: bool,
+    pub show_coretemp: bool,
+    pub temp_scale: &'a str,
+    pub update_ms: u64,
+    pub current_preset: i64,
+}
+
 // Core panel column width thresholds (from btop's b_column_size algorithm).
 // Each tier provides space for: label + mini-graph + percentage [+ temperature].
 /// Widest tier: 21 chars + 12 per temp column.
@@ -37,14 +49,7 @@ const BOX_BORDER_ROWS: usize = 2;
 /// │ <lower graph inv>  │ C2 ⣿⣷⣤ 55% │
 /// │up 3d12:45          │ C3 ⣿⣷⣤ 22% │
 /// ╰────────────────────┴──────────────╯
-pub fn draw(
-    cpu: &CpuInfo,
-    area: &BoxArea,
-    theme: &Theme,
-    config: &crate::config::Config,
-    update_ms: u64,
-    current_preset: i64,
-) -> String {
+pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSettings) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -55,16 +60,13 @@ pub fn draw(
     let title_color = theme.c("title");
     let cpu_gradient = theme.g("cpu");
     let graph_text_color = theme.c("graph_text");
-    let graph_sym = GraphSymbol::from_config(
-        config.get_string("graph_symbol_cpu"),
-        config.get_string("graph_symbol"),
-    );
-    let upper_key = match config.get_string("cpu_graph_upper") {
+    let graph_sym = settings.graph_symbol;
+    let upper_key = match settings.upper_source {
         "user" => "user",
         "system" => "system",
         _ => "total",
     };
-    let lower_key = match config.get_string("cpu_graph_lower") {
+    let lower_key = match settings.lower_source {
         "user" => "user",
         "system" => "system",
         _ => "total",
@@ -94,8 +96,8 @@ pub fn draw(
     }
 
     // --- btop core panel sizing (calcSizes from btop_draw.cpp:2297-2327) ---
-    let has_temp = config.get_bool("check_temp") && !cpu.temp.is_empty();
-    let show_coretemp_flag = has_temp && config.get_bool("show_coretemp");
+    let has_temp = settings.check_temp && !cpu.temp.is_empty();
+    let show_coretemp_flag = has_temp && settings.show_coretemp;
     let show_temp: usize = if show_coretemp_flag { 1 } else { 0 };
 
     // b_columns = max(1, ceil(coreCount / (height - 5)))
@@ -277,7 +279,7 @@ pub fn draw(
             height: b_height,
             columns: b_columns,
         };
-        let temp_scale = config.get_string("temp_scale");
+        let temp_scale = settings.temp_scale;
         out.push_str(&draw_core_panel(
             cpu,
             &panel,
@@ -306,8 +308,8 @@ pub fn draw(
     out.push_str(&draw_bottom_hints(
         x,
         y + height,
-        update_ms,
-        current_preset,
+        settings.update_ms,
+        settings.current_preset,
         theme,
     ));
 

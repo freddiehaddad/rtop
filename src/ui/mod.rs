@@ -7,6 +7,18 @@ pub struct BoxArea {
     pub rounded: bool,
 }
 
+impl BoxArea {
+    pub fn from_dim(dim: &crate::draw::layout::BoxDimensions, rounded: bool) -> Self {
+        Self {
+            x: dim.x,
+            y: dim.y,
+            width: dim.width,
+            height: dim.height,
+            rounded,
+        }
+    }
+}
+
 /// Display state for the process list view.
 pub struct ProcView<'a> {
     pub start: usize,

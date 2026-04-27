@@ -96,7 +96,6 @@ pub fn run(
             // ── Phase 3: Render dirty boxes ───────────────────────────────
 
             let mut output = String::new();
-            output.push_str(term::SYNC_START);
 
             // Full screen clear only when layout changed
             if dirty.contains(Dirty::LAYOUT) {
@@ -116,8 +115,7 @@ pub fn run(
             };
             output.push_str(&render_all(&params, &mut proc_selected, &mut proc_start));
 
-            output.push_str(term::SYNC_END);
-            let _ = terminal.write_raw(&output);
+            let _ = terminal.write_synced(&output);
 
             dirty = Dirty::empty();
         }
@@ -155,12 +153,7 @@ pub fn run(
                                 main_menu_selected,
                                 theme,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "down" | "j" | "tab" => {
                             main_menu_selected = (main_menu_selected + 1) % 3;
@@ -170,12 +163,7 @@ pub fn run(
                                 main_menu_selected,
                                 theme,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "enter" | "space" => {
                             match main_menu_selected {
@@ -249,7 +237,6 @@ pub fn run(
                                     is_filtering: false,
                                 };
                                 let mut out = String::new();
-                                out.push_str(term::SYNC_START);
                                 out.push_str("\x1b[2J");
                                 out.push_str(&render_all(
                                     &params,
@@ -262,8 +249,7 @@ pub fn run(
                                     main_menu_selected,
                                     theme,
                                 ));
-                                out.push_str(term::SYNC_END);
-                                let _ = terminal.write_raw(&out);
+                                let _ = terminal.write_synced(&out);
                             }
                         }
                         _ => {}
@@ -284,7 +270,6 @@ pub fn run(
                                     is_filtering: false,
                                 };
                                 let mut out = String::new();
-                                out.push_str(term::SYNC_START);
                                 out.push_str("\x1b[2J");
                                 out.push_str(&render_all(
                                     &params,
@@ -297,8 +282,7 @@ pub fn run(
                                     main_menu_selected,
                                     theme,
                                 ));
-                                out.push_str(term::SYNC_END);
-                                let _ = terminal.write_raw(&out);
+                                let _ = terminal.write_synced(&out);
                             }
                         }
                         "tab" => {
@@ -314,12 +298,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "shift_tab" => {
                             options_cat = if options_cat == 0 { 6 } else { options_cat - 1 };
@@ -334,12 +313,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
                             let new_cat = key.parse::<usize>().unwrap_or(0);
@@ -357,12 +331,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "up" | "k" => {
                             if options_selected > 0 {
@@ -387,12 +356,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "down" | "j" => {
                             let sm = menu::options_menu::select_max(options_cat, options_page, th);
@@ -417,12 +381,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "page_up" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
@@ -443,12 +402,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "page_down" => {
                             let pages = menu::options_menu::page_count(options_cat, th);
@@ -469,12 +423,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         "left" | "right" | "h" | "l" | "enter" | "space" => {
                             if let Some(opt_key) = menu::options_menu::opt_key(
@@ -533,12 +482,7 @@ pub fn run(
                                 options_selected,
                                 options_page,
                             );
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            let _ = terminal.write_synced(&menu_out);
                         }
                         _ => {}
                     },
@@ -747,19 +691,19 @@ pub fn run(
                             dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
                         }
                         "left" => {
-                            let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
+                            use crate::collect::process::SORT_OPTIONS;
                             let current = config.get_string("proc_sorting").to_string();
-                            let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
-                            let new_idx = if idx == 0 { sort_opts.len() - 1 } else { idx - 1 };
-                            config.set_string("proc_sorting", sort_opts[new_idx]);
+                            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
+                            let new_idx = if idx == 0 { SORT_OPTIONS.len() - 1 } else { idx - 1 };
+                            config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
                             dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "right" => {
-                            let sort_opts = ["pid", "name", "command", "threads", "user", "memory", "cpu lazy", "cpu direct"];
+                            use crate::collect::process::SORT_OPTIONS;
                             let current = config.get_string("proc_sorting").to_string();
-                            let idx = sort_opts.iter().position(|&s| s == current).unwrap_or(0);
-                            let new_idx = (idx + 1) % sort_opts.len();
-                            config.set_string("proc_sorting", sort_opts[new_idx]);
+                            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
+                            let new_idx = (idx + 1) % SORT_OPTIONS.len();
+                            config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
                             dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
                         }
                         "t"
@@ -944,40 +888,42 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
 
     if dirty.intersects(Dirty::CPU_BOX) {
         if let Some(ref cpu_dim) = layout.cpu {
-            let area = ui::BoxArea {
-                x: cpu_dim.x,
-                y: cpu_dim.y,
-                width: cpu_dim.width,
-                height: cpu_dim.height,
-                rounded,
+            let area = ui::BoxArea::from_dim(cpu_dim, rounded);
+            let cpu_settings = ui::cpu_box::CpuBoxSettings {
+                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                    config.get_string("graph_symbol_cpu"),
+                    config.get_string("graph_symbol"),
+                ),
+                upper_source: config.get_string("cpu_graph_upper"),
+                lower_source: config.get_string("cpu_graph_lower"),
+                check_temp: config.get_bool("check_temp"),
+                show_coretemp: config.get_bool("show_coretemp"),
+                temp_scale: config.get_string("temp_scale"),
+                update_ms,
+                current_preset: config.get_int("current_preset"),
             };
             output.push_str(&ui::cpu_box::draw(
                 &runner.cpu.info,
                 &area,
                 theme,
-                config,
-                update_ms,
-                config.get_int("current_preset"),
+                &cpu_settings,
             ));
         }
     }
 
     if dirty.intersects(Dirty::GPU_BOX) {
+        let gpu_settings = ui::gpu_box::GpuBoxSettings {
+            temp_scale: config.get_string("temp_scale"),
+        };
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < runner.gpu.gpus.len() {
-                let area = ui::BoxArea {
-                    x: gpu_dim.x,
-                    y: gpu_dim.y,
-                    width: gpu_dim.width,
-                    height: gpu_dim.height,
-                    rounded,
-                };
+                let area = ui::BoxArea::from_dim(gpu_dim, rounded);
                 output.push_str(&ui::gpu_box::draw(
                     &runner.gpu.gpus[gi],
                     gi,
                     &area,
                     theme,
-                    config,
+                    &gpu_settings,
                 ));
             }
         }
@@ -985,26 +931,19 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
 
     if dirty.intersects(Dirty::MEM_BOX) {
         if let Some(ref mem_dim) = layout.mem {
-            let area = ui::BoxArea {
-                x: mem_dim.x,
-                y: mem_dim.y,
-                width: mem_dim.width,
-                height: mem_dim.height,
-                rounded,
-            };
-            output.push_str(&ui::mem_box::draw(&runner.mem.info, &area, theme, config));
+            let area = ui::BoxArea::from_dim(mem_dim, rounded);
+            output.push_str(&ui::mem_box::draw(
+                &runner.mem.info,
+                &area,
+                theme,
+                config.get_bool("show_swap"),
+            ));
         }
     }
 
     if dirty.intersects(Dirty::DISK_BOX) {
         if let Some(ref disk_dim) = layout.disk {
-            let area = ui::BoxArea {
-                x: disk_dim.x,
-                y: disk_dim.y,
-                width: disk_dim.width,
-                height: disk_dim.height,
-                rounded,
-            };
+            let area = ui::BoxArea::from_dim(disk_dim, rounded);
             output.push_str(&ui::disk_box::draw(&runner.disk.data, &area, theme));
         }
     }
@@ -1018,14 +957,24 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
                 .get(iface)
                 .cloned()
                 .unwrap_or_default();
-            let area = ui::BoxArea {
-                x: net_dim.x,
-                y: net_dim.y,
-                width: net_dim.width,
-                height: net_dim.height,
-                rounded,
+            let area = ui::BoxArea::from_dim(net_dim, rounded);
+            let net_settings = ui::net_box::NetBoxSettings {
+                auto_scale: config.get_bool("net_auto"),
+                sync_scale: config.get_bool("net_sync"),
+                max_download: config.get_int("net_download"),
+                max_upload: config.get_int("net_upload"),
+                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                    config.get_string("graph_symbol_net"),
+                    config.get_string("graph_symbol"),
+                ),
             };
-            output.push_str(&ui::net_box::draw(&net_info, iface, &area, theme, config));
+            output.push_str(&ui::net_box::draw(
+                &net_info,
+                iface,
+                &area,
+                theme,
+                &net_settings,
+            ));
         }
     }
 
@@ -1038,13 +987,7 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
             let tree_mode = config.get_bool("proc_tree");
             let detailed_pid = config.get_int("detailed_pid") as u32;
             let pf = config.get_string("proc_filter");
-            let area = ui::BoxArea {
-                x: proc_dim.x,
-                y: proc_dim.y,
-                width: proc_dim.width,
-                height: proc_dim.height,
-                rounded,
-            };
+            let area = ui::BoxArea::from_dim(proc_dim, rounded);
             let view = ui::ProcView {
                 start: *proc_start,
                 selected: *proc_selected,

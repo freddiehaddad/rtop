@@ -8,6 +8,15 @@ use crate::tools;
 
 use super::BoxArea;
 
+/// Extracted settings for the network box, decoupled from Config.
+pub struct NetBoxSettings {
+    pub auto_scale: bool,
+    pub sync_scale: bool,
+    pub max_download: i64,
+    pub max_upload: i64,
+    pub graph_symbol: GraphSymbol,
+}
+
 /// Draw the network box into an ANSI string matching btop's layout.
 ///
 /// Layout:
@@ -22,7 +31,7 @@ pub fn draw(
     iface: &str,
     area: &BoxArea,
     theme: &Theme,
-    config: &crate::config::Config,
+    settings: &NetBoxSettings,
 ) -> String {
     let x = area.x;
     let y = area.y;
@@ -59,12 +68,9 @@ pub fn draw(
         return out;
     }
 
-    let graph_sym = GraphSymbol::from_config(
-        config.get_string("graph_symbol_net"),
-        config.get_string("graph_symbol"),
-    );
-    let net_auto = config.get_bool("net_auto");
-    let net_sync = config.get_bool("net_sync");
+    let graph_sym = settings.graph_symbol;
+    let net_auto = settings.auto_scale;
+    let net_sync = settings.sync_scale;
 
     // Compute graph max values from the visible window only.
     // Using the full history would cause old peaks to flatten new data.
@@ -78,7 +84,7 @@ pub fn draw(
             })
             .unwrap_or(1)
     } else {
-        (config.get_int("net_download") * 1024).max(1)
+        (settings.max_download * 1024).max(1)
     };
     let ul_max_raw = if net_auto {
         net.bandwidth
@@ -89,7 +95,7 @@ pub fn draw(
             })
             .unwrap_or(1)
     } else {
-        (config.get_int("net_upload") * 1024).max(1)
+        (settings.max_upload * 1024).max(1)
     };
     let (dl_max, ul_max) = if net_sync {
         let m = dl_max_raw.max(ul_max_raw);
