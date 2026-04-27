@@ -31,9 +31,9 @@ fn fmt_clock(mhz: u32) -> String {
 ///
 /// Layout (5 content rows):
 /// ╭─┐⁵gpu0┌────────────── NVIDIA GeForce RTX 4080 SUPER ╮
-/// │ GPU   ■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░  48% │
-/// │ MHz   ■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░  210MHz/4GHz │
-/// │ Temp  ■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  42°C │
+/// │ GPU   ■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  48% │
+/// │ Clock ■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  2.1GHz  │
+/// │ Temp  ■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  42°C  │
 /// │ Watts ■■■■■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░  50W/352W   │
 /// │ VRAM  ■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░  4.5G/16G   │
 /// ╰──────────────────────────────────────────────────────╯
@@ -97,8 +97,8 @@ pub fn draw(
     }
 
     // Consistent layout: label(6) + meter + value(val_w), like mem/disk
-    let label_w = 6; // "GPU   ", "MHz   ", etc.
-    let val_w = 14; // right-aligned value column (fits "210MHz/3.1GHz" + 1 space pad)
+    let label_w = 6; // "GPU   ", "Clock ", etc.
+    let val_w = 10; // right-aligned value column (fits "352W/352W" + 1 space)
 
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
     let gpu_meter = Meter::new(meter_w, grad_gpu, meter_bg);
@@ -129,17 +129,12 @@ pub fn draw(
         0
     };
     if row < inner_h {
-        let value = if max_clock > 0 {
-            format!("{}/{}", fmt_clock(clock), fmt_clock(max_clock))
-        } else {
-            fmt_clock(clock)
-        };
         buf.mv(content_x, y + 2 + row)
             .color(title_color)
-            .text("MHz   ")
+            .text("Clock ")
             .text(clock_meter.render(clock_pct))
             .color(fg)
-            .text(&tools::rjust(&value, val_w, true));
+            .text(&tools::rjust(&fmt_clock(clock), val_w, true));
         row += 1;
     }
 
@@ -303,14 +298,14 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         assert!(plain.contains("GPU"), "should contain GPU row");
-        assert!(plain.contains("MHz"), "should contain MHz row");
+        assert!(plain.contains("Clock"), "should contain Clock row");
         assert!(plain.contains("Temp"), "should contain Temp row");
         assert!(plain.contains("Watts"), "should contain Watts row");
         assert!(plain.contains("VRAM"), "should contain VRAM row");
     }
 
     #[test]
-    fn draw_contains_clock_ratio() {
+    fn draw_contains_clock_speed() {
         let output = draw(
             &make_gpu_info(),
             0,
@@ -320,8 +315,8 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains("2.5GHz") && plain.contains("3.0GHz"),
-            "should show current/max clock: got {plain}"
+            plain.contains("2.5GHz"),
+            "should show current clock speed: got {plain}"
         );
     }
 
