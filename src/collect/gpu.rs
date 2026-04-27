@@ -34,6 +34,7 @@ type NvmlDeviceGetTemperature = unsafe extern "C" fn(NvmlDevice, u32, *mut u32) 
 type NvmlDeviceGetMemoryInfo = unsafe extern "C" fn(NvmlDevice, *mut NvmlMemory) -> u32;
 type NvmlDeviceGetPowerUsage = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
 type NvmlDeviceGetClockInfo = unsafe extern "C" fn(NvmlDevice, u32, *mut u32) -> u32;
+type NvmlDeviceGetMaxClockInfo = unsafe extern "C" fn(NvmlDevice, u32, *mut u32) -> u32;
 type NvmlDeviceGetPowerManagementLimit = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
 
 struct NvmlFunctions {
@@ -48,6 +49,7 @@ struct NvmlFunctions {
     device_get_memory_info: NvmlDeviceGetMemoryInfo,
     device_get_power_usage: NvmlDeviceGetPowerUsage,
     device_get_clock_info: NvmlDeviceGetClockInfo,
+    device_get_max_clock_info: NvmlDeviceGetMaxClockInfo,
     device_get_power_management_limit: NvmlDeviceGetPowerManagementLimit,
 }
 
@@ -116,6 +118,10 @@ impl NvmlFunctions {
                     unsafe extern "C" fn(),
                     NvmlDeviceGetClockInfo,
                 >(nvml_fn!("nvmlDeviceGetClockInfo")),
+                device_get_max_clock_info: std::mem::transmute::<
+                    unsafe extern "C" fn(),
+                    NvmlDeviceGetMaxClockInfo,
+                >(nvml_fn!("nvmlDeviceGetMaxClockInfo")),
                 device_get_power_management_limit: std::mem::transmute::<
                     unsafe extern "C" fn(),
                     NvmlDeviceGetPowerManagementLimit,
@@ -199,6 +205,15 @@ impl GpuCollector {
             let ret = unsafe { (nvml.device_get_power_management_limit)(device, &mut pwr_limit) };
             if ret == NVML_SUCCESS {
                 info.pwr_max_usage = pwr_limit as i64;
+            }
+
+            // Get max GPU clock speed
+            let mut max_clock: u32 = 0;
+            let ret = unsafe {
+                (nvml.device_get_max_clock_info)(device, NVML_CLOCK_GRAPHICS, &mut max_clock)
+            };
+            if ret == NVML_SUCCESS {
+                info.gpu_max_clock_speed = max_clock;
             }
 
             self.gpus.push(info);

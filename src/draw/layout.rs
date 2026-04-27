@@ -28,8 +28,8 @@ pub const MIN_NET_HEIGHT: usize = 6;
 pub const MIN_NET_WIDTH: usize = 20;
 /// Minimum width for the process box.
 pub const MIN_PROC_WIDTH: usize = 44;
-/// Minimum height for a GPU box.
-pub const MIN_GPU_HEIGHT: usize = 4;
+/// Minimum height for a GPU box (5 content rows + 2 borders).
+pub const MIN_GPU_HEIGHT: usize = 7;
 /// Minimum height for the disk box.
 pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).

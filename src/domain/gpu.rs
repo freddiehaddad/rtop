@@ -17,6 +17,8 @@ pub struct GpuInfo {
     pub gpu_percent: GpuPercent,
     /// GPU core clock speed in MHz.
     pub gpu_clock_speed: u32,
+    /// Maximum GPU core clock speed in MHz.
+    pub gpu_max_clock_speed: u32,
     /// Current power draw in milliwatts.
     pub pwr_usage: i64,
     /// Maximum power limit in milliwatts.
@@ -37,6 +39,7 @@ impl Default for GpuInfo {
             name: String::new(),
             gpu_percent: GpuPercent::default(),
             gpu_clock_speed: 0,
+            gpu_max_clock_speed: 0,
             pwr_usage: 0,
             pwr_max_usage: 255_000,
             temp: VecDeque::from([0]),

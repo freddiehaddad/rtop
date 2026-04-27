@@ -4,18 +4,7 @@ use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
-
-/// Format bytes into a short human-readable string (e.g., "10.8G").
-fn fmt_bytes(bytes: u64) -> String {
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
-    let b = bytes as f64;
-    if b >= GIB {
-        format!("{:.1}G", b / GIB)
-    } else {
-        format!("{:.0}M", b / MIB)
-    }
-}
+use crate::tools;
 
 use super::BoxArea;
 
@@ -24,12 +13,29 @@ pub struct GpuBoxSettings<'a> {
     pub temp_scale: &'a str,
 }
 
+/// Format bytes into a short human-readable string (e.g., "10.8G").
+fn fmt_bytes(bytes: u64) -> String {
+    tools::floating_humanizer(bytes, true, 0, false, false, false)
+}
+
+/// Format a clock speed for display (e.g., 2520 → "2.5GHz", 800 → "800MHz").
+fn fmt_clock(mhz: u32) -> String {
+    if mhz >= 1000 {
+        format!("{:.1}GHz", mhz as f64 / 1000.0)
+    } else {
+        format!("{}MHz", mhz)
+    }
+}
+
 /// Draw the GPU box into an ANSI string.
 ///
-/// Layout (4 rows):
-/// ╭─┐⁵gpu0┌─ NVIDIA RTX 4090 ───────────────────────────╮
-/// │ GPU 78% ■■■■■■■■■■■■■■░░░░  🌡 65°C  ⚡ 320W / 450W  │
-/// │ VRAM 45% ■■■■■■■■░░░░░░░░░  10.8G / 24.0G  2520 MHz  │
+/// Layout (5 content rows):
+/// ╭─┐⁵gpu0┌────────────── NVIDIA GeForce RTX 4080 SUPER ╮
+/// │ GPU   ■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░  48% │
+/// │ MHz   ■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░  210MHz/4GHz │
+/// │ Temp  ■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  42°C │
+/// │ Watts ■■■■■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░  50W/352W   │
+/// │ VRAM  ■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░  4.5G/16G   │
 /// ╰──────────────────────────────────────────────────────╯
 pub fn draw(
     gpu: &GpuInfo,
@@ -68,71 +74,119 @@ pub fn draw(
         title_color,
     }));
 
-    let inner_w = width.saturating_sub(2);
-    if inner_w < 10 || height < 3 {
+    let inner_w = width.saturating_sub(4);
+    let inner_h = height.saturating_sub(2);
+    let content_x = x + 3;
+    if inner_w < 10 || inner_h < 1 {
         return buf.finish();
     }
 
-    // GPU name on the top border after the title
+    // GPU name on the top border (right-aligned inset)
     let name_display = &gpu.name;
-    let name_max = inner_w.saturating_sub(title.len() + 6);
-    let name_trunc: String = name_display.chars().take(name_max).collect();
+    let max_name_w = inner_w.saturating_sub(title.len() + 6);
+    let name_trunc: String = name_display.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
-        let name_x = x + title.len() + 6;
-        buf.mv(name_x, y + 1).text(&box_drawing::title_inset(
-            &name_trunc,
-            box_color,
-            title_color,
-            false,
-        ));
+        let inset = box_drawing::title_inset(&name_trunc, box_color, title_color, false);
+        let inset_x =
+            box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
+        buf.mv(inset_x, y + 1).text(&inset);
     }
 
-    // Row 1: GPU utilization meter + temperature + power
-    let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0);
+    // Consistent layout: label(6) + meter + value(val_w), like mem/disk
+    let label_w = 6; // "GPU   ", "MHz   ", etc.
+    let val_w = 13; // right-aligned value column (fits "2.5GHz/3.0GHz")
+
+    let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
+    let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
+    let mut row = 0;
+
+    // Helper closure for rendering a row
+    let render_row = |buf: &mut AnsiBuffer, label: &str, pct: i32, value: &str, ry: usize| {
+        buf.mv(content_x, ry)
+            .color(title_color)
+            .text(label)
+            .text(meter.render(pct))
+            .color(fg)
+            .text(&tools::rjust(value, val_w, false));
+    };
+
+    // Row 1: GPU utilization
+    let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0) as i32;
+    if row < inner_h {
+        render_row(
+            &mut buf,
+            "GPU   ",
+            gpu_pct,
+            &format!("{}%", gpu_pct),
+            y + 2 + row,
+        );
+        row += 1;
+    }
+
+    // Row 2: Clock speed
+    let clock = gpu.gpu_clock_speed;
+    let max_clock = gpu.gpu_max_clock_speed;
+    let clock_pct = if max_clock > 0 {
+        (clock as i32 * 100 / max_clock as i32).clamp(0, 100)
+    } else {
+        0
+    };
+    if row < inner_h {
+        let value = if max_clock > 0 {
+            format!("{}/{}", fmt_clock(clock), fmt_clock(max_clock))
+        } else {
+            fmt_clock(clock)
+        };
+        render_row(&mut buf, "MHz   ", clock_pct, &value, y + 2 + row);
+        row += 1;
+    }
+
+    // Row 3: Temperature
     let temp = gpu.temp.back().copied().unwrap_or(0);
     let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, settings.temp_scale);
+    let temp_pct = temp.clamp(0, 100) as i32;
+    if row < inner_h {
+        render_row(
+            &mut buf,
+            "Temp  ",
+            temp_pct,
+            &format!("{}{}", conv_temp, temp_unit),
+            y + 2 + row,
+        );
+        row += 1;
+    }
+
+    // Row 4: Power
     let pwr_w = gpu.pwr_usage as f64 / 1000.0;
     let pwr_max_w = gpu.pwr_max_usage as f64 / 1000.0;
-
-    let label = format!(" GPU {gpu_pct:>3}% ");
-    let suffix = format!("  {conv_temp}{temp_unit}  {pwr_w:.0}W/{pwr_max_w:.0}W ");
-    let meter_w = inner_w.saturating_sub(label.len() + suffix.len());
-
-    if height >= 4 {
-        // We have 2 inner rows
-        let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
-        buf.mv(x + 2, y + 2)
-            .color(fg)
-            .text(&label)
-            .text(meter.render(gpu_pct as i32))
-            .color(fg)
-            .text(&suffix);
-
-        // Row 2: VRAM usage meter + VRAM total + clock speed
-        let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0);
-        let vram_used = fmt_bytes(gpu.mem_used);
-        let vram_total = fmt_bytes(gpu.mem_total);
-        let clock = gpu.gpu_clock_speed;
-
-        let vlabel = format!(" VRAM {vram_pct:>3}% ");
-        let vsuffix = format!("  {vram_used}/{vram_total}  {clock} MHz ");
-        let vmeter_w = inner_w.saturating_sub(vlabel.len() + vsuffix.len());
-        let vmeter = Meter::new(vmeter_w.max(1), cpu_gradient, meter_bg);
-        buf.mv(x + 2, y + 3)
-            .color(fg)
-            .text(&vlabel)
-            .text(vmeter.render(vram_pct as i32))
-            .color(fg)
-            .text(&vsuffix);
+    let pwr_pct = if gpu.pwr_max_usage > 0 {
+        (gpu.pwr_usage * 100 / gpu.pwr_max_usage).clamp(0, 100) as i32
     } else {
-        // Only 1 inner row — compact view
-        let meter = Meter::new(meter_w.max(1), cpu_gradient, meter_bg);
-        buf.mv(x + 2, y + 2)
-            .color(fg)
-            .text(&label)
-            .text(meter.render(gpu_pct as i32))
-            .color(fg)
-            .text(&suffix);
+        0
+    };
+    if row < inner_h {
+        render_row(
+            &mut buf,
+            "Watts ",
+            pwr_pct,
+            &format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w),
+            y + 2 + row,
+        );
+        row += 1;
+    }
+
+    // Row 5: VRAM
+    let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0) as i32;
+    let vram_used = fmt_bytes(gpu.mem_used);
+    let vram_total = fmt_bytes(gpu.mem_total);
+    if row < inner_h {
+        render_row(
+            &mut buf,
+            "VRAM  ",
+            vram_pct,
+            &format!("{}/{}", vram_used, vram_total),
+            y + 2 + row,
+        );
     }
 
     buf.finish()
@@ -172,6 +226,7 @@ mod tests {
                 power: VecDeque::from([70]),
             },
             gpu_clock_speed: 2520,
+            gpu_max_clock_speed: 3000,
             pwr_usage: 320_000,
             pwr_max_usage: 450_000,
             temp: VecDeque::from([65]),
@@ -186,7 +241,7 @@ mod tests {
             x: 1,
             y: 1,
             width: 60,
-            height: 4,
+            height: 7,
             rounded: true,
         }
     }
@@ -224,5 +279,80 @@ mod tests {
             plain.contains("Test GPU RTX 5090"),
             "output should contain GPU name 'Test GPU RTX 5090'"
         );
+    }
+
+    #[test]
+    fn draw_contains_all_five_rows() {
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("GPU"), "should contain GPU row");
+        assert!(plain.contains("MHz"), "should contain MHz row");
+        assert!(plain.contains("Temp"), "should contain Temp row");
+        assert!(plain.contains("Watts"), "should contain Watts row");
+        assert!(plain.contains("VRAM"), "should contain VRAM row");
+    }
+
+    #[test]
+    fn draw_contains_clock_ratio() {
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("2.5GHz") && plain.contains("3.0GHz"),
+            "should show current/max clock: got {plain}"
+        );
+    }
+
+    #[test]
+    fn draw_contains_power_ratio() {
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("320W/450W"),
+            "should show power ratio: got {plain}"
+        );
+    }
+
+    #[test]
+    fn draw_contains_vram_ratio() {
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
+        let plain = strip_ansi(&output);
+        // floating_humanizer output
+        assert!(
+            plain.contains("/24"),
+            "should show vram used/total: got {plain}"
+        );
+    }
+
+    #[test]
+    fn fmt_clock_formats_correctly() {
+        assert_eq!(fmt_clock(2100), "2.1GHz");
+        assert_eq!(fmt_clock(2520), "2.5GHz");
+        assert_eq!(fmt_clock(3000), "3.0GHz");
+        assert_eq!(fmt_clock(800), "800MHz");
+        assert_eq!(fmt_clock(0), "0MHz");
     }
 }
