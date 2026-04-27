@@ -198,11 +198,7 @@ impl Theme {
             let mid_key = format!("{name}_mid");
             let end_key = format!("{name}_end");
 
-            let start = self
-                .rgbs
-                .get(&start_key)
-                .copied()
-                .unwrap_or([128, 128, 128]);
+            let start = self.rgbs.get(&start_key).copied().unwrap_or_default();
             let mid = self.rgbs.get(&mid_key).copied();
             let end = self.rgbs.get(&end_key).copied();
 

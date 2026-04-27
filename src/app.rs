@@ -149,8 +149,12 @@ pub fn run(
                             } else {
                                 main_menu_selected - 1
                             };
-                            let menu_out =
-                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let menu_out = menu::main_menu::draw_with_selection(
+                                tw,
+                                th,
+                                main_menu_selected,
+                                theme,
+                            );
                             let _ = terminal.write_raw(&format!(
                                 "{}{}{}",
                                 term::SYNC_START,
@@ -160,8 +164,12 @@ pub fn run(
                         }
                         "down" | "j" | "tab" => {
                             main_menu_selected = (main_menu_selected + 1) % 3;
-                            let menu_out =
-                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let menu_out = menu::main_menu::draw_with_selection(
+                                tw,
+                                th,
+                                main_menu_selected,
+                                theme,
+                            );
                             let _ = terminal.write_raw(&format!(
                                 "{}{}{}",
                                 term::SYNC_START,
@@ -252,6 +260,7 @@ pub fn run(
                                     tw,
                                     th,
                                     main_menu_selected,
+                                    theme,
                                 ));
                                 out.push_str(term::SYNC_END);
                                 let _ = terminal.write_raw(&out);
@@ -286,6 +295,7 @@ pub fn run(
                                     tw,
                                     th,
                                     main_menu_selected,
+                                    theme,
                                 ));
                                 out.push_str(term::SYNC_END);
                                 let _ = terminal.write_raw(&out);
@@ -571,7 +581,7 @@ pub fn run(
                         "q" => break,
                         "escape" | "m" => {
                             main_menu_selected = 0;
-                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected, theme);
                             let _ = terminal.write_raw(&menu_out);
                             menu_state = MenuState::Main;
                         }

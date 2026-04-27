@@ -1,4 +1,5 @@
 use crate::term;
+use crate::theme::Theme;
 
 /// ASCII art banner lines for the rtop splash/menu screen.
 pub const BANNER: &[&str] = &[
@@ -10,21 +11,48 @@ pub const BANNER: &[&str] = &[
     "╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ",
 ];
 
-/// Render the banner positioned at (x, y) with a vertical color gradient.
-pub fn generate(y: usize, x: usize) -> String {
-    // Warm gradient: bright orange-red at top → deep crimson at bottom
-    const GRADIENT: [&str; 6] = [
-        "\x1b[38;2;255;100;50m", // bright orange-red
-        "\x1b[38;2;240;70;45m",
-        "\x1b[38;2;220;50;40m",
-        "\x1b[38;2;200;35;35m",
-        "\x1b[38;2;175;25;30m",
-        "\x1b[38;2;145;20;25m", // deep crimson
-    ];
+/// Build a 6-step brightness gradient from an RGB color.
+fn gradient6(rgb: [u8; 3]) -> [String; 6] {
+    let scale = |c: u8, pct: u32| -> u8 { (c as u32 * pct / 100).min(255) as u8 };
+    let pcts = [100u32, 85, 72, 60, 50, 40];
+    std::array::from_fn(|i| {
+        let p = pcts[i];
+        format!(
+            "\x1b[38;2;{};{};{}m",
+            scale(rgb[0], p),
+            scale(rgb[1], p),
+            scale(rgb[2], p)
+        )
+    })
+}
+
+/// Build a 3-step brightness gradient from an RGB color.
+pub fn gradient3(rgb: [u8; 3]) -> [String; 3] {
+    let scale = |c: u8, pct: u32| -> u8 { (c as u32 * pct / 100).min(255) as u8 };
+    let pcts = [100u32, 70, 45];
+    std::array::from_fn(|i| {
+        let p = pcts[i];
+        format!(
+            "\x1b[38;2;{};{};{}m",
+            scale(rgb[0], p),
+            scale(rgb[1], p),
+            scale(rgb[2], p)
+        )
+    })
+}
+
+/// Render the banner positioned at (x, y) with a vertical gradient derived from the theme.
+pub fn generate(y: usize, x: usize, theme: &Theme) -> String {
+    let rgb = theme.rgbs.get("hi_fg").copied().unwrap_or_default();
+    let gradient = gradient6(rgb);
     let mut out = String::new();
     for (i, line) in BANNER.iter().enumerate() {
-        let color = GRADIENT[i.min(GRADIENT.len() - 1)];
-        out.push_str(&format!("{}{}{}", term::mv(x + 1, y + i + 1), color, line));
+        out.push_str(&format!(
+            "{}{}{}",
+            term::mv(x + 1, y + i + 1),
+            gradient[i],
+            line
+        ));
     }
     out.push_str("\x1b[0m");
     out
@@ -41,8 +69,16 @@ mod tests {
 
     #[test]
     fn generate_positions_correctly() {
-        let out = generate(0, 0);
+        let theme = Theme::new();
+        let out = generate(0, 0, &theme);
         assert!(out.contains("\x1b[1;1H"));
         assert!(out.contains("██████╗"));
+    }
+
+    #[test]
+    fn gradient3_produces_three_colors() {
+        let g = gradient3([200, 100, 50]);
+        assert_eq!(g.len(), 3);
+        assert!(g[0].contains("200;100;50"));
     }
 }

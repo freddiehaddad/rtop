@@ -1,4 +1,6 @@
+use crate::banner;
 use crate::term;
+use crate::theme::Theme;
 
 /// Menu item ASCII art: normal (thin lines) and selected (thick lines)
 const MENU_NORMAL: [&[&str]; 3] = [
@@ -23,20 +25,19 @@ const MENU_SELECTED: [&[&str]; 3] = [
 
 const MENU_WIDTHS: [usize; 3] = [19, 12, 12];
 
-/// Colors for the three menu rows: selected uses warm tones, normal uses grays
-const COLORS_SELECTED: [&str; 3] = [
-    "\x1b[38;2;230;37;37m", // #E62525
-    "\x1b[38;2;179;29;29m", // #B31D1D
-    "\x1b[38;2;128;20;20m", // #801414
-];
-const COLORS_NORMAL: [&str; 3] = [
-    "\x1b[38;2;204;204;204m", // #CC
-    "\x1b[38;2;170;170;170m", // #AA
-    "\x1b[38;2;128;128;128m", // #80
-];
-
 /// Draw the main menu with a specific item selected (0=Options, 1=Help, 2=Quit).
-pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usize) -> String {
+/// Colors are derived from the theme's hi_fg (selected) and main_fg (normal).
+pub fn draw_with_selection(
+    term_width: usize,
+    term_height: usize,
+    selected: usize,
+    theme: &Theme,
+) -> String {
+    let hi_rgb = theme.rgbs.get("hi_fg").copied().unwrap_or_default();
+    let fg_rgb = theme.rgbs.get("main_fg").copied().unwrap_or_default();
+    let colors_selected = banner::gradient3(hi_rgb);
+    let colors_normal = banner::gradient3(fg_rgb);
+
     let mut out = String::new();
 
     // Position: banner centered at y = height/2 - 10
@@ -44,9 +45,10 @@ pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usiz
     let banner_y = if banner_y > 10 { banner_y - 10 } else { 1 };
 
     // Draw banner
-    out.push_str(&crate::banner::generate(
+    out.push_str(&banner::generate(
         banner_y,
         (term_width.saturating_sub(35)) / 2,
+        theme,
     ));
 
     // Menu items start below the banner (6 lines of banner + 1 gap)
@@ -59,9 +61,9 @@ pub fn draw_with_selection(term_width: usize, term_height: usize, selected: usiz
             &MENU_NORMAL[i]
         };
         let colors = if i == selected {
-            &COLORS_SELECTED
+            &colors_selected
         } else {
-            &COLORS_NORMAL
+            &colors_normal
         };
         let w = MENU_WIDTHS[i];
         let menu_x = (term_width.saturating_sub(w)) / 2;
