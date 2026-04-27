@@ -35,7 +35,7 @@ pub const MIN_GPU_HEIGHT: usize = 4;
 /// Minimum height for the disk box.
 pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
-const PROC_WIDTH_PCT: usize = 55;
+const PROC_WIDTH_PCT: usize = 60;
 /// Percentage of remaining height allocated to the mem box when both mem+net are shown.
 const MEM_HEIGHT_PCT: usize = 55;
 
@@ -78,7 +78,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         return layout;
     }
 
-    // GPU boxes — each takes MIN_GPU_HEIGHT, stacked below CPU
+    // GPU boxes — each takes MIN_GPU_HEIGHT, placed in the left column
     let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
 
     // CPU box height based on core count
@@ -90,11 +90,12 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         0
     };
 
-    // Top section height (CPU + GPU boxes)
-    let top_section = cpu_height + total_gpu_height;
+    // Top section is CPU only (GPU moves to left column)
+    let top_section = cpu_height;
 
-    // Whether there are any left-column boxes
-    let has_left = has_mem || has_net || has_disk;
+    // Whether there are any left-column boxes (now includes GPU)
+    let has_gpu = gpu_count_shown > 0;
+    let has_left = has_mem || has_net || has_disk || has_gpu;
 
     // Proc box width (right side, ~55% — or full width if no left-column boxes)
     let proc_width = if has_proc {
@@ -118,8 +119,11 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         0
     };
 
-    // Remaining height after CPU + GPU
+    // Remaining height after CPU
     let remaining_height = term_height.saturating_sub(top_section);
+
+    // Reserve GPU height in left column
+    let gpu_height_total = if has_gpu { total_gpu_height } else { 0 };
 
     // Reserve disk height if visible
     let disk_height = if has_disk {
@@ -129,7 +133,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     } else {
         0
     };
-    let left_remaining = remaining_height.saturating_sub(disk_height);
+    let left_remaining = remaining_height
+        .saturating_sub(disk_height)
+        .saturating_sub(gpu_height_total);
 
     // MEM and NET heights from the remaining left column space
     let (mem_height, net_height) = if has_mem && has_net {
@@ -160,33 +166,30 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         });
     }
 
-    // GPU boxes stacked below CPU
-    let gpu_start_y = if cpu_bottom {
-        // GPU above the bottom CPU
-        term_height.saturating_sub(top_section) + cpu_height
-    } else {
-        cpu_height
-    };
+    // Left column positioning
+    let left_y_start = if cpu_bottom { 0 } else { top_section };
+    let left_x = if proc_left { proc_width } else { 0 };
+
+    // GPU boxes in the left column, above mem
+    let gpu_start_y = left_y_start;
     for i in 0..gpu_count_shown {
         layout.gpu.push(BoxDimensions {
-            x: 0,
+            x: left_x,
             y: gpu_start_y + i * MIN_GPU_HEIGHT,
-            width: term_width,
+            width: left_width.max(MIN_MEM_WIDTH),
             height: MIN_GPU_HEIGHT,
         });
     }
 
-    // Left column Y start (after CPU + GPU if at top)
-    let left_y_start = if cpu_bottom { 0 } else { top_section };
+    // Shift left column content below GPU
+    let left_content_y = left_y_start + gpu_height_total;
 
-    // MEM and NET positions
+    // MEM and NET positions (below GPU in left column)
     let (mem_y, net_y) = if mem_below_net {
-        (left_y_start + net_height, left_y_start)
+        (left_content_y + net_height, left_content_y)
     } else {
-        (left_y_start, left_y_start + mem_height)
+        (left_content_y, left_content_y + mem_height)
     };
-
-    let left_x = if proc_left { proc_width } else { 0 };
 
     if has_mem {
         layout.mem = Some(BoxDimensions {
@@ -208,7 +211,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // Disk box — below mem+net in the left column
     if has_disk {
-        let disk_y = left_y_start + mem_height + net_height;
+        let disk_y = left_content_y + mem_height + net_height;
         layout.disk = Some(BoxDimensions {
             x: left_x,
             y: disk_y,
