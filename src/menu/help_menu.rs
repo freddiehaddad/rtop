@@ -215,21 +215,19 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
                 break;
             }
             current_section = kb.section;
-            // Visible chars in title portion: "┐ Section ┌" = 1 + 1 + name + 1 + 1 = name + 4
-            let title_vis = kb.section.len() + 4;
+            // Visible chars in title portion: "┐Section┌" = 1 + name + 1 = name + 2
+            let title_vis = kb.section.len() + 2;
             let left_dashes = 2;
             let right_dashes = divider_w.saturating_sub(left_dashes + title_vis);
             out.push_str(&format!(
-                "{}{}{}{}{}{}{}{}{}{}{}",
+                "{}{}{}{}{}{}{}{}{}",
                 term::mv(x + 1, y + 2 + row),
                 help_c,
                 symbols::DIV_LEFT,
                 symbols::H_LINE.repeat(left_dashes),
                 title_syms::TITLE_LEFT,
                 title_c,
-                " ",
                 kb.section,
-                " ",
                 help_c,
                 title_syms::TITLE_RIGHT,
             ));
