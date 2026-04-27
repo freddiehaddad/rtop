@@ -1,11 +1,11 @@
 use crate::{
     config_keys::str_keys as sk,
     dirty::Dirty,
-    handlers::{InputContext, MenuState},
+    handlers::{HandleResult, InputContext, MenuState},
 };
 
 /// Handle input while the process-filter text field is active.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
+pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
     match key {
         "escape" => {
             *ctx.menu_state = MenuState::None;
@@ -41,5 +41,5 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
         }
         _ => {}
     }
-    false
+    HandleResult::none()
 }

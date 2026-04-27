@@ -4,7 +4,7 @@ pub(crate) mod main_menu;
 pub(crate) mod normal;
 pub(crate) mod options;
 
-use crate::{config, dirty::Dirty, draw, runner, term, theme};
+use crate::{config, dirty::Dirty, draw, runner, theme};
 
 /// The current menu overlay state.
 #[derive(Clone, Copy, PartialEq)]
@@ -16,10 +16,70 @@ pub(crate) enum MenuState {
     Filter,
 }
 
+/// A terminal write operation produced by a handler.
+pub(crate) enum TerminalOp {
+    /// Write without terminal sync sequences.
+    Raw(String),
+    /// Write wrapped in terminal sync sequences (atomic update).
+    Synced(String),
+}
+
+/// Result returned by input handlers instead of performing side effects.
+///
+/// Handlers mutate state (dirty flags, config, menu navigation) directly,
+/// but never write to the terminal. Instead they return terminal operations
+/// for the event loop in app.rs to execute.
+pub(crate) struct HandleResult {
+    pub(crate) quit: bool,
+    pub(crate) ops: Vec<TerminalOp>,
+    pub(crate) redraw_overlay: bool,
+}
+
+impl HandleResult {
+    pub(crate) fn none() -> Self {
+        Self {
+            quit: false,
+            ops: Vec::new(),
+            redraw_overlay: false,
+        }
+    }
+
+    pub(crate) fn quit() -> Self {
+        Self {
+            quit: true,
+            ops: Vec::new(),
+            redraw_overlay: false,
+        }
+    }
+
+    pub(crate) fn raw(output: String) -> Self {
+        Self {
+            quit: false,
+            ops: vec![TerminalOp::Raw(output)],
+            redraw_overlay: false,
+        }
+    }
+
+    pub(crate) fn synced(output: String) -> Self {
+        Self {
+            quit: false,
+            ops: vec![TerminalOp::Synced(output)],
+            redraw_overlay: false,
+        }
+    }
+
+    pub(crate) fn redraw() -> Self {
+        Self {
+            quit: false,
+            ops: Vec::new(),
+            redraw_overlay: true,
+        }
+    }
+}
+
 /// Shared mutable state passed to each per-MenuState input handler.
 pub(crate) struct InputContext<'a> {
     pub(crate) config: &'a mut config::Config,
-    pub(crate) terminal: &'a mut term::Terminal,
     pub(crate) theme: &'a mut theme::Theme,
     pub(crate) runner: &'a mut runner::Runner,
     pub(crate) menu_state: &'a mut MenuState,

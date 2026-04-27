@@ -1,13 +1,13 @@
 use crate::{
     dirty::Dirty,
-    handlers::{InputContext, MenuState},
+    handlers::{HandleResult, InputContext, MenuState},
     menu,
 };
 
 /// Handle input while the main menu overlay is visible.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
+pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
     match key {
-        "q" => return true,
+        "q" => return HandleResult::quit(),
         "escape" | "m" => {
             *ctx.menu_state = MenuState::None;
             *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
@@ -24,7 +24,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.main_menu_selected,
                 ctx.theme,
             );
-            let _ = ctx.terminal.write_synced(&menu_out);
+            return HandleResult::synced(menu_out);
         }
         "down" | "j" | "tab" => {
             *ctx.main_menu_selected = (*ctx.main_menu_selected + 1) % 3;
@@ -34,7 +34,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.main_menu_selected,
                 ctx.theme,
             );
-            let _ = ctx.terminal.write_synced(&menu_out);
+            return HandleResult::synced(menu_out);
         }
         "enter" | "space" => {
             match *ctx.main_menu_selected {
@@ -52,20 +52,20 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                         ctx.config,
                         ctx.theme,
                     );
-                    let _ = ctx.terminal.write_raw(&menu_out);
                     *ctx.menu_return_to = MenuState::Main;
                     *ctx.menu_state = MenuState::Options;
+                    return HandleResult::raw(menu_out);
                 }
                 1 => {
                     // Help
                     let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
-                    let _ = ctx.terminal.write_raw(&menu_out);
                     *ctx.menu_return_to = MenuState::Main;
                     *ctx.menu_state = MenuState::Help;
+                    return HandleResult::raw(menu_out);
                 }
                 2 => {
                     // Quit
-                    return true;
+                    return HandleResult::quit();
                 }
                 _ => {}
             }
@@ -83,17 +83,17 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 ctx.config,
                 ctx.theme,
             );
-            let _ = ctx.terminal.write_raw(&menu_out);
             *ctx.menu_return_to = MenuState::Main;
             *ctx.menu_state = MenuState::Options;
+            return HandleResult::raw(menu_out);
         }
         "h" | "?" | "f1" => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
-            let _ = ctx.terminal.write_raw(&menu_out);
             *ctx.menu_return_to = MenuState::Main;
             *ctx.menu_state = MenuState::Help;
+            return HandleResult::raw(menu_out);
         }
         _ => {}
     }
-    false
+    HandleResult::none()
 }

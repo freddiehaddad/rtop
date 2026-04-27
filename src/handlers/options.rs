@@ -1,28 +1,27 @@
 use crate::{
     config_keys::{bool_keys as bk, str_keys as sk},
     dirty::Dirty,
-    handlers::{InputContext, MenuState, redraw_after_overlay},
+    handlers::{HandleResult, InputContext, MenuState, TerminalOp},
     menu, theme, theme_keys as tc,
 };
 
 /// Handle input while the options overlay is visible.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
+pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
     match key {
-        "q" => return true,
+        "q" => return HandleResult::quit(),
         "escape" | "backspace" => {
             let return_to = *ctx.menu_return_to;
             *ctx.menu_state = return_to;
-            let out = redraw_after_overlay(ctx);
-            let _ = ctx.terminal.write_synced(&out);
             if return_to == MenuState::None {
                 *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
             }
+            return HandleResult::redraw();
         }
         "tab" => {
             *ctx.options_cat = (*ctx.options_cat + 1) % 7;
             *ctx.options_page = 0;
             *ctx.options_selected = 0;
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "shift_tab" => {
             *ctx.options_cat = if *ctx.options_cat == 0 {
@@ -32,7 +31,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
             };
             *ctx.options_page = 0;
             *ctx.options_selected = 0;
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
             let new_cat = key.parse::<usize>().unwrap_or(0);
@@ -41,7 +40,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.options_page = 0;
                 *ctx.options_selected = 0;
             }
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "up" | "k" => {
             if *ctx.options_selected > 0 {
@@ -57,7 +56,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.options_selected =
                     menu::options_menu::select_max(*ctx.options_cat, *ctx.options_page, ctx.th);
             }
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "down" | "j" => {
             let sm = menu::options_menu::select_max(*ctx.options_cat, *ctx.options_page, ctx.th);
@@ -73,7 +72,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 }
                 *ctx.options_selected = 0;
             }
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "page_up" => {
             let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
@@ -85,7 +84,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 };
                 *ctx.options_selected = 0;
             }
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "page_down" => {
             let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
@@ -97,9 +96,11 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 };
                 *ctx.options_selected = 0;
             }
-            redraw_options(ctx);
+            return options_menu_output(ctx);
         }
         "left" | "right" | "h" | "l" | "enter" | "space" => {
+            let mut extra_ops: Vec<TerminalOp> = Vec::new();
+
             if let Some(opt_key) = menu::options_menu::opt_key(
                 *ctx.options_cat,
                 *ctx.options_page,
@@ -135,7 +136,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                                 ctx.theme.c(tc::MAIN_FG),
                                 ctx.theme.bg(tc::MAIN_BG),
                             );
-                            let _ = ctx.terminal.write_raw(&base);
+                            extra_ops.push(TerminalOp::Raw(base));
                         }
                     }
                     menu::options_menu::OptKind::StringVal => {
@@ -143,15 +144,30 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                     }
                 }
             }
-            redraw_options(ctx);
+
+            let menu_out = menu::options_menu::draw(
+                ctx.tw,
+                ctx.th,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+                ctx.config,
+                ctx.theme,
+            );
+            extra_ops.push(TerminalOp::Synced(menu_out));
+            return HandleResult {
+                quit: false,
+                ops: extra_ops,
+                redraw_overlay: false,
+            };
         }
         _ => {}
     }
-    false
+    HandleResult::none()
 }
 
-/// Redraw the options menu overlay.
-fn redraw_options(ctx: &mut InputContext) {
+/// Build a HandleResult that redraws the options menu overlay.
+fn options_menu_output(ctx: &mut InputContext) -> HandleResult {
     let menu_out = menu::options_menu::draw(
         ctx.tw,
         ctx.th,
@@ -161,5 +177,5 @@ fn redraw_options(ctx: &mut InputContext) {
         ctx.config,
         ctx.theme,
     );
-    let _ = ctx.terminal.write_synced(&menu_out);
+    HandleResult::synced(menu_out)
 }

@@ -2,14 +2,14 @@ use crate::{
     collect::process::SORT_OPTIONS,
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
-    handlers::{InputContext, MenuState},
+    handlers::{HandleResult, InputContext, MenuState},
     menu, theme, theme_keys as tc,
 };
 
 /// Handle input in normal (no-menu) mode.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
+pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
     match key {
-        "q" => return true,
+        "q" => return HandleResult::quit(),
         "escape" | "m" => {
             *ctx.main_menu_selected = 0;
             let menu_out = menu::main_menu::draw_with_selection(
@@ -18,14 +18,14 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.main_menu_selected,
                 ctx.theme,
             );
-            let _ = ctx.terminal.write_raw(&menu_out);
             *ctx.menu_state = MenuState::Main;
+            return HandleResult::raw(menu_out);
         }
         "h" | "?" | "f1" => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
-            let _ = ctx.terminal.write_raw(&menu_out);
             *ctx.menu_return_to = MenuState::None;
             *ctx.menu_state = MenuState::Help;
+            return HandleResult::raw(menu_out);
         }
         "o" | "f2" => {
             *ctx.options_cat = 0;
@@ -40,9 +40,9 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 ctx.config,
                 ctx.theme,
             );
-            let _ = ctx.terminal.write_raw(&menu_out);
             *ctx.menu_return_to = MenuState::None;
             *ctx.menu_state = MenuState::Options;
+            return HandleResult::raw(menu_out);
         }
         // Preset cycling
         "p" => {
@@ -101,10 +101,10 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
             let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
             *ctx.theme = theme::Theme::from_name(&theme_name);
             let base = format!("{}{}", ctx.theme.c(tc::MAIN_FG), ctx.theme.bg(tc::MAIN_BG),);
-            let _ = ctx.terminal.write_raw(&base);
             *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
             *ctx.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
             *ctx.dirty |= Dirty::FULL;
+            return HandleResult::raw(base);
         }
         "up" | "k" if *ctx.proc_selected > 0 => {
             *ctx.proc_selected -= 1;
@@ -294,7 +294,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
         }
         _ => {}
     }
-    false
+    HandleResult::none()
 }
 
 fn terminate_process(pid: u32) {

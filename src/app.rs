@@ -168,7 +168,6 @@ pub fn run(
                 }
                 let mut ctx = InputContext {
                     config: &mut *config,
-                    terminal: &mut *terminal,
                     theme: &mut *theme,
                     runner: &mut *runner,
                     menu_state: &mut menu_state,
@@ -187,14 +186,30 @@ pub fn run(
                     tw,
                     th,
                 };
-                let quit = match *ctx.menu_state {
+                let result = match *ctx.menu_state {
                     MenuState::Main => handlers::main_menu::handle(&key, &mut ctx),
                     MenuState::Help => handlers::help::handle(&key, &mut ctx),
                     MenuState::Options => handlers::options::handle(&key, &mut ctx),
                     MenuState::Filter => handlers::filter::handle(&key, &mut ctx),
                     MenuState::None => handlers::normal::handle(&key, &mut ctx),
                 };
-                if quit {
+
+                // Execute terminal operations returned by the handler.
+                for op in &result.ops {
+                    match op {
+                        handlers::TerminalOp::Raw(s) => {
+                            let _ = terminal.write_raw(s);
+                        }
+                        handlers::TerminalOp::Synced(s) => {
+                            let _ = terminal.write_synced(s);
+                        }
+                    }
+                }
+                if result.redraw_overlay {
+                    let out = handlers::redraw_after_overlay(&mut ctx);
+                    let _ = terminal.write_synced(&out);
+                }
+                if result.quit {
                     break;
                 }
             }
