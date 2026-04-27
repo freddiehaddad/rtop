@@ -23,6 +23,7 @@ const DEFAULT_THEME: &[(&str, &str)] = &[
     ("graph_text", "#60"),
     ("meter_bg", "#40"),
     ("proc_misc", "#0de756"),
+    ("proc_tree_fg", "#505050"),
     ("cpu_box", "#556d59"),
     ("mem_box", "#6c6c4b"),
     ("net_box", "#5c588d"),

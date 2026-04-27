@@ -57,6 +57,7 @@ pub fn draw_with_sort(
     let hi = theme.c(tc::HI_FG);
     let sel_bg_esc = theme.bg(tc::SELECTED_BG);
     let sel_fg = theme.c(tc::SELECTED_FG);
+    let tree_fg = theme.c(tc::PROC_TREE_FG);
     let proc_grad = theme.g(tc::GRAD_PROCESS);
 
     let mut buf = AnsiBuffer::new();
@@ -98,7 +99,14 @@ pub fn draw_with_sort(
     let mem_w = COL_MEM;
     let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
     let (name_w, cmd_w) = if has_cmd_col {
-        let prog = if inner_w > WIDE_PROG_THRESHOLD {
+        let prog = if tree_mode {
+            // Tree prefixes need more room
+            if inner_w > WIDE_PROG_THRESHOLD {
+                PROG_WIDE + 8
+            } else {
+                PROG_NARROW + 8
+            }
+        } else if inner_w > WIDE_PROG_THRESHOLD {
             PROG_WIDE
         } else {
             PROG_NARROW
@@ -106,10 +114,14 @@ pub fn draw_with_sort(
         let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + COL_SPACING);
         (prog, cmd)
     } else {
-        (
-            inner_w.saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD),
-            0,
-        )
+        let prog = if tree_mode {
+            inner_w
+                .saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
+                .max(PROG_NARROW + 8)
+        } else {
+            inner_w.saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
+        };
+        (prog, 0)
     };
 
     // Header row with column titles and sort indicator
@@ -118,7 +130,8 @@ pub fn draw_with_sort(
     let is_sort = |col: &str| -> bool {
         match col {
             "pid" => sort_lower == "pid",
-            "name" | "command" => sort_lower == "name" || sort_lower == "command",
+            "name" => sort_lower == "name",
+            "command" => sort_lower == "command",
             "cpu" => sort_lower.starts_with("cpu"),
             "mem" | "memory" => sort_lower == "memory",
             _ => false,
@@ -166,9 +179,9 @@ pub fn draw_with_sort(
     // Command column (when terminal is wide enough)
     if has_cmd_col && cmd_w > 0 {
         let cmd_label = if is_sort("command") {
-            format!("Cmd{arrow}")
+            format!("Command Line{arrow}")
         } else {
-            "Cmd".into()
+            "Command Line".into()
         };
         let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = cmd_w);
         let cmd_color = if is_sort("command") { hi } else { title_color };
@@ -233,61 +246,70 @@ pub fn draw_with_sort(
             fg
         };
 
-        // Apply tree prefix to name if in tree mode
-        let display_name = if tree_mode && !proc.prefix.is_empty() {
-            format!("{}{}", proc.prefix, proc.name)
+        // Tree prefix rendered separately in tree_fg color
+        let (tree_prefix, bare_name) = if tree_mode && !proc.prefix.is_empty() {
+            (proc.prefix.as_str(), proc.name.as_str())
         } else {
-            proc.name.clone()
+            ("", proc.name.as_str())
+        };
+        let prefix_w = tools::ulen(tree_prefix, false);
+        let name_avail = name_w.saturating_sub(prefix_w);
+        let display_name = tools::uresize(bare_name, name_avail, false);
+
+        // Build the line without the name column (we render it separately for tree coloring)
+        let pid_str = format!("{:<pid_w$}", proc.pid, pid_w = pid_w);
+        let cpu_str = format!("{:>cpu_w$.1}", proc.cpu_p, cpu_w = cpu_w);
+        let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = mem_w);
+
+        let cmd_display = if has_cmd_col && cmd_w > 0 {
+            let raw = if proc.cmd.len() > proc.name.len() {
+                proc.cmd[proc.name.len()..].trim()
+            } else if proc.cmd != proc.name {
+                &proc.cmd
+            } else {
+                ""
+            };
+            tools::uresize(raw, cmd_w, false)
+        } else {
+            String::new()
         };
 
-        let line = if has_cmd_col && cmd_w > 0 {
-            // Extract just the args from cmd (remove the exe name/path)
-            let cmd_display = if proc.cmd.len() > proc.name.len() {
-                proc.cmd[proc.name.len()..].trim().to_string()
-            } else if proc.cmd != proc.name {
-                proc.cmd.clone()
-            } else {
-                String::new()
-            };
-            format!(
-                "{:<pid_w$} {:<name_w$} {:<cmd_w$} {:>cpu_w$.1} {:>mem_w$}",
-                proc.pid,
-                tools::uresize(&display_name, name_w, false),
-                tools::uresize(&cmd_display, cmd_w, false),
-                proc.cpu_p,
-                mem_str,
-                pid_w = pid_w,
-                name_w = name_w,
-                cmd_w = cmd_w,
-                cpu_w = cpu_w,
-                mem_w = mem_w
-            )
-        } else {
-            format!(
-                "{:<pid_w$} {:<name_w$} {:>cpu_w$.1} {:>mem_w$}",
-                proc.pid,
-                tools::uresize(&display_name, name_w, false),
-                proc.cpu_p,
-                mem_str,
-                pid_w = pid_w,
-                name_w = name_w,
-                cpu_w = cpu_w,
-                mem_w = mem_w
-            )
-        };
-        let line_trunc = tools::uresize(&line, inner_w, false);
+        let name_padded = tools::ljust(&display_name, name_avail, false);
 
         if i + start == selected {
-            // Selected row: highlight with selected colors
             let bg_esc = &sel_bg_esc;
-            buf.mv(x + 2, row)
-                .text(bg_esc)
-                .color(sel_fg)
-                .text(&tools::ljust(&line_trunc, inner_w, false))
-                .text("\x1b[49m")
-                .reset();
+            buf.mv(x + 2, row).text(bg_esc).color(sel_fg);
+            buf.text(&pid_str).text(" ");
+            if !tree_prefix.is_empty() {
+                buf.text(tree_prefix);
+            }
+            buf.text(&name_padded);
+            if prefix_w + name_avail < name_w {
+                buf.text(&" ".repeat(name_w - prefix_w - name_avail));
+            }
+            buf.text(" ");
+            if has_cmd_col && cmd_w > 0 {
+                buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
+                buf.text(" ");
+            }
+            buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
+            buf.text("\x1b[49m").reset();
         } else {
-            buf.mv(x + 2, row).color(proc_color).text(&line_trunc);
+            buf.mv(x + 2, row).color(proc_color);
+            buf.text(&pid_str).text(" ");
+            if !tree_prefix.is_empty() {
+                buf.color(tree_fg).text(tree_prefix).color(proc_color);
+            }
+            buf.text(&name_padded);
+            if prefix_w + name_avail < name_w {
+                buf.text(&" ".repeat(name_w - prefix_w - name_avail));
+            }
+            buf.text(" ");
+            if has_cmd_col && cmd_w > 0 {
+                buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
+                buf.text(" ");
+            }
+            buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
         }
     }
 

@@ -19,6 +19,8 @@ pub const INACTIVE_FG: &str = "inactive_fg";
 pub const GRAPH_TEXT: &str = "graph_text";
 pub const METER_BG: &str = "meter_bg";
 pub const PROC_MISC: &str = "proc_misc";
+/// Color for tree view connector lines (├─, └─, │).
+pub const PROC_TREE_FG: &str = "proc_tree_fg";
 pub const CPU_BOX: &str = "cpu_box";
 pub const MEM_BOX: &str = "mem_box";
 pub const NET_BOX: &str = "net_box";
