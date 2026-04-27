@@ -91,3 +91,23 @@ theme[download_end]="#c01b24"
 theme[upload_start]="#62a0ea"
 theme[upload_mid]="#1c71d8"
 theme[upload_end]="#c01b24"
+
+# GPU utilization meter
+theme[gpu_start]="#62a0ea"
+theme[gpu_mid]="#1c71d8"
+theme[gpu_end]="#e01b24"
+
+# GPU clock speed meter
+theme[gpu_clock_start]="#26a69a"
+theme[gpu_clock_mid]="#4db6ac"
+theme[gpu_clock_end]="#80cbc4"
+
+# GPU power draw meter
+theme[gpu_power_start]="#ff8f00"
+theme[gpu_power_mid]="#ff6d00"
+theme[gpu_power_end]="#e01b24"
+
+# GPU VRAM usage meter
+theme[gpu_vram_start]="#7e57c2"
+theme[gpu_vram_mid]="#9575cd"
+theme[gpu_vram_end]="#b39ddb"

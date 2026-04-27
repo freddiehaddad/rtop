@@ -60,6 +60,19 @@ const DEFAULT_THEME: &[(&str, &str)] = &[
     ("process_start", "#80d0a3"),
     ("process_mid", "#dcd179"),
     ("process_end", "#d45454"),
+    // GPU-specific meter gradients
+    ("gpu_start", "#77ca9b"),
+    ("gpu_mid", "#cbc06c"),
+    ("gpu_end", "#dc4c4c"),
+    ("gpu_clock_start", "#3a9a8e"),
+    ("gpu_clock_mid", "#3db8e8"),
+    ("gpu_clock_end", "#2196f3"),
+    ("gpu_power_start", "#d4a748"),
+    ("gpu_power_mid", "#e88c3d"),
+    ("gpu_power_end", "#dc4c4c"),
+    ("gpu_vram_start", "#6b4e8a"),
+    ("gpu_vram_mid", "#a855f7"),
+    ("gpu_vram_end", "#c084fc"),
     ("proc_pause_bg", "#b54040"),
     ("proc_follow_bg", "#4040b5"),
     ("proc_banner_bg", "#7b407b"),
@@ -181,6 +194,26 @@ impl Theme {
                 );
             }
         }
+        // GPU gradient fallbacks: gpu→cpu, gpu_clock→cpu, gpu_power→used, gpu_vram→cached
+        let gpu_fallbacks: &[(&str, &str)] = &[
+            ("gpu", "cpu"),
+            ("gpu_clock", "cpu"),
+            ("gpu_power", "used"),
+            ("gpu_vram", "cached"),
+        ];
+        for (gpu_prefix, fallback_prefix) in gpu_fallbacks {
+            for suffix in &["_start", "_mid", "_end"] {
+                let key = format!("{gpu_prefix}{suffix}");
+                let fb_key = format!("{fallback_prefix}{suffix}");
+                if !self.rgbs.contains_key(&key) {
+                    if let Some(rgb) = self.rgbs.get(&fb_key).copied() {
+                        self.rgbs.insert(key.clone(), rgb);
+                        self.colors
+                            .insert(key, rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
+                    }
+                }
+            }
+        }
     }
 
     fn generate_gradients(&mut self) {
@@ -194,6 +227,10 @@ impl Theme {
             "download",
             "upload",
             "process",
+            "gpu",
+            "gpu_clock",
+            "gpu_power",
+            "gpu_vram",
         ];
 
         for name in gradient_names {

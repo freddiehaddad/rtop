@@ -101,3 +101,23 @@ theme[proc_banner_fg]="#000000"
 # Process following attributes
 theme[followed_bg]="#ffa500"
 theme[followed_fg]="#000000"
+
+# GPU utilization meter
+theme[gpu_start]="#996300"
+theme[gpu_mid]="#cc8400"
+theme[gpu_end]="#ffa500"
+
+# GPU clock speed meter
+theme[gpu_clock_start]="#805300"
+theme[gpu_clock_mid]="#a06800"
+theme[gpu_clock_end]="#cc8400"
+
+# GPU power draw meter
+theme[gpu_power_start]="#cc4400"
+theme[gpu_power_mid]="#e66000"
+theme[gpu_power_end]="#ff8000"
+
+# GPU VRAM usage meter
+theme[gpu_vram_start]="#7a5000"
+theme[gpu_vram_mid]="#b37400"
+theme[gpu_vram_end]="#e69500"

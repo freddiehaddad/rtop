@@ -54,7 +54,12 @@ pub fn draw(
     let hi = theme.c(tc::HI_FG);
     let title_color = theme.c(tc::TITLE);
     let meter_bg = theme.c(tc::METER_BG);
-    let cpu_gradient = theme.g(tc::GRAD_CPU);
+    // Per-row gradients — each GPU metric has its own semantic color
+    let grad_gpu = theme.g(tc::GRAD_GPU);
+    let grad_clock = theme.g(tc::GRAD_GPU_CLOCK);
+    let grad_temp = theme.g(tc::GRAD_TEMP);
+    let grad_power = theme.g(tc::GRAD_GPU_POWER);
+    let grad_vram = theme.g(tc::GRAD_GPU_VRAM);
 
     let title = format!("gpu{index}");
     let num = 5u8;
@@ -97,29 +102,22 @@ pub fn draw(
     let val_w = 14; // right-aligned value column (fits "210MHz/3.1GHz" + 1 space pad)
 
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
-    let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
+    let gpu_meter = Meter::new(meter_w, grad_gpu, meter_bg);
+    let clock_meter = Meter::new(meter_w, grad_clock, meter_bg);
+    let temp_meter = Meter::new(meter_w, grad_temp, meter_bg);
+    let power_meter = Meter::new(meter_w, grad_power, meter_bg);
+    let vram_meter = Meter::new(meter_w, grad_vram, meter_bg);
     let mut row = 0;
-
-    // Helper closure for rendering a row
-    let render_row = |buf: &mut AnsiBuffer, label: &str, pct: i32, value: &str, ry: usize| {
-        buf.mv(content_x, ry)
-            .color(title_color)
-            .text(label)
-            .text(meter.render(pct))
-            .color(fg)
-            .text(&tools::rjust(value, val_w, true));
-    };
 
     // Row 1: GPU utilization
     let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0) as i32;
     if row < inner_h {
-        render_row(
-            &mut buf,
-            "GPU   ",
-            gpu_pct,
-            &format!("{}%", gpu_pct),
-            y + 2 + row,
-        );
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text("GPU   ")
+            .text(gpu_meter.render(gpu_pct))
+            .color(fg)
+            .text(&tools::rjust(&format!("{}%", gpu_pct), val_w, true));
         row += 1;
     }
 
@@ -137,7 +135,12 @@ pub fn draw(
         } else {
             fmt_clock(clock)
         };
-        render_row(&mut buf, "MHz   ", clock_pct, &value, y + 2 + row);
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text("MHz   ")
+            .text(clock_meter.render(clock_pct))
+            .color(fg)
+            .text(&tools::rjust(&value, val_w, true));
         row += 1;
     }
 
@@ -146,13 +149,12 @@ pub fn draw(
     let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, settings.temp_scale);
     let temp_pct = temp.clamp(0, 100) as i32;
     if row < inner_h {
-        render_row(
-            &mut buf,
-            "Temp  ",
-            temp_pct,
-            &format!("{}{}", conv_temp, temp_unit),
-            y + 2 + row,
-        );
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text("Temp  ")
+            .text(temp_meter.render(temp_pct))
+            .color(fg)
+            .text(&tools::rjust(&format!("{}{}", conv_temp, temp_unit), val_w, true));
         row += 1;
     }
 
@@ -165,13 +167,12 @@ pub fn draw(
         0
     };
     if row < inner_h {
-        render_row(
-            &mut buf,
-            "Watts ",
-            pwr_pct,
-            &format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w),
-            y + 2 + row,
-        );
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text("Watts ")
+            .text(power_meter.render(pwr_pct))
+            .color(fg)
+            .text(&tools::rjust(&format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w), val_w, true));
         row += 1;
     }
 
@@ -180,13 +181,12 @@ pub fn draw(
     let vram_used = fmt_bytes(gpu.mem_used);
     let vram_total = fmt_bytes(gpu.mem_total);
     if row < inner_h {
-        render_row(
-            &mut buf,
-            "VRAM  ",
-            vram_pct,
-            &format!("{}/{}", vram_used, vram_total),
-            y + 2 + row,
-        );
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text("VRAM  ")
+            .text(vram_meter.render(vram_pct))
+            .color(fg)
+            .text(&tools::rjust(&format!("{}/{}", vram_used, vram_total), val_w, true));
     }
 
     buf.finish()

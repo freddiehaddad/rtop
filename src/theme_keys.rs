@@ -40,3 +40,7 @@ pub const GRAD_USED: &str = "used";
 pub const GRAD_DOWNLOAD: &str = "download";
 pub const GRAD_UPLOAD: &str = "upload";
 pub const GRAD_PROCESS: &str = "process";
+pub const GRAD_GPU: &str = "gpu";
+pub const GRAD_GPU_CLOCK: &str = "gpu_clock";
+pub const GRAD_GPU_POWER: &str = "gpu_power";
+pub const GRAD_GPU_VRAM: &str = "gpu_vram";

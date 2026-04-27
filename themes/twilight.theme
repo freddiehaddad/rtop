@@ -117,3 +117,23 @@ theme[followed_bg]="#7587A6"
 
 # Followed process foreground color
 theme[followed_fg]="#A7A7A7"
+
+# GPU utilization meter
+theme[gpu_start]="#8F9D6A"
+theme[gpu_mid]="#F9EE98"
+theme[gpu_end]="#CF6A4C"
+
+# GPU clock speed meter
+theme[gpu_clock_start]="#7587A6"
+theme[gpu_clock_mid]="#8DA0B8"
+theme[gpu_clock_end]="#A5B8CA"
+
+# GPU power draw meter
+theme[gpu_power_start]="#CF6A4C"
+theme[gpu_power_mid]="#CDA869"
+theme[gpu_power_end]="#F9EE98"
+
+# GPU VRAM usage meter
+theme[gpu_vram_start]="#9B859D"
+theme[gpu_vram_mid]="#8A6E8C"
+theme[gpu_vram_end]="#7A577B"

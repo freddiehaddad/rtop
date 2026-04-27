@@ -106,6 +106,26 @@ theme[upload_start]="#A02F6F"
 theme[upload_mid]="#CE5D97"
 theme[upload_end]="#8B7EC8"
 
+# GPU utilization meter
+theme[gpu_start]="#3AA99F"
+theme[gpu_mid]="#D0A215"
+theme[gpu_end]="#D14D41"
+
+# GPU clock speed meter
+theme[gpu_clock_start]="#4385BE"
+theme[gpu_clock_mid]="#3AA99F"
+theme[gpu_clock_end]="#66CDAA"
+
+# GPU power draw meter
+theme[gpu_power_start]="#DA702C"
+theme[gpu_power_mid]="#D0A215"
+theme[gpu_power_end]="#D14D41"
+
+# GPU VRAM usage meter
+theme[gpu_vram_start]="#8B7EC8"
+theme[gpu_vram_mid]="#CE5D97"
+theme[gpu_vram_end]="#D14D41"
+
 # Process box color gradient for threads, mem and cpu usage
 theme[process_start]="#879A39"
 theme[process_mid]="#D0A215"
