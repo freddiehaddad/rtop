@@ -54,7 +54,9 @@ pub fn run(
 
         // ── Phase 2: Execute dirty work (skip if menu overlay is active) ──
 
-        let render_ui = menu_state == MenuState::None || menu_state == MenuState::Filter;
+        let render_ui = menu_state == MenuState::None
+            || menu_state == MenuState::Filter
+            || menu_state == MenuState::Main;
 
         if render_ui && !dirty.is_empty() {
             // Collect data from OS
@@ -229,6 +231,17 @@ pub fn run(
             output.push_str(term::SYNC_END);
             let _ = terminal.write_raw(&output);
 
+            // If main menu is active, draw it on top of the freshly rendered UI
+            if menu_state == MenuState::Main {
+                let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
+                let _ = terminal.write_raw(&format!(
+                    "{}{}{}",
+                    term::SYNC_START,
+                    menu_out,
+                    term::SYNC_END
+                ));
+            }
+
             dirty = Dirty::empty();
         }
 
@@ -338,31 +351,18 @@ pub fn run(
                     MenuState::Help => match key.as_str() {
                         "q" => break,
                         "escape" | "h" | "?" | "f1" => {
-                            menu_state = MenuState::Main;
-                            let menu_out =
-                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
+                            // Force full UI redraw to clear help overlay, then show main menu
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+                            menu_state = MenuState::Main;
                         }
                         _ => {}
                     },
                     MenuState::Options => match key.as_str() {
                         "q" => break,
                         "escape" | "backspace" => {
+                            // Force full UI redraw to clear options overlay, then show main menu
+                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                             menu_state = MenuState::Main;
-                            let menu_out =
-                                menu::main_menu::draw_with_selection(tw, th, main_menu_selected);
-                            let _ = terminal.write_raw(&format!(
-                                "{}{}{}",
-                                term::SYNC_START,
-                                menu_out,
-                                term::SYNC_END
-                            ));
                             dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
                         }
                         "tab" => {
