@@ -682,7 +682,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Requires real Windows system
     fn collect_returns_valid_cpu_info() {
         let mut collector = CpuCollector::new();
         collector.init();

@@ -723,7 +723,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn collect_returns_current_process() {
         let mut collector = ProcCollector::new();
         collector.collect(1);

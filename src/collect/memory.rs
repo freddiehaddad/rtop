@@ -136,7 +136,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn collect_returns_valid_mem_info() {
         let mut collector = MemCollector::new();
         collector.collect();

@@ -243,7 +243,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn collect_returns_at_least_one_interface() {
         let mut collector = NetCollector::new();
         collector.collect();

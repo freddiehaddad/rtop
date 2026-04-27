@@ -100,7 +100,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn collect_finds_at_least_one_drive() {
         let mut c = DiskCollector::new();
         c.collect();
