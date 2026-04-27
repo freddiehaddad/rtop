@@ -913,11 +913,12 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
 fn clamp_proc_selection(
     procs: &[crate::domain::process::ProcInfo],
     box_height: usize,
+    detail_rows: usize,
     selected: &mut usize,
     start: &mut usize,
 ) {
     let count = procs.len();
-    let max_visible = box_height.saturating_sub(5);
+    let max_visible = box_height.saturating_sub(5 + detail_rows);
     if count == 0 {
         *selected = 0;
         *start = 0;
@@ -1080,11 +1081,22 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
     if dirty.intersects(Dirty::PROC_BOX) {
         if let Some(ref proc_dim) = layout.proc_box {
             let procs = &runner.proc_collector.display_procs;
-            clamp_proc_selection(procs, proc_dim.height, proc_selected, proc_start);
+            let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
+            let detail_rows = if detailed_pid > 0 {
+                8_usize.min(proc_dim.height.saturating_sub(6))
+            } else {
+                0
+            };
+            clamp_proc_selection(
+                procs,
+                proc_dim.height,
+                detail_rows,
+                proc_selected,
+                proc_start,
+            );
             let sort_by = config.get_string(sk::PROC_SORTING);
             let reversed = config.get_bool(bk::PROC_REVERSED);
             let tree_mode = config.get_bool(bk::PROC_TREE);
-            let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
             let pf = config.get_string(sk::PROC_FILTER);
             let area = ui::BoxArea::from_dim(proc_dim, rounded);
             let view = ui::ProcView {
