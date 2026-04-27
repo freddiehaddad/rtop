@@ -197,7 +197,7 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
     });
 
     // Build lines from KEYBINDS, grouped by section
-    let inner_w = w.saturating_sub(4);
+    let divider_w = w.saturating_sub(2); // between ├ and ┤
     let max_lines = h.saturating_sub(3);
     let mut row = 0;
     let mut current_section = "";
@@ -209,41 +209,31 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
         // Section header: ├──┐ Section ┌──────────────────────┤
         if kb.section != current_section {
             if !current_section.is_empty() && row < max_lines {
-                // Blank line between sections
                 row += 1;
             }
             if row >= max_lines {
                 break;
             }
             current_section = kb.section;
-            // "┐ Section ┌" portion (title inset chars + spaces + name)
-            let title_part = format!(
-                "{} {} {}",
-                title_syms::TITLE_LEFT,
-                kb.section,
-                title_syms::TITLE_RIGHT,
-            );
-            let title_part_len = tools::ulen(&title_part, false);
-            // 2 leading dashes between ├ and ┐
+            // Visible chars in title portion: "┐ Section ┌" = 1 + 1 + name + 1 + 1 = name + 4
+            let title_vis = kb.section.len() + 4;
             let left_dashes = 2;
-            let right_dashes = inner_w
-                .saturating_sub(left_dashes)
-                .saturating_sub(title_part_len);
-            let h_left = symbols::H_LINE.repeat(left_dashes);
-            let h_right = symbols::H_LINE.repeat(right_dashes);
+            let right_dashes = divider_w.saturating_sub(left_dashes + title_vis);
             out.push_str(&format!(
-                "{}{}{}{}{} \x1b[1m{}{}\x1b[22m{} {}{}",
+                "{}{}{}{}{}{}{}{}{}{}{}",
                 term::mv(x + 1, y + 2 + row),
                 help_c,
                 symbols::DIV_LEFT,
-                h_left,
+                symbols::H_LINE.repeat(left_dashes),
                 title_syms::TITLE_LEFT,
                 title_c,
+                " ",
                 kb.section,
+                " ",
                 help_c,
                 title_syms::TITLE_RIGHT,
-                h_right,
             ));
+            out.push_str(&symbols::H_LINE.repeat(right_dashes));
             out.push_str(symbols::DIV_RIGHT);
             row += 1;
         }
