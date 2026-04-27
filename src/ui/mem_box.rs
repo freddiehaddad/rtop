@@ -156,12 +156,14 @@ pub fn draw(mem: &MemInfo, area: &BoxArea, theme: &Theme, show_swap: bool) -> St
                 .text(&swap_str);
             row += 1;
 
-            // Swap total line
+            // Swap total line — right aligned under the meter
             if row < inner_h {
                 let su = tools::floating_humanizer(swap_used, true, 0, false, false, false);
                 let st = tools::floating_humanizer(swap_total, true, 0, false, false, false);
-                let swap_line = format!("  {} / {}", su, st);
-                buf.mv(x + 2, y + 2 + row).color(fg).text(&swap_line);
+                let swap_line = format!("{} / {}", su, st);
+                let meter_end = x + 2 + label_w + meter_w;
+                let line_x = meter_end.saturating_sub(swap_line.len() + 1);
+                buf.mv(line_x, y + 2 + row).color(fg).text(&swap_line);
             }
         }
     } // show_swap
