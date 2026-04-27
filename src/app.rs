@@ -1003,6 +1003,7 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
                 check_temp: config.get_bool(bk::CHECK_TEMP),
                 show_coretemp: config.get_bool(bk::SHOW_CORETEMP),
                 temp_scale: config.get_string(sk::TEMP_SCALE),
+                single_graph: config.get_bool(bk::CPU_SINGLE_GRAPH),
                 update_ms,
                 current_preset: config.get_int(ik::CURRENT_PRESET),
             };

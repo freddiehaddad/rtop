@@ -18,6 +18,7 @@ pub struct CpuBoxSettings<'a> {
     pub check_temp: bool,
     pub show_coretemp: bool,
     pub temp_scale: &'a str,
+    pub single_graph: bool,
     pub update_ms: u64,
     pub current_preset: i64,
 }
@@ -156,7 +157,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
     };
 
     // Split inner area: upper graph, divider, lower graph
-    let has_lower = inner_h >= 4;
+    let has_lower = !settings.single_graph && inner_h >= 4;
     let divider_row = if has_lower { inner_h / 2 } else { inner_h };
     let upper_h = divider_row;
     let lower_h = if has_lower {
@@ -563,6 +564,7 @@ mod tests {
             check_temp: false,
             show_coretemp: false,
             temp_scale: "celsius",
+            single_graph: false,
             update_ms: 2000,
             current_preset: 0,
         }
