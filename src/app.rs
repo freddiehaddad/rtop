@@ -138,700 +138,37 @@ pub fn run(
                     }
                     continue;
                 }
-                match menu_state {
-                    MenuState::Main => match key.as_str() {
-                        "q" => break,
-                        "escape" | "m" => {
-                            menu_state = MenuState::None;
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "up" | "k" | "shift_tab" => {
-                            main_menu_selected = if main_menu_selected == 0 {
-                                2
-                            } else {
-                                main_menu_selected - 1
-                            };
-                            let menu_out = menu::main_menu::draw_with_selection(
-                                tw,
-                                th,
-                                main_menu_selected,
-                                theme,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "down" | "j" | "tab" => {
-                            main_menu_selected = (main_menu_selected + 1) % 3;
-                            let menu_out = menu::main_menu::draw_with_selection(
-                                tw,
-                                th,
-                                main_menu_selected,
-                                theme,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "enter" | "space" => {
-                            match main_menu_selected {
-                                0 => {
-                                    // Options
-                                    options_cat = 0;
-                                    options_selected = 0;
-                                    options_page = 0;
-                                    let menu_out = draw_options_menu(
-                                        tw,
-                                        th,
-                                        config,
-                                        theme,
-                                        options_cat,
-                                        options_selected,
-                                        options_page,
-                                    );
-                                    if let Err(e) = terminal.write_raw(&menu_out) {
-                                        tracing::debug!("terminal write failed: {e}");
-                                    }
-                                    menu_state = MenuState::Options;
-                                }
-                                1 => {
-                                    // Help
-                                    let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                                    if let Err(e) = terminal.write_raw(&menu_out) {
-                                        tracing::debug!("terminal write failed: {e}");
-                                    }
-                                    menu_state = MenuState::Help;
-                                }
-                                2 => {
-                                    // Quit
-                                    break;
-                                }
-                                _ => {}
-                            }
-                        }
-                        "o" | "f2" => {
-                            options_cat = 0;
-                            options_selected = 0;
-                            options_page = 0;
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_raw(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            menu_state = MenuState::Options;
-                        }
-                        "h" | "?" | "f1" => {
-                            // Show help menu
-                            let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                            if let Err(e) = terminal.write_raw(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            menu_state = MenuState::Help;
-                        }
-                        _ => {}
-                    },
-                    MenuState::Help => match key.as_str() {
-                        "q" => break,
-                        "escape" | "h" | "?" | "f1" => {
-                            menu_state = MenuState::Main;
-                            if let Some(ref layout) = cached_layout {
-                                let params = RenderParams {
-                                    dirty: Dirty::ALL_BOXES,
-                                    layout,
-                                    runner,
-                                    config,
-                                    theme,
-                                    rounded,
-                                    update_ms,
-                                    is_filtering: false,
-                                };
-                                let mut out = String::new();
-                                out.push_str("\x1b[2J");
-                                out.push_str(&render_all(
-                                    &params,
-                                    &mut proc_selected,
-                                    &mut proc_start,
-                                ));
-                                out.push_str(&menu::main_menu::draw_with_selection(
-                                    tw,
-                                    th,
-                                    main_menu_selected,
-                                    theme,
-                                ));
-                                if let Err(e) = terminal.write_synced(&out) {
-                                    tracing::debug!("terminal write failed: {e}");
-                                }
-                            }
-                        }
-                        _ => {}
-                    },
-                    MenuState::Options => match key.as_str() {
-                        "q" => break,
-                        "escape" | "backspace" => {
-                            menu_state = MenuState::Main;
-                            if let Some(ref layout) = cached_layout {
-                                let params = RenderParams {
-                                    dirty: Dirty::ALL_BOXES,
-                                    layout,
-                                    runner,
-                                    config,
-                                    theme,
-                                    rounded,
-                                    update_ms,
-                                    is_filtering: false,
-                                };
-                                let mut out = String::new();
-                                out.push_str("\x1b[2J");
-                                out.push_str(&render_all(
-                                    &params,
-                                    &mut proc_selected,
-                                    &mut proc_start,
-                                ));
-                                out.push_str(&menu::main_menu::draw_with_selection(
-                                    tw,
-                                    th,
-                                    main_menu_selected,
-                                    theme,
-                                ));
-                                if let Err(e) = terminal.write_synced(&out) {
-                                    tracing::debug!("terminal write failed: {e}");
-                                }
-                            }
-                        }
-                        "tab" => {
-                            options_cat = (options_cat + 1) % 7;
-                            options_page = 0;
-                            options_selected = 0;
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "shift_tab" => {
-                            options_cat = if options_cat == 0 { 6 } else { options_cat - 1 };
-                            options_page = 0;
-                            options_selected = 0;
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
-                            let new_cat = key.parse::<usize>().unwrap_or(0);
-                            if new_cat != options_cat {
-                                options_cat = new_cat;
-                                options_page = 0;
-                                options_selected = 0;
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "up" | "k" => {
-                            if options_selected > 0 {
-                                options_selected -= 1;
-                            } else {
-                                // wrap to previous page or last page
-                                let pages = menu::options_menu::page_count(options_cat, th);
-                                if options_page > 0 {
-                                    options_page -= 1;
-                                } else if pages > 1 {
-                                    options_page = pages - 1;
-                                }
-                                options_selected =
-                                    menu::options_menu::select_max(options_cat, options_page, th);
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "down" | "j" => {
-                            let sm = menu::options_menu::select_max(options_cat, options_page, th);
-                            if options_selected < sm {
-                                options_selected += 1;
-                            } else {
-                                // wrap to next page or first page
-                                let pages = menu::options_menu::page_count(options_cat, th);
-                                if options_page < pages - 1 {
-                                    options_page += 1;
-                                } else if pages > 1 {
-                                    options_page = 0;
-                                }
-                                options_selected = 0;
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "page_up" => {
-                            let pages = menu::options_menu::page_count(options_cat, th);
-                            if pages > 1 {
-                                options_page = if options_page > 0 {
-                                    options_page - 1
-                                } else {
-                                    pages - 1
-                                };
-                                options_selected = 0;
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "page_down" => {
-                            let pages = menu::options_menu::page_count(options_cat, th);
-                            if pages > 1 {
-                                options_page = if options_page < pages - 1 {
-                                    options_page + 1
-                                } else {
-                                    0
-                                };
-                                options_selected = 0;
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        "left" | "right" | "h" | "l" | "enter" | "space" => {
-                            if let Some(opt_key) = menu::options_menu::opt_key(
-                                options_cat,
-                                options_page,
-                                options_selected,
-                                th,
-                            ) {
-                                let kind = if config.bools.contains_key(opt_key) {
-                                    menu::options_menu::OptKind::Bool
-                                } else if config.ints.contains_key(opt_key) {
-                                    menu::options_menu::OptKind::Int
-                                } else if !menu::options_menu::browsable_values(opt_key).is_empty()
-                                {
-                                    menu::options_menu::OptKind::Browsable
-                                } else {
-                                    menu::options_menu::OptKind::StringVal
-                                };
-
-                                let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
-
-                                match kind {
-                                    menu::options_menu::OptKind::Bool => {
-                                        config.flip(opt_key);
-                                        rounded = config.get_bool("rounded_corners");
-                                    }
-                                    menu::options_menu::OptKind::Int => {
-                                        menu::options_menu::step_int(opt_key, config, dir);
-                                    }
-                                    menu::options_menu::OptKind::Browsable => {
-                                        menu::options_menu::cycle_browsable(
-                                            opt_key, config, dir as i32,
-                                        );
-                                        if opt_key == "color_theme" {
-                                            let name = config.get_string("color_theme").to_string();
-                                            *theme = theme::Theme::from_name(&name);
-                                            let base = format!(
-                                                "{}{}",
-                                                theme.c("main_fg"),
-                                                theme.c("main_bg").replace("38;2", "48;2"),
-                                            );
-                                            if let Err(e) = terminal.write_raw(&base) {
-                                                tracing::debug!("terminal write failed: {e}");
-                                            }
-                                        }
-                                    }
-                                    menu::options_menu::OptKind::StringVal => {
-                                        // No inline editing yet — strings shown read-only
-                                    }
-                                }
-                            }
-                            let menu_out = draw_options_menu(
-                                tw,
-                                th,
-                                config,
-                                theme,
-                                options_cat,
-                                options_selected,
-                                options_page,
-                            );
-                            if let Err(e) = terminal.write_synced(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                        }
-                        _ => {}
-                    },
-                    MenuState::Filter => match key.as_str() {
-                        "escape" => {
-                            menu_state = MenuState::None;
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "enter" => {
-                            config.set_string("proc_filter", &filter_text);
-                            menu_state = MenuState::None;
-                            proc_selected = 0;
-                            proc_start = 0;
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "backspace" => {
-                            filter_text.pop();
-                            config.set_string("proc_filter", &filter_text);
-                            proc_selected = 0;
-                            proc_start = 0;
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "delete" => {
-                            filter_text.clear();
-                            config.set_string("proc_filter", "");
-                            proc_selected = 0;
-                            proc_start = 0;
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        s if s.len() == 1 && !s.starts_with('\x1b') => {
-                            filter_text.push_str(s);
-                            config.set_string("proc_filter", &filter_text);
-                            proc_selected = 0;
-                            proc_start = 0;
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        _ => {}
-                    },
-                    MenuState::None => match key.as_str() {
-                        "q" => break,
-                        "escape" | "m" => {
-                            main_menu_selected = 0;
-                            let menu_out = menu::main_menu::draw_with_selection(tw, th, main_menu_selected, theme);
-                            if let Err(e) = terminal.write_raw(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            menu_state = MenuState::Main;
-                        }
-                        "h" | "?" | "f1" => {
-                            let menu_out = menu::help_menu::draw(tw, th, theme, rounded);
-                            if let Err(e) = terminal.write_raw(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            menu_state = MenuState::Help;
-                        }
-                        "o" | "f2" => {
-                            options_cat = 0;
-                            options_selected = 0;
-                            options_page = 0;
-                            let menu_out = draw_options_menu(tw, th, config, theme, options_cat, options_selected, options_page);
-                            if let Err(e) = terminal.write_raw(&menu_out) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            menu_state = MenuState::Options;
-                        }
-                        // Preset cycling
-                        "p" => {
-                            let presets = config.preset_list();
-                            if !presets.is_empty() {
-                                let cur = config.get_int("current_preset");
-                                let next = if (cur + 1) >= presets.len() as i64 {
-                                    0i64
-                                } else {
-                                    cur + 1
-                                };
-                                config.set_int("current_preset", next);
-                                config.apply_preset(&presets[next as usize]);
-                                dirty |= Dirty::FULL;
-                            }
-                        }
-                        "P" => {
-                            let presets = config.preset_list();
-                            if !presets.is_empty() {
-                                let cur = config.get_int("current_preset");
-                                let next = if cur <= 0 {
-                                    presets.len() as i64 - 1
-                                } else {
-                                    cur - 1
-                                };
-                                config.set_int("current_preset", next);
-                                config.apply_preset(&presets[next as usize]);
-                                dirty |= Dirty::FULL;
-                            }
-                        }
-                        // Save current layout as preset
-                        "ctrl_s" => {
-                            config.save_preset();
-                            dirty |= Dirty::CPU_BOX; // refresh preset label
-                        }
-                        // Delete current preset
-                        "ctrl_d" => {
-                            let cur = config.get_int("current_preset");
-                            if cur > 0 {
-                                config.delete_preset(cur as usize);
-                                let presets = config.preset_list();
-                                let new_cur = config.get_int("current_preset");
-                                if !presets.is_empty() && (new_cur as usize) < presets.len() {
-                                    config.apply_preset(&presets[new_cur as usize]);
-                                }
-                                dirty |= Dirty::FULL;
-                            }
-                        }
-                        // Config reload
-                        "ctrl_r" => {
-                            let warnings = config.reload();
-                            for w in &warnings {
-                                tracing::warn!("{}", w);
-                            }
-                            // Reapply theme
-                            let theme_name = config.get_string("color_theme").to_string();
-                            *theme = theme::Theme::from_name(&theme_name);
-                            let base = format!(
-                                "{}{}",
-                                theme.c("main_fg"),
-                                theme.c("main_bg").replace("38;2", "48;2"),
-                            );
-                            if let Err(e) = terminal.write_raw(&base) {
-                                tracing::debug!("terminal write failed: {e}");
-                            }
-                            rounded = config.get_bool("rounded_corners");
-                            update_ms = config.get_int("update_ms") as u64;
-                            dirty |= Dirty::FULL;
-                        }
-                        "up" | "k"
-                            if proc_selected > 0 => {
-                                proc_selected -= 1;
-                                dirty |= Dirty::PROC_BOX;
-                            }
-                        "down" | "j" => {
-                            let count = runner.proc_collector.display_procs.len();
-                            if proc_selected + 1 < count {
-                                proc_selected += 1;
-                                dirty |= Dirty::PROC_BOX;
-                            }
-                        }
-                        "page_up" => {
-                            let page = th.saturating_sub(10);
-                            proc_selected = proc_selected.saturating_sub(page);
-                            dirty |= Dirty::PROC_BOX;
-                        }
-                        "page_down" => {
-                            let page = th.saturating_sub(10);
-                            let count = runner.proc_collector.display_procs.len();
-                            proc_selected = (proc_selected + page).min(count.saturating_sub(1));
-                            dirty |= Dirty::PROC_BOX;
-                        }
-                        "home" | "g" => {
-                            proc_selected = 0;
-                            proc_start = 0;
-                            dirty |= Dirty::PROC_BOX;
-                        }
-                        "end" | "G" => {
-                            let count = runner.proc_collector.display_procs.len();
-                            proc_selected = count.saturating_sub(1);
-                            dirty |= Dirty::PROC_BOX;
-                        }
-                        "1" => {
-                            config.toggle_box("cpu");
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "2" => {
-                            config.toggle_box("mem");
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "3" => {
-                            config.toggle_box("net");
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "4" => {
-                            config.toggle_box("proc");
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "5" => {
-                            // Toggle all detected GPU boxes
-                            for i in 0..runner.gpu.gpu_count() {
-                                config.toggle_box(&format!("gpu{i}"));
-                            }
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        "6" => {
-                            config.toggle_box("disk");
-                            dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-                        }
-                        // Process keybinds
-                        "f" | "/" => {
-                            menu_state = MenuState::Filter;
-                            filter_text = config.get_string("proc_filter").to_string();
-                            dirty |= Dirty::PROC_BOX;
-                        }
-                        "e" => {
-                            config.flip("proc_tree");
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "r" => {
-                            config.flip("proc_reversed");
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "c" => {
-                            config.flip("proc_per_core");
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "i" => {
-                            config.flip("io_mode");
-                            dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
-                        }
-                        "left" => {
-                            use crate::collect::process::SORT_OPTIONS;
-                            let current = config.get_string("proc_sorting").to_string();
-                            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
-                            let new_idx = if idx == 0 { SORT_OPTIONS.len() - 1 } else { idx - 1 };
-                            config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "right" => {
-                            use crate::collect::process::SORT_OPTIONS;
-                            let current = config.get_string("proc_sorting").to_string();
-                            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
-                            let new_idx = (idx + 1) % SORT_OPTIONS.len();
-                            config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
-                            dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
-                        }
-                        "t"
-                            // Terminate selected process
-                            if proc_selected < runner.proc_collector.display_procs.len() => {
-                                let pid = runner.proc_collector.display_procs[proc_selected].pid;
-                                terminate_process(pid);
-                                dirty |= Dirty::PROC_BOX;
-                            }
-                        "enter"
-                            // Toggle process detailed view
-                            if proc_selected < runner.proc_collector.display_procs.len() => {
-                                let pid = runner.proc_collector.display_procs[proc_selected].pid;
-                                let current_detailed = config.get_int("detailed_pid");
-                                if current_detailed == pid as i64 {
-                                    config.set_int("detailed_pid", 0);
-                                } else {
-                                    config.set_int("detailed_pid", pid as i64);
-                                }
-                                dirty |= Dirty::PROC_BOX;
-                            }
-                        // Network keybinds
-                        "b"
-                            if !runner.net.interfaces.is_empty() => {
-                                let idx = runner.net.interfaces.iter()
-                                    .position(|s| s == &runner.net.selected_iface)
-                                    .unwrap_or(0);
-                                let new_idx = if idx == 0 { runner.net.interfaces.len() - 1 } else { idx - 1 };
-                                runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
-                                dirty |= Dirty::NET_BOX;
-                            }
-                        "n"
-                            if !runner.net.interfaces.is_empty() => {
-                                let idx = runner.net.interfaces.iter()
-                                    .position(|s| s == &runner.net.selected_iface)
-                                    .unwrap_or(0);
-                                let new_idx = (idx + 1) % runner.net.interfaces.len();
-                                runner.net.selected_iface = runner.net.interfaces[new_idx].clone();
-                                dirty |= Dirty::NET_BOX;
-                            }
-                        "a" => {
-                            config.flip("net_auto");
-                            dirty |= Dirty::NET_BOX;
-                        }
-                        "y" => {
-                            config.flip("net_sync");
-                            dirty |= Dirty::NET_BOX;
-                        }
-                        // Network zero reset
-                        "z" => {
-                            let iface = runner.net.selected_iface.clone();
-                            if let Some(net_info) = runner.net.current_net.get_mut(&iface) {
-                                let dl = net_info.stat.download.clone();
-                                let ul = net_info.stat.upload.clone();
-                                if dl.offset + ul.offset > 0 {
-                                    net_info.stat.download.offset = 0;
-                                    net_info.stat.upload.offset = 0;
-                                } else {
-                                    net_info.stat.download.offset = dl.last + dl.rollover;
-                                    net_info.stat.upload.offset = ul.last + ul.rollover;
-                                }
-                                dirty |= Dirty::NET_BOX;
-                            }
-                        }
-                        // Update rate keybinds
-                        "+" => {
-                            let step = if update_ms > 2000 { 1000 } else { 100 };
-                            let new_ms = (update_ms as i64 + step).min(86_400_000);
-                            config.set_int("update_ms", new_ms);
-                            update_ms = config.get_int("update_ms") as u64;
-                            dirty |= Dirty::CPU_BOX;
-                        }
-                        "-" => {
-                            let step = if update_ms > 2000 { 1000 } else { 100 };
-                            let new_ms = (update_ms as i64 - step).max(100);
-                            config.set_int("update_ms", new_ms);
-                            update_ms = config.get_int("update_ms") as u64;
-                            dirty |= Dirty::CPU_BOX;
-                        }
-                        _ => {}
-                    },
+                let mut ctx = InputContext {
+                    config: &mut *config,
+                    terminal: &mut *terminal,
+                    theme: &mut *theme,
+                    runner: &mut *runner,
+                    menu_state: &mut menu_state,
+                    dirty: &mut dirty,
+                    rounded: &mut rounded,
+                    update_ms: &mut update_ms,
+                    main_menu_selected: &mut main_menu_selected,
+                    options_cat: &mut options_cat,
+                    options_selected: &mut options_selected,
+                    options_page: &mut options_page,
+                    proc_selected: &mut proc_selected,
+                    proc_start: &mut proc_start,
+                    filter_text: &mut filter_text,
+                    cached_layout: &cached_layout,
+                    tw,
+                    th,
+                };
+                let quit = match *ctx.menu_state {
+                    MenuState::Main => handle_main_menu_input(key.as_str(), &mut ctx),
+                    MenuState::Help => handle_help_input(key.as_str(), &mut ctx),
+                    MenuState::Options => handle_options_input(key.as_str(), &mut ctx),
+                    MenuState::Filter => handle_filter_input(key.as_str(), &mut ctx),
+                    MenuState::None => handle_normal_input(key.as_str(), &mut ctx),
+                };
+                if quit {
+                    break;
                 }
+
             }
         }
         // No else branch needed — the wall-clock check at the top of the loop
@@ -844,6 +181,716 @@ pub fn run(
         let _ = config.write(&conf_path);
     }
 }
+
+/// Shared mutable state passed to each per-MenuState input handler.
+struct InputContext<'a> {
+    config: &'a mut config::Config,
+    terminal: &'a mut term::Terminal,
+    theme: &'a mut theme::Theme,
+    runner: &'a mut runner::Runner,
+    menu_state: &'a mut MenuState,
+    dirty: &'a mut Dirty,
+    rounded: &'a mut bool,
+    update_ms: &'a mut u64,
+    main_menu_selected: &'a mut usize,
+    options_cat: &'a mut usize,
+    options_selected: &'a mut usize,
+    options_page: &'a mut usize,
+    proc_selected: &'a mut usize,
+    proc_start: &'a mut usize,
+    filter_text: &'a mut String,
+    cached_layout: &'a Option<draw::layout::Layout>,
+    tw: usize,
+    th: usize,
+}
+
+/// Handle input while the main menu overlay is visible.
+fn handle_main_menu_input(key: &str, ctx: &mut InputContext) -> bool {
+    match key {
+        "q" => return true,
+        "escape" | "m" => {
+            *ctx.menu_state = MenuState::None;
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "up" | "k" | "shift_tab" => {
+            *ctx.main_menu_selected = if *ctx.main_menu_selected == 0 {
+                2
+            } else {
+                *ctx.main_menu_selected - 1
+            };
+            let menu_out = menu::main_menu::draw_with_selection(
+                ctx.tw,
+                ctx.th,
+                *ctx.main_menu_selected,
+                ctx.theme,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "down" | "j" | "tab" => {
+            *ctx.main_menu_selected = (*ctx.main_menu_selected + 1) % 3;
+            let menu_out = menu::main_menu::draw_with_selection(
+                ctx.tw,
+                ctx.th,
+                *ctx.main_menu_selected,
+                ctx.theme,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "enter" | "space" => {
+            match *ctx.main_menu_selected {
+                0 => {
+                    // Options
+                    *ctx.options_cat = 0;
+                    *ctx.options_selected = 0;
+                    *ctx.options_page = 0;
+                    let menu_out = draw_options_menu(
+                        ctx.tw,
+                        ctx.th,
+                        ctx.config,
+                        ctx.theme,
+                        *ctx.options_cat,
+                        *ctx.options_selected,
+                        *ctx.options_page,
+                    );
+                    let _ = ctx.terminal.write_raw(&menu_out);
+                    *ctx.menu_state = MenuState::Options;
+                }
+                1 => {
+                    // Help
+                    let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
+                    let _ = ctx.terminal.write_raw(&menu_out);
+                    *ctx.menu_state = MenuState::Help;
+                }
+                2 => {
+                    // Quit
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        "o" | "f2" => {
+            *ctx.options_cat = 0;
+            *ctx.options_selected = 0;
+            *ctx.options_page = 0;
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_state = MenuState::Options;
+        }
+        "h" | "?" | "f1" => {
+            let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
+            let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_state = MenuState::Help;
+        }
+        _ => {}
+    }
+    false
+}
+
+/// Handle input while the help overlay is visible.
+fn handle_help_input(key: &str, ctx: &mut InputContext) -> bool {
+    match key {
+        "q" => return true,
+        "escape" | "h" | "?" | "f1" => {
+            *ctx.menu_state = MenuState::Main;
+            if let Some(layout) = ctx.cached_layout.as_ref() {
+                let params = RenderParams {
+                    dirty: Dirty::ALL_BOXES,
+                    layout,
+                    runner: ctx.runner,
+                    config: ctx.config,
+                    theme: ctx.theme,
+                    rounded: *ctx.rounded,
+                    update_ms: *ctx.update_ms,
+                    is_filtering: false,
+                };
+                let mut out = String::new();
+                out.push_str("\x1b[2J");
+                out.push_str(&render_all(
+                    &params,
+                    ctx.proc_selected,
+                    ctx.proc_start,
+                ));
+                out.push_str(&menu::main_menu::draw_with_selection(
+                    ctx.tw,
+                    ctx.th,
+                    *ctx.main_menu_selected,
+                    ctx.theme,
+                ));
+                let _ = ctx.terminal.write_synced(&out);
+            }
+        }
+        _ => {}
+    }
+    false
+}
+
+/// Handle input while the options overlay is visible.
+fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
+    match key {
+        "q" => return true,
+        "escape" | "backspace" => {
+            *ctx.menu_state = MenuState::Main;
+            if let Some(layout) = ctx.cached_layout.as_ref() {
+                let params = RenderParams {
+                    dirty: Dirty::ALL_BOXES,
+                    layout,
+                    runner: ctx.runner,
+                    config: ctx.config,
+                    theme: ctx.theme,
+                    rounded: *ctx.rounded,
+                    update_ms: *ctx.update_ms,
+                    is_filtering: false,
+                };
+                let mut out = String::new();
+                out.push_str("\x1b[2J");
+                out.push_str(&render_all(
+                    &params,
+                    ctx.proc_selected,
+                    ctx.proc_start,
+                ));
+                out.push_str(&menu::main_menu::draw_with_selection(
+                    ctx.tw,
+                    ctx.th,
+                    *ctx.main_menu_selected,
+                    ctx.theme,
+                ));
+                let _ = ctx.terminal.write_synced(&out);
+            }
+        }
+        "tab" => {
+            *ctx.options_cat = (*ctx.options_cat + 1) % 7;
+            *ctx.options_page = 0;
+            *ctx.options_selected = 0;
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "shift_tab" => {
+            *ctx.options_cat = if *ctx.options_cat == 0 { 6 } else { *ctx.options_cat - 1 };
+            *ctx.options_page = 0;
+            *ctx.options_selected = 0;
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
+            let new_cat = key.parse::<usize>().unwrap_or(0);
+            if new_cat != *ctx.options_cat {
+                *ctx.options_cat = new_cat;
+                *ctx.options_page = 0;
+                *ctx.options_selected = 0;
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "up" | "k" => {
+            if *ctx.options_selected > 0 {
+                *ctx.options_selected -= 1;
+            } else {
+                // wrap to previous page or last page
+                let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
+                if *ctx.options_page > 0 {
+                    *ctx.options_page -= 1;
+                } else if pages > 1 {
+                    *ctx.options_page = pages - 1;
+                }
+                *ctx.options_selected =
+                    menu::options_menu::select_max(*ctx.options_cat, *ctx.options_page, ctx.th);
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "down" | "j" => {
+            let sm = menu::options_menu::select_max(*ctx.options_cat, *ctx.options_page, ctx.th);
+            if *ctx.options_selected < sm {
+                *ctx.options_selected += 1;
+            } else {
+                // wrap to next page or first page
+                let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
+                if *ctx.options_page < pages - 1 {
+                    *ctx.options_page += 1;
+                } else if pages > 1 {
+                    *ctx.options_page = 0;
+                }
+                *ctx.options_selected = 0;
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "page_up" => {
+            let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
+            if pages > 1 {
+                *ctx.options_page = if *ctx.options_page > 0 {
+                    *ctx.options_page - 1
+                } else {
+                    pages - 1
+                };
+                *ctx.options_selected = 0;
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "page_down" => {
+            let pages = menu::options_menu::page_count(*ctx.options_cat, ctx.th);
+            if pages > 1 {
+                *ctx.options_page = if *ctx.options_page < pages - 1 {
+                    *ctx.options_page + 1
+                } else {
+                    0
+                };
+                *ctx.options_selected = 0;
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        "left" | "right" | "h" | "l" | "enter" | "space" => {
+            if let Some(opt_key) = menu::options_menu::opt_key(
+                *ctx.options_cat,
+                *ctx.options_page,
+                *ctx.options_selected,
+                ctx.th,
+            ) {
+                let kind = if ctx.config.bools.contains_key(opt_key) {
+                    menu::options_menu::OptKind::Bool
+                } else if ctx.config.ints.contains_key(opt_key) {
+                    menu::options_menu::OptKind::Int
+                } else if !menu::options_menu::browsable_values(opt_key).is_empty()
+                {
+                    menu::options_menu::OptKind::Browsable
+                } else {
+                    menu::options_menu::OptKind::StringVal
+                };
+
+                let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
+
+                match kind {
+                    menu::options_menu::OptKind::Bool => {
+                        ctx.config.flip(opt_key);
+                        *ctx.rounded = ctx.config.get_bool("rounded_corners");
+                    }
+                    menu::options_menu::OptKind::Int => {
+                        menu::options_menu::step_int(opt_key, ctx.config, dir);
+                    }
+                    menu::options_menu::OptKind::Browsable => {
+                        menu::options_menu::cycle_browsable(
+                            opt_key, ctx.config, dir as i32,
+                        );
+                        if opt_key == "color_theme" {
+                            let name = ctx.config.get_string("color_theme").to_string();
+                            *ctx.theme = theme::Theme::from_name(&name);
+                            let base = format!(
+                                "{}{}",
+                                ctx.theme.c("main_fg"),
+                                ctx.theme.c("main_bg").replace("38;2", "48;2"),
+                            );
+                            let _ = ctx.terminal.write_raw(&base);
+                        }
+                    }
+                    menu::options_menu::OptKind::StringVal => {
+                        // No inline editing yet — strings shown read-only
+                    }
+                }
+            }
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_synced(&menu_out);
+        }
+        _ => {}
+    }
+    false
+}
+
+/// Handle input while the process-filter text field is active.
+fn handle_filter_input(key: &str, ctx: &mut InputContext) -> bool {
+    match key {
+        "escape" => {
+            *ctx.menu_state = MenuState::None;
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "enter" => {
+            ctx.config.set_string("proc_filter", ctx.filter_text);
+            *ctx.menu_state = MenuState::None;
+            *ctx.proc_selected = 0;
+            *ctx.proc_start = 0;
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "backspace" => {
+            ctx.filter_text.pop();
+            ctx.config.set_string("proc_filter", ctx.filter_text);
+            *ctx.proc_selected = 0;
+            *ctx.proc_start = 0;
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "delete" => {
+            ctx.filter_text.clear();
+            ctx.config.set_string("proc_filter", "");
+            *ctx.proc_selected = 0;
+            *ctx.proc_start = 0;
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        s if s.len() == 1 && !s.starts_with('\x1b') => {
+            ctx.filter_text.push_str(s);
+            ctx.config.set_string("proc_filter", ctx.filter_text);
+            *ctx.proc_selected = 0;
+            *ctx.proc_start = 0;
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        _ => {}
+    }
+    false
+}
+
+/// Handle input in normal (no-menu) mode.
+fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
+    match key {
+        "q" => return true,
+        "escape" | "m" => {
+            *ctx.main_menu_selected = 0;
+            let menu_out = menu::main_menu::draw_with_selection(
+                ctx.tw,
+                ctx.th,
+                *ctx.main_menu_selected,
+                ctx.theme,
+            );
+            let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_state = MenuState::Main;
+        }
+        "h" | "?" | "f1" => {
+            let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, *ctx.rounded);
+            let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_state = MenuState::Help;
+        }
+        "o" | "f2" => {
+            *ctx.options_cat = 0;
+            *ctx.options_selected = 0;
+            *ctx.options_page = 0;
+            let menu_out = draw_options_menu(
+                ctx.tw,
+                ctx.th,
+                ctx.config,
+                ctx.theme,
+                *ctx.options_cat,
+                *ctx.options_selected,
+                *ctx.options_page,
+            );
+            let _ = ctx.terminal.write_raw(&menu_out);
+            *ctx.menu_state = MenuState::Options;
+        }
+        // Preset cycling
+        "p" => {
+            let presets = ctx.config.preset_list();
+            if !presets.is_empty() {
+                let cur = ctx.config.get_int("current_preset");
+                let next = if (cur + 1) >= presets.len() as i64 {
+                    0i64
+                } else {
+                    cur + 1
+                };
+                ctx.config.set_int("current_preset", next);
+                ctx.config.apply_preset(&presets[next as usize]);
+                *ctx.dirty |= Dirty::FULL;
+            }
+        }
+        "P" => {
+            let presets = ctx.config.preset_list();
+            if !presets.is_empty() {
+                let cur = ctx.config.get_int("current_preset");
+                let next = if cur <= 0 {
+                    presets.len() as i64 - 1
+                } else {
+                    cur - 1
+                };
+                ctx.config.set_int("current_preset", next);
+                ctx.config.apply_preset(&presets[next as usize]);
+                *ctx.dirty |= Dirty::FULL;
+            }
+        }
+        // Save current layout as preset
+        "ctrl_s" => {
+            ctx.config.save_preset();
+            *ctx.dirty |= Dirty::CPU_BOX;
+        }
+        // Delete current preset
+        "ctrl_d" => {
+            let cur = ctx.config.get_int("current_preset");
+            if cur > 0 {
+                ctx.config.delete_preset(cur as usize);
+                let presets = ctx.config.preset_list();
+                let new_cur = ctx.config.get_int("current_preset");
+                if !presets.is_empty() && (new_cur as usize) < presets.len() {
+                    ctx.config.apply_preset(&presets[new_cur as usize]);
+                }
+                *ctx.dirty |= Dirty::FULL;
+            }
+        }
+        // Config reload
+        "ctrl_r" => {
+            let warnings = ctx.config.reload();
+            for w in &warnings {
+                tracing::warn!("{}", w);
+            }
+            // Reapply theme
+            let theme_name = ctx.config.get_string("color_theme").to_string();
+            *ctx.theme = theme::Theme::from_name(&theme_name);
+            let base = format!(
+                "{}{}",
+                ctx.theme.c("main_fg"),
+                ctx.theme.c("main_bg").replace("38;2", "48;2"),
+            );
+            let _ = ctx.terminal.write_raw(&base);
+            *ctx.rounded = ctx.config.get_bool("rounded_corners");
+            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            *ctx.dirty |= Dirty::FULL;
+        }
+        "up" | "k"
+            if *ctx.proc_selected > 0 => {
+                *ctx.proc_selected -= 1;
+                *ctx.dirty |= Dirty::PROC_BOX;
+            }
+        "down" | "j" => {
+            let count = ctx.runner.proc_collector.display_procs.len();
+            if *ctx.proc_selected + 1 < count {
+                *ctx.proc_selected += 1;
+                *ctx.dirty |= Dirty::PROC_BOX;
+            }
+        }
+        "page_up" => {
+            let page = ctx.th.saturating_sub(10);
+            *ctx.proc_selected = ctx.proc_selected.saturating_sub(page);
+            *ctx.dirty |= Dirty::PROC_BOX;
+        }
+        "page_down" => {
+            let page = ctx.th.saturating_sub(10);
+            let count = ctx.runner.proc_collector.display_procs.len();
+            *ctx.proc_selected = (*ctx.proc_selected + page).min(count.saturating_sub(1));
+            *ctx.dirty |= Dirty::PROC_BOX;
+        }
+        "home" | "g" => {
+            *ctx.proc_selected = 0;
+            *ctx.proc_start = 0;
+            *ctx.dirty |= Dirty::PROC_BOX;
+        }
+        "end" | "G" => {
+            let count = ctx.runner.proc_collector.display_procs.len();
+            *ctx.proc_selected = count.saturating_sub(1);
+            *ctx.dirty |= Dirty::PROC_BOX;
+        }
+        "1" => {
+            ctx.config.toggle_box("cpu");
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "2" => {
+            ctx.config.toggle_box("mem");
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "3" => {
+            ctx.config.toggle_box("net");
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "4" => {
+            ctx.config.toggle_box("proc");
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "5" => {
+            // Toggle all detected GPU boxes
+            for i in 0..ctx.runner.gpu.gpu_count() {
+                ctx.config.toggle_box(&format!("gpu{i}"));
+            }
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        "6" => {
+            ctx.config.toggle_box("disk");
+            *ctx.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        }
+        // Process keybinds
+        "f" | "/" => {
+            *ctx.menu_state = MenuState::Filter;
+            *ctx.filter_text = ctx.config.get_string("proc_filter").to_string();
+            *ctx.dirty |= Dirty::PROC_BOX;
+        }
+        "e" => {
+            ctx.config.flip("proc_tree");
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "r" => {
+            ctx.config.flip("proc_reversed");
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "c" => {
+            ctx.config.flip("proc_per_core");
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "i" => {
+            ctx.config.flip("io_mode");
+            *ctx.dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
+        }
+        "left" => {
+            use crate::collect::process::SORT_OPTIONS;
+            let current = ctx.config.get_string("proc_sorting").to_string();
+            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
+            let new_idx = if idx == 0 { SORT_OPTIONS.len() - 1 } else { idx - 1 };
+            ctx.config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "right" => {
+            use crate::collect::process::SORT_OPTIONS;
+            let current = ctx.config.get_string("proc_sorting").to_string();
+            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
+            let new_idx = (idx + 1) % SORT_OPTIONS.len();
+            ctx.config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
+            *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+        }
+        "t"
+            // Terminate selected process
+            if *ctx.proc_selected < ctx.runner.proc_collector.display_procs.len() => {
+                let pid = ctx.runner.proc_collector.display_procs[*ctx.proc_selected].pid;
+                terminate_process(pid);
+                *ctx.dirty |= Dirty::PROC_BOX;
+            }
+        "enter"
+            // Toggle process detailed view
+            if *ctx.proc_selected < ctx.runner.proc_collector.display_procs.len() => {
+                let pid = ctx.runner.proc_collector.display_procs[*ctx.proc_selected].pid;
+                let current_detailed = ctx.config.get_int("detailed_pid");
+                if current_detailed == pid as i64 {
+                    ctx.config.set_int("detailed_pid", 0);
+                } else {
+                    ctx.config.set_int("detailed_pid", pid as i64);
+                }
+                *ctx.dirty |= Dirty::PROC_BOX;
+            }
+        // Network keybinds
+        "b"
+            if !ctx.runner.net.interfaces.is_empty() => {
+                let idx = ctx.runner.net.interfaces.iter()
+                    .position(|s| s == &ctx.runner.net.selected_iface)
+                    .unwrap_or(0);
+                let new_idx = if idx == 0 { ctx.runner.net.interfaces.len() - 1 } else { idx - 1 };
+                ctx.runner.net.selected_iface = ctx.runner.net.interfaces[new_idx].clone();
+                *ctx.dirty |= Dirty::NET_BOX;
+            }
+        "n"
+            if !ctx.runner.net.interfaces.is_empty() => {
+                let idx = ctx.runner.net.interfaces.iter()
+                    .position(|s| s == &ctx.runner.net.selected_iface)
+                    .unwrap_or(0);
+                let new_idx = (idx + 1) % ctx.runner.net.interfaces.len();
+                ctx.runner.net.selected_iface = ctx.runner.net.interfaces[new_idx].clone();
+                *ctx.dirty |= Dirty::NET_BOX;
+            }
+        "a" => {
+            ctx.config.flip("net_auto");
+            *ctx.dirty |= Dirty::NET_BOX;
+        }
+        "y" => {
+            ctx.config.flip("net_sync");
+            *ctx.dirty |= Dirty::NET_BOX;
+        }
+        // Network zero reset
+        "z" => {
+            let iface = ctx.runner.net.selected_iface.clone();
+            if let Some(net_info) = ctx.runner.net.current_net.get_mut(&iface) {
+                let dl = net_info.stat.download.clone();
+                let ul = net_info.stat.upload.clone();
+                if dl.offset + ul.offset > 0 {
+                    net_info.stat.download.offset = 0;
+                    net_info.stat.upload.offset = 0;
+                } else {
+                    net_info.stat.download.offset = dl.last + dl.rollover;
+                    net_info.stat.upload.offset = ul.last + ul.rollover;
+                }
+                *ctx.dirty |= Dirty::NET_BOX;
+            }
+        }
+        // Update rate keybinds
+        "+" => {
+            let step = if *ctx.update_ms > 2000 { 1000 } else { 100 };
+            let new_ms = (*ctx.update_ms as i64 + step).min(86_400_000);
+            ctx.config.set_int("update_ms", new_ms);
+            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            *ctx.dirty |= Dirty::CPU_BOX;
+        }
+        "-" => {
+            let step = if *ctx.update_ms > 2000 { 1000 } else { 100 };
+            let new_ms = (*ctx.update_ms as i64 - step).max(100);
+            ctx.config.set_int("update_ms", new_ms);
+            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            *ctx.dirty |= Dirty::CPU_BOX;
+        }
+        _ => {}
+    }
+    false
+}
+
 
 fn clamp_proc_selection(
     procs: &[crate::domain::process::ProcInfo],
