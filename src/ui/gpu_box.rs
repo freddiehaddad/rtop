@@ -212,14 +212,26 @@ mod tests {
 
     #[test]
     fn draw_contains_gpu_title() {
-        let output = draw(&make_gpu_info(), 0, &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("gpu0"), "output should contain 'gpu0' title");
     }
 
     #[test]
     fn draw_contains_gpu_name() {
-        let output = draw(&make_gpu_info(), 0, &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_gpu_info(),
+            0,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("Test GPU RTX 5090"),

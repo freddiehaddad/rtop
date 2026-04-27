@@ -16,8 +16,8 @@ mod theme;
 mod tools;
 mod ui;
 
+use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 use clap::Parser;
-use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
 
 fn main() {
     let cli = cli::Cli::parse();

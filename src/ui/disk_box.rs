@@ -165,7 +165,10 @@ mod tests {
     fn draw_contains_disks_title() {
         let output = draw(&make_disk_data(), &make_area(), &Theme::default());
         let plain = strip_ansi(&output);
-        assert!(plain.contains("disks"), "output should contain 'disks' title");
+        assert!(
+            plain.contains("disks"),
+            "output should contain 'disks' title"
+        );
     }
 
     #[test]
@@ -180,6 +183,9 @@ mod tests {
     fn draw_contains_filesystem_type() {
         let output = draw(&make_disk_data(), &make_area(), &Theme::default());
         let plain = strip_ansi(&output);
-        assert!(plain.contains("NTFS"), "output should contain filesystem type 'NTFS'");
+        assert!(
+            plain.contains("NTFS"),
+            "output should contain filesystem type 'NTFS'"
+        );
     }
 }

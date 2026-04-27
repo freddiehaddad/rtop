@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
+use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 use crate::draw::box_drawing::{self, symbols};
 use crate::term;
 use crate::theme::Theme;
@@ -33,8 +33,12 @@ pub struct OptDef {
 pub fn browsable_values(key: &str) -> &'static [&'static str] {
     match key {
         sk::COLOR_THEME => crate::theme::THEME_NAMES,
-        sk::GRAPH_SYMBOL | sk::GRAPH_SYMBOL_CPU | sk::GRAPH_SYMBOL_MEM | sk::GRAPH_SYMBOL_NET
-        | sk::GRAPH_SYMBOL_PROC | sk::GRAPH_SYMBOL_GPU => &["default", "braille", "block", "tty"],
+        sk::GRAPH_SYMBOL
+        | sk::GRAPH_SYMBOL_CPU
+        | sk::GRAPH_SYMBOL_MEM
+        | sk::GRAPH_SYMBOL_NET
+        | sk::GRAPH_SYMBOL_PROC
+        | sk::GRAPH_SYMBOL_GPU => &["default", "braille", "block", "tty"],
         sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => &["Auto", "total", "user", "system"],
         sk::TEMP_SCALE => &["celsius", "fahrenheit", "kelvin", "rankine"],
         sk::PROC_SORTING => crate::collect::process::SORT_OPTIONS,

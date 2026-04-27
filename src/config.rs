@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
+use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 
 /// Valid box names that can appear in shown_boxes.
 pub const VALID_BOX_NAMES: &[&str] = &[
@@ -332,7 +332,11 @@ impl Config {
         } else {
             "0"
         };
-        let proc_left = if self.get_bool(bk::PROC_LEFT) { "1" } else { "0" };
+        let proc_left = if self.get_bool(bk::PROC_LEFT) {
+            "1"
+        } else {
+            "0"
+        };
 
         let mut parts = Vec::new();
         for box_name in shown.split_whitespace() {

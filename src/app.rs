@@ -1,4 +1,9 @@
-use crate::{config, config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik}, dirty::Dirty, draw, input, menu, runner, term, theme, tools, ui};
+use crate::{
+    config,
+    config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
+    dirty::Dirty,
+    draw, input, menu, runner, term, theme, tools, ui,
+};
 
 #[derive(PartialEq)]
 enum MenuState {
@@ -168,7 +173,6 @@ pub fn run(
                 if quit {
                     break;
                 }
-
             }
         }
         // No else branch needed — the wall-clock check at the top of the loop
@@ -313,11 +317,7 @@ fn handle_help_input(key: &str, ctx: &mut InputContext) -> bool {
                 };
                 let mut out = String::new();
                 out.push_str("\x1b[2J");
-                out.push_str(&render_all(
-                    &params,
-                    ctx.proc_selected,
-                    ctx.proc_start,
-                ));
+                out.push_str(&render_all(&params, ctx.proc_selected, ctx.proc_start));
                 out.push_str(&menu::main_menu::draw_with_selection(
                     ctx.tw,
                     ctx.th,
@@ -351,11 +351,7 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                 };
                 let mut out = String::new();
                 out.push_str("\x1b[2J");
-                out.push_str(&render_all(
-                    &params,
-                    ctx.proc_selected,
-                    ctx.proc_start,
-                ));
+                out.push_str(&render_all(&params, ctx.proc_selected, ctx.proc_start));
                 out.push_str(&menu::main_menu::draw_with_selection(
                     ctx.tw,
                     ctx.th,
@@ -381,7 +377,11 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
             let _ = ctx.terminal.write_synced(&menu_out);
         }
         "shift_tab" => {
-            *ctx.options_cat = if *ctx.options_cat == 0 { 6 } else { *ctx.options_cat - 1 };
+            *ctx.options_cat = if *ctx.options_cat == 0 {
+                6
+            } else {
+                *ctx.options_cat - 1
+            };
             *ctx.options_page = 0;
             *ctx.options_selected = 0;
             let menu_out = draw_options_menu(
@@ -516,8 +516,7 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                     menu::options_menu::OptKind::Bool
                 } else if ctx.config.ints.contains_key(opt_key) {
                     menu::options_menu::OptKind::Int
-                } else if !menu::options_menu::browsable_values(opt_key).is_empty()
-                {
+                } else if !menu::options_menu::browsable_values(opt_key).is_empty() {
                     menu::options_menu::OptKind::Browsable
                 } else {
                     menu::options_menu::OptKind::StringVal
@@ -534,9 +533,7 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
                     }
                     menu::options_menu::OptKind::Browsable => {
-                        menu::options_menu::cycle_browsable(
-                            opt_key, ctx.config, dir as i32,
-                        );
+                        menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);
                         if opt_key == sk::COLOR_THEME {
                             let name = ctx.config.get_string(sk::COLOR_THEME).to_string();
                             *ctx.theme = theme::Theme::from_name(&name);
@@ -890,7 +887,6 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
     }
     false
 }
-
 
 fn clamp_proc_selection(
     procs: &[crate::domain::process::ProcInfo],

@@ -629,7 +629,7 @@ fn draw_detail_panel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::process::{ProcState, PriorityClass};
+    use crate::domain::process::{PriorityClass, ProcState};
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -743,9 +743,18 @@ mod tests {
     fn draw_contains_process_names() {
         let output = draw_with_sort(&make_procs(), &make_area(), &make_view(), &Theme::default());
         let plain = strip_ansi(&output);
-        assert!(plain.contains("alpha.exe"), "output should contain 'alpha.exe'");
-        assert!(plain.contains("beta.exe"), "output should contain 'beta.exe'");
-        assert!(plain.contains("gamma.exe"), "output should contain 'gamma.exe'");
+        assert!(
+            plain.contains("alpha.exe"),
+            "output should contain 'alpha.exe'"
+        );
+        assert!(
+            plain.contains("beta.exe"),
+            "output should contain 'beta.exe'"
+        );
+        assert!(
+            plain.contains("gamma.exe"),
+            "output should contain 'gamma.exe'"
+        );
     }
 
     #[test]

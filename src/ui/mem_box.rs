@@ -181,7 +181,7 @@ fn gradient_color(gradient: &[String], pct: i64) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::memory::{MemStats, MemPercent};
+    use crate::domain::memory::{MemPercent, MemStats};
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -247,13 +247,19 @@ mod tests {
     fn draw_shows_swap_when_enabled() {
         let output = draw(&make_mem_info(), &make_area(), &Theme::default(), true);
         let plain = strip_ansi(&output);
-        assert!(plain.contains("Swap"), "output should contain 'Swap' when show_swap=true");
+        assert!(
+            plain.contains("Swap"),
+            "output should contain 'Swap' when show_swap=true"
+        );
     }
 
     #[test]
     fn draw_hides_swap_when_disabled() {
         let output = draw(&make_mem_info(), &make_area(), &Theme::default(), false);
         let plain = strip_ansi(&output);
-        assert!(!plain.contains("Swap"), "output should not contain 'Swap' when show_swap=false");
+        assert!(
+            !plain.contains("Swap"),
+            "output should not contain 'Swap' when show_swap=false"
+        );
     }
 }

@@ -245,7 +245,7 @@ pub fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::network::{NetBandwidth, NetStatPair, NetStat};
+    use crate::domain::network::{NetBandwidth, NetStat, NetStatPair};
     use std::collections::VecDeque;
 
     fn strip_ansi(s: &str) -> String {
@@ -350,7 +350,13 @@ mod tests {
             &make_settings(),
         );
         let plain = strip_ansi(&output);
-        assert!(plain.contains('▼'), "output should contain download indicator '▼'");
-        assert!(plain.contains('▲'), "output should contain upload indicator '▲'");
+        assert!(
+            plain.contains('▼'),
+            "output should contain download indicator '▼'"
+        );
+        assert!(
+            plain.contains('▲'),
+            "output should contain upload indicator '▲'"
+        );
     }
 }

@@ -616,29 +616,58 @@ mod tests {
 
     #[test]
     fn draw_contains_cpu_title() {
-        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         let plain = strip_ansi(&output);
         assert!(plain.contains("cpu"), "output should contain 'cpu' title");
     }
 
     #[test]
     fn draw_contains_preset_label() {
-        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         let plain = strip_ansi(&output);
-        assert!(plain.contains("reset"), "output should contain preset label");
-        assert!(plain.contains("*0"), "output should contain preset number '*0'");
+        assert!(
+            plain.contains("reset"),
+            "output should contain preset label"
+        );
+        assert!(
+            plain.contains("*0"),
+            "output should contain preset number '*0'"
+        );
     }
 
     #[test]
     fn draw_contains_update_rate() {
-        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         let plain = strip_ansi(&output);
-        assert!(plain.contains("2000ms"), "output should contain update rate '2000ms'");
+        assert!(
+            plain.contains("2000ms"),
+            "output should contain update rate '2000ms'"
+        );
     }
 
     #[test]
     fn draw_output_is_non_empty() {
-        let output = draw(&make_cpu_info(), &make_area(), &Theme::default(), &make_settings());
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+        );
         assert!(!output.is_empty(), "draw output should not be empty");
     }
 }
