@@ -4,10 +4,21 @@ use std::path::{Path, PathBuf};
 
 use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 
-/// Valid box names that can appear in shown_boxes.
-pub const VALID_BOX_NAMES: &[&str] = &[
-    "cpu", "mem", "net", "proc", "disk", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
-];
+/// Static box names (non-GPU).
+const STATIC_BOX_NAMES: &[&str] = &["cpu", "mem", "net", "proc", "disk"];
+
+/// Check if a box name is valid. Static boxes are checked by name,
+/// GPU boxes are validated by the `gpuN` pattern where N is a digit.
+fn is_valid_box_name(name: &str) -> bool {
+    if STATIC_BOX_NAMES.contains(&name) {
+        return true;
+    }
+    // Accept "gpu0", "gpu1", etc. — any gpuN where N is a single digit
+    if let Some(suffix) = name.strip_prefix("gpu") {
+        return suffix.len() == 1 && suffix.chars().all(|c| c.is_ascii_digit());
+    }
+    false
+}
 
 /// All configuration state for rtop.
 #[derive(Debug, Clone)]
@@ -417,7 +428,7 @@ impl Config {
 
     /// Toggle a box's visibility in shown_boxes.
     pub fn toggle_box(&mut self, box_name: &str) -> bool {
-        if !VALID_BOX_NAMES.contains(&box_name) {
+        if !is_valid_box_name(box_name) {
             return false;
         }
 
@@ -574,6 +585,16 @@ mod tests {
     fn toggle_box_invalid_name_returns_false() {
         let mut config = Config::new();
         assert!(!config.toggle_box("invalid_box"));
+    }
+
+    #[test]
+    fn toggle_box_accepts_any_gpu_digit() {
+        let mut config = Config::new();
+        assert!(config.toggle_box("gpu0"));
+        assert!(config.toggle_box("gpu7"));
+        assert!(config.toggle_box("gpu9"));
+        assert!(!config.toggle_box("gpu10")); // two digits
+        assert!(!config.toggle_box("gpuX")); // not a digit
     }
 
     #[test]
