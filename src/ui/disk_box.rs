@@ -49,8 +49,6 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
         title_color,
     }));
 
-    let meter_w = inner_w.saturating_sub(16).max(5);
-    let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
     let mut row = 0;
 
     for disk_name in &disks.disks_order {
@@ -79,11 +77,12 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme) -> String {
             }
 
             // Row 2: " ■■■■■■■■░ 233G / 465G"
-            let usage_label = format!("{} / {}", du, dt);
+            let usage_label = format!(" {} / {}", du, dt);
+            let label_len = usage_label.len();
+            let meter_w = inner_w.saturating_sub(label_len + 1).max(5);
+            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
             buf.mv(x + 2, y + 2 + row)
-                .text(" ")
                 .text(disk_meter.render(disk.used_percent))
-                .text(" ")
                 .color(fg)
                 .text(&usage_label);
             row += 1;
