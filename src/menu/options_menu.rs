@@ -864,6 +864,7 @@ pub fn draw(
     let fg = theme.c("main_fg");
     let sel_bg = theme.c("selected_bg");
     let sel_fg = theme.c("selected_fg");
+    let opts_c = theme.c("options_box");
     let reset = "\x1b[0m";
 
     let mut out = String::with_capacity(4096);
@@ -875,7 +876,7 @@ pub fn draw(
         y: y + 6,
         width: box_w,
         height,
-        line_color: hi,
+        line_color: opts_c,
         fill: true,
         title: &tab_title,
         title2: "",
@@ -890,17 +891,17 @@ pub fn draw(
     let h_right = symbols::H_LINE.repeat(box_w - 32);
     let divider_row = y + 8 + 1;
     out.push_str(&term::mv(x + 1, divider_row));
-    out.push_str(hi);
+    out.push_str(opts_c);
     out.push_str(symbols::DIV_LEFT);
-    out.push_str(hi);
+    out.push_str(opts_c);
     out.push_str(&h_left);
     out.push_str(symbols::DIV_UP);
     out.push_str(&h_right);
-    out.push_str(hi);
+    out.push_str(opts_c);
     out.push_str(symbols::DIV_RIGHT);
     // Bottom T-junction on vertical divider
     out.push_str(&term::mv(x + 31, y + 6 + height));
-    out.push_str(hi);
+    out.push_str(opts_c);
     out.push_str(symbols::DIV_DOWN);
 
     // Vertical divider line at x+30 for each content row
@@ -908,7 +909,7 @@ pub fn draw(
         out.push_str(&format!(
             "{}{}{}",
             term::mv(x + 31, y + 9 + 1 + i),
-            hi,
+            opts_c,
             symbols::V_LINE,
         ));
     }

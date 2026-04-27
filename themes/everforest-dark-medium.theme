@@ -48,6 +48,12 @@ theme[gpu_box]="#3d484d"
 # Disk box outline color
 theme[disk_box]="#3d484d"
 
+# Help menu box outline color
+theme[help_box]="#3d484d"
+
+# Options menu box outline color
+theme[options_box]="#3d484d"
+
 # Box divider line and small boxes line color
 theme[div_line]="#3d484d"
 

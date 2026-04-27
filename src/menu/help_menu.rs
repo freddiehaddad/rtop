@@ -1,4 +1,4 @@
-use crate::draw::box_drawing;
+use crate::draw::box_drawing::{self, symbols, title_syms};
 use crate::term;
 use crate::theme::Theme;
 use crate::tools;
@@ -179,13 +179,14 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
     let hi = theme.c("hi_fg");
     let title_c = theme.c("title");
     let fg = theme.c("main_fg");
+    let help_c = theme.c("help_box");
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x,
         y,
         width: w,
         height: h,
-        line_color: hi,
+        line_color: help_c,
         fill: true,
         title: "help",
         title2: "",
@@ -205,7 +206,7 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
         if row >= max_lines {
             break;
         }
-        // Section header
+        // Section header: ├──┐ Section ┌──────────────────────┤
         if kb.section != current_section {
             if !current_section.is_empty() && row < max_lines {
                 // Blank line between sections
@@ -215,15 +216,35 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
                 break;
             }
             current_section = kb.section;
-            let header = format!("─── {} ", kb.section);
-            let pad = inner_w.saturating_sub(tools::ulen(&header, false));
-            let header_line = format!("{}{}", header, "─".repeat(pad));
+            // "┐ Section ┌" portion (title inset chars + spaces + name)
+            let title_part = format!(
+                "{} {} {}",
+                title_syms::TITLE_LEFT,
+                kb.section,
+                title_syms::TITLE_RIGHT,
+            );
+            let title_part_len = tools::ulen(&title_part, false);
+            // 2 leading dashes between ├ and ┐
+            let left_dashes = 2;
+            let right_dashes = inner_w
+                .saturating_sub(left_dashes)
+                .saturating_sub(title_part_len);
+            let h_left = symbols::H_LINE.repeat(left_dashes);
+            let h_right = symbols::H_LINE.repeat(right_dashes);
             out.push_str(&format!(
-                "{}\x1b[1m{}{}\x1b[22m",
-                term::mv(x + 2, y + 2 + row),
+                "{}{}{}{}{} \x1b[1m{}{}\x1b[22m{} {}{}",
+                term::mv(x + 1, y + 2 + row),
+                help_c,
+                symbols::DIV_LEFT,
+                h_left,
+                title_syms::TITLE_LEFT,
                 title_c,
-                header_line,
+                kb.section,
+                help_c,
+                title_syms::TITLE_RIGHT,
+                h_right,
             ));
+            out.push_str(symbols::DIV_RIGHT);
             row += 1;
         }
         if row >= max_lines {
