@@ -136,13 +136,14 @@ impl NetCollector {
 
                 // Get interface stats
                 let if_index = adapter.Anonymous1.Anonymous.IfIndex;
-                let (rx_bytes, tx_bytes) = get_if_stats(if_index);
+                let (rx_bytes, tx_bytes, link_speed) = get_if_stats(if_index);
 
                 let entry = self.current_net.entry(name.clone()).or_default();
 
                 entry.connected = connected;
                 entry.ipv4 = ipv4;
                 entry.ipv6 = ipv6;
+                entry.link_speed = link_speed;
 
                 // Calculate speeds
                 let dl_stat = entry.stat.download.clone();
@@ -195,7 +196,8 @@ impl Collector for NetCollector {
     }
 }
 
-fn get_if_stats(if_index: u32) -> (u64, u64) {
+/// Returns (rx_bytes, tx_bytes, link_speed_bps).
+fn get_if_stats(if_index: u32) -> (u64, u64, u64) {
     use windows::Win32::NetworkManagement::IpHelper::*;
 
     let mut row = MIB_IF_ROW2 {
@@ -205,9 +207,9 @@ fn get_if_stats(if_index: u32) -> (u64, u64) {
 
     unsafe {
         if GetIfEntry2(&mut row) == windows::Win32::Foundation::WIN32_ERROR(0) {
-            (row.InOctets, row.OutOctets)
+            (row.InOctets, row.OutOctets, row.TransmitLinkSpeed)
         } else {
-            (0, 0)
+            (0, 0, 0)
         }
     }
 }

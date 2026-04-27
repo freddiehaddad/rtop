@@ -8,6 +8,19 @@ use crate::tools;
 
 use super::BoxArea;
 
+/// Format link speed in bits/sec to a human-readable string (e.g. "1 Gbps", "100 Mbps").
+fn format_link_speed(bps: u64) -> String {
+    if bps >= 1_000_000_000 {
+        format!("{} Gbps", bps / 1_000_000_000)
+    } else if bps >= 1_000_000 {
+        format!("{} Mbps", bps / 1_000_000)
+    } else if bps >= 1_000 {
+        format!("{} Kbps", bps / 1_000)
+    } else {
+        format!("{bps} bps")
+    }
+}
+
 /// Extracted settings for the network box, decoupled from Config.
 pub struct NetBoxSettings {
     pub auto_scale: bool,
@@ -167,40 +180,32 @@ pub fn draw(
         buf.mv(lx, label_y).color(ul_color).text(&label);
     }
 
-    // Interface selector and buttons on TOP border
+    // Link speed inset on top right border
+    if net.link_speed > 0 {
+        let speed_str = format_link_speed(net.link_speed);
+        let inset = box_drawing::title_inset(&speed_str, box_color, title_color, false);
+        let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&speed_str));
+        buf.mv(inset_x, y + 1).text(&inset);
+    }
+
+    // Bottom border: sync, auto, zero, interface selector
+    let bottom_y = y + height;
     let iface_display = tools::uresize(iface, 15, false);
 
-    // Build right-to-left on top border
-    let mut top_x = x + width - 1;
-
-    // Interface selector: ┐←b Ethernet n→┌
+    let sync_inset = box_drawing::keybind_inset("sync", box_color, hi, title_color, true);
+    let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, true);
+    let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, true);
     let iface_text = format!("←b {}{} {}n→", title_color, iface_display, hi);
-    let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, false);
-    let iface_vis_len = 6 + iface_display.len();
-    top_x = top_x.saturating_sub(iface_vis_len + 2);
-    buf.mv(top_x, y + 1).text(&iface_inset);
+    let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, true);
 
-    // zero button: ┐zero┌
-    let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, false);
-    top_x = top_x.saturating_sub(6);
-    if top_x > x + 10 {
-        buf.mv(top_x, y + 1).text(&zero_inset);
-    }
-
-    // auto button: ┐auto┌
-    let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, false);
-    top_x = top_x.saturating_sub(6);
-    if top_x > x + 10 {
-        buf.mv(top_x, y + 1).text(&auto_inset);
-    }
-
-    // sync button: ┐sync┌
-    let sync_text = format!("s{}y{}nc", hi, title_color);
-    let sync_inset = box_drawing::title_inset(&sync_text, box_color, title_color, false);
-    top_x = top_x.saturating_sub(6);
-    if top_x > x + 10 {
-        buf.mv(top_x, y + 1).text(&sync_inset);
-    }
+    let mut bx = x + 3;
+    buf.mv(bx, bottom_y).text(&sync_inset);
+    bx += box_drawing::inset_width("sync");
+    buf.mv(bx, bottom_y).text(&auto_inset);
+    bx += box_drawing::inset_width("auto");
+    buf.mv(bx, bottom_y).text(&zero_inset);
+    bx += box_drawing::inset_width("zero");
+    buf.mv(bx, bottom_y).text(&iface_inset);
 
     buf.finish()
 }
@@ -251,6 +256,7 @@ mod tests {
             ipv4: "192.168.1.100".into(),
             ipv6: String::new(),
             connected: true,
+            link_speed: 1_000_000_000,
         }
     }
 

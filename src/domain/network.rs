@@ -27,6 +27,8 @@ pub struct NetInfo {
     pub ipv6: String,
     /// Whether the interface is connected/operational.
     pub connected: bool,
+    /// Link speed in bits per second.
+    pub link_speed: u64,
 }
 
 /// Cumulative transfer statistics for one direction (download or upload).
