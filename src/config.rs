@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,244 +12,325 @@ fn is_valid_box_name(name: &str) -> bool {
     if STATIC_BOX_NAMES.contains(&name) {
         return true;
     }
-    // Accept "gpu0", "gpu1", etc. — any gpuN where N is a single digit
     if let Some(suffix) = name.strip_prefix("gpu") {
         return suffix.len() == 1 && suffix.chars().all(|c| c.is_ascii_digit());
     }
     false
 }
 
-/// All configuration state for rtop.
-#[derive(Debug, Clone)]
-pub struct Config {
-    pub strings: HashMap<String, String>,
-    pub bools: HashMap<String, bool>,
-    pub ints: HashMap<String, i64>,
-    conf_file: Option<PathBuf>,
+/// The kind of a config key.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum KeyKind {
+    Bool,
+    Int,
+    String,
+}
+
+/// Generates the `Config` struct with named fields and string-based accessors.
+///
+/// Each field is private; access is via `get_bool`/`set_bool`/`get_int`/`set_int`/
+/// `get_string`/`set_string` which dispatch by key name.
+macro_rules! define_config {
+    (
+        bools { $( $bfield:ident : $bkey:literal => $bdefault:expr ),* $(,)? }
+        ints { $( $ifield:ident : $ikey:literal => $idefault:expr , $imin:expr , $imax:expr ),* $(,)? }
+        strings { $( $sfield:ident : $skey:literal => $sdefault:expr ),* $(,)? }
+    ) => {
+        /// All configuration state for rtop.
+        ///
+        /// Fields are private; use the `get_*`/`set_*` accessors for type-safe access
+        /// by config key name.
+        #[derive(Debug, Clone)]
+        pub struct Config {
+            $( $bfield: bool, )*
+            $( $ifield: i64, )*
+            $( $sfield: String, )*
+            /// Internal-only: the startup layout snapshot (not persisted).
+            initial_shown_boxes: String,
+            conf_file: Option<PathBuf>,
+        }
+
+        impl Config {
+            /// Create a new Config with all default values.
+            pub fn new() -> Self {
+                Self {
+                    $( $bfield: $bdefault, )*
+                    $( $ifield: $idefault, )*
+                    $( $sfield: $sdefault.to_string(), )*
+                    initial_shown_boxes: String::new(),
+                    conf_file: None,
+                }
+            }
+
+            fn apply_defaults(&mut self) {
+                $( self.$bfield = $bdefault; )*
+                $( self.$ifield = $idefault; )*
+                $( self.$sfield = $sdefault.to_string(); )*
+                // initial_shown_boxes intentionally NOT reset
+            }
+
+            /// Get a boolean config value by key name.
+            pub fn get_bool(&self, name: &str) -> bool {
+                match name {
+                    $( $bkey => self.$bfield, )*
+                    _ => false,
+                }
+            }
+
+            /// Set a boolean config value by key name.
+            pub fn set_bool(&mut self, name: &str, value: bool) {
+                match name {
+                    $( $bkey => self.$bfield = value, )*
+                    _ => {}
+                }
+            }
+
+            /// Toggle a boolean config value.
+            pub fn flip(&mut self, name: &str) {
+                match name {
+                    $( $bkey => self.$bfield = !self.$bfield, )*
+                    _ => {}
+                }
+            }
+
+            /// Get an integer config value by key name.
+            pub fn get_int(&self, name: &str) -> i64 {
+                match name {
+                    $( $ikey => self.$ifield, )*
+                    _ => 0,
+                }
+            }
+
+            /// Set an integer config value by key name, with range clamping.
+            pub fn set_int(&mut self, name: &str, value: i64) {
+                match name {
+                    $( $ikey => self.$ifield = value.clamp($imin, $imax), )*
+                    _ => {}
+                }
+            }
+
+            /// Get a string config value by key name.
+            pub fn get_string(&self, name: &str) -> &str {
+                match name {
+                    $( $skey => &self.$sfield, )*
+                    sk::INITIAL_SHOWN_BOXES => &self.initial_shown_boxes,
+                    _ => "",
+                }
+            }
+
+            /// Set a string config value by key name.
+            pub fn set_string(&mut self, name: &str, value: &str) {
+                match name {
+                    $( $skey => self.$sfield = value.to_string(), )*
+                    sk::INITIAL_SHOWN_BOXES => self.initial_shown_boxes = value.to_string(),
+                    _ => {}
+                }
+            }
+
+            /// Determine the kind of a config key, or `None` if unknown.
+            pub fn key_kind(name: &str) -> Option<KeyKind> {
+                match name {
+                    $( $bkey => Some(KeyKind::Bool), )*
+                    $( $ikey => Some(KeyKind::Int), )*
+                    $( $skey => Some(KeyKind::String), )*
+                    _ => None,
+                }
+            }
+
+            /// Generate the full config file content as a string.
+            pub fn to_config_string(&self) -> String {
+                let mut out = String::new();
+                out.push_str("#? Config file for rtop\n\n");
+
+                // Collect and sort string keys for deterministic output
+                let mut skeys: Vec<(&str, &str)> = vec![
+                    $( ($skey, &self.$sfield), )*
+                ];
+                skeys.sort_by_key(|(k, _)| *k);
+                for (key, val) in &skeys {
+                    out.push_str(&format!("{key} = \"{val}\"\n"));
+                }
+                out.push('\n');
+
+                // Collect and sort bool keys
+                let mut bkeys: Vec<(&str, bool)> = vec![
+                    $( ($bkey, self.$bfield), )*
+                ];
+                bkeys.sort_by_key(|(k, _)| *k);
+                for (key, val) in &bkeys {
+                    let v = if *val { "True" } else { "False" };
+                    out.push_str(&format!("{key} = {v}\n"));
+                }
+                out.push('\n');
+
+                // Collect and sort int keys
+                let mut ikeys: Vec<(&str, i64)> = vec![
+                    $( ($ikey, self.$ifield), )*
+                ];
+                ikeys.sort_by_key(|(k, _)| *k);
+                for (key, val) in &ikeys {
+                    out.push_str(&format!("{key} = {val}\n"));
+                }
+
+                out
+            }
+
+            /// Load config from a file. Returns a list of warnings for invalid values.
+            pub fn load(&mut self, path: &Path) -> Vec<String> {
+                let mut warnings = Vec::new();
+                self.conf_file = Some(path.to_path_buf());
+
+                let content = match fs::read_to_string(path) {
+                    Ok(c) => c,
+                    Err(_) => return warnings,
+                };
+
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+
+                    let Some((key, value)) = trimmed.split_once('=') else {
+                        continue;
+                    };
+
+                    let key = key.trim();
+                    let value = value.trim().trim_matches('"');
+
+                    match Self::key_kind(key) {
+                        Some(KeyKind::Bool) => {
+                            match value.to_lowercase().as_str() {
+                                "true" => self.set_bool(key, true),
+                                "false" => self.set_bool(key, false),
+                                _ => {
+                                    warnings.push(format!(
+                                        "Invalid boolean value for '{key}': {value}"
+                                    ));
+                                }
+                            }
+                        }
+                        Some(KeyKind::Int) => {
+                            match value.parse::<i64>() {
+                                Ok(v) => self.set_int(key, v),
+                                Err(_) => {
+                                    warnings.push(format!(
+                                        "Invalid integer value for '{key}': {value}"
+                                    ));
+                                }
+                            }
+                        }
+                        Some(KeyKind::String) => {
+                            self.set_string(key, value);
+                        }
+                        None => {
+                            warnings.push(format!("Unknown config key: '{key}'"));
+                        }
+                    }
+                }
+
+                warnings
+            }
+        }
+    };
+}
+
+define_config! {
+    bools {
+        theme_background:    "theme_background"    => true,
+        truecolor:           "truecolor"           => true,
+        rounded_corners:     "rounded_corners"     => true,
+        proc_reversed:       "proc_reversed"       => false,
+        proc_tree:           "proc_tree"           => false,
+        proc_colors:         "proc_colors"         => true,
+        proc_gradient:       "proc_gradient"       => true,
+        proc_per_core:       "proc_per_core"       => false,
+        proc_mem_bytes:      "proc_mem_bytes"      => true,
+        proc_cpu_graphs:     "proc_cpu_graphs"     => true,
+        proc_left:           "proc_left"           => false,
+        proc_filter_kernel:  "proc_filter_kernel"  => false,
+        proc_follow_detailed: "proc_follow_detailed" => true,
+        proc_aggregate:      "proc_aggregate"      => false,
+        keep_dead_proc_usage: "keep_dead_proc_usage" => false,
+        cpu_invert_lower:    "cpu_invert_lower"    => true,
+        cpu_single_graph:    "cpu_single_graph"    => false,
+        cpu_bottom:          "cpu_bottom"          => false,
+        show_uptime:         "show_uptime"         => true,
+        show_cpu_watts:      "show_cpu_watts"      => true,
+        check_temp:          "check_temp"          => true,
+        show_coretemp:       "show_coretemp"       => true,
+        show_cpu_freq:       "show_cpu_freq"       => true,
+        mem_graphs:          "mem_graphs"          => true,
+        mem_below_net:       "mem_below_net"       => false,
+        show_swap:           "show_swap"           => true,
+        swap_disk:           "swap_disk"           => true,
+        show_disks:          "show_disks"          => true,
+        only_physical:       "only_physical"       => true,
+        show_io_stat:        "show_io_stat"        => true,
+        io_mode:             "io_mode"             => false,
+        io_graph_combined:   "io_graph_combined"   => false,
+        swap_upload_download: "swap_upload_download" => false,
+        base_10_sizes:       "base_10_sizes"       => false,
+        net_auto:            "net_auto"            => true,
+        net_sync:            "net_sync"            => false,
+        show_battery:        "show_battery"        => true,
+        show_battery_watts:  "show_battery_watts"  => true,
+        vim_keys:            "vim_keys"            => false,
+        force_tty:           "force_tty"           => false,
+        lowcolor:            "lowcolor"            => false,
+        background_update:   "background_update"   => true,
+        terminal_sync:       "terminal_sync"       => true,
+        save_config_on_exit: "save_config_on_exit" => true,
+        disable_mouse:       "disable_mouse"       => false,
+        disk_free_priv:      "disk_free_priv"      => false,
+        gpu_mirror_graph:    "gpu_mirror_graph"    => true,
+        disk_io_mode:        "disk_io_mode"        => false,
+    }
+    ints {
+        update_ms:       "update_ms"       => 2000,    100,         86_400_000,
+        net_download:    "net_download"    => 100,     0,           10_000_000,
+        net_upload:      "net_upload"      => 100,     0,           10_000_000,
+        detailed_pid:    "detailed_pid"    => 0,       i64::MIN,    i64::MAX,
+        selected_pid:    "selected_pid"    => 0,       0,           i64::MAX,
+        followed_pid:    "followed_pid"    => 0,       0,           i64::MAX,
+        proc_start:      "proc_start"      => 0,       0,           i64::MAX,
+        proc_selected:   "proc_selected"   => 0,       0,           i64::MAX,
+        current_preset:  "current_preset"  => 0,       0,           i64::MAX,
+    }
+    strings {
+        color_theme:      "color_theme"      => "Default",
+        shown_boxes:      "shown_boxes"      => "cpu mem net proc disk",
+        graph_symbol:     "graph_symbol"     => "braille",
+        graph_symbol_cpu: "graph_symbol_cpu" => "default",
+        graph_symbol_gpu: "graph_symbol_gpu" => "default",
+        graph_symbol_mem: "graph_symbol_mem" => "default",
+        graph_symbol_net: "graph_symbol_net" => "default",
+        graph_symbol_proc: "graph_symbol_proc" => "default",
+        proc_sorting:     "proc_sorting"     => "cpu lazy",
+        cpu_graph_upper:  "cpu_graph_upper"  => "user",
+        cpu_graph_lower:  "cpu_graph_lower"  => "system",
+        cpu_sensor:       "cpu_sensor"       => "Auto",
+        selected_battery: "selected_battery" => "Auto",
+        cpu_core_map:     "cpu_core_map"     => "",
+        temp_scale:       "temp_scale"       => "celsius",
+        clock_format:     "clock_format"     => "%X",
+        custom_cpu_name:  "custom_cpu_name"  => "",
+        disks_filter:     "disks_filter"     => "",
+        io_graph_speeds:  "io_graph_speeds"  => "",
+        net_iface:        "net_iface"        => "",
+        log_level:        "log_level"        => "WARNING",
+        proc_filter:      "proc_filter"      => "",
+        presets:          "presets"           => "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
+        custom_gpu_name0: "custom_gpu_name0" => "",
+        custom_gpu_name1: "custom_gpu_name1" => "",
+        custom_gpu_name2: "custom_gpu_name2" => "",
+        custom_gpu_name3: "custom_gpu_name3" => "",
+        custom_gpu_name4: "custom_gpu_name4" => "",
+        custom_gpu_name5: "custom_gpu_name5" => "",
+    }
 }
 
 impl Config {
-    /// Create a new Config with all default values.
-    pub fn new() -> Self {
-        let mut c = Self {
-            strings: HashMap::new(),
-            bools: HashMap::new(),
-            ints: HashMap::new(),
-            conf_file: None,
-        };
-        c.apply_defaults();
-        c
-    }
-
-    fn apply_defaults(&mut self) {
-        // String defaults
-        let string_defaults: &[(&str, &str)] = &[
-            (sk::COLOR_THEME, "Default"),
-            (sk::SHOWN_BOXES, "cpu mem net proc disk"),
-            (sk::GRAPH_SYMBOL, "braille"),
-            (sk::GRAPH_SYMBOL_CPU, "default"),
-            (sk::GRAPH_SYMBOL_GPU, "default"),
-            (sk::GRAPH_SYMBOL_MEM, "default"),
-            (sk::GRAPH_SYMBOL_NET, "default"),
-            (sk::GRAPH_SYMBOL_PROC, "default"),
-            (sk::PROC_SORTING, "cpu lazy"),
-            (sk::CPU_GRAPH_UPPER, "user"),
-            (sk::CPU_GRAPH_LOWER, "system"),
-            (sk::CPU_SENSOR, "Auto"),
-            (sk::SELECTED_BATTERY, "Auto"),
-            (sk::CPU_CORE_MAP, ""),
-            (sk::TEMP_SCALE, "celsius"),
-            (sk::CLOCK_FORMAT, "%X"),
-            (sk::CUSTOM_CPU_NAME, ""),
-            (sk::DISKS_FILTER, ""),
-            (sk::IO_GRAPH_SPEEDS, ""),
-            (sk::NET_IFACE, ""),
-            (sk::LOG_LEVEL, "WARNING"),
-            (sk::PROC_FILTER, ""),
-            (
-                sk::PRESETS,
-                "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
-            ),
-            (sk::CUSTOM_GPU_NAME0, ""),
-            (sk::CUSTOM_GPU_NAME1, ""),
-            (sk::CUSTOM_GPU_NAME2, ""),
-            (sk::CUSTOM_GPU_NAME3, ""),
-            (sk::CUSTOM_GPU_NAME4, ""),
-            (sk::CUSTOM_GPU_NAME5, ""),
-        ];
-        for (k, v) in string_defaults {
-            self.strings
-                .entry(k.to_string())
-                .or_insert_with(|| v.to_string());
-        }
-
-        // Bool defaults
-        let bool_defaults: &[(&str, bool)] = &[
-            (bk::THEME_BACKGROUND, true),
-            (bk::TRUECOLOR, true),
-            (bk::ROUNDED_CORNERS, true),
-            (bk::PROC_REVERSED, false),
-            (bk::PROC_TREE, false),
-            (bk::PROC_COLORS, true),
-            (bk::PROC_GRADIENT, true),
-            (bk::PROC_PER_CORE, false),
-            (bk::PROC_MEM_BYTES, true),
-            (bk::PROC_CPU_GRAPHS, true),
-            (bk::PROC_LEFT, false),
-            (bk::PROC_FILTER_KERNEL, false),
-            (bk::PROC_FOLLOW_DETAILED, true),
-            (bk::PROC_AGGREGATE, false),
-            (bk::KEEP_DEAD_PROC_USAGE, false),
-            (bk::CPU_INVERT_LOWER, true),
-            (bk::CPU_SINGLE_GRAPH, false),
-            (bk::CPU_BOTTOM, false),
-            (bk::SHOW_UPTIME, true),
-            (bk::SHOW_CPU_WATTS, true),
-            (bk::CHECK_TEMP, true),
-            (bk::SHOW_CORETEMP, true),
-            (bk::SHOW_CPU_FREQ, true),
-            (bk::MEM_GRAPHS, true),
-            (bk::MEM_BELOW_NET, false),
-            (bk::SHOW_SWAP, true),
-            (bk::SWAP_DISK, true),
-            (bk::SHOW_DISKS, true),
-            (bk::ONLY_PHYSICAL, true),
-            (bk::SHOW_IO_STAT, true),
-            (bk::IO_MODE, false),
-            (bk::IO_GRAPH_COMBINED, false),
-            (bk::SWAP_UPLOAD_DOWNLOAD, false),
-            (bk::BASE_10_SIZES, false),
-            (bk::NET_AUTO, true),
-            (bk::NET_SYNC, false),
-            (bk::SHOW_BATTERY, true),
-            (bk::SHOW_BATTERY_WATTS, true),
-            (bk::VIM_KEYS, false),
-            (bk::FORCE_TTY, false),
-            (bk::LOWCOLOR, false),
-            (bk::BACKGROUND_UPDATE, true),
-            (bk::TERMINAL_SYNC, true),
-            (bk::SAVE_CONFIG_ON_EXIT, true),
-            (bk::DISABLE_MOUSE, false),
-            (bk::DISK_FREE_PRIV, false),
-            (bk::GPU_MIRROR_GRAPH, true),
-            (bk::DISK_IO_MODE, false),
-        ];
-        for (k, v) in bool_defaults {
-            self.bools.entry(k.to_string()).or_insert(*v);
-        }
-
-        // Int defaults
-        let int_defaults: &[(&str, i64)] = &[
-            (ik::UPDATE_MS, 2000),
-            (ik::NET_DOWNLOAD, 100),
-            (ik::NET_UPLOAD, 100),
-            (ik::DETAILED_PID, 0),
-            (ik::SELECTED_PID, 0),
-            (ik::FOLLOWED_PID, 0),
-            (ik::PROC_START, 0),
-            (ik::PROC_SELECTED, 0),
-            (ik::CURRENT_PRESET, 0),
-        ];
-        for (k, v) in int_defaults {
-            self.ints.entry(k.to_string()).or_insert(*v);
-        }
-    }
-
-    /// Get a boolean config value.
-    pub fn get_bool(&self, name: &str) -> bool {
-        self.bools.get(name).copied().unwrap_or(false)
-    }
-
-    /// Get an integer config value.
-    pub fn get_int(&self, name: &str) -> i64 {
-        self.ints.get(name).copied().unwrap_or(0)
-    }
-
-    /// Get a string config value.
-    pub fn get_string(&self, name: &str) -> &str {
-        self.strings.get(name).map(|s| s.as_str()).unwrap_or("")
-    }
-
-    /// Set a boolean config value.
-    pub fn set_bool(&mut self, name: &str, value: bool) {
-        self.bools.insert(name.to_string(), value);
-    }
-
-    /// Set an integer config value with range clamping.
-    pub fn set_int(&mut self, name: &str, value: i64) {
-        let clamped = match name {
-            ik::UPDATE_MS => value.clamp(100, 86_400_000),
-            ik::NET_DOWNLOAD | ik::NET_UPLOAD => value.clamp(0, 10_000_000),
-            ik::DETAILED_PID => value,
-            ik::CURRENT_PRESET => value.max(0),
-            _ => value.max(0),
-        };
-        self.ints.insert(name.to_string(), clamped);
-    }
-
-    /// Set a string config value.
-    pub fn set_string(&mut self, name: &str, value: &str) {
-        self.strings.insert(name.to_string(), value.to_string());
-    }
-
-    /// Toggle a boolean config value.
-    pub fn flip(&mut self, name: &str) {
-        if let Some(val) = self.bools.get_mut(name) {
-            *val = !*val;
-        }
-    }
-
-    /// Load config from a file. Returns a list of warnings for invalid values.
-    pub fn load(&mut self, path: &Path) -> Vec<String> {
-        let mut warnings = Vec::new();
-        self.conf_file = Some(path.to_path_buf());
-
-        let content = match fs::read_to_string(path) {
-            Ok(c) => c,
-            Err(_) => return warnings,
-        };
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-
-            let Some((key, value)) = trimmed.split_once('=') else {
-                continue;
-            };
-
-            let key = key.trim();
-            let value = value.trim().trim_matches('"');
-
-            if self.bools.contains_key(key) {
-                match value.to_lowercase().as_str() {
-                    "true" => self.bools.insert(key.to_string(), true),
-                    "false" => self.bools.insert(key.to_string(), false),
-                    _ => {
-                        warnings.push(format!("Invalid boolean value for '{key}': {value}"));
-                        continue;
-                    }
-                };
-            } else if self.ints.contains_key(key) {
-                match value.parse::<i64>() {
-                    Ok(v) => {
-                        self.set_int(key, v);
-                    }
-                    Err(_) => {
-                        warnings.push(format!("Invalid integer value for '{key}': {value}"));
-                    }
-                }
-            } else if self.strings.contains_key(key) {
-                self.strings.insert(key.to_string(), value.to_string());
-            } else {
-                warnings.push(format!("Unknown config key: '{key}'"));
-            }
-        }
-
-        warnings
-    }
-
     /// Write config to the config file.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let content = self.to_config_string();
@@ -258,39 +338,6 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
         fs::write(path, content)
-    }
-
-    /// Generate the full config file content as a string.
-    pub fn to_config_string(&self) -> String {
-        let mut out = String::new();
-        out.push_str("#? Config file for rtop\n\n");
-
-        // Write strings
-        let mut skeys: Vec<_> = self.strings.keys().collect();
-        skeys.sort();
-        for key in skeys {
-            let val = &self.strings[key];
-            out.push_str(&format!("{key} = \"{val}\"\n"));
-        }
-        out.push('\n');
-
-        // Write bools
-        let mut bkeys: Vec<_> = self.bools.keys().collect();
-        bkeys.sort();
-        for key in bkeys {
-            let val = if self.bools[key] { "True" } else { "False" };
-            out.push_str(&format!("{key} = {val}\n"));
-        }
-        out.push('\n');
-
-        // Write ints
-        let mut ikeys: Vec<_> = self.ints.keys().collect();
-        ikeys.sort();
-        for key in ikeys {
-            out.push_str(&format!("{key} = {}\n", self.ints[key]));
-        }
-
-        out
     }
 
     /// Reload config from the stored config file path.
@@ -381,7 +428,7 @@ impl Config {
         }
         let presets_str = self.get_string(sk::PRESETS).to_string();
         let custom: Vec<&str> = presets_str.split_whitespace().collect();
-        let custom_idx = index - 1; // offset for the hardcoded preset 0
+        let custom_idx = index - 1;
         if custom_idx >= custom.len() {
             return false;
         }
@@ -392,7 +439,6 @@ impl Config {
             .map(|(_, s)| *s)
             .collect();
         self.set_string(sk::PRESETS, &remaining.join(" "));
-        // Adjust current_preset if needed
         let cur = self.get_int(ik::CURRENT_PRESET);
         let total = self.preset_list().len() as i64;
         if cur >= total {
@@ -517,7 +563,7 @@ mod tests {
         fs::write(&tmp, "update_ms = not_a_number\n").unwrap();
         let warnings = config.load(&tmp);
         assert_eq!(warnings.len(), 1);
-        assert_eq!(config.get_int("update_ms"), 2000); // default preserved
+        assert_eq!(config.get_int("update_ms"), 2000);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -550,9 +596,9 @@ mod tests {
     fn set_int_clamps_to_range() {
         let mut config = Config::new();
         config.set_int("update_ms", 50);
-        assert_eq!(config.get_int("update_ms"), 100); // clamped to min
+        assert_eq!(config.get_int("update_ms"), 100);
         config.set_int("update_ms", 100_000_000);
-        assert_eq!(config.get_int("update_ms"), 86_400_000); // clamped to max
+        assert_eq!(config.get_int("update_ms"), 86_400_000);
     }
 
     #[test]
@@ -593,27 +639,35 @@ mod tests {
         assert!(config.toggle_box("gpu0"));
         assert!(config.toggle_box("gpu7"));
         assert!(config.toggle_box("gpu9"));
-        assert!(!config.toggle_box("gpu10")); // two digits
-        assert!(!config.toggle_box("gpuX")); // not a digit
+        assert!(!config.toggle_box("gpu10"));
+        assert!(!config.toggle_box("gpuX"));
     }
 
     #[test]
     fn default_has_all_expected_keys() {
         let config = Config::new();
-        // Spot-check key categories
-        assert!(config.strings.contains_key("color_theme"));
-        assert!(config.strings.contains_key("proc_sorting"));
-        assert!(config.bools.contains_key("truecolor"));
-        assert!(config.bools.contains_key("show_battery"));
-        assert!(config.ints.contains_key("update_ms"));
-        assert!(config.ints.contains_key("net_download"));
+        // Verify key_kind returns correct types for known keys
+        assert_eq!(Config::key_kind("color_theme"), Some(KeyKind::String));
+        assert_eq!(Config::key_kind("proc_sorting"), Some(KeyKind::String));
+        assert_eq!(Config::key_kind("truecolor"), Some(KeyKind::Bool));
+        assert_eq!(Config::key_kind("show_battery"), Some(KeyKind::Bool));
+        assert_eq!(Config::key_kind("update_ms"), Some(KeyKind::Int));
+        assert_eq!(Config::key_kind("net_download"), Some(KeyKind::Int));
+        // Verify defaults are accessible
+        assert_eq!(config.get_string("color_theme"), "Default");
+        assert!(config.get_bool("truecolor"));
+        assert_eq!(config.get_int("update_ms"), 2000);
+    }
+
+    #[test]
+    fn key_kind_returns_none_for_unknown() {
+        assert_eq!(Config::key_kind("nonexistent"), None);
     }
 
     #[test]
     fn preset_list_default_has_builtin_presets() {
         let config = Config::new();
         let list = config.preset_list();
-        // Preset 0 (hardcoded default) + 3 built-in custom presets
         assert_eq!(list.len(), 4);
         assert!(list[0].contains("cpu:0:default"));
     }
@@ -626,7 +680,7 @@ mod tests {
             "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default",
         );
         let list = config.preset_list();
-        assert_eq!(list.len(), 3); // 1 hardcoded + 2 custom
+        assert_eq!(list.len(), 3);
     }
 
     #[test]
@@ -690,5 +744,15 @@ mod tests {
     fn delete_preset_zero_is_rejected() {
         let mut config = Config::new();
         assert!(!config.delete_preset(0));
+    }
+
+    #[test]
+    fn initial_shown_boxes_is_internal() {
+        let mut config = Config::new();
+        config.set_string("initial_shown_boxes", "cpu mem");
+        assert_eq!(config.get_string("initial_shown_boxes"), "cpu mem");
+        // Should not appear in serialized output
+        let output = config.to_config_string();
+        assert!(!output.contains("initial_shown_boxes"));
     }
 }

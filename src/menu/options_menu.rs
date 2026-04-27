@@ -49,17 +49,13 @@ pub fn browsable_values(key: &str) -> &'static [&'static str] {
     }
 }
 
-fn classify(key: &str, config: &Config) -> OptKind {
-    if config.bools.contains_key(key) {
-        return OptKind::Bool;
+fn classify(key: &str, _config: &Config) -> OptKind {
+    match Config::key_kind(key) {
+        Some(crate::config::KeyKind::Bool) => OptKind::Bool,
+        Some(crate::config::KeyKind::Int) => OptKind::Int,
+        _ if !browsable_values(key).is_empty() => OptKind::Browsable,
+        _ => OptKind::StringVal,
     }
-    if config.ints.contains_key(key) {
-        return OptKind::Int;
-    }
-    if !browsable_values(key).is_empty() {
-        return OptKind::Browsable;
-    }
-    OptKind::StringVal
 }
 
 // ---------------------------------------------------------------------------
@@ -748,16 +744,16 @@ pub fn categories() -> &'static [&'static [OptDef]] {
 
 /// Get the display value for an option.
 pub fn get_value(key: &str, config: &Config) -> String {
-    if config.bools.contains_key(key) {
-        if config.get_bool(key) {
-            "True".to_string()
-        } else {
-            "False".to_string()
+    match Config::key_kind(key) {
+        Some(crate::config::KeyKind::Bool) => {
+            if config.get_bool(key) {
+                "True".to_string()
+            } else {
+                "False".to_string()
+            }
         }
-    } else if config.ints.contains_key(key) {
-        config.get_int(key).to_string()
-    } else {
-        config.get_string(key).to_string()
+        Some(crate::config::KeyKind::Int) => config.get_int(key).to_string(),
+        _ => config.get_string(key).to_string(),
     }
 }
 

@@ -93,6 +93,7 @@ pub mod str_keys {
 }
 
 /// Integer config keys.
+#[allow(dead_code)]
 pub mod int_keys {
     pub const UPDATE_MS: &str = "update_ms";
     pub const NET_DOWNLOAD: &str = "net_download";

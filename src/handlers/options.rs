@@ -106,14 +106,13 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.options_selected,
                 ctx.th,
             ) {
-                let kind = if ctx.config.bools.contains_key(opt_key) {
-                    menu::options_menu::OptKind::Bool
-                } else if ctx.config.ints.contains_key(opt_key) {
-                    menu::options_menu::OptKind::Int
-                } else if !menu::options_menu::browsable_values(opt_key).is_empty() {
-                    menu::options_menu::OptKind::Browsable
-                } else {
-                    menu::options_menu::OptKind::StringVal
+                let kind = match crate::config::Config::key_kind(opt_key) {
+                    Some(crate::config::KeyKind::Bool) => menu::options_menu::OptKind::Bool,
+                    Some(crate::config::KeyKind::Int) => menu::options_menu::OptKind::Int,
+                    _ if !menu::options_menu::browsable_values(opt_key).is_empty() => {
+                        menu::options_menu::OptKind::Browsable
+                    }
+                    _ => menu::options_menu::OptKind::StringVal,
                 };
 
                 let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
