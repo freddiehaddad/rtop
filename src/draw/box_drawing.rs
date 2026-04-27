@@ -227,7 +227,7 @@ pub fn section_divider(
     border_color: &str,
     text_color: &str,
 ) -> String {
-    let title_vis = section.len() + 2; // inset chars
+    let title_vis = crate::tools::ulen(section, false) + 2; // display width + inset chars
     let left_dashes = 2;
     let right_dashes = width.saturating_sub(left_dashes + title_vis);
     format!(

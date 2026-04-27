@@ -222,9 +222,9 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         let lower_label = format!("{}▼", lower_key);
         let upper_inset = box_drawing::title_inset(&upper_label, box_color, title_color, false);
         let lower_inset = box_drawing::title_inset(&lower_label, box_color, title_color, false);
-        // Visible: ├ + left_dashes + ┐▲user┌ + ──  + ┐system▼┌ + right_dashes + ┤ (if core panel)
-        let upper_vis = upper_label.len() + 2; // inset chars
-        let lower_vis = lower_label.len() + 2;
+        // Use display width, not byte length (▲/▼ are multi-byte but 1 column)
+        let upper_vis = tools::ulen(&upper_label, false) + 2; // +2 for inset chars
+        let lower_vis = tools::ulen(&lower_label, false) + 2;
         let mid_dashes = 2;
         let fixed = upper_vis + mid_dashes + lower_vis;
         let left_dashes = (graph_width.saturating_sub(fixed)) / 2;
