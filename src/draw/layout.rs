@@ -20,8 +20,6 @@ pub struct Layout {
 
 /// Minimum box dimensions (matching btop).
 pub const MIN_CPU_HEIGHT: usize = 8;
-/// Minimum height for the memory box.
-pub const MIN_MEM_HEIGHT: usize = 10;
 /// Minimum width for the memory box.
 pub const MIN_MEM_WIDTH: usize = 36;
 /// Minimum height for the network box.
@@ -36,8 +34,8 @@ pub const MIN_GPU_HEIGHT: usize = 4;
 pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
 const PROC_WIDTH_PCT: usize = 60;
-/// Percentage of remaining height allocated to the mem box when both mem+net are shown.
-const MEM_HEIGHT_PCT: usize = 55;
+/// Fixed height for the memory box (4 meters + blank + swap meter + swap total + 2 borders).
+const MEM_FIXED_HEIGHT: usize = 9;
 
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
@@ -139,7 +137,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 
     // MEM and NET heights from the remaining left column space
     let (mem_height, net_height) = if has_mem && has_net {
-        let mh = (left_remaining * MEM_HEIGHT_PCT / 100).max(MIN_MEM_HEIGHT);
+        let mh = MEM_FIXED_HEIGHT.min(left_remaining);
         let nh = left_remaining.saturating_sub(mh).max(MIN_NET_HEIGHT);
         (mh, nh)
     } else if has_mem {
@@ -341,7 +339,7 @@ mod tests {
         });
         if let Some(mem) = &layout.mem {
             assert!(mem.width >= MIN_MEM_WIDTH);
-            assert!(mem.height >= MIN_MEM_HEIGHT);
+            assert!(mem.height >= MEM_FIXED_HEIGHT);
         }
         if let Some(proc_b) = &layout.proc_box {
             assert!(proc_b.width >= MIN_PROC_WIDTH);
