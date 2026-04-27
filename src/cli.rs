@@ -1,9 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-/// rtop — system resource monitor for Windows.
-///
-/// A Rust reimplementation of btop with full Windows 11 support.
+/// A terminal-based system monitor for Windows, inspired by btop.
 #[derive(Parser, Debug)]
 #[command(name = "rtop", version, about)]
 pub struct Cli {
@@ -38,14 +36,6 @@ pub struct Cli {
     /// Update rate in milliseconds (minimum 100).
     #[arg(short = 'u', long = "update", value_parser = clap::value_parser!(u32).range(100..))]
     pub update_ms: Option<u32>,
-
-    /// Force UTF-8 output.
-    #[arg(long = "force-utf")]
-    pub force_utf: bool,
-
-    /// Custom themes directory.
-    #[arg(long = "themes-dir")]
-    pub themes_dir: Option<PathBuf>,
 
     /// Print default config to stdout and exit.
     #[arg(long = "default-config")]
@@ -109,12 +99,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_themes_dir() {
-        let cli = Cli::parse_from(["rtop", "--themes-dir", "C:\\themes"]);
-        assert_eq!(cli.themes_dir.unwrap(), PathBuf::from("C:\\themes"));
-    }
-
-    #[test]
     fn parse_default_config() {
         let cli = Cli::parse_from(["rtop", "--default-config"]);
         assert!(cli.default_config);
@@ -124,12 +108,6 @@ mod tests {
     fn parse_low_color() {
         let cli = Cli::parse_from(["rtop", "-l"]);
         assert!(cli.low_color);
-    }
-
-    #[test]
-    fn parse_force_utf() {
-        let cli = Cli::parse_from(["rtop", "--force-utf"]);
-        assert!(cli.force_utf);
     }
 
     #[test]

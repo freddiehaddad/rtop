@@ -31,8 +31,9 @@ fn main() {
     }
 
     // Init logging
+    let log_level = if cli.debug { "DEBUG" } else { "WARNING" };
     let log_dir = tools::data_dir();
-    log::init(&log_dir, "WARNING");
+    log::init(&log_dir, log_level);
 
     // Load config (from CLI path or default location)
     let mut config = config::Config::new();
@@ -56,11 +57,17 @@ fn main() {
     if cli.tty {
         config.set_bool(bk::FORCE_TTY, true);
     }
+    if cli.no_tty {
+        config.set_bool(bk::FORCE_TTY, false);
+    }
     if let Some(ms) = cli.update_ms {
         config.set_int(ik::UPDATE_MS, ms as i64);
     }
     if let Some(ref f) = cli.filter {
         config.set_string(sk::PROC_FILTER, f);
+    }
+    if let Some(p) = cli.preset {
+        config.set_int(ik::CURRENT_PRESET, p as i64);
     }
 
     // Init terminal
