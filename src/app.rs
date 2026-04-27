@@ -44,6 +44,33 @@ pub fn run(
         let tw = tw as usize;
         let th = th as usize;
 
+        // If terminal is too small, show a message and skip rendering
+        let min_w = draw::layout::MIN_TERM_WIDTH;
+        let min_h = draw::layout::MIN_TERM_HEIGHT;
+        if tw < min_w || th < min_h {
+            if dirty.contains(Dirty::LAYOUT) || dirty.intersects(Dirty::ALL_BOXES) {
+                let msg = format!("Terminal too small ({tw}x{th}). Need {min_w}x{min_h}.");
+                let msg_y = th.max(1) / 2;
+                let msg_x = tw.saturating_sub(msg.len()) / 2 + 1;
+                let out = format!("\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1;33m{msg}\x1b[0m",);
+                let _ = terminal.write_synced(&out);
+                dirty = Dirty::empty();
+            }
+
+            let remaining = next_update
+                .saturating_duration_since(std::time::Instant::now())
+                .as_millis() as u64;
+            let poll_ms = remaining.clamp(10, 1000);
+            if input::poll(poll_ms) {
+                if let Some(key) = input::get() {
+                    if key == "q" {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+
         // Wall-clock collection deadline
         let now = std::time::Instant::now();
         if now >= next_update {

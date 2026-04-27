@@ -35,6 +35,20 @@ pub const MIN_DISK_HEIGHT: usize = 4;
 /// Percentage of terminal width allocated to the proc box (right column).
 const PROC_WIDTH_PCT: usize = 60;
 
+/// Minimum terminal width for the default layout (left column + proc column).
+///
+/// Derived from: `MIN_MEM_WIDTH (36) + MIN_PROC_WIDTH (44) = 80`.
+/// When both a left-column box (mem/net/disk) and proc are visible, the
+/// terminal must be wide enough for both columns.
+pub const MIN_TERM_WIDTH: usize = MIN_MEM_WIDTH + MIN_PROC_WIDTH;
+
+/// Minimum terminal height for the default layout.
+///
+/// Derived from: `MIN_CPU_HEIGHT (8) + MIN_NET_HEIGHT (6) + MIN_DISK_HEIGHT (4) = 18`.
+/// This is the smallest height that can fit cpu (top) plus the shortest
+/// combination of left-column boxes beneath it.
+pub const MIN_TERM_HEIGHT: usize = MIN_CPU_HEIGHT + MIN_NET_HEIGHT + MIN_DISK_HEIGHT;
+
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
     pub term_width: usize,
