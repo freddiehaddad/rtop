@@ -225,8 +225,7 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
         // Use display width, not byte length (▲/▼ are multi-byte but 1 column)
         let upper_vis = tools::ulen(&upper_label, false) + 2; // +2 for inset chars
         let lower_vis = tools::ulen(&lower_label, false) + 2;
-        let mid_dashes = 2;
-        let fixed = upper_vis + mid_dashes + lower_vis;
+        let fixed = upper_vis + lower_vis;
         let left_dashes = (graph_width.saturating_sub(fixed)) / 2;
         let right_dashes = graph_width.saturating_sub(fixed + left_dashes);
         buf.mv(x + 1, div_y)
@@ -234,8 +233,6 @@ pub fn draw(cpu: &CpuInfo, area: &BoxArea, theme: &Theme, settings: &CpuBoxSetti
             .text(symbols::DIV_LEFT)
             .text(&symbols::H_LINE.repeat(left_dashes))
             .text(&upper_inset)
-            .color(box_color)
-            .text(&symbols::H_LINE.repeat(mid_dashes))
             .text(&lower_inset)
             .color(box_color)
             .text(&symbols::H_LINE.repeat(right_dashes));
