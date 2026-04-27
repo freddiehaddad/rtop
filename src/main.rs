@@ -3,6 +3,7 @@ mod banner;
 mod cli;
 mod collect;
 mod config;
+mod config_keys;
 mod dirty;
 mod domain;
 mod draw;
@@ -16,6 +17,7 @@ mod tools;
 mod ui;
 
 use clap::Parser;
+use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
 
 fn main() {
     let cli = cli::Cli::parse();
@@ -47,16 +49,16 @@ fn main() {
 
     // Apply CLI overrides
     if cli.low_color {
-        config.set_bool("lowcolor", true);
+        config.set_bool(bk::LOWCOLOR, true);
     }
     if cli.tty {
-        config.set_bool("force_tty", true);
+        config.set_bool(bk::FORCE_TTY, true);
     }
     if let Some(ms) = cli.update_ms {
-        config.set_int("update_ms", ms as i64);
+        config.set_int(ik::UPDATE_MS, ms as i64);
     }
     if let Some(ref f) = cli.filter {
-        config.set_string("proc_filter", f);
+        config.set_string(sk::PROC_FILTER, f);
     }
 
     // Init terminal
@@ -84,7 +86,7 @@ fn main() {
 
     // Auto-add detected GPU boxes to shown_boxes if not already present
     if runner.gpu.gpu_count() > 0 {
-        let shown = config.get_string("shown_boxes").to_string();
+        let shown = config.get_string(sk::SHOWN_BOXES).to_string();
         let mut boxes: Vec<String> = shown.split_whitespace().map(|s| s.to_string()).collect();
         for i in 0..runner.gpu.gpu_count() {
             let name = format!("gpu{i}");
@@ -92,12 +94,12 @@ fn main() {
                 boxes.push(name);
             }
         }
-        config.set_string("shown_boxes", &boxes.join(" "));
+        config.set_string(sk::SHOWN_BOXES, &boxes.join(" "));
     }
 
     // Snapshot the startup layout for preset 0
-    let initial = config.get_string("shown_boxes").to_string();
-    config.set_string("initial_shown_boxes", &initial);
+    let initial = config.get_string(sk::SHOWN_BOXES).to_string();
+    config.set_string(sk::INITIAL_SHOWN_BOXES, &initial);
 
     app::run(&mut config, &mut terminal, &mut theme, &mut runner);
 }

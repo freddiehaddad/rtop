@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
+
 /// Valid box names that can appear in shown_boxes.
 pub const VALID_BOX_NAMES: &[&str] = &[
     "cpu", "mem", "net", "proc", "disk", "gpu0", "gpu1", "gpu2", "gpu3", "gpu4", "gpu5",
@@ -32,38 +34,38 @@ impl Config {
     fn apply_defaults(&mut self) {
         // String defaults
         let string_defaults: &[(&str, &str)] = &[
-            ("color_theme", "Default"),
-            ("shown_boxes", "cpu mem net proc disk"),
-            ("graph_symbol", "braille"),
-            ("graph_symbol_cpu", "default"),
-            ("graph_symbol_gpu", "default"),
-            ("graph_symbol_mem", "default"),
-            ("graph_symbol_net", "default"),
-            ("graph_symbol_proc", "default"),
-            ("proc_sorting", "cpu lazy"),
-            ("cpu_graph_upper", "user"),
-            ("cpu_graph_lower", "system"),
-            ("cpu_sensor", "Auto"),
-            ("selected_battery", "Auto"),
-            ("cpu_core_map", ""),
-            ("temp_scale", "celsius"),
-            ("clock_format", "%X"),
-            ("custom_cpu_name", ""),
-            ("disks_filter", ""),
-            ("io_graph_speeds", ""),
-            ("net_iface", ""),
-            ("log_level", "WARNING"),
-            ("proc_filter", ""),
+            (sk::COLOR_THEME, "Default"),
+            (sk::SHOWN_BOXES, "cpu mem net proc disk"),
+            (sk::GRAPH_SYMBOL, "braille"),
+            (sk::GRAPH_SYMBOL_CPU, "default"),
+            (sk::GRAPH_SYMBOL_GPU, "default"),
+            (sk::GRAPH_SYMBOL_MEM, "default"),
+            (sk::GRAPH_SYMBOL_NET, "default"),
+            (sk::GRAPH_SYMBOL_PROC, "default"),
+            (sk::PROC_SORTING, "cpu lazy"),
+            (sk::CPU_GRAPH_UPPER, "user"),
+            (sk::CPU_GRAPH_LOWER, "system"),
+            (sk::CPU_SENSOR, "Auto"),
+            (sk::SELECTED_BATTERY, "Auto"),
+            (sk::CPU_CORE_MAP, ""),
+            (sk::TEMP_SCALE, "celsius"),
+            (sk::CLOCK_FORMAT, "%X"),
+            (sk::CUSTOM_CPU_NAME, ""),
+            (sk::DISKS_FILTER, ""),
+            (sk::IO_GRAPH_SPEEDS, ""),
+            (sk::NET_IFACE, ""),
+            (sk::LOG_LEVEL, "WARNING"),
+            (sk::PROC_FILTER, ""),
             (
-                "presets",
+                sk::PRESETS,
                 "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
             ),
-            ("custom_gpu_name0", ""),
-            ("custom_gpu_name1", ""),
-            ("custom_gpu_name2", ""),
-            ("custom_gpu_name3", ""),
-            ("custom_gpu_name4", ""),
-            ("custom_gpu_name5", ""),
+            (sk::CUSTOM_GPU_NAME0, ""),
+            (sk::CUSTOM_GPU_NAME1, ""),
+            (sk::CUSTOM_GPU_NAME2, ""),
+            (sk::CUSTOM_GPU_NAME3, ""),
+            (sk::CUSTOM_GPU_NAME4, ""),
+            (sk::CUSTOM_GPU_NAME5, ""),
         ];
         for (k, v) in string_defaults {
             self.strings
@@ -73,54 +75,54 @@ impl Config {
 
         // Bool defaults
         let bool_defaults: &[(&str, bool)] = &[
-            ("theme_background", true),
-            ("truecolor", true),
-            ("rounded_corners", true),
-            ("proc_reversed", false),
-            ("proc_tree", false),
-            ("proc_colors", true),
-            ("proc_gradient", true),
-            ("proc_per_core", false),
-            ("proc_mem_bytes", true),
-            ("proc_cpu_graphs", true),
-            ("proc_left", false),
-            ("proc_filter_kernel", false),
-            ("proc_follow_detailed", true),
-            ("proc_aggregate", false),
-            ("keep_dead_proc_usage", false),
-            ("cpu_invert_lower", true),
-            ("cpu_single_graph", false),
-            ("cpu_bottom", false),
-            ("show_uptime", true),
-            ("show_cpu_watts", true),
-            ("check_temp", true),
-            ("show_coretemp", true),
-            ("show_cpu_freq", true),
-            ("mem_graphs", true),
-            ("mem_below_net", false),
-            ("show_swap", true),
-            ("swap_disk", true),
-            ("show_disks", true),
-            ("only_physical", true),
-            ("show_io_stat", true),
-            ("io_mode", false),
-            ("io_graph_combined", false),
-            ("swap_upload_download", false),
-            ("base_10_sizes", false),
-            ("net_auto", true),
-            ("net_sync", false),
-            ("show_battery", true),
-            ("show_battery_watts", true),
-            ("vim_keys", false),
-            ("force_tty", false),
-            ("lowcolor", false),
-            ("background_update", true),
-            ("terminal_sync", true),
-            ("save_config_on_exit", true),
-            ("disable_mouse", false),
-            ("disk_free_priv", false),
-            ("gpu_mirror_graph", true),
-            ("disk_io_mode", false),
+            (bk::THEME_BACKGROUND, true),
+            (bk::TRUECOLOR, true),
+            (bk::ROUNDED_CORNERS, true),
+            (bk::PROC_REVERSED, false),
+            (bk::PROC_TREE, false),
+            (bk::PROC_COLORS, true),
+            (bk::PROC_GRADIENT, true),
+            (bk::PROC_PER_CORE, false),
+            (bk::PROC_MEM_BYTES, true),
+            (bk::PROC_CPU_GRAPHS, true),
+            (bk::PROC_LEFT, false),
+            (bk::PROC_FILTER_KERNEL, false),
+            (bk::PROC_FOLLOW_DETAILED, true),
+            (bk::PROC_AGGREGATE, false),
+            (bk::KEEP_DEAD_PROC_USAGE, false),
+            (bk::CPU_INVERT_LOWER, true),
+            (bk::CPU_SINGLE_GRAPH, false),
+            (bk::CPU_BOTTOM, false),
+            (bk::SHOW_UPTIME, true),
+            (bk::SHOW_CPU_WATTS, true),
+            (bk::CHECK_TEMP, true),
+            (bk::SHOW_CORETEMP, true),
+            (bk::SHOW_CPU_FREQ, true),
+            (bk::MEM_GRAPHS, true),
+            (bk::MEM_BELOW_NET, false),
+            (bk::SHOW_SWAP, true),
+            (bk::SWAP_DISK, true),
+            (bk::SHOW_DISKS, true),
+            (bk::ONLY_PHYSICAL, true),
+            (bk::SHOW_IO_STAT, true),
+            (bk::IO_MODE, false),
+            (bk::IO_GRAPH_COMBINED, false),
+            (bk::SWAP_UPLOAD_DOWNLOAD, false),
+            (bk::BASE_10_SIZES, false),
+            (bk::NET_AUTO, true),
+            (bk::NET_SYNC, false),
+            (bk::SHOW_BATTERY, true),
+            (bk::SHOW_BATTERY_WATTS, true),
+            (bk::VIM_KEYS, false),
+            (bk::FORCE_TTY, false),
+            (bk::LOWCOLOR, false),
+            (bk::BACKGROUND_UPDATE, true),
+            (bk::TERMINAL_SYNC, true),
+            (bk::SAVE_CONFIG_ON_EXIT, true),
+            (bk::DISABLE_MOUSE, false),
+            (bk::DISK_FREE_PRIV, false),
+            (bk::GPU_MIRROR_GRAPH, true),
+            (bk::DISK_IO_MODE, false),
         ];
         for (k, v) in bool_defaults {
             self.bools.entry(k.to_string()).or_insert(*v);
@@ -128,15 +130,15 @@ impl Config {
 
         // Int defaults
         let int_defaults: &[(&str, i64)] = &[
-            ("update_ms", 2000),
-            ("net_download", 100),
-            ("net_upload", 100),
-            ("detailed_pid", 0),
-            ("selected_pid", 0),
-            ("followed_pid", 0),
-            ("proc_start", 0),
-            ("proc_selected", 0),
-            ("current_preset", 0),
+            (ik::UPDATE_MS, 2000),
+            (ik::NET_DOWNLOAD, 100),
+            (ik::NET_UPLOAD, 100),
+            (ik::DETAILED_PID, 0),
+            (ik::SELECTED_PID, 0),
+            (ik::FOLLOWED_PID, 0),
+            (ik::PROC_START, 0),
+            (ik::PROC_SELECTED, 0),
+            (ik::CURRENT_PRESET, 0),
         ];
         for (k, v) in int_defaults {
             self.ints.entry(k.to_string()).or_insert(*v);
@@ -166,10 +168,10 @@ impl Config {
     /// Set an integer config value with range clamping.
     pub fn set_int(&mut self, name: &str, value: i64) {
         let clamped = match name {
-            "update_ms" => value.clamp(100, 86_400_000),
-            "net_download" | "net_upload" => value.clamp(0, 10_000_000),
-            "detailed_pid" => value,
-            "current_preset" => value.max(0),
+            ik::UPDATE_MS => value.clamp(100, 86_400_000),
+            ik::NET_DOWNLOAD | ik::NET_UPLOAD => value.clamp(0, 10_000_000),
+            ik::DETAILED_PID => value,
+            ik::CURRENT_PRESET => value.max(0),
             _ => value.max(0),
         };
         self.ints.insert(name.to_string(), clamped);
@@ -294,9 +296,9 @@ impl Config {
     /// Parse the presets config string into a list of preset strings.
     /// Preset 0 is the startup layout stored in `initial_shown_boxes`.
     pub fn preset_list(&self) -> Vec<String> {
-        let initial = self.get_string("initial_shown_boxes");
+        let initial = self.get_string(sk::INITIAL_SHOWN_BOXES);
         let source = if initial.is_empty() {
-            self.get_string("shown_boxes")
+            self.get_string(sk::SHOWN_BOXES)
         } else {
             initial
         };
@@ -306,7 +308,7 @@ impl Config {
             .collect();
         let mut list = vec![preset0_parts.join(",")];
 
-        let presets_str = self.get_string("presets");
+        let presets_str = self.get_string(sk::PRESETS);
         if !presets_str.is_empty() {
             for preset in presets_str.split_whitespace() {
                 if !preset.is_empty() {
@@ -319,18 +321,18 @@ impl Config {
 
     /// Save the current layout as a new preset and return its index.
     pub fn save_preset(&mut self) -> usize {
-        let shown = self.get_string("shown_boxes").to_string();
-        let cpu_bottom = if self.get_bool("cpu_bottom") {
+        let shown = self.get_string(sk::SHOWN_BOXES).to_string();
+        let cpu_bottom = if self.get_bool(bk::CPU_BOTTOM) {
             "1"
         } else {
             "0"
         };
-        let mem_below_net = if self.get_bool("mem_below_net") {
+        let mem_below_net = if self.get_bool(bk::MEM_BELOW_NET) {
             "1"
         } else {
             "0"
         };
-        let proc_left = if self.get_bool("proc_left") { "1" } else { "0" };
+        let proc_left = if self.get_bool(bk::PROC_LEFT) { "1" } else { "0" };
 
         let mut parts = Vec::new();
         for box_name in shown.split_whitespace() {
@@ -344,15 +346,15 @@ impl Config {
         }
         let new_preset = parts.join(",");
 
-        let current = self.get_string("presets").to_string();
+        let current = self.get_string(sk::PRESETS).to_string();
         let updated = if current.is_empty() {
             new_preset
         } else {
             format!("{current} {new_preset}")
         };
-        self.set_string("presets", &updated);
+        self.set_string(sk::PRESETS, &updated);
         let idx = self.preset_list().len() - 1;
-        self.set_int("current_preset", idx as i64);
+        self.set_int(ik::CURRENT_PRESET, idx as i64);
         idx
     }
 
@@ -362,7 +364,7 @@ impl Config {
         if index == 0 {
             return false;
         }
-        let presets_str = self.get_string("presets").to_string();
+        let presets_str = self.get_string(sk::PRESETS).to_string();
         let custom: Vec<&str> = presets_str.split_whitespace().collect();
         let custom_idx = index - 1; // offset for the hardcoded preset 0
         if custom_idx >= custom.len() {
@@ -374,12 +376,12 @@ impl Config {
             .filter(|(i, _)| *i != custom_idx)
             .map(|(_, s)| *s)
             .collect();
-        self.set_string("presets", &remaining.join(" "));
+        self.set_string(sk::PRESETS, &remaining.join(" "));
         // Adjust current_preset if needed
-        let cur = self.get_int("current_preset");
+        let cur = self.get_int(ik::CURRENT_PRESET);
         let total = self.preset_list().len() as i64;
         if cur >= total {
-            self.set_int("current_preset", total - 1);
+            self.set_int(ik::CURRENT_PRESET, total - 1);
         }
         true
     }
@@ -400,13 +402,13 @@ impl Config {
             boxes.push(box_name.to_string());
 
             match box_name {
-                "cpu" => self.set_bool("cpu_bottom", position != "0"),
-                "mem" => self.set_bool("mem_below_net", position != "0"),
-                "proc" => self.set_bool("proc_left", position != "0"),
+                "cpu" => self.set_bool(bk::CPU_BOTTOM, position != "0"),
+                "mem" => self.set_bool(bk::MEM_BELOW_NET, position != "0"),
+                "proc" => self.set_bool(bk::PROC_LEFT, position != "0"),
                 _ => {}
             }
         }
-        self.set_string("shown_boxes", &boxes.join(" "));
+        self.set_string(sk::SHOWN_BOXES, &boxes.join(" "));
     }
 
     /// Toggle a box's visibility in shown_boxes.
@@ -415,7 +417,7 @@ impl Config {
             return false;
         }
 
-        let current = self.get_string("shown_boxes").to_string();
+        let current = self.get_string(sk::SHOWN_BOXES).to_string();
         let mut boxes: Vec<&str> = current.split_whitespace().collect();
 
         if let Some(pos) = boxes.iter().position(|b| *b == box_name) {
@@ -424,7 +426,7 @@ impl Config {
             boxes.push(box_name);
         }
 
-        self.set_string("shown_boxes", &boxes.join(" "));
+        self.set_string(sk::SHOWN_BOXES, &boxes.join(" "));
         true
     }
 }

@@ -1,4 +1,4 @@
-use crate::{config, dirty::Dirty, draw, input, menu, runner, term, theme, tools, ui};
+use crate::{config, config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik}, dirty::Dirty, draw, input, menu, runner, term, theme, tools, ui};
 
 #[derive(PartialEq)]
 enum MenuState {
@@ -16,8 +16,8 @@ pub fn run(
     theme: &mut theme::Theme,
     runner: &mut runner::Runner,
 ) {
-    let mut rounded = config.get_bool("rounded_corners");
-    let mut update_ms = config.get_int("update_ms") as u64;
+    let mut rounded = config.get_bool(bk::ROUNDED_CORNERS);
+    let mut update_ms = config.get_int(ik::UPDATE_MS) as u64;
 
     let mut menu_state = MenuState::None;
 
@@ -64,10 +64,10 @@ pub fn run(
 
             // Rebuild derived process display list
             if dirty.contains(Dirty::PROC_LIST) {
-                let sort_by = config.get_string("proc_sorting");
-                let reversed = config.get_bool("proc_reversed");
-                let filter = config.get_string("proc_filter");
-                let tree_mode = config.get_bool("proc_tree");
+                let sort_by = config.get_string(sk::PROC_SORTING);
+                let reversed = config.get_bool(bk::PROC_REVERSED);
+                let filter = config.get_string(sk::PROC_FILTER);
+                let tree_mode = config.get_bool(bk::PROC_TREE);
                 runner
                     .proc_collector
                     .rebuild_display(sort_by, reversed, filter, tree_mode);
@@ -76,7 +76,7 @@ pub fn run(
             // Calculate layout (or reuse cached)
             if dirty.contains(Dirty::LAYOUT) || cached_layout.is_none() {
                 let shown: Vec<String> = config
-                    .get_string("shown_boxes")
+                    .get_string(sk::SHOWN_BOXES)
                     .split_whitespace()
                     .map(|s| s.to_string())
                     .collect();
@@ -84,9 +84,9 @@ pub fn run(
                     term_width: tw,
                     term_height: th,
                     shown_boxes: &shown,
-                    cpu_bottom: config.get_bool("cpu_bottom"),
-                    mem_below_net: config.get_bool("mem_below_net"),
-                    proc_left: config.get_bool("proc_left"),
+                    cpu_bottom: config.get_bool(bk::CPU_BOTTOM),
+                    mem_below_net: config.get_bool(bk::MEM_BELOW_NET),
+                    proc_left: config.get_bool(bk::PROC_LEFT),
                     core_count: runner.cpu.info.core_count,
                     gpu_count: runner.gpu.gpu_count(),
                 }));
@@ -176,7 +176,7 @@ pub fn run(
     }
 
     // Save config on exit
-    if config.get_bool("save_config_on_exit") {
+    if config.get_bool(bk::SAVE_CONFIG_ON_EXIT) {
         let conf_path = tools::config_dir().join("rtop.conf");
         let _ = config.write(&conf_path);
     }
@@ -528,7 +528,7 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                 match kind {
                     menu::options_menu::OptKind::Bool => {
                         ctx.config.flip(opt_key);
-                        *ctx.rounded = ctx.config.get_bool("rounded_corners");
+                        *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
                     }
                     menu::options_menu::OptKind::Int => {
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
@@ -537,8 +537,8 @@ fn handle_options_input(key: &str, ctx: &mut InputContext) -> bool {
                         menu::options_menu::cycle_browsable(
                             opt_key, ctx.config, dir as i32,
                         );
-                        if opt_key == "color_theme" {
-                            let name = ctx.config.get_string("color_theme").to_string();
+                        if opt_key == sk::COLOR_THEME {
+                            let name = ctx.config.get_string(sk::COLOR_THEME).to_string();
                             *ctx.theme = theme::Theme::from_name(&name);
                             let base = format!(
                                 "{}{}",
@@ -577,7 +577,7 @@ fn handle_filter_input(key: &str, ctx: &mut InputContext) -> bool {
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "enter" => {
-            ctx.config.set_string("proc_filter", ctx.filter_text);
+            ctx.config.set_string(sk::PROC_FILTER, ctx.filter_text);
             *ctx.menu_state = MenuState::None;
             *ctx.proc_selected = 0;
             *ctx.proc_start = 0;
@@ -585,21 +585,21 @@ fn handle_filter_input(key: &str, ctx: &mut InputContext) -> bool {
         }
         "backspace" => {
             ctx.filter_text.pop();
-            ctx.config.set_string("proc_filter", ctx.filter_text);
+            ctx.config.set_string(sk::PROC_FILTER, ctx.filter_text);
             *ctx.proc_selected = 0;
             *ctx.proc_start = 0;
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "delete" => {
             ctx.filter_text.clear();
-            ctx.config.set_string("proc_filter", "");
+            ctx.config.set_string(sk::PROC_FILTER, "");
             *ctx.proc_selected = 0;
             *ctx.proc_start = 0;
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         s if s.len() == 1 && !s.starts_with('\x1b') => {
             ctx.filter_text.push_str(s);
-            ctx.config.set_string("proc_filter", ctx.filter_text);
+            ctx.config.set_string(sk::PROC_FILTER, ctx.filter_text);
             *ctx.proc_selected = 0;
             *ctx.proc_start = 0;
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
@@ -649,13 +649,13 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         "p" => {
             let presets = ctx.config.preset_list();
             if !presets.is_empty() {
-                let cur = ctx.config.get_int("current_preset");
+                let cur = ctx.config.get_int(ik::CURRENT_PRESET);
                 let next = if (cur + 1) >= presets.len() as i64 {
                     0i64
                 } else {
                     cur + 1
                 };
-                ctx.config.set_int("current_preset", next);
+                ctx.config.set_int(ik::CURRENT_PRESET, next);
                 ctx.config.apply_preset(&presets[next as usize]);
                 *ctx.dirty |= Dirty::FULL;
             }
@@ -663,13 +663,13 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         "P" => {
             let presets = ctx.config.preset_list();
             if !presets.is_empty() {
-                let cur = ctx.config.get_int("current_preset");
+                let cur = ctx.config.get_int(ik::CURRENT_PRESET);
                 let next = if cur <= 0 {
                     presets.len() as i64 - 1
                 } else {
                     cur - 1
                 };
-                ctx.config.set_int("current_preset", next);
+                ctx.config.set_int(ik::CURRENT_PRESET, next);
                 ctx.config.apply_preset(&presets[next as usize]);
                 *ctx.dirty |= Dirty::FULL;
             }
@@ -681,11 +681,11 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         }
         // Delete current preset
         "ctrl_d" => {
-            let cur = ctx.config.get_int("current_preset");
+            let cur = ctx.config.get_int(ik::CURRENT_PRESET);
             if cur > 0 {
                 ctx.config.delete_preset(cur as usize);
                 let presets = ctx.config.preset_list();
-                let new_cur = ctx.config.get_int("current_preset");
+                let new_cur = ctx.config.get_int(ik::CURRENT_PRESET);
                 if !presets.is_empty() && (new_cur as usize) < presets.len() {
                     ctx.config.apply_preset(&presets[new_cur as usize]);
                 }
@@ -699,7 +699,7 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
                 tracing::warn!("{}", w);
             }
             // Reapply theme
-            let theme_name = ctx.config.get_string("color_theme").to_string();
+            let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
             *ctx.theme = theme::Theme::from_name(&theme_name);
             let base = format!(
                 "{}{}",
@@ -707,8 +707,8 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
                 ctx.theme.c("main_bg").replace("38;2", "48;2"),
             );
             let _ = ctx.terminal.write_raw(&base);
-            *ctx.rounded = ctx.config.get_bool("rounded_corners");
-            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
+            *ctx.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
             *ctx.dirty |= Dirty::FULL;
         }
         "up" | "k"
@@ -774,39 +774,39 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         // Process keybinds
         "f" | "/" => {
             *ctx.menu_state = MenuState::Filter;
-            *ctx.filter_text = ctx.config.get_string("proc_filter").to_string();
+            *ctx.filter_text = ctx.config.get_string(sk::PROC_FILTER).to_string();
             *ctx.dirty |= Dirty::PROC_BOX;
         }
         "e" => {
-            ctx.config.flip("proc_tree");
+            ctx.config.flip(bk::PROC_TREE);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "r" => {
-            ctx.config.flip("proc_reversed");
+            ctx.config.flip(bk::PROC_REVERSED);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "c" => {
-            ctx.config.flip("proc_per_core");
+            ctx.config.flip(bk::PROC_PER_CORE);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "i" => {
-            ctx.config.flip("io_mode");
+            ctx.config.flip(bk::IO_MODE);
             *ctx.dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
         }
         "left" => {
             use crate::collect::process::SORT_OPTIONS;
-            let current = ctx.config.get_string("proc_sorting").to_string();
+            let current = ctx.config.get_string(sk::PROC_SORTING).to_string();
             let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
             let new_idx = if idx == 0 { SORT_OPTIONS.len() - 1 } else { idx - 1 };
-            ctx.config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
+            ctx.config.set_string(sk::PROC_SORTING, SORT_OPTIONS[new_idx]);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "right" => {
             use crate::collect::process::SORT_OPTIONS;
-            let current = ctx.config.get_string("proc_sorting").to_string();
+            let current = ctx.config.get_string(sk::PROC_SORTING).to_string();
             let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
             let new_idx = (idx + 1) % SORT_OPTIONS.len();
-            ctx.config.set_string("proc_sorting", SORT_OPTIONS[new_idx]);
+            ctx.config.set_string(sk::PROC_SORTING, SORT_OPTIONS[new_idx]);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         "t"
@@ -820,11 +820,11 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
             // Toggle process detailed view
             if *ctx.proc_selected < ctx.runner.proc_collector.display_procs.len() => {
                 let pid = ctx.runner.proc_collector.display_procs[*ctx.proc_selected].pid;
-                let current_detailed = ctx.config.get_int("detailed_pid");
+                let current_detailed = ctx.config.get_int(ik::DETAILED_PID);
                 if current_detailed == pid as i64 {
-                    ctx.config.set_int("detailed_pid", 0);
+                    ctx.config.set_int(ik::DETAILED_PID, 0);
                 } else {
-                    ctx.config.set_int("detailed_pid", pid as i64);
+                    ctx.config.set_int(ik::DETAILED_PID, pid as i64);
                 }
                 *ctx.dirty |= Dirty::PROC_BOX;
             }
@@ -848,11 +848,11 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
                 *ctx.dirty |= Dirty::NET_BOX;
             }
         "a" => {
-            ctx.config.flip("net_auto");
+            ctx.config.flip(bk::NET_AUTO);
             *ctx.dirty |= Dirty::NET_BOX;
         }
         "y" => {
-            ctx.config.flip("net_sync");
+            ctx.config.flip(bk::NET_SYNC);
             *ctx.dirty |= Dirty::NET_BOX;
         }
         // Network zero reset
@@ -875,15 +875,15 @@ fn handle_normal_input(key: &str, ctx: &mut InputContext) -> bool {
         "+" => {
             let step = if *ctx.update_ms > 2000 { 1000 } else { 100 };
             let new_ms = (*ctx.update_ms as i64 + step).min(86_400_000);
-            ctx.config.set_int("update_ms", new_ms);
-            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            ctx.config.set_int(ik::UPDATE_MS, new_ms);
+            *ctx.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
             *ctx.dirty |= Dirty::CPU_BOX;
         }
         "-" => {
             let step = if *ctx.update_ms > 2000 { 1000 } else { 100 };
             let new_ms = (*ctx.update_ms as i64 - step).max(100);
-            ctx.config.set_int("update_ms", new_ms);
-            *ctx.update_ms = ctx.config.get_int("update_ms") as u64;
+            ctx.config.set_int(ik::UPDATE_MS, new_ms);
+            *ctx.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
             *ctx.dirty |= Dirty::CPU_BOX;
         }
         _ => {}
@@ -976,16 +976,16 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
             let area = ui::BoxArea::from_dim(cpu_dim, rounded);
             let cpu_settings = ui::cpu_box::CpuBoxSettings {
                 graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string("graph_symbol_cpu"),
-                    config.get_string("graph_symbol"),
+                    config.get_string(sk::GRAPH_SYMBOL_CPU),
+                    config.get_string(sk::GRAPH_SYMBOL),
                 ),
-                upper_source: config.get_string("cpu_graph_upper"),
-                lower_source: config.get_string("cpu_graph_lower"),
-                check_temp: config.get_bool("check_temp"),
-                show_coretemp: config.get_bool("show_coretemp"),
-                temp_scale: config.get_string("temp_scale"),
+                upper_source: config.get_string(sk::CPU_GRAPH_UPPER),
+                lower_source: config.get_string(sk::CPU_GRAPH_LOWER),
+                check_temp: config.get_bool(bk::CHECK_TEMP),
+                show_coretemp: config.get_bool(bk::SHOW_CORETEMP),
+                temp_scale: config.get_string(sk::TEMP_SCALE),
                 update_ms,
-                current_preset: config.get_int("current_preset"),
+                current_preset: config.get_int(ik::CURRENT_PRESET),
             };
             output.push_str(&ui::cpu_box::draw(
                 &runner.cpu.info,
@@ -998,7 +998,7 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
 
     if dirty.intersects(Dirty::GPU_BOX) {
         let gpu_settings = ui::gpu_box::GpuBoxSettings {
-            temp_scale: config.get_string("temp_scale"),
+            temp_scale: config.get_string(sk::TEMP_SCALE),
         };
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < runner.gpu.gpus.len() {
@@ -1021,7 +1021,7 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
                 &runner.mem.info,
                 &area,
                 theme,
-                config.get_bool("show_swap"),
+                config.get_bool(bk::SHOW_SWAP),
             ));
         }
     }
@@ -1044,13 +1044,13 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
                 .unwrap_or_default();
             let area = ui::BoxArea::from_dim(net_dim, rounded);
             let net_settings = ui::net_box::NetBoxSettings {
-                auto_scale: config.get_bool("net_auto"),
-                sync_scale: config.get_bool("net_sync"),
-                max_download: config.get_int("net_download"),
-                max_upload: config.get_int("net_upload"),
+                auto_scale: config.get_bool(bk::NET_AUTO),
+                sync_scale: config.get_bool(bk::NET_SYNC),
+                max_download: config.get_int(ik::NET_DOWNLOAD),
+                max_upload: config.get_int(ik::NET_UPLOAD),
                 graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string("graph_symbol_net"),
-                    config.get_string("graph_symbol"),
+                    config.get_string(sk::GRAPH_SYMBOL_NET),
+                    config.get_string(sk::GRAPH_SYMBOL),
                 ),
             };
             output.push_str(&ui::net_box::draw(
@@ -1067,11 +1067,11 @@ fn render_all(params: &RenderParams, proc_selected: &mut usize, proc_start: &mut
         if let Some(ref proc_dim) = layout.proc_box {
             let procs = &runner.proc_collector.display_procs;
             clamp_proc_selection(procs, proc_dim.height, proc_selected, proc_start);
-            let sort_by = config.get_string("proc_sorting");
-            let reversed = config.get_bool("proc_reversed");
-            let tree_mode = config.get_bool("proc_tree");
-            let detailed_pid = config.get_int("detailed_pid") as u32;
-            let pf = config.get_string("proc_filter");
+            let sort_by = config.get_string(sk::PROC_SORTING);
+            let reversed = config.get_bool(bk::PROC_REVERSED);
+            let tree_mode = config.get_bool(bk::PROC_TREE);
+            let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
+            let pf = config.get_string(sk::PROC_FILTER);
             let area = ui::BoxArea::from_dim(proc_dim, rounded);
             let view = ui::ProcView {
                 start: *proc_start,

@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::config_keys::{bool_keys as bk, str_keys as sk, int_keys as ik};
 use crate::draw::box_drawing::{self, symbols};
 use crate::term;
 use crate::theme::Theme;
@@ -31,14 +32,14 @@ pub struct OptDef {
 /// Return the list of valid values for a browsable option key.
 pub fn browsable_values(key: &str) -> &'static [&'static str] {
     match key {
-        "color_theme" => crate::theme::THEME_NAMES,
-        "graph_symbol" | "graph_symbol_cpu" | "graph_symbol_mem" | "graph_symbol_net"
-        | "graph_symbol_proc" | "graph_symbol_gpu" => &["default", "braille", "block", "tty"],
-        "cpu_graph_upper" | "cpu_graph_lower" => &["Auto", "total", "user", "system"],
-        "temp_scale" => &["celsius", "fahrenheit", "kelvin", "rankine"],
-        "proc_sorting" => crate::collect::process::SORT_OPTIONS,
-        "log_level" => &["ERROR", "WARNING", "INFO", "DEBUG"],
-        "cpu_sensor" | "selected_battery" | "net_iface" => &["Auto"],
+        sk::COLOR_THEME => crate::theme::THEME_NAMES,
+        sk::GRAPH_SYMBOL | sk::GRAPH_SYMBOL_CPU | sk::GRAPH_SYMBOL_MEM | sk::GRAPH_SYMBOL_NET
+        | sk::GRAPH_SYMBOL_PROC | sk::GRAPH_SYMBOL_GPU => &["default", "braille", "block", "tty"],
+        sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => &["Auto", "total", "user", "system"],
+        sk::TEMP_SCALE => &["celsius", "fahrenheit", "kelvin", "rankine"],
+        sk::PROC_SORTING => crate::collect::process::SORT_OPTIONS,
+        sk::LOG_LEVEL => &["ERROR", "WARNING", "INFO", "DEBUG"],
+        sk::CPU_SENSOR | sk::SELECTED_BATTERY | sk::NET_IFACE => &["Auto"],
         _ => &[],
     }
 }
@@ -66,7 +67,7 @@ pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", 
 /// Options in the "general" category.
 pub const GENERAL: &[OptDef] = &[
     OptDef {
-        key: "color_theme",
+        key: sk::COLOR_THEME,
         desc: &[
             "Set color theme.",
             "",
@@ -76,7 +77,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "theme_background",
+        key: bk::THEME_BACKGROUND,
         desc: &[
             "If the theme set background should be shown.",
             "",
@@ -85,7 +86,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "truecolor",
+        key: bk::TRUECOLOR,
         desc: &[
             "Sets if 24-bit truecolor should be used.",
             "",
@@ -94,11 +95,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "lowcolor",
+        key: bk::LOWCOLOR,
         desc: &["Use 256-color mode instead of truecolor."],
     },
     OptDef {
-        key: "force_tty",
+        key: bk::FORCE_TTY,
         desc: &[
             "TTY mode.",
             "",
@@ -107,7 +108,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "vim_keys",
+        key: bk::VIM_KEYS,
         desc: &[
             "Enable vim keys.",
             "Set to True to enable \"h,j,k,l\" keys for",
@@ -115,11 +116,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "disable_mouse",
+        key: bk::DISABLE_MOUSE,
         desc: &["Disable all mouse events."],
     },
     OptDef {
-        key: "presets",
+        key: sk::PRESETS,
         desc: &[
             "Define presets for the layout of the boxes.",
             "",
@@ -130,7 +131,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "shown_boxes",
+        key: sk::SHOWN_BOXES,
         desc: &[
             "Manually set which boxes to show.",
             "",
@@ -139,7 +140,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "update_ms",
+        key: ik::UPDATE_MS,
         desc: &[
             "Update time in milliseconds.",
             "",
@@ -151,11 +152,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "rounded_corners",
+        key: bk::ROUNDED_CORNERS,
         desc: &["Rounded corners on boxes.", "", "True or False"],
     },
     OptDef {
-        key: "terminal_sync",
+        key: bk::TERMINAL_SYNC,
         desc: &[
             "Output synchronization.",
             "",
@@ -164,7 +165,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "graph_symbol",
+        key: sk::GRAPH_SYMBOL,
         desc: &[
             "Default symbols to use for graph creation.",
             "",
@@ -172,7 +173,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "clock_format",
+        key: sk::CLOCK_FORMAT,
         desc: &[
             "Draw a clock at top of screen.",
             "(Only visible if cpu box is enabled!)",
@@ -182,7 +183,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "base_10_sizes",
+        key: bk::BASE_10_SIZES,
         desc: &[
             "Use base 10 for bits and bytes sizes.",
             "",
@@ -190,7 +191,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "background_update",
+        key: bk::BACKGROUND_UPDATE,
         desc: &[
             "Update main ui when menus are showing.",
             "",
@@ -198,14 +199,14 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_battery",
+        key: bk::SHOW_BATTERY,
         desc: &[
             "Show battery stats.",
             "(Only visible if cpu box is enabled!)",
         ],
     },
     OptDef {
-        key: "selected_battery",
+        key: sk::SELECTED_BATTERY,
         desc: &[
             "Select battery.",
             "",
@@ -214,11 +215,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_battery_watts",
+        key: bk::SHOW_BATTERY_WATTS,
         desc: &["Show battery power.", "", "Show discharge/charging power."],
     },
     OptDef {
-        key: "log_level",
+        key: sk::LOG_LEVEL,
         desc: &[
             "Set loglevel for error.log",
             "",
@@ -226,7 +227,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "save_config_on_exit",
+        key: bk::SAVE_CONFIG_ON_EXIT,
         desc: &[
             "Save config on exit.",
             "",
@@ -239,7 +240,7 @@ pub const GENERAL: &[OptDef] = &[
 /// Options in the "cpu" category.
 pub const CPU: &[OptDef] = &[
     OptDef {
-        key: "cpu_bottom",
+        key: bk::CPU_BOTTOM,
         desc: &[
             "Cpu box location.",
             "",
@@ -248,7 +249,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "graph_symbol_cpu",
+        key: sk::GRAPH_SYMBOL_CPU,
         desc: &[
             "Graph symbol to use for graphs in cpu box.",
             "",
@@ -256,7 +257,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "cpu_graph_upper",
+        key: sk::CPU_GRAPH_UPPER,
         desc: &[
             "Cpu upper graph.",
             "",
@@ -265,7 +266,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "cpu_graph_lower",
+        key: sk::CPU_GRAPH_LOWER,
         desc: &[
             "Cpu lower graph.",
             "",
@@ -274,7 +275,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "cpu_invert_lower",
+        key: bk::CPU_INVERT_LOWER,
         desc: &[
             "Toggles orientation of the lower CPU graph.",
             "",
@@ -282,7 +283,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "cpu_single_graph",
+        key: bk::CPU_SINGLE_GRAPH,
         desc: &[
             "Completely disable the lower CPU graph.",
             "",
@@ -291,11 +292,11 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "check_temp",
+        key: bk::CHECK_TEMP,
         desc: &["Enable cpu temperature reporting.", "", "True or False."],
     },
     OptDef {
-        key: "cpu_sensor",
+        key: sk::CPU_SENSOR,
         desc: &[
             "Cpu temperature sensor.",
             "",
@@ -306,7 +307,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_coretemp",
+        key: bk::SHOW_CORETEMP,
         desc: &[
             "Show temperatures for cpu cores.",
             "",
@@ -315,7 +316,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "cpu_core_map",
+        key: sk::CPU_CORE_MAP,
         desc: &[
             "Custom mapping between core and coretemp.",
             "",
@@ -325,7 +326,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "temp_scale",
+        key: sk::TEMP_SCALE,
         desc: &[
             "Which temperature scale to use.",
             "",
@@ -333,7 +334,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_cpu_freq",
+        key: bk::SHOW_CPU_FREQ,
         desc: &[
             "Show CPU frequency.",
             "",
@@ -342,7 +343,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "custom_cpu_name",
+        key: sk::CUSTOM_CPU_NAME,
         desc: &[
             "Custom cpu model name in cpu percentage box.",
             "",
@@ -350,7 +351,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_uptime",
+        key: bk::SHOW_UPTIME,
         desc: &[
             "Shows the system uptime in the CPU box.",
             "",
@@ -358,7 +359,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_cpu_watts",
+        key: bk::SHOW_CPU_WATTS,
         desc: &[
             "Shows the CPU power consumption in watts.",
             "",
@@ -370,7 +371,7 @@ pub const CPU: &[OptDef] = &[
 /// Options in the "mem" category.
 pub const MEM: &[OptDef] = &[
     OptDef {
-        key: "mem_below_net",
+        key: bk::MEM_BELOW_NET,
         desc: &[
             "Mem box location.",
             "",
@@ -378,7 +379,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "graph_symbol_mem",
+        key: sk::GRAPH_SYMBOL_MEM,
         desc: &[
             "Graph symbol to use for graphs in mem box.",
             "",
@@ -386,15 +387,15 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "mem_graphs",
+        key: bk::MEM_GRAPHS,
         desc: &["Show graphs for memory values.", "", "True or False."],
     },
     OptDef {
-        key: "show_disks",
+        key: bk::SHOW_DISKS,
         desc: &["Split memory box to also show disks.", "", "True or False."],
     },
     OptDef {
-        key: "show_io_stat",
+        key: bk::SHOW_IO_STAT,
         desc: &[
             "Toggle IO activity graphs.",
             "",
@@ -403,7 +404,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "io_mode",
+        key: bk::IO_MODE,
         desc: &[
             "Toggles io mode for disks.",
             "",
@@ -412,7 +413,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "io_graph_combined",
+        key: bk::IO_GRAPH_COMBINED,
         desc: &[
             "Toggle combined read and write graphs.",
             "",
@@ -420,7 +421,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "io_graph_speeds",
+        key: sk::IO_GRAPH_SPEEDS,
         desc: &[
             "Set top speeds for the io graphs.",
             "",
@@ -430,7 +431,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "show_swap",
+        key: bk::SHOW_SWAP,
         desc: &[
             "If swap memory should be shown in memory box.",
             "",
@@ -438,7 +439,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "swap_disk",
+        key: bk::SWAP_DISK,
         desc: &[
             "Show swap as a disk.",
             "",
@@ -447,7 +448,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "only_physical",
+        key: bk::ONLY_PHYSICAL,
         desc: &[
             "Filter out non physical disks.",
             "",
@@ -456,7 +457,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "disk_free_priv",
+        key: bk::DISK_FREE_PRIV,
         desc: &[
             "Type of available disk space.",
             "",
@@ -465,7 +466,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "disks_filter",
+        key: sk::DISKS_FILTER,
         desc: &[
             "Optional filter for shown disks.",
             "",
@@ -478,7 +479,7 @@ pub const MEM: &[OptDef] = &[
 /// Options in the "net" category.
 pub const NET: &[OptDef] = &[
     OptDef {
-        key: "graph_symbol_net",
+        key: sk::GRAPH_SYMBOL_NET,
         desc: &[
             "Graph symbol to use for graphs in net box.",
             "",
@@ -486,11 +487,11 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "swap_upload_download",
+        key: bk::SWAP_UPLOAD_DOWNLOAD,
         desc: &["Swap the positions of the upload and download", "graphs."],
     },
     OptDef {
-        key: "net_download",
+        key: ik::NET_DOWNLOAD,
         desc: &[
             "Fixed network graph download value.",
             "",
@@ -500,7 +501,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "net_upload",
+        key: ik::NET_UPLOAD,
         desc: &[
             "Fixed network graph upload value.",
             "",
@@ -510,7 +511,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "net_auto",
+        key: bk::NET_AUTO,
         desc: &[
             "Start in network graphs auto rescaling mode.",
             "",
@@ -519,7 +520,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "net_sync",
+        key: bk::NET_SYNC,
         desc: &[
             "Network scale sync.",
             "",
@@ -528,7 +529,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "net_iface",
+        key: sk::NET_IFACE,
         desc: &[
             "Network Interface.",
             "",
@@ -543,7 +544,7 @@ pub const NET: &[OptDef] = &[
 /// Options in the "proc" category.
 pub const PROC: &[OptDef] = &[
     OptDef {
-        key: "proc_left",
+        key: bk::PROC_LEFT,
         desc: &[
             "Proc box location.",
             "",
@@ -552,7 +553,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "graph_symbol_proc",
+        key: sk::GRAPH_SYMBOL_PROC,
         desc: &[
             "Graph symbol to use for graphs in proc box.",
             "",
@@ -560,7 +561,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_sorting",
+        key: sk::PROC_SORTING,
         desc: &[
             "Processes sorting option.",
             "",
@@ -570,11 +571,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_reversed",
+        key: bk::PROC_REVERSED,
         desc: &["Reverse processes sorting order.", "", "True or False."],
     },
     OptDef {
-        key: "proc_tree",
+        key: bk::PROC_TREE,
         desc: &[
             "Processes tree view.",
             "",
@@ -584,7 +585,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_aggregate",
+        key: bk::PROC_AGGREGATE,
         desc: &[
             "Aggregate child's resources in parent.",
             "",
@@ -593,11 +594,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_colors",
+        key: bk::PROC_COLORS,
         desc: &["Enable colors in process view.", "", "True or False."],
     },
     OptDef {
-        key: "proc_gradient",
+        key: bk::PROC_GRADIENT,
         desc: &[
             "Enable process view gradient fade.",
             "",
@@ -605,7 +606,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_per_core",
+        key: bk::PROC_PER_CORE,
         desc: &[
             "Process usage per core.",
             "",
@@ -615,7 +616,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_mem_bytes",
+        key: bk::PROC_MEM_BYTES,
         desc: &[
             "Show memory as bytes in process list.",
             "",
@@ -624,7 +625,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "keep_dead_proc_usage",
+        key: bk::KEEP_DEAD_PROC_USAGE,
         desc: &[
             "Cpu and Mem usage for dead processes",
             "",
@@ -633,11 +634,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_cpu_graphs",
+        key: bk::PROC_CPU_GRAPHS,
         desc: &["Show cpu graph for each process.", "", "True or False"],
     },
     OptDef {
-        key: "proc_filter_kernel",
+        key: bk::PROC_FILTER_KERNEL,
         desc: &[
             "Filter kernel processes from output.",
             "",
@@ -646,7 +647,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_follow_detailed",
+        key: bk::PROC_FOLLOW_DETAILED,
         desc: &[
             "Follow selected process with detailed view",
             "",
@@ -655,7 +656,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "proc_filter",
+        key: sk::PROC_FILTER,
         desc: &["Filter processes by name.", "", "Prefix with ! for regex."],
     },
 ];
@@ -663,11 +664,11 @@ pub const PROC: &[OptDef] = &[
 /// Options in the "gpu" category.
 pub const GPU: &[OptDef] = &[
     OptDef {
-        key: "gpu_mirror_graph",
+        key: bk::GPU_MIRROR_GRAPH,
         desc: &["Mirror GPU graph.", "", "True or False."],
     },
     OptDef {
-        key: "graph_symbol_gpu",
+        key: sk::GRAPH_SYMBOL_GPU,
         desc: &[
             "Graph symbol to use for graphs in gpu box.",
             "",
@@ -675,27 +676,27 @@ pub const GPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "custom_gpu_name0",
+        key: sk::CUSTOM_GPU_NAME0,
         desc: &["Custom GPU name for GPU 0.", "", "Empty string to disable."],
     },
     OptDef {
-        key: "custom_gpu_name1",
+        key: sk::CUSTOM_GPU_NAME1,
         desc: &["Custom GPU name for GPU 1.", "", "Empty string to disable."],
     },
     OptDef {
-        key: "custom_gpu_name2",
+        key: sk::CUSTOM_GPU_NAME2,
         desc: &["Custom GPU name for GPU 2.", "", "Empty string to disable."],
     },
     OptDef {
-        key: "custom_gpu_name3",
+        key: sk::CUSTOM_GPU_NAME3,
         desc: &["Custom GPU name for GPU 3.", "", "Empty string to disable."],
     },
     OptDef {
-        key: "custom_gpu_name4",
+        key: sk::CUSTOM_GPU_NAME4,
         desc: &["Custom GPU name for GPU 4.", "", "Empty string to disable."],
     },
     OptDef {
-        key: "custom_gpu_name5",
+        key: sk::CUSTOM_GPU_NAME5,
         desc: &["Custom GPU name for GPU 5.", "", "Empty string to disable."],
     },
 ];
@@ -703,7 +704,7 @@ pub const GPU: &[OptDef] = &[
 /// Options in the "disk" category.
 pub const DISK: &[OptDef] = &[
     OptDef {
-        key: "disks_filter",
+        key: sk::DISKS_FILTER,
         desc: &[
             "Optional filter for shown disks.",
             "",
@@ -712,7 +713,7 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "only_physical",
+        key: bk::ONLY_PHYSICAL,
         desc: &[
             "Filter out non physical disks.",
             "",
@@ -721,7 +722,7 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: "disk_io_mode",
+        key: bk::DISK_IO_MODE,
         desc: &[
             "Show IO activity.",
             "",
@@ -774,7 +775,7 @@ pub fn cycle_browsable(key: &str, config: &mut Config, direction: i32) -> bool {
 
 /// Step an int option by `delta`.
 pub fn step_int(key: &str, config: &mut Config, delta: i64) {
-    let step = if key == "update_ms" { 100 } else { 1 };
+    let step = if key == ik::UPDATE_MS { 100 } else { 1 };
     let value = config.get_int(key) + delta * step;
     config.set_int(key, value);
 }
@@ -875,7 +876,7 @@ pub fn draw(
         title: &tab_title,
         title2: "",
         num: 0,
-        rounded: config.get_bool("rounded_corners"),
+        rounded: config.get_bool(bk::ROUNDED_CORNERS),
         hi_color: "",
         title_color: "",
     }));
