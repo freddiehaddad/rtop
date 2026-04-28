@@ -57,13 +57,13 @@ pub struct ProcBoxSettings<'a> {
 /// │ ...                                      │
 /// ╰──────────────────────── 25/350 ──────────╯
 /// Draw the process list box with sort indicator on the active column.
-pub fn draw_with_sort(
+pub fn draw(
     procs: &[ProcInfo],
     entries: &[ProcDisplayEntry],
     area: &BoxArea,
-    view: &ProcView,
-    settings: &ProcBoxSettings<'_>,
     theme: &Theme,
+    settings: &ProcBoxSettings<'_>,
+    view: &ProcView,
     status: &CollectStatus,
 ) -> String {
     let colors = ProcColors::from_theme(theme);
@@ -1408,13 +1408,13 @@ mod tests {
 
     #[test]
     fn draw_contains_proc_title() {
-        let output = draw_with_sort(
+        let output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1423,13 +1423,13 @@ mod tests {
 
     #[test]
     fn draw_contains_process_names() {
-        let output = draw_with_sort(
+        let output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1449,13 +1449,13 @@ mod tests {
 
     #[test]
     fn draw_contains_sort_column_indicator() {
-        let output = draw_with_sort(
+        let output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1467,26 +1467,26 @@ mod tests {
 
     #[test]
     fn command_column_visibility_follows_width_threshold() {
-        let wide_output = draw_with_sort(
+        let wide_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let narrow_area = BoxArea {
             width: 50,
             ..make_area()
         };
-        let narrow_output = draw_with_sort(
+        let narrow_output = draw(
             &make_procs(),
             &make_entries(),
             &narrow_area,
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
 
@@ -1502,22 +1502,22 @@ mod tests {
     fn detail_divider_only_draws_when_detail_panel_is_active() {
         let mut detail_view = make_view();
         detail_view.detailed_pid = 100;
-        let detail_output = draw_with_sort(
+        let detail_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &detail_view,
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &detail_view,
             &CollectStatus::Ok,
         );
-        let plain_output = draw_with_sort(
+        let plain_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
 
@@ -1539,13 +1539,13 @@ mod tests {
             graph_symbol: GraphSymbol::Block,
             ..make_settings_with_histories(&histories)
         };
-        let output = draw_with_sort(
+        let output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &settings,
             &theme,
+            &settings,
+            &make_view(),
             &CollectStatus::Ok,
         );
 
@@ -1567,13 +1567,13 @@ mod tests {
             rounded: true,
         };
 
-        let output = draw_with_sort(
+        let output = draw(
             &procs,
             &entries,
             &area,
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1590,13 +1590,13 @@ mod tests {
     fn detail_panel_uses_aligned_labels() {
         let mut view = make_view();
         view.detailed_pid = 100;
-        let output = draw_with_sort(
+        let output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &view,
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &view,
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1613,26 +1613,26 @@ mod tests {
         let mut procs = make_procs();
         procs[0].cpu_p = 400.0;
 
-        let per_core = draw_with_sort(
+        let per_core = draw(
             &procs,
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
-        let total_power = draw_with_sort(
+        let total_power = draw(
             &procs,
             &make_entries(),
             &make_area(),
-            &make_view(),
+            &Theme::default(),
             &ProcBoxSettings {
                 proc_per_core: false,
                 core_count: 4,
                 ..make_settings()
             },
-            &Theme::default(),
+            &make_view(),
             &CollectStatus::Ok,
         );
 
@@ -1642,26 +1642,26 @@ mod tests {
 
     #[test]
     fn proc_mem_bytes_setting_changes_header_and_values() {
-        let bytes_output = draw_with_sort(
+        let bytes_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &make_settings(),
             &Theme::default(),
+            &make_settings(),
+            &make_view(),
             &CollectStatus::Ok,
         );
-        let pct_output = draw_with_sort(
+        let pct_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
+            &Theme::default(),
             &ProcBoxSettings {
                 proc_mem_bytes: false,
                 total_mem: 1024 * 1024 * 1024,
                 ..make_settings()
             },
-            &Theme::default(),
+            &make_view(),
             &CollectStatus::Ok,
         );
         let bytes_plain = strip_ansi(&bytes_output);
@@ -1681,28 +1681,28 @@ mod tests {
         let mut view = make_view();
         view.selected = usize::MAX;
 
-        let colored = draw_with_sort(
+        let colored = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &view,
+            &theme,
             &ProcBoxSettings {
                 proc_gradient: false,
                 ..make_settings()
             },
-            &theme,
+            &view,
             &CollectStatus::Ok,
         );
-        let plain = draw_with_sort(
+        let plain = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &view,
+            &theme,
             &ProcBoxSettings {
                 proc_colors: false,
                 ..make_settings()
             },
-            &theme,
+            &view,
             &CollectStatus::Ok,
         );
 
@@ -1744,22 +1744,22 @@ mod tests {
             ..make_settings_with_histories(&histories)
         };
 
-        let graph_output = draw_with_sort(
+        let graph_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &graph_settings,
             &Theme::default(),
+            &graph_settings,
+            &make_view(),
             &CollectStatus::Ok,
         );
-        let no_graph_output = draw_with_sort(
+        let no_graph_output = draw(
             &make_procs(),
             &make_entries(),
             &make_area(),
-            &make_view(),
-            &no_graph_settings,
             &Theme::default(),
+            &no_graph_settings,
+            &make_view(),
             &CollectStatus::Ok,
         );
 

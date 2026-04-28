@@ -737,15 +737,15 @@ pub(crate) fn render_all(
     }
 
     if dirty.intersects(Dirty::GPU_BOX) {
-        let gpu_settings = ui::gpu_box::GpuBoxSettings {
-            temp_scale: config.get_string(sk::TEMP_SCALE),
-        };
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < snapshot.gpu.gpus.len() {
                 let area = ui::BoxArea::from_dim(gpu_dim, rounded);
+                let gpu_settings = ui::gpu_box::GpuBoxSettings {
+                    index: gi,
+                    temp_scale: config.get_string(sk::TEMP_SCALE),
+                };
                 output.push_str(&ui::gpu_box::draw(
                     &snapshot.gpu.gpus[gi],
-                    gi,
                     &area,
                     theme,
                     &gpu_settings,
@@ -801,6 +801,7 @@ pub(crate) fn render_all(
                 .unwrap_or(&default_net);
             let area = ui::BoxArea::from_dim(net_dim, rounded);
             let net_settings = ui::net_box::NetBoxSettings {
+                iface,
                 auto_scale: config.get_bool(bk::NET_AUTO),
                 sync_scale: config.get_bool(bk::NET_SYNC),
                 max_download: config.get_int(ik::NET_DOWNLOAD),
@@ -812,7 +813,6 @@ pub(crate) fn render_all(
             };
             output.push_str(&ui::net_box::draw(
                 net_info,
-                iface,
                 &area,
                 theme,
                 &net_settings,
@@ -873,13 +873,13 @@ pub(crate) fn render_all(
                 ),
                 cpu_histories: params.proc_cpu_histories,
             };
-            output.push_str(&ui::proc_box::draw_with_sort(
+            output.push_str(&ui::proc_box::draw(
                 procs,
                 entries,
                 &area,
-                &view,
-                &proc_settings,
                 theme,
+                &proc_settings,
+                &view,
                 &snapshot.proc_data.status,
             ));
         }

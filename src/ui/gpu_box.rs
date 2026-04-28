@@ -11,6 +11,7 @@ use super::BoxArea;
 
 /// Extracted settings for the GPU box, decoupled from Config.
 pub struct GpuBoxSettings<'a> {
+    pub index: usize,
     pub temp_scale: &'a str,
 }
 
@@ -40,7 +41,6 @@ fn fmt_clock(mhz: u32) -> String {
 /// ╰──────────────────────────────────────────────────────╯
 pub fn draw(
     gpu: &GpuInfo,
-    index: usize,
     area: &BoxArea,
     theme: &Theme,
     settings: &GpuBoxSettings,
@@ -63,7 +63,7 @@ pub fn draw(
     let grad_power = theme.gradient(tc::GRAD_GPU_POWER);
     let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
 
-    let title = format!("gpu{index}");
+    let title = format!("gpu{}", settings.index);
     let num = 5u8;
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
@@ -258,6 +258,7 @@ mod tests {
 
     fn make_settings() -> GpuBoxSettings<'static> {
         GpuBoxSettings {
+            index: 0,
             temp_scale: "celsius",
         }
     }
@@ -266,7 +267,6 @@ mod tests {
     fn draw_contains_gpu_title() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -280,7 +280,6 @@ mod tests {
     fn draw_contains_gpu_name() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -297,7 +296,6 @@ mod tests {
     fn draw_contains_all_five_rows() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -315,7 +313,6 @@ mod tests {
     fn draw_contains_clock_speed() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -332,7 +329,6 @@ mod tests {
     fn draw_contains_power_ratio() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -349,7 +345,6 @@ mod tests {
     fn draw_contains_vram_ratio() {
         let output = draw(
             &make_gpu_info(),
-            0,
             &make_area(),
             &Theme::default(),
             &make_settings(),

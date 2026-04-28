@@ -23,7 +23,8 @@ fn format_link_speed(bps: u64) -> String {
 }
 
 /// Extracted settings for the network box, decoupled from Config.
-pub struct NetBoxSettings {
+pub struct NetBoxSettings<'a> {
+    pub iface: &'a str,
     pub auto_scale: bool,
     pub sync_scale: bool,
     pub max_download: i64,
@@ -42,7 +43,6 @@ pub struct NetBoxSettings {
 /// ╰── < Ethernet > ─── b ◀ ── n ▶ ───────╯
 pub fn draw(
     net: &NetInfo,
-    iface: &str,
     area: &BoxArea,
     theme: &Theme,
     settings: &NetBoxSettings,
@@ -194,7 +194,7 @@ pub fn draw(
 
     // Bottom border: sync, auto, zero, interface selector
     let bottom_y = y + height;
-    let iface_display = tools::uresize(iface, 15, false);
+    let iface_display = tools::uresize(settings.iface, 15, false);
 
     let sync_inset = box_drawing::keybind_inset("sync", box_color, hi, title_color, true);
     let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, true);
@@ -275,8 +275,9 @@ mod tests {
         }
     }
 
-    fn make_settings() -> NetBoxSettings {
+    fn make_settings() -> NetBoxSettings<'static> {
         NetBoxSettings {
+            iface: "Ethernet",
             auto_scale: true,
             sync_scale: false,
             max_download: 100,
@@ -289,7 +290,6 @@ mod tests {
     fn draw_contains_net_title() {
         let output = draw(
             &make_net_info(),
-            "Ethernet",
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -303,7 +303,6 @@ mod tests {
     fn draw_contains_interface_name() {
         let output = draw(
             &make_net_info(),
-            "Ethernet",
             &make_area(),
             &Theme::default(),
             &make_settings(),
@@ -320,7 +319,6 @@ mod tests {
     fn draw_contains_direction_indicators() {
         let output = draw(
             &make_net_info(),
-            "Ethernet",
             &make_area(),
             &Theme::default(),
             &make_settings(),
