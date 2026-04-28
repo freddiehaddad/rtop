@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::VecDeque;
 
 /// Information about a single disk/volume.
 #[derive(Debug, Clone, Default)]
@@ -32,10 +32,15 @@ pub struct DiskInfo {
 /// Aggregated disk data for all detected volumes.
 #[derive(Debug, Clone, Default)]
 pub struct DiskData {
-    /// Disk information keyed by drive/mount name (e.g. "C:").
-    pub disks: HashMap<String, DiskInfo>,
-    /// Ordered list of disk names for consistent display order.
-    pub disks_order: Vec<String>,
+    /// Disk information in display order.
+    pub disks: Vec<DiskInfo>,
+}
+
+impl DiskData {
+    /// Look up a disk by name (mutable).
+    pub fn get_mut(&mut self, name: &str) -> Option<&mut DiskInfo> {
+        self.disks.iter_mut().find(|d| d.name == name)
+    }
 }
 
 #[cfg(test)]
@@ -67,6 +72,5 @@ mod tests {
     fn disk_data_default_is_empty() {
         let data = DiskData::default();
         assert!(data.disks.is_empty());
-        assert!(data.disks_order.is_empty());
     }
 }

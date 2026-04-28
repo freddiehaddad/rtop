@@ -54,7 +54,6 @@ impl DiskCollector {
         use windows::core::*;
 
         let previous_disks = std::mem::take(&mut self.data.disks);
-        self.data.disks_order.clear();
 
         let Some(drives_buf) = logical_drive_strings() else {
             tracing::warn!("Disk: GetLogicalDriveStringsW returned no drives");
@@ -111,15 +110,18 @@ impl DiskCollector {
 
                     let name = drive.trim_end_matches('\\').to_string();
 
-                    let mut disk = previous_disks.get(&name).cloned().unwrap_or_default();
-                    disk.name = name.clone();
+                    let mut disk = previous_disks
+                        .iter()
+                        .find(|d| d.name == name)
+                        .cloned()
+                        .unwrap_or_default();
+                    disk.name = name;
                     disk.fstype = fstype;
                     disk.total = total_bytes;
                     disk.used = used;
                     disk.used_percent = used_pct;
 
-                    self.data.disks_order.push(name.clone());
-                    self.data.disks.insert(name, disk);
+                    self.data.disks.push(disk);
                 }
             }
         }
@@ -129,7 +131,7 @@ impl DiskCollector {
     }
 
     fn ensure_perf_query(&mut self) {
-        let drives = self.data.disks_order.clone();
+        let drives: Vec<String> = self.data.disks.iter().map(|d| d.name.clone()).collect();
         if self.pdh_initialized && self.pdh_drive_order == drives {
             return;
         }
@@ -200,7 +202,7 @@ impl DiskCollector {
             let write = counter_value_to_u64(counters.write.formatted_f64());
             let busy = counter_value_to_percent(counters.busy.formatted_f64());
 
-            if let Some(disk) = self.data.disks.get_mut(&drive) {
+            if let Some(disk) = self.data.get_mut(&drive) {
                 disk.read_bytes_per_sec = read;
                 disk.write_bytes_per_sec = write;
                 disk.read_top = disk.read_top.max(read);
@@ -305,7 +307,6 @@ mod tests {
     fn disk_collector_new_is_empty() {
         let c = DiskCollector::new();
         assert!(c.data.disks.is_empty());
-        assert!(c.data.disks_order.is_empty());
     }
 
     #[test]
@@ -330,8 +331,9 @@ mod tests {
         let mut c = DiskCollector::new();
         c.collect();
         assert!(!c.data.disks.is_empty(), "expected at least one disk");
-        assert!(!c.data.disks_order.is_empty());
-        // C: should exist on any Windows system
-        assert!(c.data.disks.contains_key("C:"), "expected C: drive");
+        assert!(
+            c.data.disks.iter().any(|d| d.name == "C:"),
+            "expected C: drive"
+        );
     }
 }

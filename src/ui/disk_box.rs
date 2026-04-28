@@ -74,47 +74,45 @@ pub fn draw(
     // Value column: "274G/1.6T" = up to 10 chars
     let val_w = 10;
 
-    for disk_name in &disks.disks_order {
+    for disk in &disks.disks {
         if row >= inner_h {
             break;
         }
-        if let Some(disk) = disks.disks.get(disk_name) {
-            let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
-            let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
-            let value = format!("{}/{}", du, dt);
+        let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
+        let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
+        let value = format!("{}/{}", du, dt);
 
-            // Label: "C: NTFS " — drive + fstype
-            let label = if disk.fstype.is_empty() {
-                format!("{} ", disk.name)
-            } else {
-                format!("{} {} ", disk.name, disk.fstype)
+        // Label: "C: NTFS " — drive + fstype
+        let label = if disk.fstype.is_empty() {
+            format!("{} ", disk.name)
+        } else {
+            format!("{} {} ", disk.name, disk.fstype)
+        };
+        let label_len = label.len();
+        let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
+        let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
+
+        buf.mv(content_x, y + 2 + row)
+            .color(title_color)
+            .text(&label)
+            .text(disk_meter.render(disk.used_percent))
+            .color(fg)
+            .text(&tools::rjust(&value, val_w, false));
+        row += 1;
+
+        if row < inner_h {
+            let params = PerfRowParams {
+                content_x,
+                row_y: y + 2 + row,
+                inner_w,
+                theme,
+                settings,
+                read_grad,
+                write_grad,
+                busy_grad,
             };
-            let label_len = label.len();
-            let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
-            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
-
-            buf.mv(content_x, y + 2 + row)
-                .color(title_color)
-                .text(&label)
-                .text(disk_meter.render(disk.used_percent))
-                .color(fg)
-                .text(&tools::rjust(&value, val_w, false));
+            draw_perf_row(&mut buf, disk, &params);
             row += 1;
-
-            if row < inner_h {
-                let params = PerfRowParams {
-                    content_x,
-                    row_y: y + 2 + row,
-                    inner_w,
-                    theme,
-                    settings,
-                    read_grad,
-                    write_grad,
-                    busy_grad,
-                };
-                draw_perf_row(&mut buf, disk, &params);
-                row += 1;
-            }
         }
     }
 
@@ -249,7 +247,6 @@ mod tests {
     use super::*;
     use crate::domain::disk::DiskInfo;
     use crate::draw::graph::GraphSymbol;
-    use std::collections::HashMap;
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -273,44 +270,37 @@ mod tests {
     const GIB: u64 = 1024 * 1024 * 1024;
 
     fn make_disk_data() -> DiskData {
-        let mut disks = HashMap::new();
-        disks.insert(
-            "C:".into(),
-            DiskInfo {
-                name: "C:".into(),
-                fstype: "NTFS".into(),
-                total: 500 * GIB,
-                used: 250 * GIB,
-                used_percent: 50,
-                read_bytes_per_sec: 42 * 1024 * 1024,
-                write_bytes_per_sec: 8 * 1024 * 1024,
-                read_top: 100 * 1024 * 1024,
-                write_top: 40 * 1024 * 1024,
-                busy_percent: 12,
-                read_history: [0, 10, 42, 21, 8].into_iter().collect(),
-                write_history: [0, 4, 8, 2, 1].into_iter().collect(),
-            },
-        );
-        disks.insert(
-            "D:".into(),
-            DiskInfo {
-                name: "D:".into(),
-                fstype: "NTFS".into(),
-                total: 1000 * GIB,
-                used: 300 * GIB,
-                used_percent: 30,
-                read_bytes_per_sec: 1024 * 1024,
-                write_bytes_per_sec: 0,
-                read_top: 10 * 1024 * 1024,
-                write_top: 1,
-                busy_percent: 0,
-                read_history: [0, 1, 0, 1, 0].into_iter().collect(),
-                write_history: [0, 0, 0, 0, 0].into_iter().collect(),
-            },
-        );
         DiskData {
-            disks,
-            disks_order: vec!["C:".into(), "D:".into()],
+            disks: vec![
+                DiskInfo {
+                    name: "C:".into(),
+                    fstype: "NTFS".into(),
+                    total: 500 * GIB,
+                    used: 250 * GIB,
+                    used_percent: 50,
+                    read_bytes_per_sec: 42 * 1024 * 1024,
+                    write_bytes_per_sec: 8 * 1024 * 1024,
+                    read_top: 100 * 1024 * 1024,
+                    write_top: 40 * 1024 * 1024,
+                    busy_percent: 12,
+                    read_history: [0, 10, 42, 21, 8].into_iter().collect(),
+                    write_history: [0, 4, 8, 2, 1].into_iter().collect(),
+                },
+                DiskInfo {
+                    name: "D:".into(),
+                    fstype: "NTFS".into(),
+                    total: 1000 * GIB,
+                    used: 300 * GIB,
+                    used_percent: 30,
+                    read_bytes_per_sec: 1024 * 1024,
+                    write_bytes_per_sec: 0,
+                    read_top: 10 * 1024 * 1024,
+                    write_top: 1,
+                    busy_percent: 0,
+                    read_history: [0, 1, 0, 1, 0].into_iter().collect(),
+                    write_history: [0, 0, 0, 0, 0].into_iter().collect(),
+                },
+            ],
         }
     }
 
