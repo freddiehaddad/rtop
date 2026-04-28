@@ -241,6 +241,7 @@ mod tests {
 
     fn make_net_info() -> NetInfo {
         NetInfo {
+            name: "Ethernet".into(),
             bandwidth: NetBandwidth {
                 download: VecDeque::from([1024, 2048, 4096]),
                 upload: VecDeque::from([512, 1024, 2048]),

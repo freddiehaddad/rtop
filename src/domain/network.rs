@@ -17,6 +17,8 @@ pub struct NetStatPair {
 /// Network interface statistics.
 #[derive(Debug, Clone, Default)]
 pub struct NetInfo {
+    /// Interface display name.
+    pub name: String,
     /// Bandwidth history (values in bytes/sec).
     pub bandwidth: NetBandwidth,
     /// Cumulative statistics.

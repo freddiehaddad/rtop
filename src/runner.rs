@@ -10,7 +10,6 @@ use crate::domain::{
     cpu::CpuInfo, disk::DiskData, gpu::GpuInfo, memory::MemInfo, network::NetInfo,
     process::ProcInfo,
 };
-use std::collections::HashMap;
 use std::sync::{
     Arc, Mutex,
     mpsc::{self, Receiver, Sender},
@@ -99,8 +98,7 @@ impl CollectionSnapshot {
                 status: runner.mem.status.clone(),
             },
             net: NetSnapshot {
-                interfaces: runner.net.interfaces.clone(),
-                current_net: runner.net.current_net.clone(),
+                nets: runner.net.nets.clone(),
                 status: runner.net.status.clone(),
             },
             proc_data: ProcSnapshot {
@@ -146,8 +144,7 @@ pub(crate) struct MemSnapshot {
 
 #[derive(Debug, Clone)]
 pub(crate) struct NetSnapshot {
-    pub(crate) interfaces: Vec<String>,
-    pub(crate) current_net: HashMap<String, NetInfo>,
+    pub(crate) nets: Vec<NetInfo>,
     pub(crate) status: CollectStatus,
 }
 
@@ -307,7 +304,10 @@ mod tests {
         };
         runner.cpu.info.core_count = 8;
         runner.mem.info.stats.swap_total = 1024;
-        runner.net.interfaces.push("Ethernet".into());
+        runner.net.nets.push(NetInfo {
+            name: "Ethernet".into(),
+            ..NetInfo::default()
+        });
         runner.proc_collector.procs.push(ProcInfo {
             pid: 42,
             name: "sample.exe".into(),
@@ -323,7 +323,8 @@ mod tests {
 
         assert_eq!(snapshot.seq, 7);
         assert_eq!(snapshot.cpu.info.core_count, 8);
-        assert_eq!(snapshot.net.interfaces, vec!["Ethernet"]);
+        assert_eq!(snapshot.net.nets.len(), 1);
+        assert_eq!(snapshot.net.nets[0].name, "Ethernet");
         assert_eq!(snapshot.proc_data.procs[0].pid, 42);
     }
 

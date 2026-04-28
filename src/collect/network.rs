@@ -1,5 +1,5 @@
 use crate::domain::network::{NetInfo, NetStat};
-use std::{collections::HashMap, mem::size_of, slice};
+use std::{mem::size_of, slice};
 
 use super::{Collector, win::bytes_per_sec};
 
@@ -15,8 +15,7 @@ enum FormattedIp {
 
 /// Network data collector using Windows IPHLPAPI.
 pub struct NetCollector {
-    pub interfaces: Vec<String>,
-    pub current_net: HashMap<String, NetInfo>,
+    pub nets: Vec<NetInfo>,
     pub status: super::CollectStatus,
     last_time: std::time::Instant,
 }
@@ -31,15 +30,14 @@ impl NetCollector {
     /// Create a new network collector.
     pub fn new() -> Self {
         Self {
-            interfaces: Vec::new(),
-            current_net: HashMap::new(),
+            nets: Vec::new(),
             status: super::CollectStatus::Ok,
             last_time: std::time::Instant::now(),
         }
     }
 
     pub fn reset_totals(&mut self, iface: &str) -> bool {
-        let Some(net_info) = self.current_net.get_mut(iface) else {
+        let Some(net_info) = self.nets.iter_mut().find(|n| n.name == iface) else {
             return false;
         };
 
@@ -77,7 +75,7 @@ impl NetCollector {
         // before dereferencing nested adapter and unicast pointers.
         unsafe {
             let adapter_ptr = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
-            self.interfaces.clear();
+            let previous_nets = std::mem::take(&mut self.nets);
             let mut current = adapter_ptr;
             let mut adapter_count = 0usize;
 
@@ -130,13 +128,16 @@ impl NetCollector {
                     unicast = addr.Next;
                 }
 
-                self.interfaces.push(name.clone());
-
                 // Get interface stats
                 let if_index = adapter.Anonymous1.Anonymous.IfIndex;
                 let (rx_bytes, tx_bytes, link_speed) = get_if_stats(if_index);
 
-                let entry = self.current_net.entry(name.clone()).or_default();
+                let mut entry = previous_nets
+                    .iter()
+                    .find(|n| n.name == name)
+                    .cloned()
+                    .unwrap_or_default();
+                entry.name = name;
 
                 entry.connected = connected;
                 entry.ipv4 = ipv4;
@@ -178,6 +179,7 @@ impl NetCollector {
                     bw_ul.pop_front();
                 }
 
+                self.nets.push(entry);
                 current = adapter.Next;
             }
         }
@@ -392,32 +394,38 @@ mod tests {
     #[test]
     fn reset_totals_toggles_interface_offsets() {
         let mut collector = NetCollector::new();
-        collector.current_net.insert(
-            "Ethernet".into(),
-            NetInfo {
-                stat: crate::domain::network::NetStatPair {
-                    download: NetStat {
-                        last: 100,
-                        rollover: 10,
-                        ..NetStat::default()
-                    },
-                    upload: NetStat {
-                        last: 200,
-                        rollover: 20,
-                        ..NetStat::default()
-                    },
+        collector.nets.push(NetInfo {
+            name: "Ethernet".into(),
+            stat: crate::domain::network::NetStatPair {
+                download: NetStat {
+                    last: 100,
+                    rollover: 10,
+                    ..NetStat::default()
                 },
-                ..NetInfo::default()
+                upload: NetStat {
+                    last: 200,
+                    rollover: 20,
+                    ..NetStat::default()
+                },
             },
-        );
+            ..NetInfo::default()
+        });
 
         assert!(collector.reset_totals("Ethernet"));
-        let net = collector.current_net.get("Ethernet").unwrap();
+        let net = collector
+            .nets
+            .iter()
+            .find(|n| n.name == "Ethernet")
+            .unwrap();
         assert_eq!(net.stat.download.offset, 110);
         assert_eq!(net.stat.upload.offset, 220);
 
         assert!(collector.reset_totals("Ethernet"));
-        let net = collector.current_net.get("Ethernet").unwrap();
+        let net = collector
+            .nets
+            .iter()
+            .find(|n| n.name == "Ethernet")
+            .unwrap();
         assert_eq!(net.stat.download.offset, 0);
         assert_eq!(net.stat.upload.offset, 0);
     }
@@ -433,6 +441,6 @@ mod tests {
     fn collect_returns_at_least_one_interface() {
         let mut collector = NetCollector::new();
         collector.collect();
-        assert!(!collector.interfaces.is_empty());
+        assert!(!collector.nets.is_empty());
     }
 }

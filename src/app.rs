@@ -237,7 +237,7 @@ impl NetworkViewState {
     }
 
     fn reconcile(&mut self, snapshot: &runner::CollectionSnapshot, dirty: &mut Dirty) {
-        if snapshot.net.interfaces.is_empty() {
+        if snapshot.net.nets.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
                 *dirty |= Dirty::NET_BOX;
@@ -248,11 +248,11 @@ impl NetworkViewState {
         if self.selected_iface.is_empty()
             || !snapshot
                 .net
-                .interfaces
+                .nets
                 .iter()
-                .any(|iface| iface == &self.selected_iface)
+                .any(|n| n.name == self.selected_iface)
         {
-            self.selected_iface = snapshot.net.interfaces[0].clone();
+            self.selected_iface = snapshot.net.nets[0].name.clone();
             *dirty |= Dirty::NET_BOX;
         }
     }
@@ -793,7 +793,12 @@ pub(crate) fn render_all(
         if let Some(ref net_dim) = layout.net {
             let iface = params.selected_iface;
             let default_net = crate::domain::network::NetInfo::default();
-            let net_info = snapshot.net.current_net.get(iface).unwrap_or(&default_net);
+            let net_info = snapshot
+                .net
+                .nets
+                .iter()
+                .find(|n| n.name == iface)
+                .unwrap_or(&default_net);
             let area = ui::BoxArea::from_dim(net_dim, rounded);
             let net_settings = ui::net_box::NetBoxSettings {
                 auto_scale: config.get_bool(bk::NET_AUTO),
@@ -1031,7 +1036,16 @@ mod tests {
             net: crate::collect::network::NetCollector::default(),
             proc_collector: crate::collect::process::ProcCollector::default(),
         };
-        runner.net.interfaces = vec!["Ethernet".into(), "Wi-Fi".into()];
+        runner.net.nets = vec![
+            crate::domain::network::NetInfo {
+                name: "Ethernet".into(),
+                ..Default::default()
+            },
+            crate::domain::network::NetInfo {
+                name: "Wi-Fi".into(),
+                ..Default::default()
+            },
+        ];
         state.snapshot.current = Some(Arc::new(runner.snapshot(1)));
 
         reconcile_selected_iface(&mut state);

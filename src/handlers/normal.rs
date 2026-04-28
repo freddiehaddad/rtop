@@ -237,7 +237,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         Key::Char('b')
             if ctx
                 .snapshot
-                .is_some_and(|snapshot| !snapshot.net.interfaces.is_empty()) =>
+                .is_some_and(|snapshot| !snapshot.net.nets.is_empty()) =>
         {
             cycle_net_iface(ctx, -1);
             ctx.render.dirty |= Dirty::NET_BOX;
@@ -245,7 +245,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         Key::Char('n')
             if ctx
                 .snapshot
-                .is_some_and(|snapshot| !snapshot.net.interfaces.is_empty()) =>
+                .is_some_and(|snapshot| !snapshot.net.nets.is_empty()) =>
         {
             cycle_net_iface(ctx, 1);
             ctx.render.dirty |= Dirty::NET_BOX;
@@ -303,21 +303,21 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
     let Some(snapshot) = ctx.snapshot else {
         return;
     };
-    let interfaces = &snapshot.net.interfaces;
-    if interfaces.is_empty() {
+    let nets = &snapshot.net.nets;
+    if nets.is_empty() {
         return;
     }
 
-    let current = interfaces
+    let current = nets
         .iter()
-        .position(|iface| iface == ctx.network.selected_iface.as_str())
+        .position(|n| n.name == ctx.network.selected_iface)
         .unwrap_or(0);
     let new_idx = if direction < 0 {
-        current.checked_sub(1).unwrap_or(interfaces.len() - 1)
+        current.checked_sub(1).unwrap_or(nets.len() - 1)
     } else {
-        (current + 1) % interfaces.len()
+        (current + 1) % nets.len()
     };
-    ctx.network.selected_iface = interfaces[new_idx].clone();
+    ctx.network.selected_iface = nets[new_idx].name.clone();
 }
 
 fn terminate_process(pid: u32) {
