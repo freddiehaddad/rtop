@@ -1,5 +1,5 @@
 use crate::collect::CollectStatus;
-use crate::domain::process::{ProcDisplayEntry, ProcInfo};
+use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
@@ -22,6 +22,9 @@ const PROG_NARROW: usize = 8;
 /// Number of spacing characters between columns.
 const COL_SPACING: usize = 4;
 const COL_SPACING_NO_CMD: usize = 3;
+const DETAIL_LABEL_W: usize = 9;
+const DETAIL_COL_GAP: usize = 2;
+const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
 
 /// Draw the process list box into an ANSI string matching btop's layout.
 ///
@@ -453,86 +456,244 @@ fn draw_detail_panel(
     let fg = theme.c(tc::MAIN_FG);
     let title_color = theme.c(tc::TITLE);
     let hi = theme.c(tc::HI_FG);
+    let proc_grad = theme.g(tc::GRAD_PROCESS);
     let inner_w = width.saturating_sub(4);
+    let content_rows = rows.saturating_sub(1);
+    let detail_x = x + 3;
 
     let mut buf = AnsiBuffer::new();
-
-    // Row 0: Title showing PID and name
-    let detail_title = format!(" {} [{}] ", proc.name, proc.pid);
-    let title_x = x + 2;
-    if rows > 0 {
-        buf.mv(title_x, y + 2)
-            .color(hi)
-            .text(&tools::uresize(&detail_title, inner_w, false));
+    if inner_w == 0 || content_rows == 0 {
+        return buf.finish();
     }
 
-    // Row 1: Command
-    if rows > 1 {
-        let cmd_line = format!(
-            "{}Cmd: {}{}",
-            title_color,
-            fg,
-            tools::uresize(&proc.cmd, inner_w.saturating_sub(5), false)
-        );
-        buf.mv(title_x, y + 3).text(&cmd_line);
+    draw_detail_header(
+        &mut buf,
+        proc,
+        detail_x,
+        y + 2,
+        inner_w,
+        DetailColors {
+            label: title_color,
+            value: fg,
+            emphasis: hi,
+        },
+    );
+
+    if content_rows > 1 {
+        let cmd = if proc.cmd.is_empty() {
+            proc.name.clone()
+        } else {
+            proc.cmd.clone()
+        };
+        let cmd_field = DetailField {
+            label: "Cmd",
+            value: cmd,
+            color: fg,
+        };
+        buf.mv(detail_x, y + 3);
+        draw_detail_field(&mut buf, &cmd_field, inner_w, title_color);
     }
 
-    // Row 2: User and status
-    if rows > 2 {
-        let info = format!(
-            "{}User: {}{:<12} {}Status: {}{}",
-            title_color,
-            fg,
-            tools::uresize(&proc.user, 12, false),
-            title_color,
-            fg,
-            proc.state
-        );
-        buf.mv(title_x, y + 4)
-            .text(&tools::uresize(&info, inner_w, false));
-    }
-
-    // Row 3: Threads, PPID
-    if rows > 3 {
-        let info = format!(
-            "{}Threads: {}{:<6} {}Parent: {}{}",
-            title_color, fg, proc.threads, title_color, fg, proc.ppid
-        );
-        buf.mv(title_x, y + 5)
-            .text(&tools::uresize(&info, inner_w, false));
-    }
-
-    // Row 4: CPU and Memory
-    if rows > 4 {
-        let mem_str = tools::floating_humanizer(proc.mem, false, 0, false, false, false);
-        let info = format!(
-            "{}Cpu: {}{:.1}%    {}Mem: {}{}",
-            title_color, fg, proc.cpu_p, title_color, fg, mem_str
-        );
-        buf.mv(title_x, y + 6)
-            .text(&tools::uresize(&info, inner_w, false));
-    }
-
-    // Row 5: IO
-    if rows > 5 {
-        let io_r = tools::floating_humanizer(proc.io_read, true, 0, false, false, false);
-        let io_w = tools::floating_humanizer(proc.io_write, true, 0, false, false, false);
-        let info = format!(
-            "{}IO Read: {}{:<8} {}IO Write: {}{}",
-            title_color, fg, io_r, title_color, fg, io_w
-        );
-        buf.mv(title_x, y + 7)
-            .text(&tools::uresize(&info, inner_w, false));
-    }
-
-    // Row 6: Priority
-    if rows > 6 {
-        let info = format!("{}Priority: {}{}", title_color, fg, proc.priority);
-        buf.mv(title_x, y + 8)
-            .text(&tools::uresize(&info, inner_w, false));
+    let fields = detail_fields(proc, fg, hi, proc_grad);
+    let grid_rows = content_rows.saturating_sub(2);
+    if inner_w >= DETAIL_TWO_COL_MIN_WIDTH {
+        for (row, pair) in fields.chunks(2).take(grid_rows).enumerate() {
+            let left = &pair[0];
+            let right = pair.get(1);
+            draw_detail_pair(
+                &mut buf,
+                left,
+                right,
+                detail_x,
+                y + 4 + row,
+                inner_w,
+                title_color,
+            );
+        }
+    } else {
+        for (row, field_index) in NARROW_DETAIL_FIELD_ORDER
+            .iter()
+            .copied()
+            .take(grid_rows)
+            .enumerate()
+        {
+            if let Some(field) = fields.get(field_index) {
+                buf.mv(detail_x, y + 4 + row);
+                draw_detail_field(&mut buf, field, inner_w, title_color);
+            }
+        }
     }
 
     buf.finish()
+}
+
+struct DetailColors<'a> {
+    label: &'a str,
+    value: &'a str,
+    emphasis: &'a str,
+}
+
+struct DetailField<'a> {
+    label: &'static str,
+    value: String,
+    color: &'a str,
+}
+
+const NARROW_DETAIL_FIELD_ORDER: [usize; 9] = [0, 1, 4, 5, 2, 3, 8, 6, 7];
+
+fn draw_detail_header(
+    buf: &mut AnsiBuffer,
+    proc: &ProcInfo,
+    x: usize,
+    y: usize,
+    width: usize,
+    colors: DetailColors<'_>,
+) {
+    let pid_value = proc.pid.to_string();
+    let pid_label = "PID ";
+    let pid_w = tools::ulen(pid_label, false) + tools::ulen(&pid_value, false);
+    let pid_text = format!("{pid_label}{pid_value}");
+
+    buf.mv(x, y);
+    if width <= pid_w {
+        buf.color(colors.label)
+            .text(&tools::uresize(&pid_text, width, false));
+        return;
+    }
+
+    let name_w = width.saturating_sub(pid_w + 1);
+    let name = tools::uresize(&proc.name, name_w, false);
+    let gap = width
+        .saturating_sub(tools::ulen(&name, false) + pid_w)
+        .max(1);
+
+    buf.color(colors.emphasis)
+        .text(&name)
+        .text(&" ".repeat(gap))
+        .color(colors.label)
+        .text(pid_label)
+        .color(colors.value)
+        .text(&pid_value);
+}
+
+fn detail_fields<'a>(
+    proc: &ProcInfo,
+    fg: &'a str,
+    hi: &'a str,
+    proc_grad: &'a [String],
+) -> Vec<DetailField<'a>> {
+    let cpu_pct = proc.cpu_p.clamp(0.0, 100.0) as usize;
+    let cpu_color = proc_grad.get(cpu_pct).map(String::as_str).unwrap_or(fg);
+    let priority_color = if proc.priority >= PriorityClass::High {
+        hi
+    } else {
+        fg
+    };
+
+    vec![
+        DetailField {
+            label: "User",
+            value: detail_value_or_dash(&proc.user),
+            color: fg,
+        },
+        DetailField {
+            label: "Status",
+            value: proc.state.to_string(),
+            color: fg,
+        },
+        DetailField {
+            label: "Parent",
+            value: proc.ppid.to_string(),
+            color: fg,
+        },
+        DetailField {
+            label: "Threads",
+            value: proc.threads.to_string(),
+            color: fg,
+        },
+        DetailField {
+            label: "CPU",
+            value: format!("{:.1}%", proc.cpu_p),
+            color: cpu_color,
+        },
+        DetailField {
+            label: "Memory",
+            value: tools::floating_humanizer(proc.mem, true, 0, false, false, false),
+            color: fg,
+        },
+        DetailField {
+            label: "IO Read",
+            value: tools::floating_humanizer(proc.io_read, true, 0, false, false, false),
+            color: fg,
+        },
+        DetailField {
+            label: "IO Write",
+            value: tools::floating_humanizer(proc.io_write, true, 0, false, false, false),
+            color: fg,
+        },
+        DetailField {
+            label: "Priority",
+            value: proc.priority.to_string(),
+            color: priority_color,
+        },
+    ]
+}
+
+fn detail_value_or_dash(value: &str) -> String {
+    if value.is_empty() {
+        "-".into()
+    } else {
+        value.into()
+    }
+}
+
+fn draw_detail_pair(
+    buf: &mut AnsiBuffer,
+    left: &DetailField<'_>,
+    right: Option<&DetailField<'_>>,
+    x: usize,
+    y: usize,
+    width: usize,
+    label_color: &str,
+) {
+    buf.mv(x, y);
+    let Some(right) = right else {
+        draw_detail_field(buf, left, width, label_color);
+        return;
+    };
+
+    let left_w = width.saturating_sub(DETAIL_COL_GAP) / 2;
+    let right_w = width.saturating_sub(left_w + DETAIL_COL_GAP);
+    draw_detail_field(buf, left, left_w, label_color);
+    buf.text(&" ".repeat(DETAIL_COL_GAP));
+    draw_detail_field(buf, right, right_w, label_color);
+}
+
+fn draw_detail_field(
+    buf: &mut AnsiBuffer,
+    field: &DetailField<'_>,
+    width: usize,
+    label_color: &str,
+) {
+    if width == 0 {
+        return;
+    }
+
+    let label_w = DETAIL_LABEL_W.min(width);
+    buf.color(label_color)
+        .text(&detail_ljust(field.label, label_w));
+
+    let value_w = width.saturating_sub(label_w);
+    if value_w > 0 {
+        buf.color(field.color)
+            .text(&detail_ljust(&field.value, value_w));
+    }
+}
+
+fn detail_ljust(value: &str, width: usize) -> String {
+    let truncated = tools::uresize(value, width, false);
+    let padding = width.saturating_sub(tools::ulen(&truncated, false));
+    format!("{truncated}{}", " ".repeat(padding))
 }
 
 #[cfg(test)]
@@ -692,5 +853,67 @@ mod tests {
             plain.contains('▲') || plain.contains('▼'),
             "output should contain a sort direction indicator (▲ or ▼)"
         );
+    }
+
+    #[test]
+    fn detail_panel_uses_aligned_labels() {
+        let mut view = make_view();
+        view.detailed_pid = 100;
+        let output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &view,
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Cmd      alpha.exe --flag"));
+        assert!(plain.contains("User     SYSTEM"));
+        assert!(plain.contains("Status   Running"));
+        assert!(plain.contains("Parent   1"));
+        assert!(plain.contains("Threads  4"));
+    }
+
+    #[test]
+    fn detail_panel_right_aligns_pid_header() {
+        let procs = make_procs();
+        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &Theme::default());
+        let plain = strip_ansi(&output);
+        let expected_gap = 76 - "alpha.exe".len() - "PID 100".len();
+        let expected = format!("alpha.exe{}PID 100", " ".repeat(expected_gap));
+
+        assert!(
+            plain.contains(&expected),
+            "header should preserve the right-aligned PID"
+        );
+    }
+
+    #[test]
+    fn detail_panel_truncates_command_before_coloring() {
+        let mut procs = make_procs();
+        procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(80));
+
+        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &Theme::default());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Cmd      alpha.exe"));
+        assert!(
+            !plain.contains("tail-marker"),
+            "long command text should be truncated to the detail width"
+        );
+    }
+
+    #[test]
+    fn detail_panel_narrow_mode_keeps_high_priority_fields() {
+        let procs = make_procs();
+        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &Theme::default());
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("User     Admin"));
+        assert!(plain.contains("Status   Running"));
+        assert!(plain.contains("CPU      25.0%"));
+        assert!(plain.contains("Memory   200M"));
     }
 }
