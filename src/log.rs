@@ -5,7 +5,8 @@ use tracing_subscriber::prelude::*;
 
 /// Initialize the logging system.
 ///
-/// Logs are written to `log_path` with rotation when the file exceeds ~1MB.
+/// Logs are written to `rtop.log` inside `log_dir`. The file is truncated on
+/// each run so it only contains the current session's output.
 /// The log level is set from the config (ERROR, WARNING, INFO, DEBUG).
 pub fn init(log_dir: &Path, level: &str) {
     let filter = match level.to_uppercase().as_str() {
@@ -21,6 +22,10 @@ pub fn init(log_dir: &Path, level: &str) {
         eprintln!("Failed to create log directory: {e}");
         return;
     }
+
+    // Truncate the log file so each session starts fresh
+    let log_file = log_dir.join("rtop.log");
+    let _ = std::fs::write(&log_file, b"");
 
     let file_appender = rolling::never(log_dir, "rtop.log");
 
