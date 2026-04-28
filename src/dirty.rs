@@ -5,29 +5,27 @@ bitflags! {
     ///
     /// Each flag represents something that needs work on the current frame.
     /// The main loop checks which flags are set, performs only the required
-    /// work (collect, layout, per-box render), then clears them.
+    /// UI work (view-model rebuild, layout, per-box render), then clears them.
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Dirty: u32 {
-        /// Re-collect data from the OS (CPU, memory, network, processes, GPU).
-        const COLLECT   = 1 << 0;
         /// Recalculate box layout (on resize, box toggle, preset change).
         /// Implies a full-screen clear before rendering.
-        const LAYOUT    = 1 << 1;
+        const LAYOUT    = 1 << 0;
         /// Redraw the CPU box.
-        const CPU_BOX   = 1 << 2;
+        const CPU_BOX   = 1 << 1;
         /// Redraw the memory box.
-        const MEM_BOX   = 1 << 3;
+        const MEM_BOX   = 1 << 2;
         /// Redraw the network box.
-        const NET_BOX   = 1 << 4;
+        const NET_BOX   = 1 << 3;
         /// Redraw the process box.
-        const PROC_BOX  = 1 << 5;
+        const PROC_BOX  = 1 << 4;
         /// Redraw GPU box(es).
-        const GPU_BOX   = 1 << 6;
+        const GPU_BOX   = 1 << 5;
         /// Rebuild the derived process display list (sort, filter, tree)
         /// from the raw collected process data.
-        const PROC_LIST = 1 << 7;
+        const PROC_LIST = 1 << 6;
         /// Redraw the disk box.
-        const DISK_BOX  = 1 << 8;
+        const DISK_BOX  = 1 << 7;
 
         /// All renderable boxes.
         const ALL_BOXES = Self::CPU_BOX.bits()
@@ -37,9 +35,8 @@ bitflags! {
                         | Self::GPU_BOX.bits()
                         | Self::DISK_BOX.bits();
 
-        /// Everything — full collection + layout + all boxes + proc list.
-        const FULL = Self::COLLECT.bits()
-                   | Self::LAYOUT.bits()
+        /// Everything render-side — layout + all boxes + proc list.
+        const FULL = Self::LAYOUT.bits()
                    | Self::ALL_BOXES.bits()
                    | Self::PROC_LIST.bits();
     }
@@ -61,7 +58,6 @@ mod tests {
 
     #[test]
     fn full_includes_everything() {
-        assert!(Dirty::FULL.contains(Dirty::COLLECT));
         assert!(Dirty::FULL.contains(Dirty::LAYOUT));
         assert!(Dirty::FULL.contains(Dirty::ALL_BOXES));
         assert!(Dirty::FULL.contains(Dirty::PROC_LIST));

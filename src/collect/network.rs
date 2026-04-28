@@ -7,7 +7,6 @@ use super::{Collector, win::bytes_per_sec};
 pub struct NetCollector {
     pub interfaces: Vec<String>,
     pub current_net: HashMap<String, NetInfo>,
-    pub selected_iface: String,
     pub status: super::CollectStatus,
     last_time: std::time::Instant,
 }
@@ -24,10 +23,26 @@ impl NetCollector {
         Self {
             interfaces: Vec::new(),
             current_net: HashMap::new(),
-            selected_iface: String::new(),
             status: super::CollectStatus::Ok,
             last_time: std::time::Instant::now(),
         }
+    }
+
+    pub fn reset_totals(&mut self, iface: &str) -> bool {
+        let Some(net_info) = self.current_net.get_mut(iface) else {
+            return false;
+        };
+
+        let dl = net_info.stat.download.clone();
+        let ul = net_info.stat.upload.clone();
+        if dl.offset.saturating_add(ul.offset) > 0 {
+            net_info.stat.download.offset = 0;
+            net_info.stat.upload.offset = 0;
+        } else {
+            net_info.stat.download.offset = dl.last.saturating_add(dl.rollover);
+            net_info.stat.upload.offset = ul.last.saturating_add(ul.rollover);
+        }
+        true
     }
 
     fn collect_impl(&mut self) {
@@ -198,10 +213,6 @@ impl NetCollector {
                 current = adapter.Next;
             }
         }
-
-        if self.selected_iface.is_empty() && !self.interfaces.is_empty() {
-            self.selected_iface = self.interfaces[0].clone();
-        }
     }
 }
 
@@ -260,6 +271,46 @@ mod tests {
     fn rollover_handling() {
         // Counter resets and rollovers are treated as no rate for the sample.
         assert_eq!(speed_from_delta(500, 1000, 1.0), 0);
+    }
+
+    #[test]
+    fn reset_totals_toggles_interface_offsets() {
+        let mut collector = NetCollector::new();
+        collector.current_net.insert(
+            "Ethernet".into(),
+            NetInfo {
+                stat: crate::domain::network::NetStatPair {
+                    download: NetStat {
+                        last: 100,
+                        rollover: 10,
+                        ..NetStat::default()
+                    },
+                    upload: NetStat {
+                        last: 200,
+                        rollover: 20,
+                        ..NetStat::default()
+                    },
+                },
+                ..NetInfo::default()
+            },
+        );
+
+        assert!(collector.reset_totals("Ethernet"));
+        let net = collector.current_net.get("Ethernet").unwrap();
+        assert_eq!(net.stat.download.offset, 110);
+        assert_eq!(net.stat.upload.offset, 220);
+
+        assert!(collector.reset_totals("Ethernet"));
+        let net = collector.current_net.get("Ethernet").unwrap();
+        assert_eq!(net.stat.download.offset, 0);
+        assert_eq!(net.stat.upload.offset, 0);
+    }
+
+    #[test]
+    fn reset_totals_returns_false_for_missing_interface() {
+        let mut collector = NetCollector::new();
+
+        assert!(!collector.reset_totals("missing"));
     }
 
     #[test]

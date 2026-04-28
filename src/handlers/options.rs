@@ -1,5 +1,5 @@
 use crate::{
-    config_keys::{bool_keys as bk, str_keys as sk},
+    config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
     menu, theme, theme_keys as tc,
@@ -125,6 +125,10 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                     }
                     menu::options_menu::OptKind::Int => {
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
+                        if opt_key == ik::UPDATE_MS {
+                            *ctx.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
+                            ctx.worker.set_update_ms(*ctx.update_ms);
+                        }
                     }
                     menu::options_menu::OptKind::Browsable => {
                         menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);

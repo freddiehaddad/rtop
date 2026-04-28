@@ -87,25 +87,5 @@ fn main() {
     let base_colors = format!("{}{}", theme.c(tc::MAIN_FG), theme.bg(tc::MAIN_BG));
     let _ = terminal.write_raw(&base_colors);
 
-    // Init runner (collectors)
-    let mut runner = runner::Runner::new();
-
-    // Auto-add detected GPU boxes to shown_boxes if not already present
-    if runner.gpu.gpu_count() > 0 {
-        let shown = config.get_string(sk::SHOWN_BOXES).to_string();
-        let mut boxes: Vec<String> = shown.split_whitespace().map(String::from).collect();
-        for i in 0..runner.gpu.gpu_count() {
-            let name = format!("gpu{i}");
-            if !boxes.iter().any(|b| b == &name) {
-                boxes.push(name);
-            }
-        }
-        config.set_string(sk::SHOWN_BOXES, &boxes.join(" "));
-    }
-
-    // Snapshot the startup layout for preset 0
-    let initial = config.get_string(sk::SHOWN_BOXES).to_string();
-    config.set_string(sk::INITIAL_SHOWN_BOXES, &initial);
-
-    app::run(&mut config, &mut terminal, &mut theme, &mut runner);
+    app::run(&mut config, &mut terminal, &mut theme);
 }

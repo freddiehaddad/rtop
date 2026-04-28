@@ -4,7 +4,7 @@ pub(crate) mod main_menu;
 pub(crate) mod normal;
 pub(crate) mod options;
 
-use crate::{config, dirty::Dirty, draw, runner, theme};
+use crate::{config, dirty::Dirty, domain::process::ProcDisplayEntry, draw, runner, theme};
 
 /// The current menu overlay state.
 #[derive(Clone, Copy, PartialEq)]
@@ -81,7 +81,9 @@ impl HandleResult {
 pub(crate) struct InputContext<'a> {
     pub(crate) config: &'a mut config::Config,
     pub(crate) theme: &'a mut theme::Theme,
-    pub(crate) runner: &'a mut runner::Runner,
+    pub(crate) snapshot: Option<&'a runner::CollectionSnapshot>,
+    pub(crate) proc_entries: &'a [ProcDisplayEntry],
+    pub(crate) worker: &'a runner::CollectionWorker,
     pub(crate) menu_state: &'a mut MenuState,
     pub(crate) dirty: &'a mut Dirty,
     pub(crate) rounded: &'a mut bool,
@@ -92,12 +94,23 @@ pub(crate) struct InputContext<'a> {
     pub(crate) options_page: &'a mut usize,
     pub(crate) proc_selected: &'a mut usize,
     pub(crate) proc_start: &'a mut usize,
+    pub(crate) selected_iface: &'a mut String,
     pub(crate) filter_text: &'a mut String,
     pub(crate) cached_layout: &'a Option<draw::layout::Layout>,
     /// Where Options/Help was opened from — return here on escape.
     pub(crate) menu_return_to: &'a mut MenuState,
     pub(crate) tw: usize,
     pub(crate) th: usize,
+}
+
+impl InputContext<'_> {
+    pub(crate) fn selected_proc_pid(&self) -> Option<u32> {
+        let snapshot = self.snapshot?;
+        self.proc_entries
+            .get(*self.proc_selected)
+            .and_then(|entry| snapshot.proc_data.procs.get(entry.proc_index))
+            .map(|proc| proc.pid)
+    }
 }
 
 /// Redraw the underlying UI after closing a menu overlay.
@@ -108,11 +121,13 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
     use crate::app::{RenderParams, render_all};
 
     let mut out = String::new();
-    if let Some(layout) = ctx.cached_layout.as_ref() {
+    if let (Some(layout), Some(snapshot)) = (ctx.cached_layout.as_ref(), ctx.snapshot) {
         let params = RenderParams {
             dirty: Dirty::ALL_BOXES,
             layout,
-            runner: ctx.runner,
+            snapshot,
+            proc_entries: ctx.proc_entries,
+            selected_iface: ctx.selected_iface.as_str(),
             config: ctx.config,
             theme: ctx.theme,
             rounded: *ctx.rounded,

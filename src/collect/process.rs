@@ -60,9 +60,6 @@ impl ParsedFilter {
 pub struct ProcCollector {
     /// Raw collected process data — never sorted/filtered in place.
     pub procs: Vec<ProcInfo>,
-    /// Derived display list — sorted, filtered, tree-prefixed raw indices.
-    /// Rebuilt from `procs` whenever PROC_LIST dirty flag is set.
-    pub display_entries: Vec<ProcDisplayEntry>,
     pub status: super::CollectStatus,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
@@ -80,7 +77,6 @@ impl ProcCollector {
     pub fn new() -> Self {
         Self {
             procs: Vec::new(),
-            display_entries: Vec::new(),
             status: super::CollectStatus::Ok,
             prev_times: HashMap::new(),
             last_collect: std::time::Instant::now(),
@@ -91,49 +87,6 @@ impl ProcCollector {
     /// Set the core count used for CPU percentage calculation.
     pub fn set_core_count(&mut self, count: usize) {
         self.core_count = count;
-    }
-
-    /// Rebuild display entries from raw `procs` by sorting, filtering, and
-    /// optionally building tree prefixes.
-    pub fn rebuild_display(
-        &mut self,
-        sort_by: &str,
-        reversed: bool,
-        filter: &str,
-        tree_mode: bool,
-    ) {
-        let parsed = ParsedFilter::parse(filter);
-        let mut indices: Vec<usize> = self
-            .procs
-            .iter()
-            .enumerate()
-            .filter(|(_, proc)| filter.is_empty() || parsed.matches(proc))
-            .map(|(idx, _)| idx)
-            .collect();
-        sort_proc_indices(&mut indices, &self.procs, sort_by, reversed);
-
-        if tree_mode {
-            self.display_entries = build_tree_display_entries(&self.procs, &indices);
-        } else {
-            self.display_entries = indices.into_iter().map(ProcDisplayEntry::flat).collect();
-        }
-    }
-
-    /// Number of rows in the current derived process display.
-    pub fn display_len(&self) -> usize {
-        self.display_entries.len()
-    }
-
-    /// Return the raw process for a derived display row.
-    pub fn display_proc(&self, display_index: usize) -> Option<&ProcInfo> {
-        self.display_entries
-            .get(display_index)
-            .and_then(|entry| self.procs.get(entry.proc_index))
-    }
-
-    /// Return the process ID for a derived display row.
-    pub fn display_pid(&self, display_index: usize) -> Option<u32> {
-        self.display_proc(display_index).map(|proc| proc.pid)
     }
 
     fn collect_impl(&mut self) {
@@ -227,6 +180,30 @@ impl ProcCollector {
         }
 
         self.procs = new_procs;
+    }
+}
+
+/// Build process display entries from raw process data and current view settings.
+pub fn build_proc_display_entries(
+    procs: &[ProcInfo],
+    sort_by: &str,
+    reversed: bool,
+    filter: &str,
+    tree_mode: bool,
+) -> Vec<ProcDisplayEntry> {
+    let parsed = ParsedFilter::parse(filter);
+    let mut indices: Vec<usize> = procs
+        .iter()
+        .enumerate()
+        .filter(|(_, proc)| filter.is_empty() || parsed.matches(proc))
+        .map(|(idx, _)| idx)
+        .collect();
+    sort_proc_indices(&mut indices, procs, sort_by, reversed);
+
+    if tree_mode {
+        build_tree_display_entries(procs, &indices)
+    } else {
+        indices.into_iter().map(ProcDisplayEntry::flat).collect()
     }
 }
 
@@ -901,9 +878,8 @@ mod tests {
     }
 
     #[test]
-    fn rebuild_display_uses_raw_indices() {
-        let mut collector = ProcCollector::new();
-        collector.procs = vec![
+    fn build_proc_display_entries_uses_raw_indices() {
+        let procs = vec![
             ProcInfo {
                 pid: 1,
                 name: "alpha.exe".into(),
@@ -924,12 +900,11 @@ mod tests {
             },
         ];
 
-        collector.rebuild_display("cpu lazy", true, "", false);
+        let entries = build_proc_display_entries(&procs, "cpu lazy", true, "", false);
 
-        let pids: Vec<u32> = collector
-            .display_entries
+        let pids: Vec<u32> = entries
             .iter()
-            .filter_map(|entry| collector.procs.get(entry.proc_index))
+            .filter_map(|entry| procs.get(entry.proc_index))
             .map(|proc| proc.pid)
             .collect();
         assert_eq!(pids, vec![2, 3, 1]);

@@ -350,11 +350,6 @@ impl GpuCollector {
         }
     }
 
-    /// Returns the number of detected GPU devices.
-    pub fn gpu_count(&self) -> usize {
-        self.gpus.len()
-    }
-
     /// Shutdown NVML cleanly.
     pub fn shutdown(&mut self) {
         if let Some(nvml) = &self.nvml {
@@ -395,7 +390,7 @@ mod tests {
     fn gpu_collector_new_does_not_panic() {
         // Should silently handle missing nvml.dll
         let collector = GpuCollector::new();
-        let _ = collector.gpu_count();
+        let _ = collector.gpus.len();
     }
 
     #[test]
