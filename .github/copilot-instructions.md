@@ -12,6 +12,29 @@ cargo fmt -- --check           # Format check
 
 All four must pass with zero warnings before committing.
 
+## Commit Style
+
+Use Conventional Commit subjects that match the existing history:
+
+```text
+feat: add disk performance metrics
+fix: rename GPU MHz label to Clock
+refactor: decouple handlers from terminal via HandleResult
+release: v0.3.0
+```
+
+- Keep the subject concise, imperative, and under 72 characters.
+- Use a blank line between the subject, body, and trailers.
+- Wrap commit body lines at 72 characters.
+- Use the body to explain what changed and why when the subject is not
+  enough.
+- Do not wrap Git trailers.
+- Include the Copilot co-author trailer when Copilot creates the commit:
+
+```text
+Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+```
+
 ## Architecture
 
 ### Data flow: Collection → Domain → Rendering
