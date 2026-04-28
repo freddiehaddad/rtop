@@ -66,337 +66,642 @@ pub fn draw_with_sort(
     theme: &Theme,
     status: &CollectStatus,
 ) -> String {
-    let x = area.x;
-    let y = area.y;
-    let width = area.width;
-    let height = area.height;
-    let rounded = area.rounded;
-    let start = view.start;
-    let selected = view.selected;
-    let sort_by = view.sort_by;
-    let sort_reversed = view.sort_reversed;
-    let tree_mode = view.tree_mode;
-    let detailed_pid = view.detailed_pid;
-    let filter = view.filter;
-    let filtering = view.filtering;
-    let box_color = theme.c(tc::PROC_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let hi = theme.c(tc::HI_FG);
-    let sel_bg_esc = theme.bg(tc::SELECTED_BG);
-    let sel_fg = theme.c(tc::SELECTED_FG);
-    let tree_fg = theme.c(tc::PROC_TREE_FG);
-    let proc_grad = theme.g(tc::GRAD_PROCESS);
-
+    let colors = ProcColors::from_theme(theme);
+    let layout = ProcBoxLayout::calculate(area, view, settings);
     let mut buf = AnsiBuffer::new();
+
+    draw_frame(&mut buf, area, &colors, status);
+
+    if layout.is_too_small() {
+        return buf.finish();
+    }
+
+    draw_detail_section(
+        &mut buf,
+        &DetailSectionParams {
+            procs,
+            entries,
+            layout: &layout,
+            detailed_pid: view.detailed_pid,
+            settings,
+            theme,
+        },
+    );
+    draw_header(&mut buf, &layout, view, settings, &colors);
+    draw_dividers(&mut buf, &layout, &colors);
+    draw_rows(
+        &mut buf,
+        &ProcessRowsParams {
+            procs,
+            entries,
+            layout: &layout,
+            start: view.start,
+            selected: view.selected,
+            tree_mode: view.tree_mode,
+            settings,
+            colors: &colors,
+        },
+    );
+    draw_proc_borders(&mut buf, &layout, view, entries.len(), theme);
+
+    buf.finish()
+}
+
+struct ProcColors<'a> {
+    box_color: &'a str,
+    fg: &'a str,
+    title_color: &'a str,
+    hi: &'a str,
+    sel_bg_esc: String,
+    sel_fg: &'a str,
+    tree_fg: &'a str,
+    proc_grad: &'a [String],
+}
+
+impl<'a> ProcColors<'a> {
+    fn from_theme(theme: &'a Theme) -> Self {
+        Self {
+            box_color: theme.c(tc::PROC_BOX),
+            fg: theme.c(tc::MAIN_FG),
+            title_color: theme.c(tc::TITLE),
+            hi: theme.c(tc::HI_FG),
+            sel_bg_esc: theme.bg(tc::SELECTED_BG),
+            sel_fg: theme.c(tc::SELECTED_FG),
+            tree_fg: theme.c(tc::PROC_TREE_FG),
+            proc_grad: theme.g(tc::GRAD_PROCESS),
+        }
+    }
+}
+
+struct ProcColumns {
+    pid_w: usize,
+    name_w: usize,
+    cmd_w: usize,
+    graph_w: usize,
+    cpu_w: usize,
+    mem_w: usize,
+    has_cmd_col: bool,
+    show_cpu_graphs: bool,
+}
+
+impl ProcColumns {
+    fn calculate(inner_w: usize, tree_mode: bool, settings: &ProcBoxSettings<'_>) -> Self {
+        let pid_w = COL_PID;
+        let cpu_w = COL_CPU;
+        let mem_w = COL_MEM;
+        let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
+        let show_cpu_graphs = settings.proc_cpu_graphs
+            && has_cmd_col
+            && inner_w > CMD_COL_THRESHOLD + PROC_CPU_GRAPH_W;
+        let graph_w = if show_cpu_graphs { PROC_CPU_GRAPH_W } else { 0 };
+        let graph_spacing = usize::from(show_cpu_graphs);
+        let (name_w, cmd_w) = if has_cmd_col {
+            let prog = if tree_mode {
+                if inner_w > WIDE_PROG_THRESHOLD {
+                    PROG_WIDE + 8
+                } else {
+                    PROG_NARROW + 8
+                }
+            } else if inner_w > WIDE_PROG_THRESHOLD {
+                PROG_WIDE
+            } else {
+                PROG_NARROW
+            };
+            let cmd = inner_w.saturating_sub(
+                pid_w + prog + graph_w + cpu_w + mem_w + COL_SPACING + graph_spacing,
+            );
+            (prog, cmd)
+        } else {
+            let prog = if tree_mode {
+                inner_w
+                    .saturating_sub(
+                        pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
+                    )
+                    .max(PROG_NARROW + 8)
+            } else {
+                inner_w.saturating_sub(
+                    pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
+                )
+            };
+            (prog, 0)
+        };
+
+        Self {
+            pid_w,
+            name_w,
+            cmd_w,
+            graph_w,
+            cpu_w,
+            mem_w,
+            has_cmd_col,
+            show_cpu_graphs,
+        }
+    }
+}
+
+struct ProcBoxLayout {
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+    inner_w: usize,
+    detail_rows: usize,
+    header_y: usize,
+    divider_y: usize,
+    detail_divider_y: Option<usize>,
+    first_row_y: usize,
+    bottom_y: usize,
+    max_rows: usize,
+    columns: ProcColumns,
+}
+
+impl ProcBoxLayout {
+    fn calculate(area: &BoxArea, view: &ProcView, settings: &ProcBoxSettings<'_>) -> Self {
+        let inner_w = area.width.saturating_sub(4);
+        let detail_rows = if view.detailed_pid > 0 {
+            8_usize.min(area.height.saturating_sub(6))
+        } else {
+            0
+        };
+        let columns = ProcColumns::calculate(inner_w, view.tree_mode, settings);
+
+        Self {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height,
+            inner_w,
+            detail_rows,
+            header_y: area.y + 2 + detail_rows,
+            divider_y: area.y + 3 + detail_rows,
+            detail_divider_y: (detail_rows > 0).then_some(area.y + 1 + detail_rows),
+            first_row_y: area.y + 4 + detail_rows,
+            bottom_y: area.y + area.height,
+            max_rows: visible_row_count(area.height, detail_rows),
+            columns,
+        }
+    }
+
+    fn is_too_small(&self) -> bool {
+        self.inner_w == 0 || self.height < 3
+    }
+}
+
+struct SortState {
+    arrow: &'static str,
+    sort_lower: String,
+}
+
+impl SortState {
+    fn new(view: &ProcView) -> Self {
+        Self {
+            arrow: if view.sort_reversed { "▼" } else { "▲" },
+            sort_lower: view.sort_by.to_lowercase(),
+        }
+    }
+
+    fn is_sort(&self, col: &str) -> bool {
+        match col {
+            "pid" => self.sort_lower == "pid",
+            "name" => self.sort_lower == "name",
+            "command" => self.sort_lower == "command",
+            "cpu" => self.sort_lower.starts_with("cpu"),
+            "mem" | "memory" => self.sort_lower == "memory",
+            _ => false,
+        }
+    }
+}
+
+struct DetailSectionParams<'a> {
+    procs: &'a [ProcInfo],
+    entries: &'a [ProcDisplayEntry],
+    layout: &'a ProcBoxLayout,
+    detailed_pid: u32,
+    settings: &'a ProcBoxSettings<'a>,
+    theme: &'a Theme,
+}
+
+struct ProcessRowsParams<'a> {
+    procs: &'a [ProcInfo],
+    entries: &'a [ProcDisplayEntry],
+    layout: &'a ProcBoxLayout,
+    start: usize,
+    selected: usize,
+    tree_mode: bool,
+    settings: &'a ProcBoxSettings<'a>,
+    colors: &'a ProcColors<'a>,
+}
+
+struct ProcessRowParams<'a> {
+    proc: &'a ProcInfo,
+    entry: &'a ProcDisplayEntry,
+    absolute_index: usize,
+    row_y: usize,
+    layout: &'a ProcBoxLayout,
+    selected: usize,
+    tree_mode: bool,
+    settings: &'a ProcBoxSettings<'a>,
+    colors: &'a ProcColors<'a>,
+}
+
+fn draw_frame(
+    buf: &mut AnsiBuffer,
+    area: &BoxArea,
+    colors: &ProcColors<'_>,
+    status: &CollectStatus,
+) {
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
-        x,
-        y,
-        width,
-        height,
-        line_color: box_color,
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: area.height,
+        line_color: colors.box_color,
         fill: true,
         title: "proc",
         title2: "",
         num: 4,
-        rounded,
-        hi_color: hi,
-        title_color,
+        rounded: area.rounded,
+        hi_color: colors.hi,
+        title_color: colors.title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "proc", x, y, box_color, title_color);
+    super::draw_status_inset(
+        buf,
+        status,
+        "proc",
+        area.x,
+        area.y,
+        colors.box_color,
+        colors.title_color,
+    );
+}
 
-    let inner_w = width.saturating_sub(4);
-    if inner_w == 0 || height < 3 {
-        return buf.finish();
+fn draw_detail_section(buf: &mut AnsiBuffer, params: &DetailSectionParams<'_>) {
+    if params.detailed_pid == 0 || params.layout.detail_rows == 0 {
+        return;
     }
 
-    // Detailed view panel
-    let detail_rows = if detailed_pid > 0 {
-        8_usize.min(height.saturating_sub(6))
-    } else {
-        0
-    };
-    if detailed_pid > 0 && detail_rows > 0 {
-        if let Some(proc) = entries
-            .iter()
-            .filter_map(|entry| procs.get(entry.proc_index))
-            .find(|proc| proc.pid == detailed_pid)
-        {
-            buf.text(&draw_detail_panel(
-                proc,
-                x,
-                y,
-                width,
-                detail_rows,
-                settings,
-                theme,
-            ));
-        }
+    if let Some(proc) = find_detailed_proc(params.procs, params.entries, params.detailed_pid) {
+        buf.text(&draw_detail_panel(
+            proc,
+            params.layout.x,
+            params.layout.y,
+            params.layout.width,
+            params.layout.detail_rows,
+            params.settings,
+            params.theme,
+        ));
     }
+}
 
-    // Column widths — add Command column when wide enough
-    let pid_w = COL_PID;
-    let cpu_w = COL_CPU;
-    let mem_w = COL_MEM;
-    let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
-    let show_cpu_graphs =
-        settings.proc_cpu_graphs && has_cmd_col && inner_w > CMD_COL_THRESHOLD + PROC_CPU_GRAPH_W;
-    let graph_w = if show_cpu_graphs { PROC_CPU_GRAPH_W } else { 0 };
-    let graph_spacing = usize::from(show_cpu_graphs);
-    let (name_w, cmd_w) = if has_cmd_col {
-        let prog = if tree_mode {
-            // Tree prefixes need more room
-            if inner_w > WIDE_PROG_THRESHOLD {
-                PROG_WIDE + 8
-            } else {
-                PROG_NARROW + 8
-            }
-        } else if inner_w > WIDE_PROG_THRESHOLD {
-            PROG_WIDE
-        } else {
-            PROG_NARROW
-        };
-        let cmd = inner_w
-            .saturating_sub(pid_w + prog + graph_w + cpu_w + mem_w + COL_SPACING + graph_spacing);
-        (prog, cmd)
-    } else {
-        let prog = if tree_mode {
-            inner_w
-                .saturating_sub(
-                    pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
-                )
-                .max(PROG_NARROW + 8)
-        } else {
-            inner_w.saturating_sub(
-                pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
-            )
-        };
-        (prog, 0)
-    };
+fn find_detailed_proc<'a>(
+    procs: &'a [ProcInfo],
+    entries: &[ProcDisplayEntry],
+    detailed_pid: u32,
+) -> Option<&'a ProcInfo> {
+    entries
+        .iter()
+        .filter_map(|entry| procs.get(entry.proc_index))
+        .find(|proc| proc.pid == detailed_pid)
+}
 
-    // Header row with column titles and sort indicator
-    let arrow = if sort_reversed { "▼" } else { "▲" };
-    let sort_lower = sort_by.to_lowercase();
-    let is_sort = |col: &str| -> bool {
-        match col {
-            "pid" => sort_lower == "pid",
-            "name" => sort_lower == "name",
-            "command" => sort_lower == "command",
-            "cpu" => sort_lower.starts_with("cpu"),
-            "mem" | "memory" => sort_lower == "memory",
-            _ => false,
-        }
-    };
-    let pid_label = if is_sort("pid") {
-        format!("PID{arrow}")
+fn draw_header(
+    buf: &mut AnsiBuffer,
+    layout: &ProcBoxLayout,
+    view: &ProcView,
+    settings: &ProcBoxSettings<'_>,
+    colors: &ProcColors<'_>,
+) {
+    let sort = SortState::new(view);
+    let columns = &layout.columns;
+    let pid_label = if sort.is_sort("pid") {
+        format!("PID{}", sort.arrow)
     } else {
         "PID".into()
     };
-    let name_label = if is_sort("name") {
-        format!("Program{arrow}")
+    let name_label = if sort.is_sort("name") {
+        format!("Program{}", sort.arrow)
     } else {
         "Program".into()
     };
-    let cpu_label = if is_sort("cpu") {
-        format!("Cpu%{arrow}")
+    let cpu_label = if sort.is_sort("cpu") {
+        format!("Cpu%{}", sort.arrow)
     } else {
         "Cpu%".into()
     };
-    let mem_label = if is_sort("mem") {
-        format!("{}{}", mem_header_label(settings), arrow)
+    let mem_label = if sort.is_sort("mem") {
+        format!("{}{}", mem_header_label(settings), sort.arrow)
     } else {
         mem_header_label(settings).into()
     };
 
-    // Build header with per-column coloring
-    let header_row_y = y + 2 + detail_rows;
-    let mut col_x = x + 2;
+    let mut col_x = layout.x + 2;
 
-    // PID column
-    let pid_str = format!("{:<pid_w$}", pid_label, pid_w = pid_w);
-    let pid_color = if is_sort("pid") { hi } else { title_color };
-    buf.mv(col_x, header_row_y).color(pid_color).text(&pid_str);
-    col_x += pid_w + 1;
+    let pid_str = format!("{:<pid_w$}", pid_label, pid_w = columns.pid_w);
+    let pid_color = if sort.is_sort("pid") {
+        colors.hi
+    } else {
+        colors.title_color
+    };
+    buf.mv(col_x, layout.header_y)
+        .color(pid_color)
+        .text(&pid_str);
+    col_x += columns.pid_w + 1;
 
-    // Program column
-    let name_str = format!("{:<name_w$}", name_label, name_w = name_w);
-    let name_color = if is_sort("name") { hi } else { title_color };
-    buf.mv(col_x, header_row_y)
+    let name_str = format!("{:<name_w$}", name_label, name_w = columns.name_w);
+    let name_color = if sort.is_sort("name") {
+        colors.hi
+    } else {
+        colors.title_color
+    };
+    buf.mv(col_x, layout.header_y)
         .color(name_color)
         .text(&name_str);
-    col_x += name_w + 1;
+    col_x += columns.name_w + 1;
 
-    // Command column (when terminal is wide enough)
-    if has_cmd_col && cmd_w > 0 {
-        let cmd_label = if is_sort("command") {
-            format!("Command Line{arrow}")
+    if columns.has_cmd_col && columns.cmd_w > 0 {
+        let cmd_label = if sort.is_sort("command") {
+            format!("Command Line{}", sort.arrow)
         } else {
             "Command Line".into()
         };
-        let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = cmd_w);
-        let cmd_color = if is_sort("command") { hi } else { title_color };
-        buf.mv(col_x, header_row_y).color(cmd_color).text(&cmd_str);
-        col_x += cmd_w + 1;
+        let cmd_str = format!("{:<cmd_w$}", cmd_label, cmd_w = columns.cmd_w);
+        let cmd_color = if sort.is_sort("command") {
+            colors.hi
+        } else {
+            colors.title_color
+        };
+        buf.mv(col_x, layout.header_y)
+            .color(cmd_color)
+            .text(&cmd_str);
+        col_x += columns.cmd_w + 1;
     }
 
-    if show_cpu_graphs {
-        col_x += graph_w + 1;
+    if columns.show_cpu_graphs {
+        col_x += columns.graph_w + 1;
     }
 
-    // Cpu% column
-    let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = cpu_w);
-    let cpu_color = if is_sort("cpu") { hi } else { title_color };
-    buf.mv(col_x, header_row_y).color(cpu_color).text(&cpu_str);
-    col_x += cpu_w + 1;
+    let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = columns.cpu_w);
+    let cpu_color = if sort.is_sort("cpu") {
+        colors.hi
+    } else {
+        colors.title_color
+    };
+    buf.mv(col_x, layout.header_y)
+        .color(cpu_color)
+        .text(&cpu_str);
+    col_x += columns.cpu_w + 1;
 
-    // Mem% column
-    let mem_str = format!("{:>mem_w$}", mem_label, mem_w = mem_w);
-    let mem_color = if is_sort("mem") { hi } else { title_color };
-    buf.mv(col_x, header_row_y)
+    let mem_str = format!("{:>mem_w$}", mem_label, mem_w = columns.mem_w);
+    let mem_color = if sort.is_sort("mem") {
+        colors.hi
+    } else {
+        colors.title_color
+    };
+    buf.mv(col_x, layout.header_y)
         .color(mem_color)
         .text(&mem_str)
         .reset();
+}
 
-    // Divider line under header
-    let div_y = y + 3 + detail_rows;
-    buf.mv(x + 1, div_y)
+fn draw_dividers(buf: &mut AnsiBuffer, layout: &ProcBoxLayout, colors: &ProcColors<'_>) {
+    draw_divider_at(buf, layout, layout.divider_y, colors.box_color);
+    if let Some(detail_divider_y) = layout.detail_divider_y {
+        draw_divider_at(buf, layout, detail_divider_y, colors.box_color);
+    }
+}
+
+fn draw_divider_at(buf: &mut AnsiBuffer, layout: &ProcBoxLayout, row_y: usize, box_color: &str) {
+    buf.mv(layout.x + 1, row_y)
         .color(box_color)
         .text(symbols::DIV_LEFT)
         .color(box_color)
-        .text(&symbols::H_LINE.repeat(width.saturating_sub(2)))
+        .text(&symbols::H_LINE.repeat(layout.width.saturating_sub(2)))
         .color(box_color)
         .text(symbols::DIV_RIGHT);
+}
 
-    // If we have a detail panel, draw a divider between detail and header
-    if detail_rows > 0 {
-        let detail_div_y = y + 1 + detail_rows;
-        buf.mv(x + 1, detail_div_y)
-            .color(box_color)
-            .text(symbols::DIV_LEFT)
-            .color(box_color)
-            .text(&symbols::H_LINE.repeat(width.saturating_sub(2)))
-            .color(box_color)
-            .text(symbols::DIV_RIGHT);
-    }
-
-    // Process rows
-    let max_rows = visible_row_count(height, detail_rows);
-    for (i, entry) in entries.iter().skip(start).take(max_rows).enumerate() {
-        let Some(proc) = procs.get(entry.proc_index) else {
+fn draw_rows(buf: &mut AnsiBuffer, params: &ProcessRowsParams<'_>) {
+    for (i, entry) in params
+        .entries
+        .iter()
+        .skip(params.start)
+        .take(params.layout.max_rows)
+        .enumerate()
+    {
+        let Some(proc) = params.procs.get(entry.proc_index) else {
             continue;
         };
-        let row = y + 4 + detail_rows + i;
-
-        let display_cpu = display_proc_cpu(proc.cpu_p, settings);
-        let mem_str = format_proc_memory(proc.mem, settings);
-        let proc_color = process_row_color(
-            display_cpu,
-            i + start,
-            selected,
-            max_rows,
-            settings,
-            proc_grad,
-            fg,
+        draw_process_row(
+            buf,
+            &ProcessRowParams {
+                proc,
+                entry,
+                absolute_index: i + params.start,
+                row_y: params.layout.first_row_y + i,
+                layout: params.layout,
+                selected: params.selected,
+                tree_mode: params.tree_mode,
+                settings: params.settings,
+                colors: params.colors,
+            },
         );
+    }
+}
 
-        // Tree prefix rendered separately in tree_fg color
-        let (tree_prefix, bare_name) = if tree_mode && !entry.prefix.is_empty() {
-            (entry.prefix.as_str(), proc.name.as_str())
-        } else {
-            ("", proc.name.as_str())
-        };
-        let prefix_w = tools::ulen(tree_prefix, false);
-        let name_avail = name_w.saturating_sub(prefix_w);
-        let display_name = tools::uresize(bare_name, name_avail, false);
+fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
+    let columns = &params.layout.columns;
+    let display_cpu = display_proc_cpu(params.proc.cpu_p, params.settings);
+    let mem_str = format_proc_memory(params.proc.mem, params.settings);
+    let proc_color = process_row_color(
+        display_cpu,
+        params.absolute_index,
+        params.selected,
+        params.layout.max_rows,
+        params.settings,
+        params.colors.proc_grad,
+        params.colors.fg,
+    );
 
-        // Build the line without the name column (we render it separately for tree coloring)
-        let pid_str = format!("{:<pid_w$}", proc.pid, pid_w = pid_w);
-        let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = cpu_w);
-        let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = mem_w);
-        let graph_str = if show_cpu_graphs {
-            proc_cpu_graph(proc.pid, settings, proc_grad, fg)
-        } else {
-            String::new()
-        };
+    let (tree_prefix, bare_name) = if params.tree_mode && !params.entry.prefix.is_empty() {
+        (params.entry.prefix.as_str(), params.proc.name.as_str())
+    } else {
+        ("", params.proc.name.as_str())
+    };
+    let prefix_w = tools::ulen(tree_prefix, false);
+    let name_avail = columns.name_w.saturating_sub(prefix_w);
+    let display_name = tools::uresize(bare_name, name_avail, false);
+    let pid_str = format!("{:<pid_w$}", params.proc.pid, pid_w = columns.pid_w);
+    let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = columns.cpu_w);
+    let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = columns.mem_w);
+    let graph_str = if columns.show_cpu_graphs {
+        proc_cpu_graph(
+            params.proc.pid,
+            params.settings,
+            params.colors.proc_grad,
+            params.colors.fg,
+        )
+    } else {
+        String::new()
+    };
+    let cmd_display = command_display(params.proc, columns);
+    let name_padded = tools::ljust(&display_name, name_avail, false);
 
-        let cmd_display = if has_cmd_col && cmd_w > 0 {
-            let raw = if proc.cmd.len() > proc.name.len() {
-                proc.cmd[proc.name.len()..].trim()
-            } else if proc.cmd != proc.name {
-                &proc.cmd
-            } else {
-                ""
-            };
-            tools::uresize(raw, cmd_w, false)
-        } else {
-            String::new()
-        };
+    if params.absolute_index == params.selected {
+        draw_selected_process_row(
+            buf,
+            params,
+            &RowText {
+                pid: pid_str,
+                tree_prefix,
+                name: name_padded,
+                cmd: cmd_display,
+                graph: graph_str,
+                cpu: cpu_str,
+                mem: mem_str_fmt,
+                prefix_w,
+                name_avail,
+            },
+        );
+    } else {
+        draw_unselected_process_row(
+            buf,
+            params,
+            &RowText {
+                pid: pid_str,
+                tree_prefix,
+                name: name_padded,
+                cmd: cmd_display,
+                graph: graph_str,
+                cpu: cpu_str,
+                mem: mem_str_fmt,
+                prefix_w,
+                name_avail,
+            },
+            proc_color,
+        );
+    }
+}
 
-        let name_padded = tools::ljust(&display_name, name_avail, false);
+struct RowText<'a> {
+    pid: String,
+    tree_prefix: &'a str,
+    name: String,
+    cmd: String,
+    graph: String,
+    cpu: String,
+    mem: String,
+    prefix_w: usize,
+    name_avail: usize,
+}
 
-        if i + start == selected {
-            let bg_esc = &sel_bg_esc;
-            buf.mv(x + 2, row).text(bg_esc).color(sel_fg);
-            buf.text(&pid_str).text(" ");
-            if !tree_prefix.is_empty() {
-                buf.text(tree_prefix);
-            }
-            buf.text(&name_padded);
-            if prefix_w + name_avail < name_w {
-                buf.text(&" ".repeat(name_w - prefix_w - name_avail));
-            }
-            buf.text(" ");
-            if has_cmd_col && cmd_w > 0 {
-                buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
-                buf.text(" ");
-            }
-            if show_cpu_graphs {
-                buf.text(&graph_str).text(bg_esc).color(sel_fg).text(" ");
-            }
-            buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
-            buf.reset();
-        } else {
-            buf.mv(x + 2, row).color(proc_color);
-            buf.text(&pid_str).text(" ");
-            if !tree_prefix.is_empty() {
-                buf.color(tree_fg).text(tree_prefix).color(proc_color);
-            }
-            buf.text(&name_padded);
-            if prefix_w + name_avail < name_w {
-                buf.text(&" ".repeat(name_w - prefix_w - name_avail));
-            }
-            buf.text(" ");
-            if has_cmd_col && cmd_w > 0 {
-                buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
-                buf.text(" ");
-            }
-            if show_cpu_graphs {
-                buf.text(&graph_str).color(proc_color).text(" ");
-            }
-            buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
-        }
+fn command_display(proc: &ProcInfo, columns: &ProcColumns) -> String {
+    if !columns.has_cmd_col || columns.cmd_w == 0 {
+        return String::new();
     }
 
-    // TOP border: reverse, tree, sort
-    buf.text(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
+    let raw = if proc.cmd.len() > proc.name.len() {
+        proc.cmd[proc.name.len()..].trim()
+    } else if proc.cmd != proc.name {
+        &proc.cmd
+    } else {
+        ""
+    };
+    tools::uresize(raw, columns.cmd_w, false)
+}
 
-    // BOTTOM border
-    let visible = entries.len().min(max_rows);
-    buf.text(&draw_bottom_border(
-        &BottomBorderParams {
-            x,
-            bottom_y: y + height,
-            width,
-            filter,
-            filtering,
-            visible,
-            total: entries.len(),
-        },
+fn draw_selected_process_row(
+    buf: &mut AnsiBuffer,
+    params: &ProcessRowParams<'_>,
+    row: &RowText<'_>,
+) {
+    let columns = &params.layout.columns;
+    let bg_esc = &params.colors.sel_bg_esc;
+    buf.mv(params.layout.x + 2, params.row_y)
+        .text(bg_esc)
+        .color(params.colors.sel_fg);
+    buf.text(&row.pid).text(" ");
+    if !row.tree_prefix.is_empty() {
+        buf.text(row.tree_prefix);
+    }
+    draw_process_name_padding(buf, row, columns.name_w);
+    buf.text(" ");
+    if columns.has_cmd_col && columns.cmd_w > 0 {
+        buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
+        buf.text(" ");
+    }
+    if columns.show_cpu_graphs {
+        buf.text(&row.graph)
+            .text(bg_esc)
+            .color(params.colors.sel_fg)
+            .text(" ");
+    }
+    buf.text(&row.cpu).text(" ").text(&row.mem);
+    buf.reset();
+}
+
+fn draw_unselected_process_row(
+    buf: &mut AnsiBuffer,
+    params: &ProcessRowParams<'_>,
+    row: &RowText<'_>,
+    proc_color: &str,
+) {
+    let columns = &params.layout.columns;
+    buf.mv(params.layout.x + 2, params.row_y).color(proc_color);
+    buf.text(&row.pid).text(" ");
+    if !row.tree_prefix.is_empty() {
+        buf.color(params.colors.tree_fg)
+            .text(row.tree_prefix)
+            .color(proc_color);
+    }
+    draw_process_name_padding(buf, row, columns.name_w);
+    buf.text(" ");
+    if columns.has_cmd_col && columns.cmd_w > 0 {
+        buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
+        buf.text(" ");
+    }
+    if columns.show_cpu_graphs {
+        buf.text(&row.graph).color(proc_color).text(" ");
+    }
+    buf.text(&row.cpu).text(" ").text(&row.mem);
+}
+
+fn draw_process_name_padding(buf: &mut AnsiBuffer, row: &RowText<'_>, name_w: usize) {
+    buf.text(&row.name);
+    if row.prefix_w + row.name_avail < name_w {
+        buf.text(&" ".repeat(name_w - row.prefix_w - row.name_avail));
+    }
+}
+
+fn draw_proc_borders(
+    buf: &mut AnsiBuffer,
+    layout: &ProcBoxLayout,
+    view: &ProcView,
+    entry_count: usize,
+    theme: &Theme,
+) {
+    buf.text(&draw_top_border(
+        layout.x,
+        layout.y,
+        layout.width,
+        view.sort_by,
+        view.tree_mode,
         theme,
     ));
 
-    buf.finish()
+    let visible = entry_count.min(layout.max_rows);
+    buf.text(&draw_bottom_border(
+        &BottomBorderParams {
+            x: layout.x,
+            bottom_y: layout.bottom_y,
+            width: layout.width,
+            filter: view.filter,
+            filtering: view.filtering,
+            visible,
+            total: entry_count,
+        },
+        theme,
+    ));
 }
 
 fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings<'_>) -> f64 {
@@ -1157,6 +1462,96 @@ mod tests {
         assert!(
             plain.contains('▲') || plain.contains('▼'),
             "output should contain a sort direction indicator (▲ or ▼)"
+        );
+    }
+
+    #[test]
+    fn command_column_visibility_follows_width_threshold() {
+        let wide_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let narrow_area = BoxArea {
+            width: 50,
+            ..make_area()
+        };
+        let narrow_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &narrow_area,
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+
+        let wide_plain = strip_ansi(&wide_output);
+        let narrow_plain = strip_ansi(&narrow_output);
+        assert!(wide_plain.contains("Command Line"));
+        assert!(wide_plain.contains("--flag"));
+        assert!(!narrow_plain.contains("Command Line"));
+        assert!(!narrow_plain.contains("--flag"));
+    }
+
+    #[test]
+    fn detail_divider_only_draws_when_detail_panel_is_active() {
+        let mut detail_view = make_view();
+        detail_view.detailed_pid = 100;
+        let detail_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &detail_view,
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let plain_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+
+        let detail_dividers = strip_ansi(&detail_output)
+            .matches(symbols::DIV_LEFT)
+            .count();
+        let plain_dividers = strip_ansi(&plain_output).matches(symbols::DIV_LEFT).count();
+        assert_eq!(detail_dividers, plain_dividers + 1);
+    }
+
+    #[test]
+    fn selected_row_with_cpu_graph_restores_selection_background() {
+        let theme = Theme::default();
+        let selected_bg = theme.bg(tc::SELECTED_BG);
+        let mut histories = HashMap::new();
+        histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
+        let settings = ProcBoxSettings {
+            proc_cpu_graphs: true,
+            graph_symbol: GraphSymbol::Block,
+            ..make_settings_with_histories(&histories)
+        };
+        let output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &settings,
+            &theme,
+            &CollectStatus::Ok,
+        );
+
+        assert!(
+            output.matches(&selected_bg).count() >= 2,
+            "selected row should restore its background after the CPU graph"
         );
     }
 
