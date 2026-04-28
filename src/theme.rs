@@ -327,10 +327,17 @@ impl Theme {
     }
 
     /// Get a color escape code by typed key.
+    ///
+    /// Returns an empty string (default terminal color) if the key is missing.
+    /// This should never happen — `load_defaults` + `apply_fallbacks` guarantee
+    /// all keys exist — but a fallback is safer than a panic in release builds.
     pub fn color(&self, key: ColorKey) -> &str {
         match self.colors.get(key.name()) {
             Some(color) => color.as_str(),
-            None => panic!("missing theme color '{}'", key.name()),
+            None => {
+                tracing::warn!("missing theme color '{}', using fallback", key.name());
+                ""
+            }
         }
     }
 
@@ -363,10 +370,19 @@ impl Theme {
     }
 
     /// Get a gradient array by typed key (101 elements, indices 0–100).
+    ///
+    /// Returns a static fallback gradient if the key is missing.
+    /// This should never happen — `generate_gradients` populates all keys —
+    /// but a fallback is safer than a panic in release builds.
     pub fn gradient(&self, key: GradientKey) -> &[String] {
         match self.gradients.get(key.name()) {
             Some(gradient) => gradient.as_slice(),
-            None => panic!("missing theme gradient '{}'", key.name()),
+            None => {
+                tracing::warn!("missing theme gradient '{}', using fallback", key.name());
+                static FALLBACK: std::sync::LazyLock<Vec<String>> =
+                    std::sync::LazyLock::new(|| vec![String::new(); 101]);
+                &FALLBACK
+            }
         }
     }
 }
