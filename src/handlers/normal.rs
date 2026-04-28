@@ -1,5 +1,5 @@
 use crate::{
-    collect::process::SORT_OPTIONS,
+    collect::process_display::SORT_OPTIONS,
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},

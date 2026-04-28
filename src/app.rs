@@ -215,7 +215,7 @@ impl ProcessViewState {
         let reversed = config.get_bool(bk::PROC_REVERSED);
         let filter = config.get_string(sk::PROC_FILTER);
         let tree_mode = config.get_bool(bk::PROC_TREE);
-        self.entries = crate::collect::process::build_proc_display_entries(
+        self.entries = crate::collect::process_display::build_proc_display_entries(
             &snapshot.proc_data.procs,
             sort_by,
             reversed,

@@ -464,7 +464,7 @@ impl StringKey {
                 Some(CPU_GRAPH_SOURCE_VALUES)
             }
             key if key == sk::TEMP_SCALE => Some(TEMP_SCALE_VALUES),
-            key if key == sk::PROC_SORTING => Some(crate::collect::process::SORT_OPTIONS),
+            key if key == sk::PROC_SORTING => Some(crate::collect::process_display::SORT_OPTIONS),
             key if key == sk::LOG_LEVEL => Some(LOG_LEVEL_VALUES),
             _ => None,
         }
