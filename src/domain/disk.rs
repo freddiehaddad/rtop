@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 /// Information about a single disk/volume.
 #[derive(Debug, Clone, Default)]
@@ -13,6 +13,20 @@ pub struct DiskInfo {
     pub used: u64,
     /// Used percentage (0-100).
     pub used_percent: i32,
+    /// Current read throughput in bytes/sec.
+    pub read_bytes_per_sec: u64,
+    /// Current write throughput in bytes/sec.
+    pub write_bytes_per_sec: u64,
+    /// Highest observed read throughput in bytes/sec.
+    pub read_top: u64,
+    /// Highest observed write throughput in bytes/sec.
+    pub write_top: u64,
+    /// Recent read throughput history in bytes/sec.
+    pub read_history: VecDeque<i64>,
+    /// Recent write throughput history in bytes/sec.
+    pub write_history: VecDeque<i64>,
+    /// Current disk active/busy time percentage (0-100).
+    pub busy_percent: i32,
 }
 
 /// Aggregated disk data for all detected volumes.
@@ -37,6 +51,16 @@ mod tests {
             ..Default::default()
         };
         assert!((0..=100).contains(&disk.used_percent));
+    }
+
+    #[test]
+    fn disk_info_perf_defaults_are_empty() {
+        let disk = DiskInfo::default();
+        assert_eq!(disk.read_bytes_per_sec, 0);
+        assert_eq!(disk.write_bytes_per_sec, 0);
+        assert_eq!(disk.busy_percent, 0);
+        assert!(disk.read_history.is_empty());
+        assert!(disk.write_history.is_empty());
     }
 
     #[test]

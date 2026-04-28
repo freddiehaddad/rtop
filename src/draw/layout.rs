@@ -139,9 +139,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Reserve GPU height in left column
     let gpu_height_total = if has_gpu { total_gpu_height } else { 0 };
 
-    // Reserve disk height if visible — 2 rows per disk + 2 borders
+    // Reserve disk height if visible — capacity + IO row per disk, plus borders
     let disk_height = if has_disk {
-        let content_rows = cfg.disk_count;
+        let content_rows = cfg.disk_count * 2;
         (content_rows + 2).max(MIN_DISK_HEIGHT)
     } else {
         0
@@ -376,7 +376,7 @@ mod tests {
         });
         assert!(layout.disk.is_some(), "disk box should be present");
         let disk = layout.disk.as_ref().unwrap();
-        assert!(disk.height >= MIN_DISK_HEIGHT);
+        assert!(disk.height >= 2 * 2 + 2);
         // Disk should be below mem and net in the left column
         if let Some(mem) = &layout.mem {
             assert!(disk.y >= mem.y + mem.height);

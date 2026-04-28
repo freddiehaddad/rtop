@@ -91,6 +91,20 @@ theme[download_end]="#957FBB"
 theme[upload_start]="#DCA561"
 theme[upload_mid]="#E6C384"
 theme[upload_end]="#E82424"
+# Disk read graph colors
+theme[disk_read_start]="#7E9CDB"
+theme[disk_read_mid]="#938AA9"
+theme[disk_read_end]="#957FBB"
+
+# Disk write graph colors
+theme[disk_write_start]="#DCA561"
+theme[disk_write_mid]="#E6C384"
+theme[disk_write_end]="#E82424"
+
+# Disk busy meter colors
+theme[disk_busy_start]="#658594"
+theme[disk_busy_mid]="#7E9CDB"
+theme[disk_busy_end]="#7FB4CA"
 
 # Process box color gradient for threads, mem and cpu usage
 theme[process_start]="#98BB6C"

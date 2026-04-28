@@ -347,10 +347,17 @@ pub(crate) fn render_all(
     if dirty.intersects(Dirty::DISK_BOX) {
         if let Some(ref disk_dim) = layout.disk {
             let area = ui::BoxArea::from_dim(disk_dim, rounded);
+            let disk_settings = ui::disk_box::DiskBoxSettings {
+                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                    config.get_string(sk::GRAPH_SYMBOL_DISK),
+                    config.get_string(sk::GRAPH_SYMBOL),
+                ),
+            };
             output.push_str(&ui::disk_box::draw(
                 &runner.disk.data,
                 &area,
                 theme,
+                &disk_settings,
                 &runner.disk.status,
             ));
         }

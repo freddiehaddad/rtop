@@ -306,6 +306,7 @@ define_config! {
         graph_symbol_mem: "graph_symbol_mem" => "default",
         graph_symbol_net: "graph_symbol_net" => "default",
         graph_symbol_proc: "graph_symbol_proc" => "default",
+        graph_symbol_disk: "graph_symbol_disk" => "default",
         proc_sorting:     "proc_sorting"     => "cpu lazy",
         cpu_graph_upper:  "cpu_graph_upper"  => "user",
         cpu_graph_lower:  "cpu_graph_lower"  => "system",

@@ -35,7 +35,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 |--------|------|
 | **CPU** | Per-core utilization, frequency, temperature, user/system graphs, load average |
 | **Memory** | Used, available, cached, free, swap — with meter bars |
-| **Disk** | Per-volume usage, filesystem type, capacity |
+| **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time |
 | **Network** | Download/upload graphs with auto-scaling, interface selector |
 | **GPU** | Utilization, temperature, VRAM, power draw (NVIDIA) |
 | **Process** | PID, name, command line, CPU%, memory, tree view, filter, sort, terminate |

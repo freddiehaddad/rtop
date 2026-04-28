@@ -39,6 +39,7 @@ pub fn browsable_values(key: &str) -> &'static [&'static str] {
         | sk::GRAPH_SYMBOL_MEM
         | sk::GRAPH_SYMBOL_NET
         | sk::GRAPH_SYMBOL_PROC
+        | sk::GRAPH_SYMBOL_DISK
         | sk::GRAPH_SYMBOL_GPU => &["default", "braille", "block", "tty"],
         sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => &["Auto", "total", "user", "system"],
         sk::TEMP_SCALE => &["celsius", "fahrenheit", "kelvin", "rankine"],
@@ -704,6 +705,14 @@ pub const GPU: &[OptDef] = &[
 
 /// Options in the "disk" category.
 pub const DISK: &[OptDef] = &[
+    OptDef {
+        key: sk::GRAPH_SYMBOL_DISK,
+        desc: &[
+            "Graph symbol to use for disk IO graphs.",
+            "",
+            "\"default\", \"braille\", \"block\" or \"tty\".",
+        ],
+    },
     OptDef {
         key: sk::DISKS_FILTER,
         desc: &[

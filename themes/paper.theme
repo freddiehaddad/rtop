@@ -93,6 +93,20 @@ theme[download_end]="#CC3E28"
 theme[upload_start]="#55"
 theme[upload_mid]="#00"
 theme[upload_end]="#CC3E28"
+# Disk read graph colors
+theme[disk_read_start]="#55"
+theme[disk_read_mid]="#00"
+theme[disk_read_end]="#CC3E28"
+
+# Disk write graph colors
+theme[disk_write_start]="#55"
+theme[disk_write_mid]="#00"
+theme[disk_write_end]="#CC3E28"
+
+# Disk busy meter colors
+theme[disk_busy_start]="#CC3E28"
+theme[disk_busy_mid]=""
+theme[disk_busy_end]="#CC3E28"
 
 # GPU utilization meter
 theme[gpu_start]="#55"

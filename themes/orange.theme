@@ -91,6 +91,20 @@ theme[download_end]="#ffa500"
 theme[upload_start]="#996300"
 theme[upload_mid]=""
 theme[upload_end]="#ffa500"
+# Disk read graph colors
+theme[disk_read_start]="#996300"
+theme[disk_read_mid]=""
+theme[disk_read_end]="#ffa500"
+
+# Disk write graph colors
+theme[disk_write_start]="#996300"
+theme[disk_write_mid]=""
+theme[disk_write_end]="#ffa500"
+
+# Disk busy meter colors
+theme[disk_busy_start]="#996300"
+theme[disk_busy_mid]=""
+theme[disk_busy_end]="#ffa500"
 
 # Process list banner attributes
 theme[proc_pause_bg]="#996300"

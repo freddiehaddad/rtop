@@ -44,3 +44,6 @@ pub const GRAD_GPU: &str = "gpu";
 pub const GRAD_GPU_CLOCK: &str = "gpu_clock";
 pub const GRAD_GPU_POWER: &str = "gpu_power";
 pub const GRAD_GPU_VRAM: &str = "gpu_vram";
+pub const GRAD_DISK_READ: &str = "disk_read";
+pub const GRAD_DISK_WRITE: &str = "disk_write";
+pub const GRAD_DISK_BUSY: &str = "disk_busy";

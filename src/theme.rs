@@ -57,6 +57,15 @@ const DEFAULT_THEME: &[(&str, &str)] = &[
     ("upload_start", "#620665"),
     ("upload_mid", "#7d4180"),
     ("upload_end", "#dcafde"),
+    ("disk_read_start", "#291f75"),
+    ("disk_read_mid", "#4f43a3"),
+    ("disk_read_end", "#b0a9de"),
+    ("disk_write_start", "#620665"),
+    ("disk_write_mid", "#7d4180"),
+    ("disk_write_end", "#dcafde"),
+    ("disk_busy_start", "#592b26"),
+    ("disk_busy_mid", "#d9626d"),
+    ("disk_busy_end", "#ff4769"),
     ("process_start", "#80d0a3"),
     ("process_mid", "#dcd179"),
     ("process_end", "#d45454"),
@@ -214,6 +223,25 @@ impl Theme {
                 }
             }
         }
+        // Disk IO gradient fallbacks: read→download, write→upload, busy→used
+        let disk_fallbacks: &[(&str, &str)] = &[
+            ("disk_read", "download"),
+            ("disk_write", "upload"),
+            ("disk_busy", "used"),
+        ];
+        for (disk_prefix, fallback_prefix) in disk_fallbacks {
+            for suffix in &["_start", "_mid", "_end"] {
+                let key = format!("{disk_prefix}{suffix}");
+                let fb_key = format!("{fallback_prefix}{suffix}");
+                if !self.rgbs.contains_key(&key) {
+                    if let Some(rgb) = self.rgbs.get(&fb_key).copied() {
+                        self.rgbs.insert(key.clone(), rgb);
+                        self.colors
+                            .insert(key, rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
+                    }
+                }
+            }
+        }
     }
 
     fn generate_gradients(&mut self) {
@@ -231,6 +259,9 @@ impl Theme {
             "gpu_clock",
             "gpu_power",
             "gpu_vram",
+            "disk_read",
+            "disk_write",
+            "disk_busy",
         ];
 
         for name in gradient_names {
@@ -547,6 +578,9 @@ mod tests {
         assert_eq!(theme.g(tc::GRAD_CPU).len(), 101);
         assert_eq!(theme.g(tc::GRAD_TEMP).len(), 101);
         assert_eq!(theme.g(tc::GRAD_DOWNLOAD).len(), 101);
+        assert_eq!(theme.g(tc::GRAD_DISK_READ).len(), 101);
+        assert_eq!(theme.g(tc::GRAD_DISK_WRITE).len(), 101);
+        assert_eq!(theme.g(tc::GRAD_DISK_BUSY).len(), 101);
     }
 
     #[test]

@@ -94,6 +94,20 @@ theme[download_end]="#79740e"
 theme[upload_start]="#cc241d"
 theme[upload_mid]="#d65d0e"
 theme[upload_end]="#b57614"
+# Disk read graph colors
+theme[disk_read_start]="#98971a"
+theme[disk_read_mid]="#689d6a"
+theme[disk_read_end]="#79740e"
+
+# Disk write graph colors
+theme[disk_write_start]="#cc241d"
+theme[disk_write_mid]="#d65d0e"
+theme[disk_write_end]="#b57614"
+
+# Disk busy meter colors
+theme[disk_busy_start]="#427b58"
+theme[disk_busy_mid]="#d65d0e"
+theme[disk_busy_end]="#cc241d"
 
 # GPU utilization meter
 theme[gpu_start]="#427b58"

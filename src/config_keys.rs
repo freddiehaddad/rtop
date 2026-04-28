@@ -68,6 +68,7 @@ pub mod str_keys {
     pub const GRAPH_SYMBOL_MEM: &str = "graph_symbol_mem";
     pub const GRAPH_SYMBOL_NET: &str = "graph_symbol_net";
     pub const GRAPH_SYMBOL_PROC: &str = "graph_symbol_proc";
+    pub const GRAPH_SYMBOL_DISK: &str = "graph_symbol_disk";
     pub const PROC_SORTING: &str = "proc_sorting";
     pub const CPU_GRAPH_UPPER: &str = "cpu_graph_upper";
     pub const CPU_GRAPH_LOWER: &str = "cpu_graph_lower";

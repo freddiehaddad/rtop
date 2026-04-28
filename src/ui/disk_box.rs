@@ -2,6 +2,7 @@ use crate::collect::CollectStatus;
 use crate::domain::disk::DiskData;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
+use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -9,16 +10,27 @@ use crate::tools;
 
 use super::BoxArea;
 
+/// Extracted settings for the disk box, decoupled from Config.
+pub struct DiskBoxSettings {
+    pub graph_symbol: GraphSymbol,
+}
+
 /// Draw the disk box into an ANSI string.
 ///
 /// Layout:
 /// ╭─ disks ────────────────────╮
-/// │ C: NTFS                    │
-/// │  ■■■■■■■■■░░ 233G / 465G  │
-/// │ D: NTFS                    │
-/// │  ■■■░░░░░░░░ 1.2T / 3.6T  │
+/// │ C: NTFS ■■■■■■■░░ 233G/465G│
+/// │ R 42M/s ⣀⣤⣶ W 8M/s ⣀ B 12% │
+/// │ D: NTFS ■■■░░░░░ 1.2T/3.6T│
+/// │ R 0B/s  ⣀⣀⣀ W 0B/s  ⣀ B 0% │
 /// ╰────────────────────────────╯
-pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme, status: &CollectStatus) -> String {
+pub fn draw(
+    disks: &DiskData,
+    area: &BoxArea,
+    theme: &Theme,
+    settings: &DiskBoxSettings,
+    status: &CollectStatus,
+) -> String {
     let x = area.x;
     let y = area.y;
     let width = area.width;
@@ -29,6 +41,9 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme, status: &CollectSta
     let title_color = theme.c(tc::TITLE);
     let hi = theme.c(tc::HI_FG);
     let avail_grad = theme.g(tc::GRAD_AVAILABLE);
+    let read_grad = theme.g(tc::GRAD_DISK_READ);
+    let write_grad = theme.g(tc::GRAD_DISK_WRITE);
+    let busy_grad = theme.g(tc::GRAD_DISK_BUSY);
     let meter_bg = theme.c(tc::METER_BG);
 
     let inner_h = height.saturating_sub(2);
@@ -85,16 +100,155 @@ pub fn draw(disks: &DiskData, area: &BoxArea, theme: &Theme, status: &CollectSta
                 .color(fg)
                 .text(&tools::rjust(&value, val_w, false));
             row += 1;
+
+            if row < inner_h {
+                let params = PerfRowParams {
+                    content_x,
+                    row_y: y + 2 + row,
+                    inner_w,
+                    theme,
+                    settings,
+                    read_grad,
+                    write_grad,
+                    busy_grad,
+                };
+                draw_perf_row(&mut buf, disk, &params);
+                row += 1;
+            }
         }
     }
 
     buf.finish()
 }
 
+struct PerfRowParams<'a> {
+    content_x: usize,
+    row_y: usize,
+    inner_w: usize,
+    theme: &'a Theme,
+    settings: &'a DiskBoxSettings,
+    read_grad: &'a [String],
+    write_grad: &'a [String],
+    busy_grad: &'a [String],
+}
+
+fn draw_perf_row(
+    buf: &mut AnsiBuffer,
+    disk: &crate::domain::disk::DiskInfo,
+    params: &PerfRowParams,
+) {
+    let x = params.content_x;
+    let y = params.row_y;
+    let width = params.inner_w;
+    if width == 0 {
+        return;
+    }
+
+    let fg = params.theme.c(tc::MAIN_FG);
+    let title_color = params.theme.c(tc::TITLE);
+    let read_speed =
+        tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, false);
+    let write_speed =
+        tools::floating_humanizer(disk.write_bytes_per_sec, true, 0, false, true, false);
+    let read_label = format!("R {read_speed}");
+    let write_label = format!("W {write_speed}");
+    let busy = disk.busy_percent.clamp(0, 100);
+    let busy_label = format!("B {busy}%");
+    let busy_w = tools::ulen(&busy_label, false).min(width);
+    let busy_x = x + width.saturating_sub(busy_w);
+    let left_w = width.saturating_sub(busy_w + 1);
+
+    let read_w = tools::ulen(&read_label, false);
+    let write_w = tools::ulen(&write_label, false);
+    let fixed_left = read_w + write_w + 4; // labels plus spaces around the two graphs
+    let graph_total = left_w.saturating_sub(fixed_left);
+    let read_graph_w = graph_total / 2;
+    let write_graph_w = graph_total.saturating_sub(read_graph_w);
+
+    let mut col = x;
+    buf.mv(col, y)
+        .color(title_color)
+        .text("R")
+        .color(fg)
+        .text(&format!(" {read_speed}"));
+    col += read_w;
+
+    if read_graph_w > 0 {
+        buf.text(" ");
+        col += 1;
+        let mut graph = Graph::new(
+            read_graph_w,
+            1,
+            params.settings.graph_symbol,
+            false,
+            true,
+            visible_graph_max(&disk.read_history, read_graph_w, disk.read_bytes_per_sec),
+            0,
+        );
+        let graph_row = graph.render_row_colored(&disk.read_history, params.read_grad);
+        buf.text(&graph_row);
+        col += read_graph_w;
+    }
+
+    if col + write_w < busy_x {
+        buf.text(" ");
+        col += 1;
+    }
+    buf.color(title_color)
+        .text("W")
+        .color(fg)
+        .text(&format!(" {write_speed}"));
+    col += write_w;
+
+    let available_write_graph_w = write_graph_w.min(busy_x.saturating_sub(col + 1));
+    if available_write_graph_w > 0 {
+        buf.text(" ");
+        let mut graph = Graph::new(
+            available_write_graph_w,
+            1,
+            params.settings.graph_symbol,
+            false,
+            true,
+            visible_graph_max(
+                &disk.write_history,
+                available_write_graph_w,
+                disk.write_bytes_per_sec,
+            ),
+            0,
+        );
+        let graph_row = graph.render_row_colored(&disk.write_history, params.write_grad);
+        buf.text(&graph_row);
+    }
+
+    let busy_color = if !params.busy_grad.is_empty() {
+        &params.busy_grad[busy as usize]
+    } else {
+        fg
+    };
+    buf.mv(busy_x, y)
+        .color(title_color)
+        .text("B")
+        .color(busy_color)
+        .text(&format!(" {busy}%"));
+}
+
+fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, current: u64) -> i64 {
+    history
+        .iter()
+        .rev()
+        .take(width.max(1))
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(current as i64)
+        .max(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::disk::DiskInfo;
+    use crate::draw::graph::GraphSymbol;
     use std::collections::HashMap;
 
     fn strip_ansi(s: &str) -> String {
@@ -128,6 +282,13 @@ mod tests {
                 total: 500 * GIB,
                 used: 250 * GIB,
                 used_percent: 50,
+                read_bytes_per_sec: 42 * 1024 * 1024,
+                write_bytes_per_sec: 8 * 1024 * 1024,
+                read_top: 100 * 1024 * 1024,
+                write_top: 40 * 1024 * 1024,
+                busy_percent: 12,
+                read_history: [0, 10, 42, 21, 8].into_iter().collect(),
+                write_history: [0, 4, 8, 2, 1].into_iter().collect(),
             },
         );
         disks.insert(
@@ -138,6 +299,13 @@ mod tests {
                 total: 1000 * GIB,
                 used: 300 * GIB,
                 used_percent: 30,
+                read_bytes_per_sec: 1024 * 1024,
+                write_bytes_per_sec: 0,
+                read_top: 10 * 1024 * 1024,
+                write_top: 1,
+                busy_percent: 0,
+                read_history: [0, 1, 0, 1, 0].into_iter().collect(),
+                write_history: [0, 0, 0, 0, 0].into_iter().collect(),
             },
         );
         DiskData {
@@ -156,12 +324,19 @@ mod tests {
         }
     }
 
+    fn settings() -> DiskBoxSettings {
+        DiskBoxSettings {
+            graph_symbol: GraphSymbol::Braille,
+        }
+    }
+
     #[test]
     fn draw_contains_disks_title() {
         let output = draw(
             &make_disk_data(),
             &make_area(),
             &Theme::default(),
+            &settings(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -177,6 +352,7 @@ mod tests {
             &make_disk_data(),
             &make_area(),
             &Theme::default(),
+            &settings(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -190,6 +366,7 @@ mod tests {
             &make_disk_data(),
             &make_area(),
             &Theme::default(),
+            &settings(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -197,5 +374,20 @@ mod tests {
             plain.contains("NTFS"),
             "output should contain filesystem type 'NTFS'"
         );
+    }
+
+    #[test]
+    fn draw_contains_disk_perf_labels() {
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &Theme::default(),
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("R "), "output should contain read label");
+        assert!(plain.contains("W "), "output should contain write label");
+        assert!(plain.contains("B 12%"), "output should contain busy label");
     }
 }
