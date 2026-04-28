@@ -149,8 +149,28 @@ impl Graph {
         }
     }
 
-    /// Map a 0-100 value to a 0-4 level within a specific row's vertical range.
-    /// For multi-height graphs, each row covers a slice of the full range.
+    /// Map a value to a 0–4 braille/block level within a specific row.
+    ///
+    /// For single-height graphs, the full 0–100% range maps directly to 5
+    /// levels (0 = empty, 4 = full).
+    ///
+    /// For multi-height graphs, the 0–100% range is divided vertically
+    /// across rows. Each row covers a band:
+    ///
+    /// ```text
+    /// ┌──────────────────┐
+    /// │ Row 0: 75–100%   │ ← top (high values)
+    /// │ Row 1: 50–75%    │
+    /// │ Row 2: 25–50%    │
+    /// │ Row 3: 0–25%     │ ← bottom (low values)
+    /// └──────────────────┘
+    /// ```
+    ///
+    /// A value falling below a row's band yields level 0 (empty).
+    /// A value at or above the band yields level 4 (full).
+    /// Values within the band interpolate to levels 1–3.
+    ///
+    /// The `invert` flag flips the row assignment so row 0 is the bottom.
     fn value_to_level(&self, value: i64, row: usize) -> usize {
         let max = self.max_value.max(1);
         let pct = ((value - self.offset).clamp(0, max) as f64 * 100.0 / max as f64).round() as i64;
@@ -159,11 +179,14 @@ impl Graph {
             return (pct * 4 / 100).clamp(0, 4) as usize;
         }
 
+        // horizon: row index from the bottom (0 = lowest row).
+        // Inverted graphs flip the mapping so row 0 draws low values.
         let horizon = if self.invert {
             self.height - 1 - row
         } else {
             row
         };
+        // Percentage band covered by this row
         let cur_high = (100.0 * (self.height - horizon) as f64 / self.height as f64).round() as i64;
         let cur_low =
             (100.0 * (self.height - (horizon + 1)) as f64 / self.height as f64).round() as i64;

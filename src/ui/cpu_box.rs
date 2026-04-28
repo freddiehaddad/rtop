@@ -110,22 +110,26 @@ pub fn draw(
     let show_coretemp_flag = has_temp && settings.show_coretemp;
     let show_temp: usize = if show_coretemp_flag { 1 } else { 0 };
 
-    // b_columns = max(1, ceil(coreCount / (height - 5)))
-    let b_columns = if core_count == 0 || height <= 5 {
+    // Core panel rows available for core meters (from btop's algorithm):
+    // total height minus CPU-total meter, divider, load average, bottom border, top border.
+    let core_rows_overhead = CORE_PANEL_OVERHEAD + BOX_BORDER_ROWS;
+    let b_columns = if core_count == 0 || height <= core_rows_overhead {
         1usize
     } else {
-        1usize.max(core_count.div_ceil(height - 5))
+        1usize.max(core_count.div_ceil(height - core_rows_overhead))
     };
 
     // Determine column size and b_width
     let wide_col = CORE_COL_WIDE + CORE_COL_WIDE_TEMP * show_temp;
     let med_col = CORE_COL_MED + CORE_COL_MED_TEMP * show_temp;
     let narrow_col = CORE_COL_NARROW + CORE_COL_NARROW_TEMP * show_temp;
+    // Core panel max width: reserve at least 1/3 of box width for graphs
     let max_panel = width - width / 3;
 
     let (_, b_width) = if core_count == 0 || width <= 20 {
         (0usize, 0usize)
     } else if b_columns * wide_col < max_panel {
+        // Minimum panel width for the wide tier to display labels properly
         let w = 29usize.max(wide_col * b_columns - (b_columns - 1));
         (2, w)
     } else if b_columns * med_col < max_panel {
@@ -346,7 +350,9 @@ fn draw_core_panel(
             } else {
                 fg
             };
+            // Temperature suffix: space(1) + graph(5) + label(4) + decoration(2)
             let temp_suffix_len = if has_temp { 1 + 5 + 4 + 2 } else { 0 };
+            // Meter width: panel inner minus "CPU " label(4) + percentage(5) + temp suffix
             let meter_w = panel_inner_w.saturating_sub(4 + 5 + temp_suffix_len).max(1);
             let meter = Meter::new(meter_w, cpu_gradient, meter_bg);
             buf.mv(panel.x + 2, panel.y + 1)

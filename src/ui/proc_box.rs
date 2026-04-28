@@ -28,10 +28,21 @@ const PROC_CPU_GRAPH_W: usize = 5;
 const DETAIL_LABEL_W: usize = 9;
 const DETAIL_COL_GAP: usize = 2;
 const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
+/// Max height for the process detail panel (fields like User, Status, etc.).
+const MAX_DETAIL_ROWS: usize = 8;
+/// Height overhead when the detail panel is active: header + divider + detail
+/// divider + bottom border + spacing rows.
+const DETAIL_OVERHEAD: usize = 6;
+/// Row overhead subtracted from box height: header(1) + column header(1) +
+/// header divider(1) + bottom border(1).
+const BOX_ROW_OVERHEAD: usize = 4;
+/// Fixed characters consumed by the sort selector inset on the bottom border:
+/// left_connector(1) + "← "(2) + " →"(2) + right_connector(1) + gap(1).
+const SORT_INSET_OVERHEAD: usize = 7;
 
 /// Rows available for process entries between the header divider and bottom border.
 pub(crate) fn visible_row_count(box_height: usize, detail_rows: usize) -> usize {
-    box_height.saturating_sub(detail_rows + 4)
+    box_height.saturating_sub(detail_rows + BOX_ROW_OVERHEAD)
 }
 
 /// Process box display settings derived from the current config and snapshot.
@@ -219,7 +230,7 @@ impl ProcBoxLayout {
     fn calculate(area: &BoxArea, view: &ProcView, settings: &ProcBoxSettings<'_>) -> Self {
         let inner_w = area.width.saturating_sub(4);
         let detail_rows = if view.detailed_pid > 0 {
-            8_usize.min(area.height.saturating_sub(6))
+            MAX_DETAIL_ROWS.min(area.height.saturating_sub(DETAIL_OVERHEAD))
         } else {
             0
         };
@@ -765,6 +776,8 @@ fn process_row_color<'a>(
         return proc_grad[cpu_idx.min(100)].as_str();
     }
 
+    // Fade the gradient color based on distance from the selected row:
+    // closer rows get brighter colors, distant rows fade toward the low end.
     let distance = row_index.abs_diff(selected);
     let fade_loss = distance.saturating_mul(100) / visible_rows.max(1);
     let idx = (cpu_idx + 100)
@@ -881,7 +894,7 @@ fn draw_top_border(
     let tree_star = if tree_mode { "*" } else { "" };
 
     // Build positions right-to-left from the right corner
-    let mut pos = x + width - sort_name.len() - 7;
+    let mut pos = x + width - sort_name.len() - SORT_INSET_OVERHEAD;
 
     // Sort selector: ┐← sorting →┌
     let sort_text = format!("← {}{} {}→", title_color, sort_name, hi);
