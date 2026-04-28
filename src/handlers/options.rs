@@ -3,14 +3,15 @@ use crate::{
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
+    input::Key,
     menu, theme,
 };
 
 /// Handle input while the options overlay is visible.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
-    match key {
-        "q" => return HandleResult::quit(),
-        "escape" | "backspace" => {
+pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
+    match *key {
+        Key::Char('q') => return HandleResult::quit(),
+        Key::Escape | Key::Backspace => {
             let return_to = ctx.overlay.menu_return_to;
             ctx.overlay.menu_state = return_to;
             if return_to == MenuState::None {
@@ -18,13 +19,13 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return HandleResult::redraw();
         }
-        "tab" => {
+        Key::Tab => {
             ctx.overlay.options_cat = (ctx.overlay.options_cat + 1) % 7;
             ctx.overlay.options_page = 0;
             ctx.overlay.options_selected = 0;
             return options_menu_output(ctx);
         }
-        "shift_tab" => {
+        Key::ShiftTab => {
             ctx.overlay.options_cat = if ctx.overlay.options_cat == 0 {
                 6
             } else {
@@ -34,8 +35,8 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             ctx.overlay.options_selected = 0;
             return options_menu_output(ctx);
         }
-        "0" | "1" | "2" | "3" | "4" | "5" | "6" => {
-            let new_cat = key.parse::<usize>().unwrap_or(0);
+        Key::Char(c @ '0'..='6') => {
+            let new_cat = (c as usize) - ('0' as usize);
             if new_cat != ctx.overlay.options_cat {
                 ctx.overlay.options_cat = new_cat;
                 ctx.overlay.options_page = 0;
@@ -43,7 +44,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        "up" | "k" => {
+        Key::Up | Key::Char('k') => {
             if ctx.overlay.options_selected > 0 {
                 ctx.overlay.options_selected -= 1;
             } else {
@@ -62,7 +63,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        "down" | "j" => {
+        Key::Down | Key::Char('j') => {
             let sm = menu::options_menu::select_max(
                 ctx.overlay.options_cat,
                 ctx.overlay.options_page,
@@ -82,7 +83,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        "page_up" => {
+        Key::PageUp => {
             let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
             if pages > 1 {
                 ctx.overlay.options_page = if ctx.overlay.options_page > 0 {
@@ -94,7 +95,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        "page_down" => {
+        Key::PageDown => {
             let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
             if pages > 1 {
                 ctx.overlay.options_page = if ctx.overlay.options_page < pages - 1 {
@@ -106,7 +107,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        "left" | "right" | "h" | "l" | "enter" | "space" => {
+        Key::Left | Key::Right | Key::Char('h') | Key::Char('l') | Key::Enter | Key::Space => {
             let mut extra_ops: Vec<TerminalOp> = Vec::new();
 
             if let Some(opt_key) = menu::options_menu::opt_key(
@@ -116,7 +117,11 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                 ctx.th,
             ) {
                 let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
-                let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
+                let dir: i64 = if matches!(key, Key::Left | Key::Char('h')) {
+                    -1
+                } else {
+                    1
+                };
 
                 match kind {
                     menu::options_menu::OptKind::Bool => {

@@ -1,75 +1,117 @@
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
 };
-use std::borrow::Cow;
 use std::time::Duration;
+
+/// Typed input key, replacing stringly-typed dispatch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+    Char(char),
+    Escape,
+    Enter,
+    Space,
+    Backspace,
+    Tab,
+    ShiftTab,
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+    Insert,
+    Delete,
+    F(u8),
+    CtrlR,
+    CtrlS,
+    CtrlD,
+    MouseClick,
+    MouseRelease,
+    MouseDrag,
+    MouseScrollUp,
+    MouseScrollDown,
+    Resize,
+}
+
+impl Key {
+    /// True for mouse events that the UI ignores.
+    pub fn is_mouse(self) -> bool {
+        matches!(
+            self,
+            Key::MouseClick
+                | Key::MouseRelease
+                | Key::MouseDrag
+                | Key::MouseScrollUp
+                | Key::MouseScrollDown
+        )
+    }
+}
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.
 pub fn poll(timeout_ms: u64) -> bool {
     event::poll(Duration::from_millis(timeout_ms)).unwrap_or(false)
 }
 
-/// Read and translate one input event to a key name.
-pub fn get() -> Option<Cow<'static, str>> {
+/// Read and translate one input event to a typed key.
+pub fn get() -> Option<Key> {
     match event::read() {
-        Ok(Event::Key(key)) => {
-            let k = translate_key(key);
-            if k.is_empty() { None } else { Some(k) }
-        }
+        Ok(Event::Key(key)) => translate_key(key),
         Ok(Event::Mouse(mouse)) => Some(translate_mouse(mouse)),
-        Ok(Event::Resize(_, _)) => Some(Cow::Borrowed("resize")),
+        Ok(Event::Resize(_, _)) => Some(Key::Resize),
         _ => None,
     }
 }
 
-/// Translate a crossterm KeyEvent to a key name.
-fn translate_key(key: KeyEvent) -> Cow<'static, str> {
+/// Translate a crossterm KeyEvent to a typed Key.
+fn translate_key(key: KeyEvent) -> Option<Key> {
     if key.kind != KeyEventKind::Press {
-        return Cow::Borrowed("");
+        return None;
     }
 
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
-            KeyCode::Char('r') => return Cow::Borrowed("ctrl_r"),
-            KeyCode::Char('s') => return Cow::Borrowed("ctrl_s"),
-            KeyCode::Char('d') => return Cow::Borrowed("ctrl_d"),
-            KeyCode::Char('c') => return Cow::Borrowed("q"),
+            KeyCode::Char('r') => return Some(Key::CtrlR),
+            KeyCode::Char('s') => return Some(Key::CtrlS),
+            KeyCode::Char('d') => return Some(Key::CtrlD),
+            KeyCode::Char('c') => return Some(Key::Char('q')),
             _ => {}
         }
     }
 
     match key.code {
-        KeyCode::Esc => Cow::Borrowed("escape"),
-        KeyCode::Enter => Cow::Borrowed("enter"),
-        KeyCode::Char(' ') => Cow::Borrowed("space"),
-        KeyCode::Backspace => Cow::Borrowed("backspace"),
-        KeyCode::Up => Cow::Borrowed("up"),
-        KeyCode::Down => Cow::Borrowed("down"),
-        KeyCode::Left => Cow::Borrowed("left"),
-        KeyCode::Right => Cow::Borrowed("right"),
-        KeyCode::Insert => Cow::Borrowed("insert"),
-        KeyCode::Delete => Cow::Borrowed("delete"),
-        KeyCode::Home => Cow::Borrowed("home"),
-        KeyCode::End => Cow::Borrowed("end"),
-        KeyCode::PageUp => Cow::Borrowed("page_up"),
-        KeyCode::PageDown => Cow::Borrowed("page_down"),
-        KeyCode::Tab => Cow::Borrowed("tab"),
-        KeyCode::BackTab => Cow::Borrowed("shift_tab"),
-        KeyCode::F(n) => Cow::Owned(format!("f{n}")),
-        KeyCode::Char(c) => Cow::Owned(c.to_string()),
-        _ => Cow::Borrowed(""),
+        KeyCode::Esc => Some(Key::Escape),
+        KeyCode::Enter => Some(Key::Enter),
+        KeyCode::Char(' ') => Some(Key::Space),
+        KeyCode::Backspace => Some(Key::Backspace),
+        KeyCode::Up => Some(Key::Up),
+        KeyCode::Down => Some(Key::Down),
+        KeyCode::Left => Some(Key::Left),
+        KeyCode::Right => Some(Key::Right),
+        KeyCode::Insert => Some(Key::Insert),
+        KeyCode::Delete => Some(Key::Delete),
+        KeyCode::Home => Some(Key::Home),
+        KeyCode::End => Some(Key::End),
+        KeyCode::PageUp => Some(Key::PageUp),
+        KeyCode::PageDown => Some(Key::PageDown),
+        KeyCode::Tab => Some(Key::Tab),
+        KeyCode::BackTab => Some(Key::ShiftTab),
+        KeyCode::F(n) => Some(Key::F(n)),
+        KeyCode::Char(c) => Some(Key::Char(c)),
+        _ => None,
     }
 }
 
-/// Translate a crossterm MouseEvent to a mouse event name.
-fn translate_mouse(mouse: MouseEvent) -> Cow<'static, str> {
+/// Translate a crossterm MouseEvent to a typed Key.
+fn translate_mouse(mouse: MouseEvent) -> Key {
     match mouse.kind {
-        MouseEventKind::Down(_) => Cow::Borrowed("mouse_click"),
-        MouseEventKind::Up(_) => Cow::Borrowed("mouse_release"),
-        MouseEventKind::Drag(_) => Cow::Borrowed("mouse_drag"),
-        MouseEventKind::ScrollUp => Cow::Borrowed("mouse_scroll_up"),
-        MouseEventKind::ScrollDown => Cow::Borrowed("mouse_scroll_down"),
-        _ => Cow::Borrowed(""),
+        MouseEventKind::Down(_) => Key::MouseClick,
+        MouseEventKind::Up(_) => Key::MouseRelease,
+        MouseEventKind::Drag(_) => Key::MouseDrag,
+        MouseEventKind::ScrollUp => Key::MouseScrollUp,
+        MouseEventKind::ScrollDown => Key::MouseScrollDown,
+        _ => Key::MouseClick,
     }
 }
 
@@ -91,7 +133,7 @@ mod tests {
     fn translate_escape_key() {
         assert_eq!(
             translate_key(make_key(KeyCode::Esc, KeyModifiers::NONE)),
-            "escape"
+            Some(Key::Escape)
         );
     }
 
@@ -99,19 +141,19 @@ mod tests {
     fn translate_arrow_keys() {
         assert_eq!(
             translate_key(make_key(KeyCode::Up, KeyModifiers::NONE)),
-            "up"
+            Some(Key::Up)
         );
         assert_eq!(
             translate_key(make_key(KeyCode::Down, KeyModifiers::NONE)),
-            "down"
+            Some(Key::Down)
         );
         assert_eq!(
             translate_key(make_key(KeyCode::Left, KeyModifiers::NONE)),
-            "left"
+            Some(Key::Left)
         );
         assert_eq!(
             translate_key(make_key(KeyCode::Right, KeyModifiers::NONE)),
-            "right"
+            Some(Key::Right)
         );
     }
 
@@ -119,11 +161,11 @@ mod tests {
     fn translate_function_keys() {
         assert_eq!(
             translate_key(make_key(KeyCode::F(1), KeyModifiers::NONE)),
-            "f1"
+            Some(Key::F(1))
         );
         assert_eq!(
             translate_key(make_key(KeyCode::F(12), KeyModifiers::NONE)),
-            "f12"
+            Some(Key::F(12))
         );
     }
 
@@ -131,7 +173,15 @@ mod tests {
     fn translate_ctrl_r() {
         assert_eq!(
             translate_key(make_key(KeyCode::Char('r'), KeyModifiers::CONTROL)),
-            "ctrl_r"
+            Some(Key::CtrlR)
+        );
+    }
+
+    #[test]
+    fn translate_ctrl_c_maps_to_quit() {
+        assert_eq!(
+            translate_key(make_key(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Some(Key::Char('q'))
         );
     }
 
@@ -139,11 +189,11 @@ mod tests {
     fn translate_regular_char() {
         assert_eq!(
             translate_key(make_key(KeyCode::Char('q'), KeyModifiers::NONE)),
-            "q"
+            Some(Key::Char('q'))
         );
         assert_eq!(
             translate_key(make_key(KeyCode::Char('1'), KeyModifiers::NONE)),
-            "1"
+            Some(Key::Char('1'))
         );
     }
 
@@ -151,7 +201,7 @@ mod tests {
     fn translate_backspace() {
         assert_eq!(
             translate_key(make_key(KeyCode::Backspace, KeyModifiers::NONE)),
-            "backspace"
+            Some(Key::Backspace)
         );
     }
 }

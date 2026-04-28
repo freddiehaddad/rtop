@@ -1,18 +1,19 @@
 use crate::{
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
+    input::Key,
     menu,
 };
 
 /// Handle input while the main menu overlay is visible.
-pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
-    match key {
-        "q" => return HandleResult::quit(),
-        "escape" | "m" => {
+pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
+    match *key {
+        Key::Char('q') => return HandleResult::quit(),
+        Key::Escape | Key::Char('m') => {
             ctx.overlay.menu_state = MenuState::None;
             ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
         }
-        "up" | "k" | "shift_tab" => {
+        Key::Up | Key::Char('k') | Key::ShiftTab => {
             ctx.overlay.main_menu_selected = if ctx.overlay.main_menu_selected == 0 {
                 2
             } else {
@@ -26,7 +27,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             );
             return HandleResult::synced(menu_out);
         }
-        "down" | "j" | "tab" => {
+        Key::Down | Key::Char('j') | Key::Tab => {
             ctx.overlay.main_menu_selected = (ctx.overlay.main_menu_selected + 1) % 3;
             let menu_out = menu::main_menu::draw_with_selection(
                 ctx.tw,
@@ -36,7 +37,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             );
             return HandleResult::synced(menu_out);
         }
-        "enter" | "space" => {
+        Key::Enter | Key::Space => {
             match ctx.overlay.main_menu_selected {
                 0 => {
                     // Options
@@ -71,7 +72,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                 _ => {}
             }
         }
-        "o" | "f2" => {
+        Key::Char('o') | Key::F(2) => {
             ctx.overlay.options_cat = 0;
             ctx.overlay.options_selected = 0;
             ctx.overlay.options_page = 0;
@@ -88,7 +89,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             ctx.overlay.menu_state = MenuState::Options;
             return HandleResult::raw(menu_out);
         }
-        "h" | "?" | "f1" => {
+        Key::Char('h') | Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::Main;
             ctx.overlay.menu_state = MenuState::Help;

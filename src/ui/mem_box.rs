@@ -9,6 +9,11 @@ use crate::tools;
 
 use super::BoxArea;
 
+/// Extracted settings for the memory box, decoupled from Config.
+pub struct MemBoxSettings {
+    pub show_swap: bool,
+}
+
 /// Draw the memory box into an ANSI string.
 ///
 /// Layout:
@@ -25,7 +30,7 @@ pub fn draw(
     mem: &MemInfo,
     area: &BoxArea,
     theme: &Theme,
-    show_swap: bool,
+    settings: &MemBoxSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -178,7 +183,7 @@ pub fn draw(
     }
 
     // Swap (no blank line, no separate total line — meter shows ratio)
-    if show_swap {
+    if settings.show_swap {
         let swap_used = mem.stats.swap_used;
         let swap_total = mem.stats.swap_total;
         let swap_pct = if swap_total > 0 {
@@ -268,7 +273,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            true,
+            &MemBoxSettings { show_swap: true },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -281,7 +286,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            true,
+            &MemBoxSettings { show_swap: true },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -294,7 +299,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            true,
+            &MemBoxSettings { show_swap: true },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -310,7 +315,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            false,
+            &MemBoxSettings { show_swap: false },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);

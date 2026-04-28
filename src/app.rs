@@ -397,7 +397,9 @@ fn handle_small_terminal(
         state.render.clear_dirty();
     }
 
-    if input::poll(state.poll_timeout_ms()) && input::get().is_some_and(|key| key == "q") {
+    if input::poll(state.poll_timeout_ms())
+        && input::get().is_some_and(|key| key == input::Key::Char('q'))
+    {
         AppCommand::Quit
     } else {
         AppCommand::Continue
@@ -429,7 +431,9 @@ fn handle_waiting_for_snapshot(
         state.render.clear_dirty();
     }
 
-    if input::poll(state.poll_timeout_ms()) && input::get().is_some_and(|key| key == "q") {
+    if input::poll(state.poll_timeout_ms())
+        && input::get().is_some_and(|key| key == input::Key::Char('q'))
+    {
         AppCommand::Quit
     } else {
         AppCommand::Continue
@@ -552,11 +556,11 @@ fn poll_and_handle_input(
         return AppCommand::Continue;
     };
 
-    handle_input_key(key.as_ref(), state, config, terminal, theme, worker, size)
+    handle_input_key(&key, state, config, terminal, theme, worker, size)
 }
 
 fn handle_input_key(
-    key: &str,
+    key: &input::Key,
     state: &mut AppState,
     config: &mut config::Config,
     terminal: &mut term::Terminal,
@@ -564,8 +568,8 @@ fn handle_input_key(
     worker: &runner::CollectionWorker,
     size: TerminalSize,
 ) -> AppCommand {
-    if key.is_empty() || key.starts_with("mouse_") || key == "resize" {
-        if key == "resize" {
+    if key.is_mouse() || *key == input::Key::Resize {
+        if *key == input::Key::Resize {
             state.render.mark_resize();
         }
         return AppCommand::Continue;
@@ -599,7 +603,7 @@ fn handle_input_key(
     }
 }
 
-fn dispatch_handler(key: &str, ctx: &mut InputContext) -> handlers::HandleResult {
+fn dispatch_handler(key: &input::Key, ctx: &mut InputContext) -> handlers::HandleResult {
     match ctx.overlay.menu_state {
         MenuState::Main => handlers::main_menu::handle(key, ctx),
         MenuState::Help => handlers::help::handle(key, ctx),
@@ -758,7 +762,9 @@ pub(crate) fn render_all(
                 &snapshot.mem.info,
                 &area,
                 theme,
-                config.get_bool(bk::SHOW_SWAP),
+                &ui::mem_box::MemBoxSettings {
+                    show_swap: config.get_bool(bk::SHOW_SWAP),
+                },
                 &snapshot.mem.status,
             ));
         }
