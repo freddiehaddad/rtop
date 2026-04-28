@@ -3,7 +3,7 @@ use crate::{
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
-    menu, theme, theme_keys as tc,
+    menu, theme,
 };
 
 /// Handle input in normal (no-menu) mode.
@@ -103,7 +103,9 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             // Reapply theme
             let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
             *ctx.theme = theme::Theme::from_name(&theme_name);
-            let base = format!("{}{}", ctx.theme.c(tc::MAIN_FG), ctx.theme.bg(tc::MAIN_BG),);
+            let base = ctx
+                .theme
+                .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
             *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
             sync_update_ms(ctx);
             *ctx.dirty |= Dirty::FULL;

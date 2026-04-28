@@ -19,7 +19,6 @@ mod tools;
 mod ui;
 
 use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
-use crate::theme_keys as tc;
 use clap::Parser;
 
 fn main() {
@@ -81,10 +80,10 @@ fn main() {
     };
 
     // Init theme
-    let mut theme = theme::Theme::new();
+    let mut theme = theme::Theme::from_name(config.get_string(sk::COLOR_THEME));
 
     // Set terminal base colors from theme
-    let base_colors = format!("{}{}", theme.c(tc::MAIN_FG), theme.bg(tc::MAIN_BG));
+    let base_colors = theme.base_style(config.get_bool(bk::THEME_BACKGROUND));
     let _ = terminal.write_raw(&base_colors);
 
     app::run(&mut config, &mut terminal, &mut theme);

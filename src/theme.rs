@@ -142,6 +142,11 @@ impl Theme {
             if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
                 continue;
             }
+            if key == "main_bg" && value.is_empty() {
+                self.rgbs.remove(key);
+                self.colors.insert(key.to_string(), String::new());
+                continue;
+            }
             if value.is_empty() {
                 continue;
             }
@@ -287,6 +292,23 @@ impl Theme {
     /// Converts the foreground escape (38;2;r;g;b) to background (48;2;r;g;b).
     pub fn bg(&self, name: &str) -> String {
         self.c(name).replace("38;2", "48;2")
+    }
+
+    /// Base terminal style for normal text and background rendering.
+    pub fn base_style(&self, theme_background: bool) -> String {
+        let bg = if theme_background {
+            self.bg("main_bg")
+        } else {
+            "\x1b[49m".to_string()
+        };
+        format!("{}{}", self.c("main_fg"), bg)
+    }
+
+    /// Prefix output with the base style and make hard resets return to it.
+    pub fn style_output(&self, output: &str, theme_background: bool) -> String {
+        let base = self.base_style(theme_background);
+        let reset = format!("\x1b[0m{base}");
+        format!("{base}{}", output.replace("\x1b[0m", &reset))
     }
 
     /// Get a gradient array by name (101 elements, indices 0–100).
@@ -588,6 +610,50 @@ mod tests {
         let theme = Theme::new();
         let color = theme.c(tc::MAIN_FG);
         assert!(color.starts_with("\x1b[38;2;"));
+    }
+
+    #[test]
+    fn base_style_honors_theme_background() {
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[main_fg]="#111111"
+            theme[main_bg]="#f6f5f4"
+            "##,
+        );
+
+        assert!(theme.base_style(true).contains("\x1b[48;2;246;245;244m"));
+        assert!(theme.base_style(false).contains("\x1b[49m"));
+        assert!(!theme.base_style(false).contains("\x1b[48;2;246;245;244m"));
+    }
+
+    #[test]
+    fn style_output_reapplies_base_after_reset() {
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[main_fg]="#111111"
+            theme[main_bg]="#f6f5f4"
+            "##,
+        );
+        let base = theme.base_style(true);
+        let styled = theme.style_output("left\x1b[0mright", true);
+
+        assert!(styled.starts_with(&base));
+        assert!(styled.contains(&format!("\x1b[0m{base}right")));
+    }
+
+    #[test]
+    fn empty_theme_main_bg_keeps_terminal_background() {
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[main_bg]=""
+            "##,
+        );
+
+        assert_eq!(theme.bg(tc::MAIN_BG), "");
+        assert!(!theme.base_style(true).contains("\x1b[48;2;0;0;0m"));
     }
 
     #[test]

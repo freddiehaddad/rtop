@@ -2,7 +2,7 @@ use crate::{
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
-    menu, theme, theme_keys as tc,
+    menu, theme,
 };
 
 /// Handle input while the options overlay is visible.
@@ -122,6 +122,12 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                     menu::options_menu::OptKind::Bool => {
                         ctx.config.flip(opt_key);
                         *ctx.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
+                        if opt_key == bk::THEME_BACKGROUND {
+                            extra_ops.push(TerminalOp::Raw(
+                                ctx.theme
+                                    .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND)),
+                            ));
+                        }
                     }
                     menu::options_menu::OptKind::Int => {
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
@@ -135,11 +141,9 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                         if opt_key == sk::COLOR_THEME {
                             let name = ctx.config.get_string(sk::COLOR_THEME).to_string();
                             *ctx.theme = theme::Theme::from_name(&name);
-                            let base = format!(
-                                "{}{}",
-                                ctx.theme.c(tc::MAIN_FG),
-                                ctx.theme.bg(tc::MAIN_BG),
-                            );
+                            let base = ctx
+                                .theme
+                                .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
                             extra_ops.push(TerminalOp::Raw(base));
                         }
                     }

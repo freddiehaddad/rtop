@@ -24,14 +24,17 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         pull_latest_snapshot(&mut state, config, &worker);
 
         if is_too_small(size) {
-            if handle_small_terminal(&mut state, terminal, size) == AppCommand::Quit {
+            if handle_small_terminal(&mut state, config, terminal, theme, size) == AppCommand::Quit
+            {
                 break;
             }
             continue;
         }
 
         if state.current_snapshot.is_none() {
-            if handle_waiting_for_snapshot(&mut state, terminal, size) == AppCommand::Quit {
+            if handle_waiting_for_snapshot(&mut state, config, terminal, theme, size)
+                == AppCommand::Quit
+            {
                 break;
             }
             continue;
@@ -272,11 +275,14 @@ fn render_too_small(size: TerminalSize) -> String {
 
 fn handle_small_terminal(
     state: &mut AppState,
+    config: &config::Config,
     terminal: &mut term::Terminal,
+    theme: &theme::Theme,
     size: TerminalSize,
 ) -> AppCommand {
     if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
-        let _ = terminal.write_synced(&render_too_small(size));
+        let output = style_terminal_output(&render_too_small(size), config, theme);
+        let _ = terminal.write_synced(&output);
         state.clear_dirty();
     }
 
@@ -296,11 +302,14 @@ fn render_waiting_for_snapshot(size: TerminalSize) -> String {
 
 fn handle_waiting_for_snapshot(
     state: &mut AppState,
+    config: &config::Config,
     terminal: &mut term::Terminal,
+    theme: &theme::Theme,
     size: TerminalSize,
 ) -> AppCommand {
     if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
-        let _ = terminal.write_synced(&render_waiting_for_snapshot(size));
+        let output = style_terminal_output(&render_waiting_for_snapshot(size), config, theme);
+        let _ = terminal.write_synced(&output);
         state.clear_dirty();
     }
 
@@ -373,6 +382,7 @@ fn write_dirty_frame(
     theme: &theme::Theme,
 ) {
     let output = render_dirty_frame(state, config, theme);
+    let output = style_terminal_output(&output, config, theme);
     if let Err(e) = terminal.write_synced(&output) {
         tracing::debug!("terminal write failed: {e}");
     }
@@ -479,9 +489,10 @@ fn handle_input_key(
         th: size.height,
     };
     let result = dispatch_handler(key, &mut ctx);
-    execute_terminal_ops(terminal, &result);
+    execute_terminal_ops(terminal, ctx.config, ctx.theme, &result);
     if result.redraw_overlay {
         let out = handlers::redraw_after_overlay(&mut ctx);
+        let out = style_terminal_output(&out, ctx.config, ctx.theme);
         let _ = terminal.write_synced(&out);
     }
 
@@ -502,17 +513,31 @@ fn dispatch_handler(key: &str, ctx: &mut InputContext) -> handlers::HandleResult
     }
 }
 
-fn execute_terminal_ops(terminal: &mut term::Terminal, result: &handlers::HandleResult) {
+fn execute_terminal_ops(
+    terminal: &mut term::Terminal,
+    config: &config::Config,
+    theme: &theme::Theme,
+    result: &handlers::HandleResult,
+) {
     for op in &result.ops {
-        match op {
-            handlers::TerminalOp::Raw(s) => {
-                let _ = terminal.write_raw(s);
+        let styled = match op {
+            handlers::TerminalOp::Raw(s) | handlers::TerminalOp::Synced(s) => {
+                style_terminal_output(s, config, theme)
             }
-            handlers::TerminalOp::Synced(s) => {
-                let _ = terminal.write_synced(s);
+        };
+        match op {
+            handlers::TerminalOp::Raw(_) => {
+                let _ = terminal.write_raw(&styled);
+            }
+            handlers::TerminalOp::Synced(_) => {
+                let _ = terminal.write_synced(&styled);
             }
         }
     }
+}
+
+fn style_terminal_output(output: &str, config: &config::Config, theme: &theme::Theme) -> String {
+    theme.style_output(output, config.get_bool(bk::THEME_BACKGROUND))
 }
 
 fn save_config_on_exit(config: &config::Config) {
