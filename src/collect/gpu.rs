@@ -3,13 +3,14 @@ use std::ffi::{c_char, c_void};
 
 use super::{
     Collector,
-    win::{OwnedLibrary, percent_u64},
+    win::{OwnedLibrary, percent_u64, string_from_c_buf},
 };
 
 const MAX_HISTORY: usize = 300;
 const NVML_SUCCESS: u32 = 0;
 const NVML_TEMPERATURE_GPU: u32 = 0;
 const NVML_CLOCK_GRAPHICS: u32 = 0;
+const MAX_NVML_DEVICES: u32 = 32;
 
 #[repr(C)]
 struct NvmlUtilization {
@@ -71,77 +72,54 @@ impl NvmlFunctions {
         )?;
         let handle = library.get();
 
-        // SAFETY: GetProcAddress returns function pointers from the loaded DLL.
-        // Each pointer is non-null (checked via Option unwrap in load_fn) and
-        // transmuted to the matching NVML function signature. The NVML C API
-        // uses the C calling convention, matching the declared type aliases.
-        unsafe {
-            let load_fn = |name: &[u8]| -> Option<unsafe extern "C" fn()> {
-                let proc = GetProcAddress(handle, PCSTR(name.as_ptr()));
-                Some(std::mem::transmute::<
-                    unsafe extern "system" fn() -> isize,
-                    unsafe extern "C" fn(),
-                >(proc?))
-            };
-
-            macro_rules! nvml_fn {
-                ($name:expr) => {{ load_fn(concat!($name, "\0").as_bytes())? }};
-            }
-
-            Some(Self {
-                _library: library,
-                init: std::mem::transmute::<unsafe extern "C" fn(), NvmlInitV2>(nvml_fn!(
-                    "nvmlInit_v2"
-                )),
-                shutdown: std::mem::transmute::<unsafe extern "C" fn(), NvmlShutdownFn>(nvml_fn!(
-                    "nvmlShutdown"
-                )),
-                device_get_count: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetCountV2>(
-                    nvml_fn!("nvmlDeviceGetCount_v2"),
-                ),
-                device_get_handle_by_index: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetHandleByIndexV2,
-                >(nvml_fn!(
-                    "nvmlDeviceGetHandleByIndex_v2"
-                )),
-                device_get_name: std::mem::transmute::<unsafe extern "C" fn(), NvmlDeviceGetName>(
-                    nvml_fn!("nvmlDeviceGetName"),
-                ),
-                device_get_utilization_rates: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetUtilizationRates,
-                >(nvml_fn!(
-                    "nvmlDeviceGetUtilizationRates"
-                )),
-                device_get_temperature: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetTemperature,
-                >(nvml_fn!("nvmlDeviceGetTemperature")),
-                device_get_memory_info: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetMemoryInfo,
-                >(nvml_fn!("nvmlDeviceGetMemoryInfo")),
-                device_get_power_usage: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetPowerUsage,
-                >(nvml_fn!("nvmlDeviceGetPowerUsage")),
-                device_get_clock_info: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetClockInfo,
-                >(nvml_fn!("nvmlDeviceGetClockInfo")),
-                device_get_max_clock_info: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetMaxClockInfo,
-                >(nvml_fn!("nvmlDeviceGetMaxClockInfo")),
-                device_get_power_management_limit: std::mem::transmute::<
-                    unsafe extern "C" fn(),
-                    NvmlDeviceGetPowerManagementLimit,
-                >(nvml_fn!(
-                    "nvmlDeviceGetPowerManagementLimit"
-                )),
-            })
+        macro_rules! load_nvml_fn {
+            ($name:literal, $ty:ty) => {{
+                // SAFETY: handle is an owned, loaded nvml.dll module and the
+                // symbol name is a static null-terminated byte string.
+                let proc = unsafe { GetProcAddress(handle, PCSTR(concat!($name, "\0").as_ptr())) }?;
+                // SAFETY: GetProcAddress returned a non-null address from the
+                // loaded nvml.dll. The requested symbol name and target type are
+                // paired at this call site with the documented NVML signature.
+                unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, $ty>(proc) }
+            }};
         }
+
+        Some(Self {
+            _library: library,
+            init: load_nvml_fn!("nvmlInit_v2", NvmlInitV2),
+            shutdown: load_nvml_fn!("nvmlShutdown", NvmlShutdownFn),
+            device_get_count: load_nvml_fn!("nvmlDeviceGetCount_v2", NvmlDeviceGetCountV2),
+            device_get_handle_by_index: load_nvml_fn!(
+                "nvmlDeviceGetHandleByIndex_v2",
+                NvmlDeviceGetHandleByIndexV2
+            ),
+            device_get_name: load_nvml_fn!("nvmlDeviceGetName", NvmlDeviceGetName),
+            device_get_utilization_rates: load_nvml_fn!(
+                "nvmlDeviceGetUtilizationRates",
+                NvmlDeviceGetUtilizationRates
+            ),
+            device_get_temperature: load_nvml_fn!(
+                "nvmlDeviceGetTemperature",
+                NvmlDeviceGetTemperature
+            ),
+            device_get_memory_info: load_nvml_fn!(
+                "nvmlDeviceGetMemoryInfo",
+                NvmlDeviceGetMemoryInfo
+            ),
+            device_get_power_usage: load_nvml_fn!(
+                "nvmlDeviceGetPowerUsage",
+                NvmlDeviceGetPowerUsage
+            ),
+            device_get_clock_info: load_nvml_fn!("nvmlDeviceGetClockInfo", NvmlDeviceGetClockInfo),
+            device_get_max_clock_info: load_nvml_fn!(
+                "nvmlDeviceGetMaxClockInfo",
+                NvmlDeviceGetMaxClockInfo
+            ),
+            device_get_power_management_limit: load_nvml_fn!(
+                "nvmlDeviceGetPowerManagementLimit",
+                NvmlDeviceGetPowerManagementLimit
+            ),
+        })
     }
 }
 
@@ -190,14 +168,16 @@ impl GpuCollector {
         if ret != NVML_SUCCESS {
             tracing::warn!("nvmlDeviceGetCount_v2 failed with error {ret}");
             // SAFETY: nvml.init succeeded, so shut NVML down before unloading
-            // the library via OwnedLibrary.
+            // the library via OwnedLibrary. There is no recovery path if
+            // shutdown itself fails during initialization cleanup.
             unsafe {
-                (nvml.shutdown)();
+                let _ = (nvml.shutdown)();
             }
             self.nvml = None;
             return;
         }
 
+        let count = count.min(MAX_NVML_DEVICES);
         self.device_count = count;
         self.devices = Vec::with_capacity(count as usize);
         self.gpus = Vec::with_capacity(count as usize);
@@ -207,7 +187,7 @@ impl GpuCollector {
             // SAFETY: i is within 0..count as reported by nvmlDeviceGetCount.
             // device is a valid pointer to a stack-allocated NvmlDevice.
             let ret = unsafe { (nvml.device_get_handle_by_index)(i, &mut device) };
-            if ret != NVML_SUCCESS {
+            if ret != NVML_SUCCESS || device.is_null() {
                 continue;
             }
             self.devices.push(device);
@@ -220,14 +200,14 @@ impl GpuCollector {
             // name_buf is a stack-allocated 256-byte array, matching the length
             // argument passed to the function.
             let ret = unsafe {
-                (nvml.device_get_name)(device, name_buf.as_mut_ptr() as *mut c_char, 256)
+                (nvml.device_get_name)(
+                    device,
+                    name_buf.as_mut_ptr() as *mut c_char,
+                    name_buf.len() as u32,
+                )
             };
             if ret == NVML_SUCCESS {
-                // SAFETY: name_buf was written by nvmlDeviceGetName which
-                // null-terminates the output, and the buffer is stack-local
-                // so the pointer remains valid for the duration of this call.
-                let name = unsafe { std::ffi::CStr::from_ptr(name_buf.as_ptr() as *const c_char) };
-                info.name = name.to_string_lossy().into_owned();
+                info.name = string_from_c_buf(&name_buf);
             }
 
             // Get power management limit
@@ -274,7 +254,7 @@ impl GpuCollector {
             // util is a valid pointer to a stack-allocated repr(C) struct.
             let ret = unsafe { (nvml.device_get_utilization_rates)(device, &mut util) };
             if ret == NVML_SUCCESS {
-                let pct = util.gpu as i64;
+                let pct = percent_0_to_100(util.gpu);
                 let totals = &mut gpu.gpu_percent.utilization;
                 totals.push_back(pct);
                 if totals.len() > MAX_HISTORY {
@@ -306,8 +286,8 @@ impl GpuCollector {
             let ret = unsafe { (nvml.device_get_memory_info)(device, &mut mem) };
             if ret == NVML_SUCCESS {
                 gpu.mem_total = mem.total;
-                gpu.mem_used = mem.used;
-                let vram_pct = percent_u64(mem.used, mem.total).min(100);
+                gpu.mem_used = mem.used.min(mem.total);
+                let vram_pct = percent_u64(gpu.mem_used, mem.total).min(100);
                 let vram_hist = &mut gpu.gpu_percent.vram;
                 vram_hist.push_back(vram_pct);
                 if vram_hist.len() > MAX_HISTORY {
@@ -326,11 +306,7 @@ impl GpuCollector {
             let ret = unsafe { (nvml.device_get_power_usage)(device, &mut power_mw) };
             if ret == NVML_SUCCESS {
                 gpu.pwr_usage = power_mw as i64;
-                let pwr_pct = if gpu.pwr_max_usage > 0 {
-                    percent_u64(power_mw as u64, gpu.pwr_max_usage as u64).min(100)
-                } else {
-                    0
-                };
+                let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage);
                 let pwr_hist = &mut gpu.gpu_percent.power;
                 pwr_hist.push_back(pwr_pct);
                 if pwr_hist.len() > MAX_HISTORY {
@@ -355,9 +331,10 @@ impl GpuCollector {
         if let Some(nvml) = &self.nvml {
             // SAFETY: nvml.shutdown was loaded from nvml.dll and matches the
             // nvmlShutdown signature. Called once during cleanup while the DLL
-            // handle is still valid.
+            // handle is still valid. Shutdown failures cannot be recovered
+            // during cleanup, so the status is intentionally ignored.
             unsafe {
-                (nvml.shutdown)();
+                let _ = (nvml.shutdown)();
             }
         }
         self.nvml = None;
@@ -380,6 +357,17 @@ impl Drop for GpuCollector {
     fn drop(&mut self) {
         self.shutdown();
     }
+}
+
+fn percent_0_to_100(value: u32) -> i64 {
+    value.min(100) as i64
+}
+
+fn power_percent(power_mw: u32, max_power_mw: i64) -> i64 {
+    if max_power_mw <= 0 {
+        return 0;
+    }
+    percent_u64(power_mw as u64, max_power_mw as u64).min(100)
 }
 
 #[cfg(test)]
@@ -408,5 +396,19 @@ mod tests {
             collector.status,
             crate::collect::CollectStatus::Failed("no NVML")
         );
+    }
+
+    #[test]
+    fn percent_0_to_100_clamps_utilization() {
+        assert_eq!(percent_0_to_100(42), 42);
+        assert_eq!(percent_0_to_100(150), 100);
+    }
+
+    #[test]
+    fn power_percent_requires_positive_limit() {
+        assert_eq!(power_percent(50, 0), 0);
+        assert_eq!(power_percent(50, -1), 0);
+        assert_eq!(power_percent(50, 100), 50);
+        assert_eq!(power_percent(200, 100), 100);
     }
 }

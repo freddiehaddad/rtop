@@ -1,10 +1,16 @@
 use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo, ProcState};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::c_void,
+    mem::{MaybeUninit, size_of},
+    slice,
+};
 
 use super::{
     Collector,
-    win::{CounterDelta, OwnedHandle, counter_delta},
+    win::{CounterDelta, OwnedHandle, checked_u32_size, counter_delta, exact_byte_count},
 };
+use windows::Win32::Foundation::HANDLE;
 
 /// Canonical sort options for the process list.
 /// Used by app.rs keybinds, options_menu.rs browsable values, and display sorting.
@@ -18,6 +24,76 @@ pub const SORT_OPTIONS: &[&str] = &[
     "cpu lazy",
     "cpu direct",
 ];
+
+const TOKEN_QUERY_ACCESS: u32 = 0x0008;
+const PROCESS_BASIC_INFORMATION_CLASS: u32 = 0;
+const MAX_REMOTE_COMMAND_LINE_BYTES: usize = u16::MAX as usize - 1;
+
+#[cfg(target_pointer_width = "64")]
+const PEB_PROCESS_PARAMETERS_OFFSET_X64: usize = 0x20;
+#[cfg(target_pointer_width = "64")]
+const RTL_USER_PROCESS_PARAMETERS_COMMAND_LINE_OFFSET_X64: usize = 0x70;
+
+#[repr(C)]
+struct ProcessBasicInformation {
+    reserved1: usize,
+    peb_base_address: usize,
+    reserved2: [usize; 2],
+    unique_process_id: usize,
+    reserved3: usize,
+}
+
+#[cfg(target_pointer_width = "64")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct RemoteUnicodeString64 {
+    length: u16,
+    maximum_length: u16,
+    padding: u32,
+    buffer: u64,
+}
+
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(size_of::<RemoteUnicodeString64>() == 16);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CmdlineReadError {
+    #[cfg(not(target_pointer_width = "64"))]
+    UnsupportedArchitecture,
+    OpenProcess,
+    QueryBasicInfo,
+    InvalidPointer,
+    IntegerOverflow,
+    ShortRead,
+    InvalidUnicodeString,
+}
+
+#[link(name = "advapi32")]
+unsafe extern "system" {
+    fn OpenProcessToken(process: HANDLE, access: u32, token: *mut HANDLE) -> i32;
+}
+
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn ReadProcessMemory(
+        process: HANDLE,
+        base: usize,
+        buffer: *mut c_void,
+        size: usize,
+        bytes_read: *mut usize,
+    ) -> i32;
+}
+
+#[link(name = "ntdll")]
+unsafe extern "system" {
+    fn NtQueryInformationProcess(
+        process: HANDLE,
+        info_class: u32,
+        info: *mut c_void,
+        info_length: u32,
+        return_length: *mut u32,
+    ) -> i32;
+}
 
 /// Pre-parsed process filter for efficient per-process matching.
 pub enum ParsedFilter {
@@ -287,25 +363,127 @@ fn get_process_details(
     (cpu_p, cpu_time, mem, priority, user, cmd)
 }
 
+fn query_process_basic_info(handle: HANDLE) -> Result<ProcessBasicInformation, CmdlineReadError> {
+    let mut pbi = MaybeUninit::<ProcessBasicInformation>::uninit();
+    let mut ret_len: u32 = 0;
+    let info_len = checked_u32_size(size_of::<ProcessBasicInformation>())
+        .ok_or(CmdlineReadError::IntegerOverflow)?;
+
+    // SAFETY: pbi points to writable storage for ProcessBasicInformation and
+    // info_len matches that storage size. The return status and byte count are
+    // checked before the structure is assumed initialized.
+    let status = unsafe {
+        NtQueryInformationProcess(
+            handle,
+            PROCESS_BASIC_INFORMATION_CLASS,
+            pbi.as_mut_ptr().cast::<c_void>(),
+            info_len,
+            &mut ret_len,
+        )
+    };
+    if status != 0 || ret_len as usize != size_of::<ProcessBasicInformation>() {
+        return Err(CmdlineReadError::QueryBasicInfo);
+    }
+
+    // SAFETY: NtQueryInformationProcess succeeded and reported that it wrote
+    // exactly a full ProcessBasicInformation record.
+    let pbi = unsafe { pbi.assume_init() };
+    if pbi.peb_base_address == 0 {
+        return Err(CmdlineReadError::InvalidPointer);
+    }
+    Ok(pbi)
+}
+
+fn read_process_memory_exact(
+    handle: HANDLE,
+    base: usize,
+    buffer: &mut [u8],
+) -> Result<(), CmdlineReadError> {
+    if base == 0 || buffer.is_empty() {
+        return Err(CmdlineReadError::InvalidPointer);
+    }
+
+    let mut bytes_read = 0usize;
+    // SAFETY: buffer is a valid local writable byte slice. The remote address
+    // belongs to the target process handle; ReadProcessMemory validates that
+    // address and reports how many bytes it copied.
+    let ok = unsafe {
+        ReadProcessMemory(
+            handle,
+            base,
+            buffer.as_mut_ptr().cast::<c_void>(),
+            buffer.len(),
+            &mut bytes_read,
+        )
+    };
+    if ok == 0 || !exact_byte_count(bytes_read, buffer.len()) {
+        return Err(CmdlineReadError::ShortRead);
+    }
+
+    Ok(())
+}
+
+unsafe fn read_remote_copy<T: Copy>(handle: HANDLE, base: usize) -> Result<T, CmdlineReadError> {
+    let mut value = MaybeUninit::<T>::uninit();
+    // SAFETY: the byte slice covers only the uninitialized local storage for T.
+    // The caller guarantees T is an integer-only FFI layout where any bit
+    // pattern is valid before assume_init below.
+    let bytes =
+        unsafe { slice::from_raw_parts_mut(value.as_mut_ptr().cast::<u8>(), size_of::<T>()) };
+    read_process_memory_exact(handle, base, bytes)?;
+    // SAFETY: read_process_memory_exact wrote exactly size_of::<T>() bytes into
+    // value, and the caller constrained T to an all-bit-pattern-valid layout.
+    Ok(unsafe { value.assume_init() })
+}
+
+fn read_remote_utf16(
+    handle: HANDLE,
+    base: usize,
+    units: usize,
+) -> Result<Vec<u16>, CmdlineReadError> {
+    if units == 0 {
+        return Err(CmdlineReadError::InvalidUnicodeString);
+    }
+
+    let mut buf = vec![0u16; units];
+    // SAFETY: the byte slice covers the initialized local UTF-16 buffer. The
+    // byte length is units * size_of::<u16>(), which cannot overflow because it
+    // was validated from a u16 byte count.
+    let bytes = unsafe {
+        slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), units * size_of::<u16>())
+    };
+    read_process_memory_exact(handle, base, bytes)?;
+    Ok(buf)
+}
+
+fn command_line_utf16_units(
+    length: u16,
+    maximum_length: u16,
+    buffer: usize,
+) -> Result<usize, CmdlineReadError> {
+    let length = usize::from(length);
+    let maximum_length = usize::from(maximum_length);
+    if buffer == 0
+        || length == 0
+        || length % size_of::<u16>() != 0
+        || length > maximum_length
+        || length > MAX_REMOTE_COMMAND_LINE_BYTES
+    {
+        return Err(CmdlineReadError::InvalidUnicodeString);
+    }
+    Ok(length / size_of::<u16>())
+}
+
 fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
     use windows::Win32::Foundation::*;
     use windows::Win32::Security::*;
 
-    // SAFETY: The process handle is valid (passed from caller). Token handle
-    // lifetime is scoped to this function and closed by OwnedHandle. Buffer
-    // size is queried first, then allocated accordingly. TOKEN_USER is cast
-    // from a buffer that was filled by GetTokenInformation with verified size.
+    // SAFETY: The process handle is valid (passed from caller). Token and SID
+    // lookups use API-reported buffer sizes before casting or conversion. The
+    // token handle is closed by OwnedHandle on every return path.
     unsafe {
         let mut raw_token = HANDLE::default();
-        // SAFETY: FFI declaration for advapi32 OpenProcessToken; signature
-        // matches the Windows API with a process handle, access mask, and
-        // output token handle pointer.
-        #[link(name = "advapi32")]
-        unsafe extern "system" {
-            fn OpenProcessToken(process: HANDLE, access: u32, token: *mut HANDLE) -> i32;
-        }
-
-        if OpenProcessToken(handle, 0x0008 /* TOKEN_QUERY */, &mut raw_token) == 0 {
+        if OpenProcessToken(handle, TOKEN_QUERY_ACCESS, &mut raw_token) == 0 {
             return String::new();
         }
         let Some(token) = OwnedHandle::new(raw_token) else {
@@ -315,7 +493,7 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         let mut size = 0u32;
         let _ = GetTokenInformation(token.get(), TokenUser, None, 0, &mut size);
 
-        if size == 0 {
+        if (size as usize) < size_of::<TOKEN_USER>() {
             return String::new();
         }
 
@@ -331,28 +509,50 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         {
             return String::new();
         }
+        if (size as usize) > buffer.len() || (size as usize) < size_of::<TOKEN_USER>() {
+            return String::new();
+        }
 
         let token_user = &*(buffer.as_ptr() as *const TOKEN_USER);
         let sid = token_user.User.Sid;
+        if sid.is_invalid() {
+            return String::new();
+        }
 
-        let mut name_buf = [0u16; 256];
-        let mut domain_buf = [0u16; 256];
-        let mut name_len = name_buf.len() as u32;
-        let mut domain_len = domain_buf.len() as u32;
+        let mut name_len = 0u32;
+        let mut domain_len = 0u32;
         let mut sid_type = SID_NAME_USE::default();
+        let _ = LookupAccountSidW(
+            None,
+            sid,
+            None,
+            &mut name_len,
+            None,
+            &mut domain_len,
+            &mut sid_type,
+        );
+        if name_len == 0 {
+            return String::new();
+        }
+
+        let mut name_buf = vec![0u16; name_len as usize];
+        let mut domain_buf = vec![0u16; domain_len.max(1) as usize];
+        let mut name_capacity = name_buf.len() as u32;
+        let mut domain_capacity = domain_buf.len() as u32;
 
         if LookupAccountSidW(
             None,
             sid,
             Some(windows::core::PWSTR(name_buf.as_mut_ptr())),
-            &mut name_len,
+            &mut name_capacity,
             Some(windows::core::PWSTR(domain_buf.as_mut_ptr())),
-            &mut domain_len,
+            &mut domain_capacity,
             &mut sid_type,
         )
         .is_ok()
         {
-            return String::from_utf16_lossy(&name_buf[..name_len as usize]);
+            let name_len = (name_capacity as usize).min(name_buf.len());
+            return String::from_utf16_lossy(&name_buf[..name_len]);
         }
     }
     String::new()
@@ -361,137 +561,52 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
 /// Read the full command line of a process via NtQueryInformationProcess.
 /// Returns empty string if access is denied or the process is protected.
 fn get_process_cmdline(pid: u32) -> String {
-    use windows::Win32::Foundation::*;
+    try_get_process_cmdline(pid).unwrap_or_default()
+}
+
+#[cfg(target_pointer_width = "64")]
+fn try_get_process_cmdline(pid: u32) -> Result<String, CmdlineReadError> {
     use windows::Win32::System::Threading::*;
 
-    #[repr(C)]
-    struct ProcessBasicInformation {
-        reserved1: usize,
-        peb_base_address: usize,
-        reserved2: [usize; 2],
-        unique_process_id: usize,
-        reserved3: usize,
+    // SAFETY: OpenProcess is called with query/read rights for a PID provided by
+    // process enumeration. The returned handle is checked before use and owned
+    // by OwnedHandle.
+    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
+        .ok()
+        .and_then(OwnedHandle::new)
+        .ok_or(CmdlineReadError::OpenProcess)?;
+
+    let pbi = query_process_basic_info(handle.get())?;
+    let params_ptr_addr = pbi
+        .peb_base_address
+        .checked_add(PEB_PROCESS_PARAMETERS_OFFSET_X64)
+        .ok_or(CmdlineReadError::IntegerOverflow)?;
+    // SAFETY: usize is an integer pointer-sized value; every bit pattern is
+    // valid. read_remote_copy verifies the exact byte count before returning.
+    let params_ptr: usize = unsafe { read_remote_copy(handle.get(), params_ptr_addr)? };
+    if params_ptr == 0 {
+        return Err(CmdlineReadError::InvalidPointer);
     }
 
-    // SAFETY: FFI declaration for ntdll NtQueryInformationProcess; signature
-    // matches the NT API with correctly typed parameters.
-    #[link(name = "ntdll")]
-    unsafe extern "system" {
-        fn NtQueryInformationProcess(
-            process: HANDLE,
-            info_class: u32,
-            info: *mut std::ffi::c_void,
-            info_length: u32,
-            return_length: *mut u32,
-        ) -> i32;
-    }
+    let cmdline_addr = params_ptr
+        .checked_add(RTL_USER_PROCESS_PARAMETERS_COMMAND_LINE_OFFSET_X64)
+        .ok_or(CmdlineReadError::IntegerOverflow)?;
+    // SAFETY: RemoteUnicodeString64 is a repr(C) integer-only mirror of the x64
+    // UNICODE_STRING layout embedded in RTL_USER_PROCESS_PARAMETERS.
+    let cmdline: RemoteUnicodeString64 = unsafe { read_remote_copy(handle.get(), cmdline_addr)? };
 
-    // SAFETY: OpenProcess is called with VM_READ rights; the handle is checked.
-    // NtQueryInformationProcess fills a properly-sized repr(C) struct.
-    // ReadProcessMemory calls pass valid local buffer pointers and check return
-    // values before proceeding. All reads use sizes derived from the target
-    // process's own data structures (PEB offsets for 64-bit Windows). The
-    // handle is closed by OwnedHandle on all exit paths.
-    unsafe {
-        // Need PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
-        let Some(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
-            .ok()
-            .and_then(OwnedHandle::new)
-        else {
-            return String::new();
-        };
+    let char_count = command_line_utf16_units(
+        cmdline.length,
+        cmdline.maximum_length,
+        cmdline.buffer as usize,
+    )?;
+    let cmd_buf = read_remote_utf16(handle.get(), cmdline.buffer as usize, char_count)?;
+    Ok(String::from_utf16_lossy(&cmd_buf).trim().to_string())
+}
 
-        // Get PEB address
-        let mut pbi = std::mem::zeroed::<ProcessBasicInformation>();
-        let mut ret_len: u32 = 0;
-        let status = NtQueryInformationProcess(
-            handle.get(),
-            0, // ProcessBasicInformation
-            &mut pbi as *mut _ as *mut std::ffi::c_void,
-            std::mem::size_of::<ProcessBasicInformation>() as u32,
-            &mut ret_len,
-        );
-        if status != 0 || pbi.peb_base_address == 0 {
-            return String::new();
-        }
-
-        // Read ProcessParameters pointer from PEB (offset 0x20 on 64-bit)
-        let params_ptr_addr = pbi.peb_base_address + 0x20;
-        let mut params_ptr: usize = 0;
-        let mut bytes_read: usize = 0;
-
-        // SAFETY: FFI declaration for kernel32 ReadProcessMemory; signature
-        // matches the Windows API with a process handle, remote address,
-        // local buffer, size, and bytes-read output pointer.
-        #[link(name = "kernel32")]
-        unsafe extern "system" {
-            fn ReadProcessMemory(
-                process: HANDLE,
-                base: usize,
-                buffer: *mut std::ffi::c_void,
-                size: usize,
-                bytes_read: *mut usize,
-            ) -> i32;
-        }
-
-        if ReadProcessMemory(
-            handle.get(),
-            params_ptr_addr,
-            &mut params_ptr as *mut usize as *mut std::ffi::c_void,
-            std::mem::size_of::<usize>(),
-            &mut bytes_read,
-        ) == 0
-        {
-            return String::new();
-        }
-
-        // Read CommandLine UNICODE_STRING from RTL_USER_PROCESS_PARAMETERS
-        // Offset 0x70 on 64-bit: UNICODE_STRING { Length: u16, MaxLength: u16, Pad: u32, Buffer: *mut u16 }
-        let cmdline_offset = params_ptr + 0x70;
-        let mut cmd_length: u16 = 0;
-        if ReadProcessMemory(
-            handle.get(),
-            cmdline_offset,
-            &mut cmd_length as *mut u16 as *mut std::ffi::c_void,
-            2,
-            &mut bytes_read,
-        ) == 0
-        {
-            return String::new();
-        }
-
-        let mut cmd_buffer_ptr: usize = 0;
-        if ReadProcessMemory(
-            handle.get(),
-            cmdline_offset + 8, // skip Length(2) + MaxLength(2) + Pad(4)
-            &mut cmd_buffer_ptr as *mut usize as *mut std::ffi::c_void,
-            std::mem::size_of::<usize>(),
-            &mut bytes_read,
-        ) == 0
-        {
-            return String::new();
-        }
-
-        if cmd_length == 0 || cmd_buffer_ptr == 0 {
-            return String::new();
-        }
-
-        // Read the actual command line string
-        let char_count = (cmd_length as usize) / 2;
-        let mut cmd_buf = vec![0u16; char_count];
-        if ReadProcessMemory(
-            handle.get(),
-            cmd_buffer_ptr,
-            cmd_buf.as_mut_ptr() as *mut std::ffi::c_void,
-            cmd_length as usize,
-            &mut bytes_read,
-        ) == 0
-        {
-            return String::new();
-        }
-
-        String::from_utf16_lossy(&cmd_buf).trim().to_string()
-    }
+#[cfg(not(target_pointer_width = "64"))]
+fn try_get_process_cmdline(_pid: u32) -> Result<String, CmdlineReadError> {
+    Err(CmdlineReadError::UnsupportedArchitecture)
 }
 
 fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
@@ -718,6 +833,31 @@ mod tests {
     #[test]
     fn cpu_percent_zero_after_counter_reset() {
         assert_eq!(cpu_percent_from_times(200, 100, 1.0, 1), 0.0);
+    }
+
+    #[test]
+    fn command_line_utf16_units_accepts_valid_even_length() {
+        assert_eq!(command_line_utf16_units(8, 10, 0x1000), Ok(4));
+    }
+
+    #[test]
+    fn command_line_utf16_units_rejects_invalid_metadata() {
+        assert_eq!(
+            command_line_utf16_units(0, 10, 0x1000),
+            Err(CmdlineReadError::InvalidUnicodeString)
+        );
+        assert_eq!(
+            command_line_utf16_units(7, 10, 0x1000),
+            Err(CmdlineReadError::InvalidUnicodeString)
+        );
+        assert_eq!(
+            command_line_utf16_units(12, 10, 0x1000),
+            Err(CmdlineReadError::InvalidUnicodeString)
+        );
+        assert_eq!(
+            command_line_utf16_units(8, 10, 0),
+            Err(CmdlineReadError::InvalidUnicodeString)
+        );
     }
 
     #[test]

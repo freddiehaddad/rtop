@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use super::{
     Collector,
-    win::{PdhCounter, PdhQuery, percent_u64},
+    win::{PdhCounter, PdhQuery, percent_u64, string_from_utf16_buf},
 };
 
 const MAX_HISTORY: usize = 300;
@@ -56,21 +56,18 @@ impl DiskCollector {
         let previous_disks = std::mem::take(&mut self.data.disks);
         self.data.disks_order.clear();
 
-        // SAFETY: GetLogicalDriveStringsW writes to a stack-allocated u16 buffer
-        // sized to 512 elements. GetDriveTypeW and GetDiskFreeSpaceExW receive
-        // valid null-terminated wide strings from the drive enumeration. Return
-        // values are checked before using the output.
-        unsafe {
-            let mut buf = [0u16; 512];
-            let len = GetLogicalDriveStringsW(Some(&mut buf));
-            if len == 0 {
-                tracing::warn!("Disk: GetLogicalDriveStringsW returned 0");
-                self.status
-                    .downgrade(super::CollectStatus::Failed("drive query failed"));
-                return;
-            }
+        let Some(drives_buf) = logical_drive_strings() else {
+            tracing::warn!("Disk: GetLogicalDriveStringsW returned no drives");
+            self.status
+                .downgrade(super::CollectStatus::Failed("drive query failed"));
+            return;
+        };
+        let drives_str = String::from_utf16_lossy(&drives_buf);
 
-            let drives_str = String::from_utf16_lossy(&buf[..len as usize]);
+        // SAFETY: GetDriveTypeW and GetDiskFreeSpaceExW receive valid
+        // null-terminated wide strings produced from the bounded drive list.
+        // Return values are checked before using output buffers.
+        unsafe {
             for drive in drives_str.split('\0').filter(|s| !s.is_empty()) {
                 let drive_w: Vec<u16> = drive.encode_utf16().chain(std::iter::once(0)).collect();
                 let drive_type = GetDriveTypeW(PCWSTR(drive_w.as_ptr()));
@@ -97,18 +94,20 @@ impl DiskCollector {
 
                     let mut vol_name = [0u16; 256];
                     let mut fs_name = [0u16; 32];
-                    let _ = GetVolumeInformationW(
+                    let fstype = if GetVolumeInformationW(
                         PCWSTR(drive_w.as_ptr()),
                         Some(&mut vol_name),
                         None,
                         None,
                         None,
                         Some(&mut fs_name),
-                    );
-
-                    let fstype = String::from_utf16_lossy(&fs_name)
-                        .trim_end_matches('\0')
-                        .to_string();
+                    )
+                    .is_ok()
+                    {
+                        string_from_utf16_buf(&fs_name)
+                    } else {
+                        String::new()
+                    };
 
                     let name = drive.trim_end_matches('\\').to_string();
 
@@ -232,6 +231,31 @@ impl Collector for DiskCollector {
     fn collect(&mut self) {
         self.collect_impl();
     }
+}
+
+fn logical_drive_strings() -> Option<Vec<u16>> {
+    use windows::Win32::Storage::FileSystem::GetLogicalDriveStringsW;
+
+    let mut buf = [0u16; 512];
+    // SAFETY: buf is a valid writable UTF-16 buffer. The return value is checked
+    // before slicing, and an oversized result is retried with the required size.
+    let len = unsafe { GetLogicalDriveStringsW(Some(&mut buf)) };
+    if len == 0 {
+        return None;
+    }
+    if (len as usize) <= buf.len() {
+        return Some(buf[..len as usize].to_vec());
+    }
+
+    let mut dynamic_buf = vec![0u16; len as usize];
+    // SAFETY: dynamic_buf is allocated to the size requested by the first call.
+    // The copied length is checked against the allocation before slicing.
+    let copied = unsafe { GetLogicalDriveStringsW(Some(&mut dynamic_buf)) };
+    if copied == 0 || (copied as usize) > dynamic_buf.len() {
+        return None;
+    }
+    dynamic_buf.truncate(copied as usize);
+    Some(dynamic_buf)
 }
 
 fn counter_path(drive: &str, counter: &str) -> Vec<u16> {

@@ -3,11 +3,25 @@ use std::collections::VecDeque;
 
 use super::{
     Collector,
-    win::{OwnedRegKey, PdhCounter, PdhQuery, percent_u64},
+    win::{
+        OwnedRegKey, PdhCounter, PdhQuery, checked_u32_size, percent_u64, string_from_utf16_buf,
+    },
 };
 
 /// Maximum number of data points to retain in history deques.
 const MAX_HISTORY: usize = 300;
+const SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION: u32 = 8;
+
+#[repr(C)]
+#[derive(Default, Clone, Copy)]
+struct ProcessorPerfInfo {
+    idle_time: i64,
+    kernel_time: i64,
+    user_time: i64,
+    dpc_time: i64,
+    interrupt_time: i64,
+    interrupt_count: u32,
+}
 
 /// How we collect temperature data.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -108,18 +122,6 @@ impl CpuCollector {
         }
 
         // NtQuerySystemInformation for per-core data
-
-        #[repr(C)]
-        #[derive(Default, Clone, Copy)]
-        struct ProcessorPerfInfo {
-            idle_time: i64,
-            kernel_time: i64,
-            user_time: i64,
-            dpc_time: i64,
-            interrupt_time: i64,
-            interrupt_count: u32,
-        }
-
         // SAFETY: FFI declaration for ntdll NtQuerySystemInformation; signature
         // matches the NT API with correctly sized buffer and return-length pointer.
         #[link(name = "ntdll")]
@@ -182,8 +184,16 @@ impl CpuCollector {
             return;
         }
 
+        let Some(buf_size) = core_count
+            .checked_mul(std::mem::size_of::<ProcessorPerfInfo>())
+            .and_then(checked_u32_size)
+        else {
+            self.status
+                .downgrade(super::CollectStatus::Degraded("per-core cpu unavailable"));
+            return;
+        };
+
         let mut perf_info = vec![ProcessorPerfInfo::default(); core_count];
-        let buf_size = (core_count * std::mem::size_of::<ProcessorPerfInfo>()) as u32;
         let mut return_len = 0u32;
 
         // SystemProcessorPerformanceInformation = 8
@@ -192,7 +202,7 @@ impl CpuCollector {
         // written and is used to bound iteration over the results.
         let status = unsafe {
             NtQuerySystemInformation(
-                8,
+                SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION,
                 perf_info.as_mut_ptr() as *mut std::ffi::c_void,
                 buf_size,
                 &mut return_len,
@@ -201,8 +211,11 @@ impl CpuCollector {
 
         if status == 0 {
             // status == STATUS_SUCCESS
-            let actual_count =
-                (return_len as usize / std::mem::size_of::<ProcessorPerfInfo>()).min(core_count);
+            let Some(actual_count) = processor_perf_record_count(return_len, core_count) else {
+                self.status
+                    .downgrade(super::CollectStatus::Degraded("per-core cpu unavailable"));
+                return;
+            };
 
             // Ensure vectors are sized correctly
             while self.prev_idle.len() < actual_count + 1 {
@@ -240,6 +253,9 @@ impl CpuCollector {
                 self.prev_kernel[pi_idx] = kernel_val;
                 self.prev_user[pi_idx] = user_val;
             }
+        } else {
+            self.status
+                .downgrade(super::CollectStatus::Degraded("per-core cpu unavailable"));
         }
     }
 
@@ -340,16 +356,19 @@ impl CpuCollector {
                 };
                 let mut mhz: u32 = 0;
                 let mut size = std::mem::size_of::<u32>() as u32;
+                let mut value_type = REG_VALUE_TYPE::default();
                 let val_name = w!("~MHz");
                 if RegQueryValueExW(
                     key.get(),
                     val_name,
                     None,
-                    None,
+                    Some(&mut value_type),
                     Some(&mut mhz as *mut u32 as *mut u8),
                     Some(&mut size),
                 )
                 .is_ok()
+                    && value_type == REG_DWORD
+                    && size as usize == std::mem::size_of::<u32>()
                 {
                     if mhz >= 1000 {
                         self.info.cpu_hz = format!("{:.2} GHz", mhz as f64 / 1000.0);
@@ -593,19 +612,26 @@ fn get_cpu_name() -> String {
             };
             let mut buf = [0u16; 256];
             let mut size = (buf.len() * 2) as u32;
+            let mut value_type = REG_VALUE_TYPE::default();
             let val_name = w!("ProcessorNameString");
             if RegQueryValueExW(
                 key.get(),
                 val_name,
                 None,
-                None,
+                Some(&mut value_type),
                 Some(buf.as_mut_ptr() as *mut u8),
                 Some(&mut size),
             )
             .is_ok()
+                && value_type == REG_SZ
             {
-                let len = (size as usize / 2).saturating_sub(1);
-                return String::from_utf16_lossy(&buf[..len]).trim().to_string();
+                let byte_len = size as usize;
+                if byte_len <= buf.len() * std::mem::size_of::<u16>()
+                    && byte_len % std::mem::size_of::<u16>() == 0
+                {
+                    let units = byte_len / std::mem::size_of::<u16>();
+                    return string_from_utf16_buf(&buf[..units]);
+                }
             }
         }
     }
@@ -630,6 +656,16 @@ fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
 
 fn perf_counter_to_u64(value: i64) -> u64 {
     value.try_into().unwrap_or(0)
+}
+
+fn processor_perf_record_count(return_len: u32, capacity: usize) -> Option<usize> {
+    let record_size = std::mem::size_of::<ProcessorPerfInfo>();
+    let return_len = return_len as usize;
+    if return_len == 0 || return_len % record_size != 0 {
+        return None;
+    }
+    let count = return_len / record_size;
+    (count <= capacity).then_some(count)
 }
 
 fn push_history(deque: &mut VecDeque<i64>, value: i64) {
@@ -704,6 +740,15 @@ mod tests {
         }
         assert_eq!(deque.len(), MAX_HISTORY);
         assert_eq!(*deque.back().unwrap(), 499);
+    }
+
+    #[test]
+    fn processor_perf_record_count_validates_return_len() {
+        let record = std::mem::size_of::<ProcessorPerfInfo>() as u32;
+        assert_eq!(processor_perf_record_count(record * 4, 8), Some(4));
+        assert_eq!(processor_perf_record_count(record * 9, 8), None);
+        assert_eq!(processor_perf_record_count(record + 1, 8), None);
+        assert_eq!(processor_perf_record_count(0, 8), None);
     }
 
     #[test]

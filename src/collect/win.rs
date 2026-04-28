@@ -162,7 +162,7 @@ impl PdhCounter {
             PdhGetFormattedCounterValue(self.raw, PDH_FMT_DOUBLE, &mut counter_type, &mut value)
         } == 0
             && value.status == 0;
-        ok.then_some(value.value)
+        ok.then_some(value.value).filter(|value| value.is_finite())
     }
 }
 
@@ -190,6 +190,29 @@ pub(crate) fn bytes_per_sec(current: u64, previous: u64, elapsed_secs: f64) -> u
     };
 
     (delta as f64 / elapsed_secs).clamp(0.0, u64::MAX as f64) as u64
+}
+
+pub(crate) fn exact_byte_count(bytes_read: usize, expected: usize) -> bool {
+    expected > 0 && bytes_read == expected
+}
+
+pub(crate) fn checked_u32_size(size: usize) -> Option<u32> {
+    u32::try_from(size).ok()
+}
+
+pub(crate) fn utf16_len_until_nul(buf: &[u16]) -> usize {
+    buf.iter().position(|&c| c == 0).unwrap_or(buf.len())
+}
+
+pub(crate) fn string_from_utf16_buf(buf: &[u16]) -> String {
+    String::from_utf16_lossy(&buf[..utf16_len_until_nul(buf)])
+        .trim()
+        .to_string()
+}
+
+pub(crate) fn string_from_c_buf(buf: &[u8]) -> String {
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..len]).trim().to_string()
 }
 
 pub(crate) fn percent_u64(part: u64, total: u64) -> i64 {
@@ -235,5 +258,23 @@ mod tests {
         assert_eq!(percent_u64(50, 100), 50);
         assert_eq!(percent_u64(1, 0), 0);
         assert_eq!(percent_u64(u64::MAX, u64::MAX), 100);
+    }
+
+    #[test]
+    fn exact_byte_count_requires_full_nonzero_read() {
+        assert!(exact_byte_count(8, 8));
+        assert!(!exact_byte_count(7, 8));
+        assert!(!exact_byte_count(0, 0));
+    }
+
+    #[test]
+    fn string_from_utf16_buf_stops_at_nul() {
+        let buf = ['r' as u16, 't' as u16, 0, 'x' as u16];
+        assert_eq!(string_from_utf16_buf(&buf), "rt");
+    }
+
+    #[test]
+    fn string_from_c_buf_stops_at_nul() {
+        assert_eq!(string_from_c_buf(b"gpu\0garbage"), "gpu");
     }
 }

@@ -90,7 +90,7 @@ impl MemCollector {
         // properly-aligned struct and the return value is checked.
         unsafe {
             if GetPerformanceInfo(&mut perf, perf.cb).is_ok() {
-                let cached = perf.SystemCache as u64 * perf.PageSize as u64;
+                let cached = cache_bytes(perf.SystemCache as u64, perf.PageSize as u64);
                 self.info.stats.cached = cached;
                 let total = self
                     .info
@@ -100,6 +100,10 @@ impl MemCollector {
                 if total > 0 {
                     push_pct(&mut self.info.percent.cached, cached, total);
                 }
+            } else {
+                self.info.stats.cached = 0;
+                self.status
+                    .downgrade(super::CollectStatus::Degraded("cache query failed"));
             }
         }
     }
@@ -117,6 +121,10 @@ fn push_pct(deque: &mut VecDeque<i64>, value: u64, total: u64) {
     while deque.len() > MAX_HISTORY {
         deque.pop_front();
     }
+}
+
+fn cache_bytes(system_cache_pages: u64, page_size: u64) -> u64 {
+    system_cache_pages.saturating_mul(page_size)
 }
 
 #[cfg(test)]
@@ -155,6 +163,12 @@ mod tests {
         assert_eq!(total, 16_000);
         assert_eq!(free, 12_000);
         assert_eq!(used, 4_000);
+    }
+
+    #[test]
+    fn cache_bytes_saturates() {
+        assert_eq!(cache_bytes(10, 4096), 40_960);
+        assert_eq!(cache_bytes(u64::MAX, 2), u64::MAX);
     }
 
     #[test]

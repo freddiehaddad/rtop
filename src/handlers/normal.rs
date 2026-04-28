@@ -322,14 +322,16 @@ fn terminate_process(pid: u32) {
     use windows::Win32::System::Threading::*;
 
     // SAFETY: OpenProcess returns a valid handle on success (checked by `Ok`).
-    // TerminateProcess is safe with a valid process handle, and OwnedHandle
-    // closes the handle on all paths.
+    // TerminateProcess receives that valid process handle, its result is
+    // checked, and OwnedHandle closes the handle on all paths.
     unsafe {
         if let Some(handle) = OpenProcess(PROCESS_TERMINATE, false, pid)
             .ok()
             .and_then(OwnedHandle::new)
         {
-            let _ = TerminateProcess(handle.get(), 1);
+            if TerminateProcess(handle.get(), 1).is_err() {
+                tracing::warn!("Process: TerminateProcess failed for pid {pid}");
+            }
         }
     }
 }

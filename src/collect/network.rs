@@ -1,7 +1,17 @@
 use crate::domain::network::{NetInfo, NetStat};
-use std::collections::HashMap;
+use std::{collections::HashMap, mem::size_of, slice};
 
 use super::{Collector, win::bytes_per_sec};
+
+const MAX_ADAPTER_ADDRESSES_BUFFER: u32 = 1024 * 1024;
+const MAX_ADAPTER_TRAVERSAL: usize = 1024;
+const MAX_UNICAST_TRAVERSAL: usize = 256;
+const MAX_FRIENDLY_NAME_CHARS: usize = 512;
+
+enum FormattedIp {
+    V4(String),
+    V6(String),
+}
 
 /// Network data collector using Windows IPHLPAPI.
 pub struct NetCollector {
@@ -49,52 +59,35 @@ impl NetCollector {
         self.status = super::CollectStatus::Ok;
 
         use windows::Win32::NetworkManagement::IpHelper::*;
-        use windows::Win32::Networking::WinSock::*;
 
         let now = std::time::Instant::now();
         let elapsed = now.duration_since(self.last_time).as_secs_f64().max(0.001);
         self.last_time = now;
 
-        // SAFETY: GetAdaptersAddresses is called twice: first with a null buffer
-        // to query the required size, then with a properly sized allocation.
-        // The linked-list traversal checks each pointer for null before
-        // dereferencing. FriendlyName is null-checked before use. Socket
-        // address casts follow the sa_family discriminant.
+        let flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_ANYCAST;
+        let Some(mut buffer) = adapter_addresses_buffer(flags) else {
+            tracing::warn!("Network: GetAdaptersAddresses failed");
+            self.status
+                .downgrade(super::CollectStatus::Failed("adapter query failed"));
+            return;
+        };
+
+        // SAFETY: adapter_ptr points into the owned buffer returned by
+        // GetAdaptersAddresses. Linked-list traversal is capped and null-checked
+        // before dereferencing nested adapter and unicast pointers.
         unsafe {
-            let mut size = 0u32;
-            let flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_ANYCAST;
-
-            // First call to get required size
-            let _ = GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size);
-
-            if size == 0 {
-                tracing::warn!("Network: GetAdaptersAddresses size query returned 0");
-                self.status
-                    .downgrade(super::CollectStatus::Failed("no adapters"));
-                return;
-            }
-
-            let mut buffer = vec![0u8; size as usize];
             let adapter_ptr = buffer.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH;
-
-            if GetAdaptersAddresses(
-                AF_UNSPEC.0 as u32,
-                flags,
-                None,
-                Some(adapter_ptr),
-                &mut size,
-            ) != 0
-            {
-                tracing::warn!("Network: GetAdaptersAddresses failed");
-                self.status
-                    .downgrade(super::CollectStatus::Failed("adapter query failed"));
-                return;
-            }
-
             self.interfaces.clear();
             let mut current = adapter_ptr;
+            let mut adapter_count = 0usize;
 
             while !current.is_null() {
+                if adapter_count >= MAX_ADAPTER_TRAVERSAL {
+                    self.status
+                        .downgrade(super::CollectStatus::Degraded("adapter list truncated"));
+                    break;
+                }
+                adapter_count += 1;
                 let adapter = &*current;
 
                 // Skip loopback
@@ -104,18 +97,9 @@ impl NetCollector {
                 }
 
                 // Get friendly name
-                let name = if !adapter.FriendlyName.0.is_null() {
-                    let mut len = 0;
-                    let mut p = adapter.FriendlyName.0;
-                    while *p != 0 {
-                        len += 1;
-                        p = p.add(1);
-                    }
-                    String::from_utf16_lossy(std::slice::from_raw_parts(
-                        adapter.FriendlyName.0,
-                        len,
-                    ))
-                } else {
+                let Some(name) =
+                    wide_ptr_to_string_bounded(adapter.FriendlyName.0, MAX_FRIENDLY_NAME_CHARS)
+                else {
                     current = adapter.Next;
                     continue;
                 };
@@ -127,37 +111,21 @@ impl NetCollector {
                 let mut ipv4 = String::new();
                 let mut ipv6 = String::new();
                 let mut unicast = adapter.FirstUnicastAddress;
+                let mut unicast_count = 0usize;
                 while !unicast.is_null() {
+                    if unicast_count >= MAX_UNICAST_TRAVERSAL {
+                        break;
+                    }
+                    unicast_count += 1;
                     let addr = &*unicast;
-                    let sa = &*addr.Address.lpSockaddr;
-                    match sa.sa_family {
-                        AF_INET => {
-                            let sa4 = &*(addr.Address.lpSockaddr as *const SOCKADDR_IN);
-                            let ip = sa4.sin_addr.S_un.S_addr.to_be();
-                            ipv4 = format!(
-                                "{}.{}.{}.{}",
-                                (ip >> 24) & 0xFF,
-                                (ip >> 16) & 0xFF,
-                                (ip >> 8) & 0xFF,
-                                ip & 0xFF
-                            );
+                    match socket_address_to_ip(&addr.Address) {
+                        Some(FormattedIp::V4(ip)) => {
+                            ipv4 = ip;
                         }
-                        AF_INET6 => {
-                            let sa6 = &*(addr.Address.lpSockaddr as *const SOCKADDR_IN6);
-                            let bytes = sa6.sin6_addr.u.Byte;
-                            ipv6 = format!(
-                                "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
-                                u16::from_be_bytes([bytes[0], bytes[1]]),
-                                u16::from_be_bytes([bytes[2], bytes[3]]),
-                                u16::from_be_bytes([bytes[4], bytes[5]]),
-                                u16::from_be_bytes([bytes[6], bytes[7]]),
-                                u16::from_be_bytes([bytes[8], bytes[9]]),
-                                u16::from_be_bytes([bytes[10], bytes[11]]),
-                                u16::from_be_bytes([bytes[12], bytes[13]]),
-                                u16::from_be_bytes([bytes[14], bytes[15]]),
-                            );
+                        Some(FormattedIp::V6(ip)) => {
+                            ipv6 = ip;
                         }
-                        _ => {}
+                        None => {}
                     }
                     unicast = addr.Next;
                 }
@@ -222,6 +190,133 @@ impl Collector for NetCollector {
     }
 }
 
+fn adapter_addresses_buffer(
+    flags: windows::Win32::NetworkManagement::IpHelper::GET_ADAPTERS_ADDRESSES_FLAGS,
+) -> Option<Vec<u8>> {
+    use windows::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_SUCCESS};
+    use windows::Win32::NetworkManagement::IpHelper::GetAdaptersAddresses;
+    use windows::Win32::Networking::WinSock::AF_UNSPEC;
+
+    let mut size = 0u32;
+    // SAFETY: A null adapter buffer is the documented sizing call. size is a
+    // valid output pointer and the status is checked before allocation.
+    let first = unsafe { GetAdaptersAddresses(AF_UNSPEC.0 as u32, flags, None, None, &mut size) };
+    if first != ERROR_BUFFER_OVERFLOW.0 || size == 0 || size > MAX_ADAPTER_ADDRESSES_BUFFER {
+        return None;
+    }
+
+    for _ in 0..2 {
+        let mut buffer = vec![0u8; size as usize];
+        // SAFETY: buffer is allocated to the API-reported size and cast to the
+        // adapter-address record type expected by GetAdaptersAddresses.
+        let status = unsafe {
+            GetAdaptersAddresses(
+                AF_UNSPEC.0 as u32,
+                flags,
+                None,
+                Some(buffer.as_mut_ptr() as *mut _),
+                &mut size,
+            )
+        };
+        if status == ERROR_SUCCESS.0 {
+            return Some(buffer);
+        }
+        if status != ERROR_BUFFER_OVERFLOW.0
+            || size == 0
+            || size > MAX_ADAPTER_ADDRESSES_BUFFER
+            || (size as usize) <= buffer.len()
+        {
+            return None;
+        }
+    }
+
+    None
+}
+
+unsafe fn wide_ptr_to_string_bounded(ptr: *const u16, max_units: usize) -> Option<String> {
+    if ptr.is_null() || max_units == 0 {
+        return None;
+    }
+
+    let mut len = 0usize;
+    while len < max_units {
+        // SAFETY: the caller guarantees ptr points to a foreign UTF-16 string.
+        // The scan is bounded by max_units and stops before reading past it.
+        if unsafe { *ptr.add(len) } == 0 {
+            // SAFETY: len was discovered by a bounded scan from ptr, so this
+            // slice covers only initialized UTF-16 units before the terminator.
+            let slice = unsafe { slice::from_raw_parts(ptr, len) };
+            return Some(String::from_utf16_lossy(slice));
+        }
+        len += 1;
+    }
+
+    None
+}
+
+unsafe fn socket_address_to_ip(
+    address: &windows::Win32::Networking::WinSock::SOCKET_ADDRESS,
+) -> Option<FormattedIp> {
+    use windows::Win32::Networking::WinSock::{AF_INET, AF_INET6, SOCKADDR_IN, SOCKADDR_IN6};
+
+    if address.lpSockaddr.is_null() {
+        return None;
+    }
+    let len = usize::try_from(address.iSockaddrLength).ok()?;
+    if len < size_of::<windows::Win32::Networking::WinSock::SOCKADDR>() {
+        return None;
+    }
+
+    // SAFETY: lpSockaddr is non-null and the caller owns the adapter-address
+    // buffer while this function runs. The family field fits in SOCKADDR.
+    let family = unsafe { (*address.lpSockaddr).sa_family };
+    match family {
+        AF_INET if len >= size_of::<SOCKADDR_IN>() => {
+            // SAFETY: family and iSockaddrLength prove the buffer is large
+            // enough for SOCKADDR_IN before casting.
+            let sa4 = unsafe { &*(address.lpSockaddr as *const SOCKADDR_IN) };
+            // SAFETY: SOCKADDR_IN for AF_INET initializes the S_addr variant.
+            let addr = unsafe { sa4.sin_addr.S_un.S_addr };
+            Some(FormattedIp::V4(format_ipv4_from_network_order(
+                addr.to_be(),
+            )))
+        }
+        AF_INET6 if len >= size_of::<SOCKADDR_IN6>() => {
+            // SAFETY: family and iSockaddrLength prove the buffer is large
+            // enough for SOCKADDR_IN6 before casting.
+            let sa6 = unsafe { &*(address.lpSockaddr as *const SOCKADDR_IN6) };
+            // SAFETY: SOCKADDR_IN6 initializes the Byte view of the IPv6 addr.
+            let bytes = unsafe { sa6.sin6_addr.u.Byte };
+            Some(FormattedIp::V6(format_ipv6_from_bytes(bytes)))
+        }
+        _ => None,
+    }
+}
+
+fn format_ipv4_from_network_order(ip: u32) -> String {
+    format!(
+        "{}.{}.{}.{}",
+        (ip >> 24) & 0xFF,
+        (ip >> 16) & 0xFF,
+        (ip >> 8) & 0xFF,
+        ip & 0xFF
+    )
+}
+
+fn format_ipv6_from_bytes(bytes: [u8; 16]) -> String {
+    format!(
+        "{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
+        u16::from_be_bytes([bytes[0], bytes[1]]),
+        u16::from_be_bytes([bytes[2], bytes[3]]),
+        u16::from_be_bytes([bytes[4], bytes[5]]),
+        u16::from_be_bytes([bytes[6], bytes[7]]),
+        u16::from_be_bytes([bytes[8], bytes[9]]),
+        u16::from_be_bytes([bytes[10], bytes[11]]),
+        u16::from_be_bytes([bytes[12], bytes[13]]),
+        u16::from_be_bytes([bytes[14], bytes[15]]),
+    )
+}
+
 /// Returns (rx_bytes, tx_bytes, link_speed_bps).
 fn get_if_stats(if_index: u32) -> (u64, u64, u64) {
     use windows::Win32::NetworkManagement::IpHelper::*;
@@ -271,6 +366,27 @@ mod tests {
     fn rollover_handling() {
         // Counter resets and rollovers are treated as no rate for the sample.
         assert_eq!(speed_from_delta(500, 1000, 1.0), 0);
+    }
+
+    #[test]
+    fn format_ipv4_from_network_order_formats_octets() {
+        assert_eq!(format_ipv4_from_network_order(0xC0A80101), "192.168.1.1");
+    }
+
+    #[test]
+    fn format_ipv6_from_bytes_formats_segments() {
+        assert_eq!(
+            format_ipv6_from_bytes([0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]),
+            "2001:db8:0:0:0:0:0:1"
+        );
+    }
+
+    #[test]
+    fn wide_ptr_to_string_bounded_stops_at_nul() {
+        let name = ['L' as u16, 'A' as u16, 'N' as u16, 0, 'x' as u16];
+        // SAFETY: name is a local null-terminated UTF-16 buffer.
+        let parsed = unsafe { wide_ptr_to_string_bounded(name.as_ptr(), name.len()) };
+        assert_eq!(parsed.as_deref(), Some("LAN"));
     }
 
     #[test]
