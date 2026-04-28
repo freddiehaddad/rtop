@@ -18,6 +18,11 @@ fn is_valid_box_name(name: &str) -> bool {
     false
 }
 
+const GRAPH_SYMBOL_VALUES: &[&str] = &["default", "braille", "block"];
+const CPU_GRAPH_SOURCE_VALUES: &[&str] = &["Auto", "total", "user", "system"];
+const TEMP_SCALE_VALUES: &[&str] = &["celsius", "fahrenheit", "kelvin", "rankine"];
+const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG"];
+
 /// The kind of a config key.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum KeyKind {
@@ -137,6 +142,14 @@ macro_rules! define_config {
                 }
             }
 
+            /// Return the valid range for an integer config key.
+            pub fn int_bounds(name: &str) -> Option<(i64, i64)> {
+                match name {
+                    $( $ikey => Some(($imin, $imax)), )*
+                    _ => None,
+                }
+            }
+
             /// Generate the full config file content as a string.
             pub fn to_config_string(&self) -> String {
                 let mut out = String::new();
@@ -175,7 +188,7 @@ macro_rules! define_config {
                 out
             }
 
-            /// Load config from a file. Returns a list of warnings for invalid values.
+            /// Load config from a file. Returns warnings for unknown keys and invalid values.
             pub fn load(&mut self, path: &Path) -> Vec<String> {
                 let mut warnings = Vec::new();
                 self.conf_file = Some(path.to_path_buf());
@@ -212,7 +225,16 @@ macro_rules! define_config {
                         }
                         Some(KeyKind::Int) => {
                             match value.parse::<i64>() {
-                                Ok(v) => self.set_int(key, v),
+                                Ok(v) => {
+                                    if let Some((min, max)) = Self::int_bounds(key) {
+                                        if v < min || v > max {
+                                            warnings.push(format!(
+                                                "Integer value for '{key}' out of range: {v} (expected {min}..={max})"
+                                            ));
+                                        }
+                                    }
+                                    self.set_int(key, v);
+                                }
                                 Err(_) => {
                                     warnings.push(format!(
                                         "Invalid integer value for '{key}': {value}"
@@ -221,7 +243,11 @@ macro_rules! define_config {
                             }
                         }
                         Some(KeyKind::String) => {
-                            self.set_string(key, value);
+                            if let Some(warning) = Self::validate_string_value(key, value) {
+                                warnings.push(warning);
+                            } else {
+                                self.set_string(key, value);
+                            }
                         }
                         None => {
                             warnings.push(format!("Unknown config key: '{key}'"));
@@ -238,7 +264,6 @@ macro_rules! define_config {
 define_config! {
     bools {
         theme_background:    "theme_background"    => true,
-        truecolor:           "truecolor"           => true,
         rounded_corners:     "rounded_corners"     => true,
         proc_reversed:       "proc_reversed"       => false,
         proc_tree:           "proc_tree"           => false,
@@ -276,8 +301,6 @@ define_config! {
         show_battery:        "show_battery"        => true,
         show_battery_watts:  "show_battery_watts"  => true,
         vim_keys:            "vim_keys"            => false,
-        force_tty:           "force_tty"           => false,
-        lowcolor:            "lowcolor"            => false,
         background_update:   "background_update"   => true,
         terminal_sync:       "terminal_sync"       => true,
         save_config_on_exit: "save_config_on_exit" => true,
@@ -332,6 +355,51 @@ define_config! {
 }
 
 impl Config {
+    /// Return strict choice values for string keys with constrained values.
+    pub fn string_choice_values(name: &str) -> Option<&'static [&'static str]> {
+        match name {
+            sk::COLOR_THEME => Some(crate::theme::THEME_NAMES),
+            sk::GRAPH_SYMBOL
+            | sk::GRAPH_SYMBOL_CPU
+            | sk::GRAPH_SYMBOL_GPU
+            | sk::GRAPH_SYMBOL_MEM
+            | sk::GRAPH_SYMBOL_NET
+            | sk::GRAPH_SYMBOL_PROC
+            | sk::GRAPH_SYMBOL_DISK => Some(GRAPH_SYMBOL_VALUES),
+            sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => Some(CPU_GRAPH_SOURCE_VALUES),
+            sk::TEMP_SCALE => Some(TEMP_SCALE_VALUES),
+            sk::PROC_SORTING => Some(crate::collect::process::SORT_OPTIONS),
+            sk::LOG_LEVEL => Some(LOG_LEVEL_VALUES),
+            _ => None,
+        }
+    }
+
+    fn validate_string_value(key: &str, value: &str) -> Option<String> {
+        if key == sk::SHOWN_BOXES {
+            let invalid: Vec<&str> = value
+                .split_whitespace()
+                .filter(|name| !is_valid_box_name(name))
+                .collect();
+            if invalid.is_empty() {
+                return None;
+            }
+            return Some(format!(
+                "Invalid box name(s) for '{key}': {}",
+                invalid.join(", ")
+            ));
+        }
+
+        let choices = Self::string_choice_values(key)?;
+        if choices.contains(&value) {
+            None
+        } else {
+            Some(format!(
+                "Invalid value for '{key}': {value} (expected one of: {})",
+                choices.join(", ")
+            ))
+        }
+    }
+
     /// Write config to the config file.
     pub fn write(&self, path: &Path) -> std::io::Result<()> {
         let content = self.to_config_string();
@@ -513,7 +581,7 @@ mod tests {
         assert!(warnings.is_empty());
         assert_eq!(config.get_int("update_ms"), 2000);
         assert_eq!(config.get_string("color_theme"), "Default");
-        assert!(config.get_bool("truecolor"));
+        assert!(config.get_bool("theme_background"));
         let _ = fs::remove_file(&tmp);
     }
 
@@ -523,14 +591,14 @@ mod tests {
         let tmp = std::env::temp_dir().join("rtop_test_valid.conf");
         let mut f = fs::File::create(&tmp).unwrap();
         writeln!(f, "color_theme = \"dracula\"").unwrap();
-        writeln!(f, "truecolor = False").unwrap();
+        writeln!(f, "theme_background = False").unwrap();
         writeln!(f, "update_ms = 500").unwrap();
         drop(f);
 
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
         assert_eq!(config.get_string("color_theme"), "dracula");
-        assert!(!config.get_bool("truecolor"));
+        assert!(!config.get_bool("theme_background"));
         assert_eq!(config.get_int("update_ms"), 500);
         let _ = fs::remove_file(&tmp);
     }
@@ -569,6 +637,50 @@ mod tests {
     }
 
     #[test]
+    fn load_out_of_range_int_generates_warning() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_out_of_range.conf");
+        fs::write(&tmp, "update_ms = 50\n").unwrap();
+        let warnings = config.load(&tmp);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("out of range"));
+        assert_eq!(config.get_int("update_ms"), 100);
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_invalid_string_values_generate_warnings() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_bad_string_values.conf");
+        fs::write(
+            &tmp,
+            "color_theme = \"foo\"\ngraph_symbol = \"ascii\"\nshown_boxes = \"cpu nope\"\n",
+        )
+        .unwrap();
+        let warnings = config.load(&tmp);
+        assert_eq!(warnings.len(), 3);
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("color_theme") && warning.contains("foo"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("graph_symbol") && warning.contains("ascii"))
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("shown_boxes") && warning.contains("nope"))
+        );
+        assert_eq!(config.get_string("color_theme"), "Default");
+        assert_eq!(config.get_string("graph_symbol"), "braille");
+        assert_eq!(config.get_string("shown_boxes"), "cpu mem net proc disk");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
     fn write_roundtrip_preserves_values() {
         let mut config = Config::new();
         config.set_string("color_theme", "nord");
@@ -589,7 +701,7 @@ mod tests {
     #[test]
     fn get_bool_returns_default() {
         let config = Config::new();
-        assert!(config.get_bool("truecolor"));
+        assert!(config.get_bool("theme_background"));
         assert!(!config.get_bool("vim_keys"));
     }
 
@@ -605,11 +717,11 @@ mod tests {
     #[test]
     fn flip_toggles_boolean() {
         let mut config = Config::new();
-        assert!(config.get_bool("truecolor"));
-        config.flip("truecolor");
-        assert!(!config.get_bool("truecolor"));
-        config.flip("truecolor");
-        assert!(config.get_bool("truecolor"));
+        assert!(config.get_bool("theme_background"));
+        config.flip("theme_background");
+        assert!(!config.get_bool("theme_background"));
+        config.flip("theme_background");
+        assert!(config.get_bool("theme_background"));
     }
 
     #[test]
@@ -650,13 +762,13 @@ mod tests {
         // Verify key_kind returns correct types for known keys
         assert_eq!(Config::key_kind("color_theme"), Some(KeyKind::String));
         assert_eq!(Config::key_kind("proc_sorting"), Some(KeyKind::String));
-        assert_eq!(Config::key_kind("truecolor"), Some(KeyKind::Bool));
+        assert_eq!(Config::key_kind("theme_background"), Some(KeyKind::Bool));
         assert_eq!(Config::key_kind("show_battery"), Some(KeyKind::Bool));
         assert_eq!(Config::key_kind("update_ms"), Some(KeyKind::Int));
         assert_eq!(Config::key_kind("net_download"), Some(KeyKind::Int));
         // Verify defaults are accessible
         assert_eq!(config.get_string("color_theme"), "Default");
-        assert!(config.get_bool("truecolor"));
+        assert!(config.get_bool("theme_background"));
         assert_eq!(config.get_int("update_ms"), 2000);
     }
 

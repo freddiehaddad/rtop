@@ -51,15 +51,6 @@ fn main() {
     }
 
     // Apply CLI overrides
-    if cli.low_color {
-        config.set_bool(bk::LOWCOLOR, true);
-    }
-    if cli.tty {
-        config.set_bool(bk::FORCE_TTY, true);
-    }
-    if cli.no_tty {
-        config.set_bool(bk::FORCE_TTY, false);
-    }
     if let Some(ms) = cli.update_ms {
         config.set_int(ik::UPDATE_MS, ms as i64);
     }

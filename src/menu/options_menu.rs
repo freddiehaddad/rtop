@@ -32,19 +32,11 @@ pub struct OptDef {
 
 /// Return the list of valid values for a browsable option key.
 pub fn browsable_values(key: &str) -> &'static [&'static str] {
+    if let Some(values) = Config::string_choice_values(key) {
+        return values;
+    }
+
     match key {
-        sk::COLOR_THEME => crate::theme::THEME_NAMES,
-        sk::GRAPH_SYMBOL
-        | sk::GRAPH_SYMBOL_CPU
-        | sk::GRAPH_SYMBOL_MEM
-        | sk::GRAPH_SYMBOL_NET
-        | sk::GRAPH_SYMBOL_PROC
-        | sk::GRAPH_SYMBOL_DISK
-        | sk::GRAPH_SYMBOL_GPU => &["default", "braille", "block", "tty"],
-        sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => &["Auto", "total", "user", "system"],
-        sk::TEMP_SCALE => &["celsius", "fahrenheit", "kelvin", "rankine"],
-        sk::PROC_SORTING => crate::collect::process::SORT_OPTIONS,
-        sk::LOG_LEVEL => &["ERROR", "WARNING", "INFO", "DEBUG"],
         sk::CPU_SENSOR | sk::SELECTED_BATTERY | sk::NET_IFACE => &["Auto"],
         _ => &[],
     }
@@ -85,28 +77,6 @@ pub const GENERAL: &[OptDef] = &[
             "",
             "Set to False if you want terminal background",
             "transparency.",
-        ],
-    },
-    OptDef {
-        key: bk::TRUECOLOR,
-        desc: &[
-            "Sets if 24-bit truecolor should be used.",
-            "",
-            "Will convert 24-bit colors to 256 color",
-            "(6x6x6 color cube) if False.",
-        ],
-    },
-    OptDef {
-        key: bk::LOWCOLOR,
-        desc: &["Use 256-color mode instead of truecolor."],
-    },
-    OptDef {
-        key: bk::FORCE_TTY,
-        desc: &[
-            "TTY mode.",
-            "",
-            "Set to true to force tty mode regardless",
-            "if a real tty has been detected or not.",
         ],
     },
     OptDef {
@@ -171,7 +141,7 @@ pub const GENERAL: &[OptDef] = &[
         desc: &[
             "Default symbols to use for graph creation.",
             "",
-            "\"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -255,7 +225,7 @@ pub const CPU: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for graphs in cpu box.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -385,7 +355,7 @@ pub const MEM: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for graphs in mem box.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -485,7 +455,7 @@ pub const NET: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for graphs in net box.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -559,7 +529,7 @@ pub const PROC: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for graphs in proc box.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -674,7 +644,7 @@ pub const GPU: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for graphs in gpu box.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {
@@ -710,7 +680,7 @@ pub const DISK: &[OptDef] = &[
         desc: &[
             "Graph symbol to use for disk IO graphs.",
             "",
-            "\"default\", \"braille\", \"block\" or \"tty\".",
+            "\"default\", \"braille\" or \"block\".",
         ],
     },
     OptDef {

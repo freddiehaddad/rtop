@@ -17,21 +17,9 @@ pub struct Cli {
     #[arg(short = 'f', long = "filter")]
     pub filter: Option<String>,
 
-    /// Disable truecolor (256 colors only).
-    #[arg(short = 'l', long = "low-color")]
-    pub low_color: bool,
-
     /// Start with preset (0-9).
     #[arg(short = 'p', long = "preset", value_parser = clap::value_parser!(u32).range(0..=9))]
     pub preset: Option<u32>,
-
-    /// Force TTY mode (16 colors, ASCII symbols).
-    #[arg(short = 't', long = "tty", conflicts_with = "no_tty")]
-    pub tty: bool,
-
-    /// Force disable TTY mode.
-    #[arg(long = "no-tty", conflicts_with = "tty")]
-    pub no_tty: bool,
 
     /// Update rate in milliseconds (minimum 100).
     #[arg(short = 'u', long = "update", value_parser = clap::value_parser!(u32).range(100..))]
@@ -87,12 +75,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_tty_and_no_tty_conflict() {
-        let result = Cli::try_parse_from(["rtop", "-t", "--no-tty"]);
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn parse_update_ms_minimum() {
         let result = Cli::try_parse_from(["rtop", "-u", "50"]);
         assert!(result.is_err()); // Below minimum of 100
@@ -102,20 +84,6 @@ mod tests {
     fn parse_default_config() {
         let cli = Cli::parse_from(["rtop", "--default-config"]);
         assert!(cli.default_config);
-    }
-
-    #[test]
-    fn parse_low_color() {
-        let cli = Cli::parse_from(["rtop", "-l"]);
-        assert!(cli.low_color);
-    }
-
-    #[test]
-    fn parse_short_flags() {
-        let cli = Cli::parse_from(["rtop", "-d", "-l", "-t"]);
-        assert!(cli.debug);
-        assert!(cli.low_color);
-        assert!(cli.tty);
     }
 
     #[test]

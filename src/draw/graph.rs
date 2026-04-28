@@ -5,11 +5,10 @@ use std::collections::VecDeque;
 pub enum GraphSymbol {
     Braille,
     Block,
-    Tty,
 }
 
 impl GraphSymbol {
-    /// Parse a config string like "braille", "block", "tty", or "default" into a GraphSymbol.
+    /// Parse a config string like "braille", "block", or "default" into a GraphSymbol.
     /// If `specific` is "default", falls back to `global`.
     pub fn from_config(specific: &str, global: &str) -> Self {
         let s = if specific == "default" {
@@ -19,7 +18,6 @@ impl GraphSymbol {
         };
         match s {
             "block" => Self::Block,
-            "tty" => Self::Tty,
             _ => Self::Braille,
         }
     }
@@ -39,10 +37,6 @@ pub const BRAILLE_DOWN: [&str; 25] = [
 const BLOCK_UP: [&str; 5] = [" ", "▄", "▄", "▀", "█"];
 /// Block graph characters for inverted graphs.
 const BLOCK_DOWN: [&str; 5] = [" ", "▀", "▀", "▄", "█"];
-/// TTY-safe graph characters — 5 levels using ASCII.
-const TTY_UP: [&str; 5] = [" ", "_", "_", "‾", "#"];
-/// TTY-safe graph characters for inverted graphs.
-const TTY_DOWN: [&str; 5] = [" ", "‾", "‾", "_", "#"];
 
 /// Parse a graph buffer row into individual visual elements.
 /// Each element is either a cursor-right escape sequence or a single graph character.
@@ -89,7 +83,7 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
     elements
 }
 
-/// A multi-row terminal graph that renders data as braille/block/tty characters.
+/// A multi-row terminal graph that renders data as braille/block characters.
 ///
 /// Matches btop's Graph architecture: double-buffered, multi-row with vertical
 /// slicing so each row covers a portion of the 0-100% range.
@@ -136,7 +130,7 @@ impl Graph {
     }
 
     /// Look up the braille symbol table (25 entries for prev×curr pairs).
-    /// For block/tty, returns None — they use single-level lookup instead.
+    /// For block, returns None — it uses single-level lookup instead.
     fn braille_table(&self) -> Option<&'static [&'static str; 25]> {
         match (self.symbol, self.invert) {
             (GraphSymbol::Braille, false) => Some(&BRAILLE_UP),
@@ -145,14 +139,12 @@ impl Graph {
         }
     }
 
-    /// Look up a single-character symbol for block/tty modes.
+    /// Look up a single-character symbol for block mode.
     fn simple_char(&self, level: usize) -> &'static str {
         let lvl = level.min(4);
         match (self.symbol, self.invert) {
             (GraphSymbol::Block, false) => BLOCK_UP[lvl],
             (GraphSymbol::Block, true) => BLOCK_DOWN[lvl],
-            (GraphSymbol::Tty, false) => TTY_UP[lvl],
-            (GraphSymbol::Tty, true) => TTY_DOWN[lvl],
             (GraphSymbol::Braille, _) => unreachable!(),
         }
     }
@@ -250,7 +242,7 @@ impl Graph {
                     let sym = table[idx.min(24)];
                     self.graphs[self.current as usize][row].push_str(sym);
                 } else {
-                    // Block/Tty: use current level only (no prev/curr pairing)
+                    // Block: use current level only (no prev/curr pairing)
                     let sym = self.simple_char(curr_level);
                     self.graphs[self.current as usize][row].push_str(sym);
                 }

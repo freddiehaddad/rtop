@@ -9,7 +9,6 @@
 /// Boolean config keys.
 pub mod bool_keys {
     pub const THEME_BACKGROUND: &str = "theme_background";
-    pub const TRUECOLOR: &str = "truecolor";
     pub const ROUNDED_CORNERS: &str = "rounded_corners";
     pub const PROC_REVERSED: &str = "proc_reversed";
     pub const PROC_TREE: &str = "proc_tree";
@@ -47,8 +46,6 @@ pub mod bool_keys {
     pub const SHOW_BATTERY: &str = "show_battery";
     pub const SHOW_BATTERY_WATTS: &str = "show_battery_watts";
     pub const VIM_KEYS: &str = "vim_keys";
-    pub const FORCE_TTY: &str = "force_tty";
-    pub const LOWCOLOR: &str = "lowcolor";
     pub const BACKGROUND_UPDATE: &str = "background_update";
     pub const TERMINAL_SYNC: &str = "terminal_sync";
     pub const SAVE_CONFIG_ON_EXIT: &str = "save_config_on_exit";

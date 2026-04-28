@@ -1281,12 +1281,12 @@ mod tests {
         histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
         let graph_settings = ProcBoxSettings {
             proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Tty,
+            graph_symbol: GraphSymbol::Block,
             ..make_settings_with_histories(&histories)
         };
         let no_graph_settings = ProcBoxSettings {
             proc_cpu_graphs: false,
-            graph_symbol: GraphSymbol::Tty,
+            graph_symbol: GraphSymbol::Block,
             ..make_settings_with_histories(&histories)
         };
 
@@ -1309,8 +1309,8 @@ mod tests {
             &CollectStatus::Ok,
         );
 
-        assert!(strip_ansi(&graph_output).contains("#####"));
-        assert!(!strip_ansi(&no_graph_output).contains("#####"));
+        assert!(strip_ansi(&graph_output).contains("█████"));
+        assert!(!strip_ansi(&no_graph_output).contains("█████"));
     }
 
     #[test]
@@ -1319,7 +1319,7 @@ mod tests {
         histories.insert(100, VecDeque::from(vec![0, 0, 0, 0, 0]));
         let settings = ProcBoxSettings {
             proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Tty,
+            graph_symbol: GraphSymbol::Block,
             ..make_settings_with_histories(&histories)
         };
 
@@ -1338,7 +1338,7 @@ mod tests {
         let histories = HashMap::new();
         let settings = ProcBoxSettings {
             proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Tty,
+            graph_symbol: GraphSymbol::Block,
             ..make_settings_with_histories(&histories)
         };
 
