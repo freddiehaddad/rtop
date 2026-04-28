@@ -1,34 +1,18 @@
 use crate::domain::disk::DiskData;
 use std::collections::HashMap;
 
-use super::Collector;
+use super::{
+    Collector,
+    win::{PdhCounter, PdhQuery, percent_u64},
+};
 
 const MAX_HISTORY: usize = 300;
-const PDH_FMT_DOUBLE: u32 = 0x00000200;
-
-#[repr(C)]
-#[derive(Default)]
-struct PdhVal {
-    status: u32,
-    value: f64,
-}
 
 #[derive(Clone, Copy, Default)]
 struct DiskPerfCounters {
-    read: isize,
-    write: isize,
-    busy: isize,
-}
-
-// SAFETY: FFI declarations for pdh.dll Performance Data Helper functions;
-// signatures match the Windows PDH API.
-#[link(name = "pdh")]
-unsafe extern "system" {
-    fn PdhOpenQueryW(ds: *const u16, ud: usize, q: *mut isize) -> i32;
-    fn PdhAddCounterW(q: isize, p: *const u16, ud: usize, c: *mut isize) -> i32;
-    fn PdhCollectQueryData(q: isize) -> i32;
-    fn PdhGetFormattedCounterValue(c: isize, f: u32, ct: *mut u32, v: *mut PdhVal) -> i32;
-    fn PdhCloseQuery(q: isize) -> i32;
+    read: PdhCounter,
+    write: PdhCounter,
+    busy: PdhCounter,
 }
 
 /// Disk data collector using Windows APIs.
@@ -36,7 +20,7 @@ pub struct DiskCollector {
     /// Collected disk data.
     pub data: DiskData,
     pub status: super::CollectStatus,
-    pdh_query: isize,
+    pdh_query: Option<PdhQuery>,
     pdh_counters: HashMap<String, DiskPerfCounters>,
     pdh_drive_order: Vec<String>,
     pdh_initialized: bool,
@@ -55,7 +39,7 @@ impl DiskCollector {
         Self {
             data: DiskData::default(),
             status: super::CollectStatus::Ok,
-            pdh_query: 0,
+            pdh_query: None,
             pdh_counters: HashMap::new(),
             pdh_drive_order: Vec::new(),
             pdh_initialized: false,
@@ -109,7 +93,7 @@ impl DiskCollector {
                 .is_ok()
                 {
                     let used = total_bytes.saturating_sub(free_bytes);
-                    let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
+                    let used_pct = percent_u64(used, total_bytes).min(100) as i32;
 
                     let mut vol_name = [0u16; 256];
                     let mut fs_name = [0u16; 32];
@@ -156,65 +140,54 @@ impl DiskCollector {
             return;
         }
 
-        // SAFETY: PDH functions receive valid pointers to stack-allocated
-        // handles and null-terminated UTF-16 counter path strings. Return
-        // values are checked; the query is closed on failure.
-        unsafe {
-            let mut query: isize = 0;
-            if PdhOpenQueryW(std::ptr::null(), 0, &mut query) != 0 {
-                tracing::warn!("Disk: PdhOpenQueryW failed");
-                self.status
-                    .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
-                return;
+        let Ok(query) = PdhQuery::open() else {
+            tracing::warn!("Disk: PdhOpenQueryW failed");
+            self.status
+                .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
+            return;
+        };
+
+        for drive in &drives {
+            let counters = DiskPerfCounters {
+                read: add_pdh_counter(&query, &counter_path(drive, "Disk Read Bytes/sec")),
+                write: add_pdh_counter(&query, &counter_path(drive, "Disk Write Bytes/sec")),
+                busy: add_pdh_counter(&query, &counter_path(drive, "% Disk Time")),
+            };
+
+            if counters.read.is_valid() || counters.write.is_valid() || counters.busy.is_valid() {
+                self.pdh_counters.insert(drive.clone(), counters);
             }
-
-            for drive in &drives {
-                let counters = DiskPerfCounters {
-                    read: add_pdh_counter(query, &counter_path(drive, "Disk Read Bytes/sec")),
-                    write: add_pdh_counter(query, &counter_path(drive, "Disk Write Bytes/sec")),
-                    busy: add_pdh_counter(query, &counter_path(drive, "% Disk Time")),
-                };
-
-                if counters.read != 0 || counters.write != 0 || counters.busy != 0 {
-                    self.pdh_counters.insert(drive.clone(), counters);
-                }
-            }
-
-            if self.pdh_counters.is_empty() {
-                let _ = PdhCloseQuery(query);
-                tracing::warn!("Disk: no logical disk performance counters available");
-                self.status
-                    .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
-                return;
-            }
-
-            let _ = PdhCollectQueryData(query);
-            self.pdh_query = query;
-            self.pdh_drive_order = drives;
-            self.pdh_initialized = true;
-            self.pdh_has_first_sample = false;
         }
+
+        if self.pdh_counters.is_empty() {
+            tracing::warn!("Disk: no logical disk performance counters available");
+            self.status
+                .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
+            return;
+        }
+
+        let _ = query.collect();
+        self.pdh_query = Some(query);
+        self.pdh_drive_order = drives;
+        self.pdh_initialized = true;
+        self.pdh_has_first_sample = false;
     }
 
     fn collect_perf(&mut self) {
-        if self.pdh_query == 0 {
+        let Some(query) = self.pdh_query.as_ref() else {
             return;
-        }
+        };
 
         if !self.pdh_has_first_sample {
             self.pdh_has_first_sample = true;
             return;
         }
 
-        // SAFETY: self.pdh_query and counter handles were successfully
-        // initialized by PdhOpenQueryW/PdhAddCounterW in ensure_perf_query().
-        unsafe {
-            if PdhCollectQueryData(self.pdh_query) != 0 {
-                tracing::warn!("Disk: PdhCollectQueryData failed");
-                self.status
-                    .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
-                return;
-            }
+        if query.collect().is_err() {
+            tracing::warn!("Disk: PdhCollectQueryData failed");
+            self.status
+                .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
+            return;
         }
 
         let counters: Vec<(String, DiskPerfCounters)> = self
@@ -224,9 +197,9 @@ impl DiskCollector {
             .collect();
 
         for (drive, counters) in counters {
-            let read = formatted_counter(counters.read).unwrap_or(0.0).max(0.0) as u64;
-            let write = formatted_counter(counters.write).unwrap_or(0.0).max(0.0) as u64;
-            let busy = formatted_counter(counters.busy).unwrap_or(0.0).round() as i32;
+            let read = counter_value_to_u64(counters.read.formatted_f64());
+            let write = counter_value_to_u64(counters.write.formatted_f64());
+            let busy = counter_value_to_percent(counters.busy.formatted_f64());
 
             if let Some(disk) = self.data.disks.get_mut(&drive) {
                 disk.read_bytes_per_sec = read;
@@ -241,14 +214,7 @@ impl DiskCollector {
     }
 
     fn close_perf_query(&mut self) {
-        if self.pdh_query != 0 {
-            // SAFETY: pdh_query is owned by this collector and was returned by
-            // PdhOpenQueryW. It is closed at most once before the handle is reset.
-            unsafe {
-                let _ = PdhCloseQuery(self.pdh_query);
-            }
-        }
-        self.pdh_query = 0;
+        self.pdh_query = None;
         self.pdh_counters.clear();
         self.pdh_drive_order.clear();
         self.pdh_initialized = false;
@@ -274,30 +240,30 @@ fn counter_path(drive: &str, counter: &str) -> Vec<u16> {
         .collect()
 }
 
-unsafe fn add_pdh_counter(query: isize, path: &[u16]) -> isize {
-    let mut counter = 0isize;
-    // SAFETY: query is a valid PDH query handle and path is a null-terminated
-    // UTF-16 counter path allocated by counter_path().
-    if unsafe { PdhAddCounterW(query, path.as_ptr(), 0, &mut counter) } == 0 {
-        counter
+fn add_pdh_counter(query: &PdhQuery, path: &[u16]) -> PdhCounter {
+    query.add_counter(path).unwrap_or_default()
+}
+
+fn counter_value_to_u64(value: Option<f64>) -> u64 {
+    let Some(value) = value else {
+        return 0;
+    };
+    if value.is_finite() && value > 0.0 {
+        value.clamp(0.0, u64::MAX as f64) as u64
     } else {
         0
     }
 }
 
-fn formatted_counter(counter: isize) -> Option<f64> {
-    if counter == 0 {
-        return None;
+fn counter_value_to_percent(value: Option<f64>) -> i32 {
+    let Some(value) = value else {
+        return 0;
+    };
+    if value.is_finite() {
+        (value.round() as i32).clamp(0, 100)
+    } else {
+        0
     }
-    let mut value = PdhVal::default();
-    let mut counter_type: u32 = 0;
-    // SAFETY: counter is a PDH counter handle added to the collector query.
-    // PdhVal is repr(C) and properly aligned for the API output.
-    let ok = unsafe {
-        PdhGetFormattedCounterValue(counter, PDH_FMT_DOUBLE, &mut counter_type, &mut value)
-    } == 0
-        && value.status == 0;
-    ok.then_some(value.value)
 }
 
 fn push_history(history: &mut std::collections::VecDeque<i64>, value: i64) {

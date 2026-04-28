@@ -1,7 +1,7 @@
 use crate::domain::memory::MemInfo;
 use std::collections::VecDeque;
 
-use super::Collector;
+use super::{Collector, win::percent_u64};
 
 const MAX_HISTORY: usize = 300;
 
@@ -46,7 +46,7 @@ impl MemCollector {
             if GlobalMemoryStatusEx(&mut mem_status).is_ok() {
                 let total = mem_status.ullTotalPhys;
                 let available = mem_status.ullAvailPhys;
-                let used = total - available;
+                let used = total.saturating_sub(available);
 
                 self.info.stats.used = used;
                 self.info.stats.available = available;
@@ -92,7 +92,11 @@ impl MemCollector {
             if GetPerformanceInfo(&mut perf, perf.cb).is_ok() {
                 let cached = perf.SystemCache as u64 * perf.PageSize as u64;
                 self.info.stats.cached = cached;
-                let total = self.info.stats.used + self.info.stats.available;
+                let total = self
+                    .info
+                    .stats
+                    .used
+                    .saturating_add(self.info.stats.available);
                 if total > 0 {
                     push_pct(&mut self.info.percent.cached, cached, total);
                 }
@@ -108,7 +112,7 @@ impl Collector for MemCollector {
 }
 
 fn push_pct(deque: &mut VecDeque<i64>, value: u64, total: u64) {
-    let pct = (value * 100 / total.max(1)) as i64;
+    let pct = percent_u64(value, total).min(100);
     deque.push_back(pct);
     while deque.len() > MAX_HISTORY {
         deque.pop_front();

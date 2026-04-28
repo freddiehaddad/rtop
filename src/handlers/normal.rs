@@ -298,15 +298,18 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
 }
 
 fn terminate_process(pid: u32) {
-    use windows::Win32::Foundation::CloseHandle;
+    use crate::collect::win::OwnedHandle;
     use windows::Win32::System::Threading::*;
 
     // SAFETY: OpenProcess returns a valid handle on success (checked by `Ok`).
-    // TerminateProcess and CloseHandle are safe with a valid process handle.
+    // TerminateProcess is safe with a valid process handle, and OwnedHandle
+    // closes the handle on all paths.
     unsafe {
-        if let Ok(handle) = OpenProcess(PROCESS_TERMINATE, false, pid) {
-            let _ = TerminateProcess(handle, 1);
-            let _ = CloseHandle(handle);
+        if let Some(handle) = OpenProcess(PROCESS_TERMINATE, false, pid)
+            .ok()
+            .and_then(OwnedHandle::new)
+        {
+            let _ = TerminateProcess(handle.get(), 1);
         }
     }
 }

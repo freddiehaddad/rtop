@@ -1,7 +1,10 @@
 use crate::domain::gpu::GpuInfo;
 use std::ffi::{c_char, c_void};
 
-use super::Collector;
+use super::{
+    Collector,
+    win::{OwnedLibrary, percent_u64},
+};
 
 const MAX_HISTORY: usize = 300;
 const NVML_SUCCESS: u32 = 0;
@@ -38,7 +41,7 @@ type NvmlDeviceGetMaxClockInfo = unsafe extern "C" fn(NvmlDevice, u32, *mut u32)
 type NvmlDeviceGetPowerManagementLimit = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
 
 struct NvmlFunctions {
-    _handle: windows::Win32::Foundation::HMODULE,
+    _library: OwnedLibrary,
     init: NvmlInitV2,
     shutdown: NvmlShutdownFn,
     device_get_count: NvmlDeviceGetCountV2,
@@ -63,7 +66,10 @@ impl NvmlFunctions {
         let dll_name: Vec<u16> = "nvml.dll\0".encode_utf16().collect();
         // SAFETY: LoadLibraryW receives a valid null-terminated UTF-16 DLL name.
         // The returned handle is checked via ok()? before use.
-        let handle = unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())).ok()? };
+        let library = OwnedLibrary::new(
+            unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())) }.ok()?,
+        )?;
+        let handle = library.get();
 
         // SAFETY: GetProcAddress returns function pointers from the loaded DLL.
         // Each pointer is non-null (checked via Option unwrap in load_fn) and
@@ -83,7 +89,7 @@ impl NvmlFunctions {
             }
 
             Some(Self {
-                _handle: handle,
+                _library: library,
                 init: std::mem::transmute::<unsafe extern "C" fn(), NvmlInitV2>(nvml_fn!(
                     "nvmlInit_v2"
                 )),
@@ -183,6 +189,11 @@ impl GpuCollector {
         let ret = unsafe { (nvml.device_get_count)(&mut count) };
         if ret != NVML_SUCCESS {
             tracing::warn!("nvmlDeviceGetCount_v2 failed with error {ret}");
+            // SAFETY: nvml.init succeeded, so shut NVML down before unloading
+            // the library via OwnedLibrary.
+            unsafe {
+                (nvml.shutdown)();
+            }
             self.nvml = None;
             return;
         }
@@ -296,11 +307,7 @@ impl GpuCollector {
             if ret == NVML_SUCCESS {
                 gpu.mem_total = mem.total;
                 gpu.mem_used = mem.used;
-                let vram_pct = if mem.total > 0 {
-                    (mem.used as f64 / mem.total as f64 * 100.0) as i64
-                } else {
-                    0
-                };
+                let vram_pct = percent_u64(mem.used, mem.total).min(100);
                 let vram_hist = &mut gpu.gpu_percent.vram;
                 vram_hist.push_back(vram_pct);
                 if vram_hist.len() > MAX_HISTORY {
@@ -320,7 +327,7 @@ impl GpuCollector {
             if ret == NVML_SUCCESS {
                 gpu.pwr_usage = power_mw as i64;
                 let pwr_pct = if gpu.pwr_max_usage > 0 {
-                    (power_mw as i64 * 100 / gpu.pwr_max_usage).min(100)
+                    percent_u64(power_mw as u64, gpu.pwr_max_usage as u64).min(100)
                 } else {
                     0
                 };

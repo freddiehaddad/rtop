@@ -1,7 +1,7 @@
 use crate::domain::network::{NetInfo, NetStat};
 use std::collections::HashMap;
 
-use super::Collector;
+use super::{Collector, win::bytes_per_sec};
 
 /// Network data collector using Windows IPHLPAPI.
 pub struct NetCollector {
@@ -233,11 +233,7 @@ fn get_if_stats(if_index: u32) -> (u64, u64, u64) {
 
 /// Calculate speed from byte counter delta (for unit testing).
 pub fn speed_from_delta(current: u64, previous: u64, elapsed_secs: f64) -> u64 {
-    if previous == 0 || elapsed_secs <= 0.0 {
-        return 0;
-    }
-    let delta = current.saturating_sub(previous);
-    (delta as f64 / elapsed_secs) as u64
+    bytes_per_sec(current, previous, elapsed_secs)
 }
 
 #[cfg(test)]
@@ -262,7 +258,7 @@ mod tests {
 
     #[test]
     fn rollover_handling() {
-        // When counter wraps, saturating_sub returns 0
+        // Counter resets and rollovers are treated as no rate for the sample.
         assert_eq!(speed_from_delta(500, 1000, 1.0), 0);
     }
 

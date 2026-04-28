@@ -1,7 +1,10 @@
 use crate::domain::cpu::CpuInfo;
 use std::collections::VecDeque;
 
-use super::Collector;
+use super::{
+    Collector,
+    win::{OwnedRegKey, PdhCounter, PdhQuery, percent_u64},
+};
 
 /// Maximum number of data points to retain in history deques.
 const MAX_HISTORY: usize = 300;
@@ -11,6 +14,12 @@ const MAX_HISTORY: usize = 300;
 enum TempSource {
     None,
     LhmHttp,
+}
+
+struct CpuPdhCounters {
+    query: PdhQuery,
+    freq: PdhCounter,
+    perf: PdhCounter,
 }
 
 /// CPU data collector using Windows APIs.
@@ -23,10 +32,7 @@ pub struct CpuCollector {
     load_avg_samples: VecDeque<f64>,
     initialized: bool,
     // Persistent PDH query for CPU frequency (needs two collections for rate counters)
-    pdh_query: isize,
-    pdh_freq_counter: isize,
-    pdh_perf_counter: isize,
-    pdh_initialized: bool,
+    pdh_counters: Option<CpuPdhCounters>,
     pdh_has_first_sample: bool,
     temp_source: TempSource,
 }
@@ -50,10 +56,7 @@ impl CpuCollector {
             prev_user: Vec::new(),
             load_avg_samples: VecDeque::with_capacity(900),
             initialized: false,
-            pdh_query: 0,
-            pdh_freq_counter: 0,
-            pdh_perf_counter: 0,
-            pdh_initialized: false,
+            pdh_counters: None,
             pdh_has_first_sample: false,
             temp_source: TempSource::None,
         }
@@ -146,23 +149,21 @@ impl CpuCollector {
                 let idle_delta = idle_val.saturating_sub(self.prev_idle[0]);
                 let kernel_delta = kernel_val.saturating_sub(self.prev_kernel[0]);
                 let user_delta = user_val.saturating_sub(self.prev_user[0]);
-                let total_delta = kernel_delta + user_delta;
+                let total_delta = kernel_delta.saturating_add(user_delta);
 
                 if total_delta > 0 {
-                    let cpu_pct = ((total_delta - idle_delta) * 100)
-                        .checked_div(total_delta)
-                        .unwrap_or(0) as i64;
+                    let cpu_pct =
+                        percent_u64(total_delta.saturating_sub(idle_delta), total_delta).min(100);
                     push_history(&mut self.info.cpu_percent.total, cpu_pct);
 
-                    let user_pct = (user_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
+                    let user_pct = percent_u64(user_delta, total_delta).min(100);
                     push_history(&mut self.info.cpu_percent.user, user_pct);
 
-                    let system_pct = ((kernel_delta - idle_delta) * 100)
-                        .checked_div(total_delta)
-                        .unwrap_or(0) as i64;
-                    push_history(&mut self.info.cpu_percent.system, system_pct.max(0));
+                    let system_pct =
+                        percent_u64(kernel_delta.saturating_sub(idle_delta), total_delta).min(100);
+                    push_history(&mut self.info.cpu_percent.system, system_pct);
 
-                    let idle_pct = (idle_delta * 100).checked_div(total_delta).unwrap_or(0) as i64;
+                    let idle_pct = percent_u64(idle_delta, total_delta).min(100);
                     push_history(&mut self.info.cpu_percent.idle, idle_pct);
                 }
 
@@ -218,9 +219,9 @@ impl CpuCollector {
             }
 
             for (i, pi) in perf_info.iter().enumerate().take(actual_count) {
-                let idle_val = pi.idle_time as u64;
-                let kernel_val = pi.kernel_time as u64;
-                let user_val = pi.user_time as u64;
+                let idle_val = perf_counter_to_u64(pi.idle_time);
+                let kernel_val = perf_counter_to_u64(pi.kernel_time);
+                let user_val = perf_counter_to_u64(pi.user_time);
 
                 // Index i+1 in prev arrays (index 0 is the aggregate)
                 let pi_idx = i + 1;
@@ -228,11 +229,10 @@ impl CpuCollector {
                 let idle_delta = idle_val.saturating_sub(self.prev_idle[pi_idx]);
                 let kernel_delta = kernel_val.saturating_sub(self.prev_kernel[pi_idx]);
                 let user_delta = user_val.saturating_sub(self.prev_user[pi_idx]);
-                let total_delta = kernel_delta + user_delta;
+                let total_delta = kernel_delta.saturating_add(user_delta);
 
-                let core_pct = ((total_delta - idle_delta) * 100)
-                    .checked_div(total_delta)
-                    .unwrap_or(0) as i64;
+                let core_pct =
+                    percent_u64(total_delta.saturating_sub(idle_delta), total_delta).min(100);
 
                 push_history(&mut self.info.core_percent[i], core_pct);
 
@@ -248,28 +248,8 @@ impl CpuCollector {
         // % Processor Performance is a rate counter that needs TWO PdhCollectQueryData
         // calls with a time gap. We keep the query persistent across frames.
 
-        // SAFETY: FFI declarations for pdh.dll Performance Data Helper
-        // functions; signatures match the Windows PDH API.
-        #[link(name = "pdh")]
-        unsafe extern "system" {
-            fn PdhOpenQueryW(ds: *const u16, ud: usize, q: *mut isize) -> i32;
-            fn PdhAddCounterW(q: isize, p: *const u16, ud: usize, c: *mut isize) -> i32;
-            fn PdhCollectQueryData(q: isize) -> i32;
-            fn PdhGetFormattedCounterValue(c: isize, f: u32, ct: *mut u32, v: *mut PdhVal) -> i32;
-            fn PdhCloseQuery(q: isize) -> i32;
-        }
-
-        #[repr(C)]
-        #[derive(Default)]
-        struct PdhVal {
-            status: u32,
-            value: f64,
-        }
-
-        const PDH_FMT_DOUBLE: u32 = 0x00000200;
-
         // Initialize the persistent PDH query on first call
-        if !self.pdh_initialized {
+        if self.pdh_counters.is_none() {
             let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
                 .encode_utf16()
                 .collect();
@@ -277,31 +257,25 @@ impl CpuCollector {
                 .encode_utf16()
                 .collect();
 
-            // SAFETY: PDH functions receive valid pointers to stack-allocated
-            // handles and null-terminated UTF-16 counter path strings. Return
-            // values are checked; the query is closed on failure.
-            unsafe {
-                let mut q: isize = 0;
-                if PdhOpenQueryW(std::ptr::null(), 0, &mut q) != 0 {
-                    self.collect_frequency_fallback();
-                    return;
-                }
-                self.pdh_query = q;
-
-                if PdhAddCounterW(q, freq_path.as_ptr(), 0, &mut self.pdh_freq_counter) != 0
-                    || PdhAddCounterW(q, perf_path.as_ptr(), 0, &mut self.pdh_perf_counter) != 0
-                {
-                    PdhCloseQuery(q);
-                    self.pdh_query = 0;
-                    self.collect_frequency_fallback();
-                    return;
-                }
-
-                // First collection establishes baseline for rate counters
-                let _ = PdhCollectQueryData(q);
-                self.pdh_initialized = true;
-                self.pdh_has_first_sample = false;
+            let Ok(query) = PdhQuery::open() else {
+                self.collect_frequency_fallback();
+                return;
+            };
+            let Ok(freq) = query.add_counter(&freq_path) else {
+                self.collect_frequency_fallback();
+                return;
+            };
+            let Ok(perf) = query.add_counter(&perf_path) else {
+                self.collect_frequency_fallback();
+                return;
+            };
+            if query.collect().is_err() {
+                self.collect_frequency_fallback();
+                return;
             }
+
+            self.pdh_counters = Some(CpuPdhCounters { query, freq, perf });
+            self.pdh_has_first_sample = false;
 
             // On first frame, use registry fallback since we don't have data yet
             self.collect_frequency_fallback();
@@ -309,49 +283,40 @@ impl CpuCollector {
         }
 
         // Collect new sample
-        // SAFETY: self.pdh_query and counter handles were successfully
-        // initialized by a prior PdhOpenQueryW/PdhAddCounterW call.
-        // PdhVal is repr(C) and properly aligned for the API output.
-        unsafe {
-            if PdhCollectQueryData(self.pdh_query) != 0 {
-                self.collect_frequency_fallback();
-                return;
+        let collect_failed = self
+            .pdh_counters
+            .as_ref()
+            .is_none_or(|counters| counters.query.collect().is_err());
+        if collect_failed {
+            self.collect_frequency_fallback();
+            return;
+        }
+
+        if !self.pdh_has_first_sample {
+            // Second call — now rate counters will have data
+            self.pdh_has_first_sample = true;
+        }
+
+        let Some(counters) = self.pdh_counters.as_ref() else {
+            self.collect_frequency_fallback();
+            return;
+        };
+        let freq_val = counters.freq.formatted_f64();
+        let perf_val = counters.perf.formatted_f64();
+
+        if let (Some(freq), Some(perf)) = (freq_val, perf_val)
+            && freq.is_finite()
+            && perf.is_finite()
+            && freq > 0.0
+            && perf > 0.0
+        {
+            let actual_mhz = (freq * perf / 100.0).clamp(0.0, u32::MAX as f64) as u32;
+            if actual_mhz >= 1000 {
+                self.info.cpu_hz = format!("{:.2} GHz", actual_mhz as f64 / 1000.0);
+            } else {
+                self.info.cpu_hz = format!("{} MHz", actual_mhz);
             }
-
-            if !self.pdh_has_first_sample {
-                // Second call — now rate counters will have data
-                self.pdh_has_first_sample = true;
-            }
-
-            let mut freq_val = PdhVal::default();
-            let mut perf_val = PdhVal::default();
-            let mut ct: u32 = 0;
-
-            let freq_ok = PdhGetFormattedCounterValue(
-                self.pdh_freq_counter,
-                PDH_FMT_DOUBLE,
-                &mut ct,
-                &mut freq_val,
-            ) == 0
-                && freq_val.status == 0;
-
-            let perf_ok = PdhGetFormattedCounterValue(
-                self.pdh_perf_counter,
-                PDH_FMT_DOUBLE,
-                &mut ct,
-                &mut perf_val,
-            ) == 0
-                && perf_val.status == 0;
-
-            if freq_ok && perf_ok && freq_val.value > 0.0 && perf_val.value > 0.0 {
-                let actual_mhz = (freq_val.value * perf_val.value / 100.0) as u32;
-                if actual_mhz >= 1000 {
-                    self.info.cpu_hz = format!("{:.2} GHz", actual_mhz as f64 / 1000.0);
-                } else {
-                    self.info.cpu_hz = format!("{} MHz", actual_mhz);
-                }
-                return;
-            }
+            return;
         }
 
         self.collect_frequency_fallback();
@@ -365,16 +330,19 @@ impl CpuCollector {
         // SAFETY: RegOpenKeyExW and RegQueryValueExW receive valid
         // null-terminated wide-string key/value names. The output buffer
         // is a stack-allocated u32 with its size passed correctly.
-        // The key handle is closed after use.
+        // The key handle is closed by OwnedRegKey after use.
         unsafe {
-            let mut key = Default::default();
+            let mut raw_key = Default::default();
             let subkey = w!("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
-            if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, Some(0), KEY_READ, &mut key).is_ok() {
+            if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, Some(0), KEY_READ, &mut raw_key).is_ok() {
+                let Some(key) = OwnedRegKey::new(raw_key) else {
+                    return;
+                };
                 let mut mhz: u32 = 0;
                 let mut size = std::mem::size_of::<u32>() as u32;
                 let val_name = w!("~MHz");
                 if RegQueryValueExW(
-                    key,
+                    key.get(),
                     val_name,
                     None,
                     None,
@@ -389,7 +357,6 @@ impl CpuCollector {
                         self.info.cpu_hz = format!("{} MHz", mhz);
                     }
                 }
-                let _ = RegCloseKey(key);
             }
         }
     }
@@ -616,16 +583,19 @@ fn get_cpu_name() -> String {
 
     // SAFETY: RegOpenKeyExW and RegQueryValueExW receive valid null-terminated
     // wide-string paths. The buffer is a stack-allocated u16 array with its
-    // byte size passed correctly. The key handle is closed on all paths.
+    // byte size passed correctly. The key handle is closed by OwnedRegKey.
     unsafe {
-        let mut key = Default::default();
+        let mut raw_key = Default::default();
         let subkey = w!("HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0");
-        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, Some(0), KEY_READ, &mut key).is_ok() {
+        if RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey, Some(0), KEY_READ, &mut raw_key).is_ok() {
+            let Some(key) = OwnedRegKey::new(raw_key) else {
+                return "Unknown CPU".to_string();
+            };
             let mut buf = [0u16; 256];
             let mut size = (buf.len() * 2) as u32;
             let val_name = w!("ProcessorNameString");
             if RegQueryValueExW(
-                key,
+                key.get(),
                 val_name,
                 None,
                 None,
@@ -634,11 +604,9 @@ fn get_cpu_name() -> String {
             )
             .is_ok()
             {
-                let _ = RegCloseKey(key);
                 let len = (size as usize / 2).saturating_sub(1);
                 return String::from_utf16_lossy(&buf[..len]).trim().to_string();
             }
-            let _ = RegCloseKey(key);
         }
     }
     "Unknown CPU".to_string()
@@ -660,6 +628,10 @@ fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
     ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
 }
 
+fn perf_counter_to_u64(value: i64) -> u64 {
+    value.try_into().unwrap_or(0)
+}
+
 fn push_history(deque: &mut VecDeque<i64>, value: i64) {
     deque.push_back(value);
     while deque.len() > MAX_HISTORY {
@@ -670,11 +642,11 @@ fn push_history(deque: &mut VecDeque<i64>, value: i64) {
 #[cfg(test)]
 /// Calculate CPU percentage from time deltas (for unit testing).
 pub fn calculate_cpu_percent(idle_delta: u64, kernel_delta: u64, user_delta: u64) -> i64 {
-    let total = kernel_delta + user_delta;
+    let total = kernel_delta.saturating_add(user_delta);
     if total == 0 {
         return 0;
     }
-    ((total - idle_delta) * 100 / total) as i64
+    percent_u64(total.saturating_sub(idle_delta), total).min(100)
 }
 
 #[cfg(test)]
@@ -701,6 +673,16 @@ mod tests {
     #[test]
     fn calculate_cpu_percent_zero_total() {
         assert_eq!(calculate_cpu_percent(0, 0, 0), 0);
+    }
+
+    #[test]
+    fn calculate_cpu_percent_saturates_invalid_idle_delta() {
+        assert_eq!(calculate_cpu_percent(200, 100, 0), 0);
+    }
+
+    #[test]
+    fn calculate_cpu_percent_avoids_overflow() {
+        assert_eq!(calculate_cpu_percent(0, u64::MAX, u64::MAX), 100);
     }
 
     #[test]

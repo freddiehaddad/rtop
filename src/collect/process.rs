@@ -1,7 +1,10 @@
 use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
 use std::collections::HashMap;
 
-use super::Collector;
+use super::{
+    Collector,
+    win::{CounterDelta, OwnedHandle, counter_delta},
+};
 
 /// Canonical sort options for the process list.
 /// Used by app.rs keybinds, options_menu.rs browsable values, and sort_procs().
@@ -119,7 +122,6 @@ impl ProcCollector {
     fn collect_impl(&mut self) {
         self.status = super::CollectStatus::Ok;
 
-        use windows::Win32::Foundation::*;
         use windows::Win32::System::Diagnostics::ToolHelp::*;
 
         let now = std::time::Instant::now();
@@ -135,10 +137,18 @@ impl ProcCollector {
         // SAFETY: CreateToolhelp32Snapshot returns a valid handle (checked via
         // Err). PROCESSENTRY32W has dwSize set correctly. Process32FirstW and
         // Process32NextW iterate the snapshot using the OS-managed list. The
-        // snapshot handle is closed after iteration.
+        // snapshot handle is closed by OwnedHandle after iteration.
         unsafe {
             let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
-                Ok(h) => h,
+                Ok(h) => match OwnedHandle::new(h) {
+                    Some(handle) => handle,
+                    None => {
+                        tracing::warn!("Process: CreateToolhelp32Snapshot returned invalid handle");
+                        self.status
+                            .downgrade(super::CollectStatus::Failed("snapshot failed"));
+                        return;
+                    }
+                },
                 Err(_) => {
                     tracing::warn!("Process: CreateToolhelp32Snapshot failed");
                     self.status
@@ -152,7 +162,7 @@ impl ProcCollector {
                 ..Default::default()
             };
 
-            if Process32FirstW(snapshot, &mut entry).is_ok() {
+            if Process32FirstW(snapshot.get(), &mut entry).is_ok() {
                 loop {
                     let name = String::from_utf16_lossy(
                         &entry.szExeFile[..entry
@@ -189,13 +199,11 @@ impl ProcCollector {
                         tree_index: 0,
                     });
 
-                    if Process32NextW(snapshot, &mut entry).is_err() {
+                    if Process32NextW(snapshot.get(), &mut entry).is_err() {
                         break;
                     }
                 }
             }
-
-            let _ = CloseHandle(snapshot);
         }
 
         // Update prev_times for next delta
@@ -231,13 +239,14 @@ fn get_process_details(
     let mut cmd = String::new();
 
     // SAFETY: OpenProcess is called with limited query rights. The returned
-    // handle is checked via Ok before use. FILETIME and PROCESS_MEMORY_COUNTERS
-    // are stack-allocated with correct sizes. All API return values are checked.
-    // The handle is closed on all paths.
+    // handle is checked before use. FILETIME and PROCESS_MEMORY_COUNTERS are
+    // stack-allocated with correct sizes. All API return values are checked.
+    // The handle is closed by OwnedHandle on all paths.
     unsafe {
-        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
-
-        if let Ok(handle) = handle {
+        if let Some(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+            .ok()
+            .and_then(OwnedHandle::new)
+        {
             // CPU times
             let mut creation = FILETIME::default();
             let mut exit = FILETIME::default();
@@ -245,7 +254,7 @@ fn get_process_details(
             let mut user_time = FILETIME::default();
 
             if GetProcessTimes(
-                handle,
+                handle.get(),
                 &mut creation,
                 &mut exit,
                 &mut kernel,
@@ -255,14 +264,10 @@ fn get_process_details(
             {
                 let kt = filetime_to_u64(&kernel);
                 let ut = filetime_to_u64(&user_time);
-                cpu_time = kt + ut;
+                cpu_time = kt.saturating_add(ut);
 
                 if let Some(&(_, prev_total)) = prev_times.get(&pid) {
-                    let delta = cpu_time.saturating_sub(prev_total);
-                    let system_delta = (elapsed * 10_000_000.0) as u64;
-                    if system_delta > 0 {
-                        cpu_p = (delta as f64 / system_delta as f64) * 100.0 * core_count as f64;
-                    }
+                    cpu_p = process_cpu_percent(prev_total, cpu_time, elapsed, core_count);
                 }
             }
 
@@ -272,21 +277,19 @@ fn get_process_details(
                 cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
                 ..Default::default()
             };
-            if GetProcessMemoryInfo(handle, &mut mem_counters, mem_counters.cb).is_ok() {
+            if GetProcessMemoryInfo(handle.get(), &mut mem_counters, mem_counters.cb).is_ok() {
                 mem = mem_counters.WorkingSetSize as u64;
             }
 
             // Priority
-            let pclass = GetPriorityClass(handle);
+            let pclass = GetPriorityClass(handle.get());
             priority = priority_from_u32(pclass);
 
             // Username
-            user = get_process_user(handle);
+            user = get_process_user(handle.get());
 
             // Command line
             cmd = get_process_cmdline(pid);
-
-            let _ = CloseHandle(handle);
         }
     }
 
@@ -298,11 +301,11 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
     use windows::Win32::Security::*;
 
     // SAFETY: The process handle is valid (passed from caller). Token handle
-    // lifetime is scoped to this function and closed on all paths. Buffer size
-    // is queried first, then allocated accordingly. TOKEN_USER is cast from a
-    // buffer that was filled by GetTokenInformation with verified size.
+    // lifetime is scoped to this function and closed by OwnedHandle. Buffer
+    // size is queried first, then allocated accordingly. TOKEN_USER is cast
+    // from a buffer that was filled by GetTokenInformation with verified size.
     unsafe {
-        let mut token = HANDLE::default();
+        let mut raw_token = HANDLE::default();
         // SAFETY: FFI declaration for advapi32 OpenProcessToken; signature
         // matches the Windows API with a process handle, access mask, and
         // output token handle pointer.
@@ -311,21 +314,23 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
             fn OpenProcessToken(process: HANDLE, access: u32, token: *mut HANDLE) -> i32;
         }
 
-        if OpenProcessToken(handle, 0x0008 /* TOKEN_QUERY */, &mut token) == 0 {
+        if OpenProcessToken(handle, 0x0008 /* TOKEN_QUERY */, &mut raw_token) == 0 {
             return String::new();
         }
+        let Some(token) = OwnedHandle::new(raw_token) else {
+            return String::new();
+        };
 
         let mut size = 0u32;
-        let _ = GetTokenInformation(token, TokenUser, None, 0, &mut size);
+        let _ = GetTokenInformation(token.get(), TokenUser, None, 0, &mut size);
 
         if size == 0 {
-            let _ = CloseHandle(token);
             return String::new();
         }
 
         let mut buffer = vec![0u8; size as usize];
         if GetTokenInformation(
-            token,
+            token.get(),
             TokenUser,
             Some(buffer.as_mut_ptr() as *mut _),
             size,
@@ -333,7 +338,6 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         )
         .is_err()
         {
-            let _ = CloseHandle(token);
             return String::new();
         }
 
@@ -357,11 +361,8 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         )
         .is_ok()
         {
-            let _ = CloseHandle(token);
             return String::from_utf16_lossy(&name_buf[..name_len as usize]);
         }
-
-        let _ = CloseHandle(token);
     }
     String::new()
 }
@@ -399,26 +400,27 @@ fn get_process_cmdline(pid: u32) -> String {
     // ReadProcessMemory calls pass valid local buffer pointers and check return
     // values before proceeding. All reads use sizes derived from the target
     // process's own data structures (PEB offsets for 64-bit Windows). The
-    // handle is closed on all exit paths.
+    // handle is closed by OwnedHandle on all exit paths.
     unsafe {
         // Need PROCESS_QUERY_INFORMATION | PROCESS_VM_READ
-        let handle = match OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) {
-            Ok(h) => h,
-            Err(_) => return String::new(),
+        let Some(handle) = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid)
+            .ok()
+            .and_then(OwnedHandle::new)
+        else {
+            return String::new();
         };
 
         // Get PEB address
         let mut pbi = std::mem::zeroed::<ProcessBasicInformation>();
         let mut ret_len: u32 = 0;
         let status = NtQueryInformationProcess(
-            handle,
+            handle.get(),
             0, // ProcessBasicInformation
             &mut pbi as *mut _ as *mut std::ffi::c_void,
             std::mem::size_of::<ProcessBasicInformation>() as u32,
             &mut ret_len,
         );
         if status != 0 || pbi.peb_base_address == 0 {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
@@ -442,14 +444,13 @@ fn get_process_cmdline(pid: u32) -> String {
         }
 
         if ReadProcessMemory(
-            handle,
+            handle.get(),
             params_ptr_addr,
             &mut params_ptr as *mut usize as *mut std::ffi::c_void,
             std::mem::size_of::<usize>(),
             &mut bytes_read,
         ) == 0
         {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
@@ -458,32 +459,29 @@ fn get_process_cmdline(pid: u32) -> String {
         let cmdline_offset = params_ptr + 0x70;
         let mut cmd_length: u16 = 0;
         if ReadProcessMemory(
-            handle,
+            handle.get(),
             cmdline_offset,
             &mut cmd_length as *mut u16 as *mut std::ffi::c_void,
             2,
             &mut bytes_read,
         ) == 0
         {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
         let mut cmd_buffer_ptr: usize = 0;
         if ReadProcessMemory(
-            handle,
+            handle.get(),
             cmdline_offset + 8, // skip Length(2) + MaxLength(2) + Pad(4)
             &mut cmd_buffer_ptr as *mut usize as *mut std::ffi::c_void,
             std::mem::size_of::<usize>(),
             &mut bytes_read,
         ) == 0
         {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
         if cmd_length == 0 || cmd_buffer_ptr == 0 {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
@@ -491,18 +489,16 @@ fn get_process_cmdline(pid: u32) -> String {
         let char_count = (cmd_length as usize) / 2;
         let mut cmd_buf = vec![0u16; char_count];
         if ReadProcessMemory(
-            handle,
+            handle.get(),
             cmd_buffer_ptr,
             cmd_buf.as_mut_ptr() as *mut std::ffi::c_void,
             cmd_length as usize,
             &mut bytes_read,
         ) == 0
         {
-            let _ = CloseHandle(handle);
             return String::new();
         }
 
-        let _ = CloseHandle(handle);
         String::from_utf16_lossy(&cmd_buf).trim().to_string()
     }
 }
@@ -524,6 +520,27 @@ pub fn priority_from_u32(pclass: u32) -> PriorityClass {
     }
 }
 
+fn process_cpu_percent(
+    prev_total: u64,
+    curr_total: u64,
+    elapsed_secs: f64,
+    core_count: usize,
+) -> f64 {
+    if elapsed_secs <= 0.0 || !elapsed_secs.is_finite() || core_count == 0 {
+        return 0.0;
+    }
+
+    let CounterDelta::Delta(delta) = counter_delta(curr_total, prev_total) else {
+        return 0.0;
+    };
+
+    let system_delta = (elapsed_secs * 10_000_000.0).clamp(0.0, u64::MAX as f64) as u64;
+    if system_delta == 0 {
+        return 0.0;
+    }
+    (delta as f64 / system_delta as f64) * 100.0 * core_count as f64
+}
+
 #[cfg(test)]
 /// Calculate CPU percentage from process time delta (for unit testing).
 pub fn cpu_percent_from_times(
@@ -532,12 +549,7 @@ pub fn cpu_percent_from_times(
     elapsed_secs: f64,
     core_count: usize,
 ) -> f64 {
-    let delta = curr_total.saturating_sub(prev_total);
-    let system_delta = (elapsed_secs * 10_000_000.0) as u64;
-    if system_delta == 0 {
-        return 0.0;
-    }
-    (delta as f64 / system_delta as f64) * 100.0 * core_count as f64
+    process_cpu_percent(prev_total, curr_total, elapsed_secs, core_count)
 }
 
 /// Build a process tree from PPID relationships.
@@ -664,6 +676,11 @@ mod tests {
     #[test]
     fn cpu_percent_zero_elapsed() {
         assert_eq!(cpu_percent_from_times(0, 100, 0.0, 1), 0.0);
+    }
+
+    #[test]
+    fn cpu_percent_zero_after_counter_reset() {
+        assert_eq!(cpu_percent_from_times(200, 100, 1.0, 1), 0.0);
     }
 
     #[test]
