@@ -529,7 +529,11 @@ fn process_cpu_percent(
     if system_delta == 0 {
         return 0.0;
     }
-    (delta as f64 / system_delta as f64) * 100.0 * core_count as f64
+    let pct = (delta as f64 / system_delta as f64) * 100.0;
+    if !pct.is_finite() {
+        return 0.0;
+    }
+    pct.clamp(0.0, 100.0 * core_count as f64)
 }
 
 #[cfg(test)]
@@ -691,6 +695,18 @@ mod tests {
     #[test]
     fn cpu_percent_from_times_multicore() {
         let pct = cpu_percent_from_times(0, 10_000_000, 1.0, 4);
+        assert!((pct - 100.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn cpu_percent_from_times_all_cores() {
+        let pct = cpu_percent_from_times(0, 40_000_000, 1.0, 4);
+        assert!((pct - 400.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn cpu_percent_clamps_to_core_capacity() {
+        let pct = cpu_percent_from_times(0, 80_000_000, 1.0, 4);
         assert!((pct - 400.0).abs() < 1.0);
     }
 

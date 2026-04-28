@@ -7,10 +7,12 @@ use crate::{
     handlers::{InputContext, MenuState},
     input, runner, term, theme, tools, ui,
 };
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
 const SNAPSHOT_POLL_MS: u64 = 50;
+const PROC_CPU_HISTORY_LIMIT: usize = 300;
 
 /// Run the main event loop: collect data, render UI, and handle input.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
@@ -68,6 +70,7 @@ struct AppState {
     current_snapshot: Option<Arc<runner::CollectionSnapshot>>,
     last_layout_hints: Option<runner::LayoutHints>,
     proc_entries: Vec<ProcDisplayEntry>,
+    proc_cpu_histories: HashMap<u32, VecDeque<i64>>,
     selected_iface: String,
     startup_boxes_initialized: bool,
 }
@@ -91,6 +94,7 @@ impl AppState {
             current_snapshot: None,
             last_layout_hints: None,
             proc_entries: Vec::new(),
+            proc_cpu_histories: HashMap::new(),
             selected_iface: String::new(),
             startup_boxes_initialized: false,
         }
@@ -154,11 +158,38 @@ fn pull_latest_snapshot(
         state.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
     state.last_layout_hints = Some(new_hints);
+    update_proc_cpu_histories(state, &snapshot);
     state.current_snapshot = Some(snapshot);
 
     apply_startup_snapshot_config(state, config);
     reconcile_selected_iface(state);
     state.dirty |= Dirty::ALL_BOXES | Dirty::PROC_LIST;
+}
+
+fn update_proc_cpu_histories(state: &mut AppState, snapshot: &runner::CollectionSnapshot) {
+    let active_pids: HashSet<u32> = snapshot
+        .proc_data
+        .procs
+        .iter()
+        .map(|proc| proc.pid)
+        .collect();
+    state
+        .proc_cpu_histories
+        .retain(|pid, _| active_pids.contains(pid));
+
+    let max_cpu = 100.0 * snapshot.cpu.info.core_count.max(1) as f64;
+    for proc in &snapshot.proc_data.procs {
+        let cpu = if proc.cpu_p.is_finite() {
+            proc.cpu_p.clamp(0.0, max_cpu).round() as i64
+        } else {
+            0
+        };
+        let history = state.proc_cpu_histories.entry(proc.pid).or_default();
+        history.push_back(cpu);
+        while history.len() > PROC_CPU_HISTORY_LIMIT {
+            history.pop_front();
+        }
+    }
 }
 
 fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Config) {
@@ -372,6 +403,7 @@ fn render_dirty_frame(
         layout,
         snapshot,
         proc_entries: &state.proc_entries,
+        proc_cpu_histories: &state.proc_cpu_histories,
         selected_iface: &state.selected_iface,
         config,
         theme,
@@ -427,6 +459,7 @@ fn handle_input_key(
         theme,
         snapshot: state.current_snapshot.as_deref(),
         proc_entries: &state.proc_entries,
+        proc_cpu_histories: &state.proc_cpu_histories,
         worker,
         menu_state: &mut state.menu_state,
         dirty: &mut state.dirty,
@@ -523,6 +556,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) layout: &'a draw::layout::Layout,
     pub(crate) snapshot: &'a runner::CollectionSnapshot,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
+    pub(crate) proc_cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
     pub(crate) selected_iface: &'a str,
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
@@ -687,11 +721,32 @@ pub(crate) fn render_all(
                 filter: pf,
                 filtering: is_filtering,
             };
+            let total_mem = snapshot
+                .mem
+                .info
+                .stats
+                .used
+                .saturating_add(snapshot.mem.info.stats.available);
+            let proc_settings = ui::proc_box::ProcBoxSettings {
+                proc_per_core: config.get_bool(bk::PROC_PER_CORE),
+                core_count: snapshot.cpu.info.core_count,
+                proc_mem_bytes: config.get_bool(bk::PROC_MEM_BYTES),
+                total_mem,
+                proc_colors: config.get_bool(bk::PROC_COLORS),
+                proc_gradient: config.get_bool(bk::PROC_GRADIENT),
+                proc_cpu_graphs: config.get_bool(bk::PROC_CPU_GRAPHS),
+                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                    config.get_string(sk::GRAPH_SYMBOL_PROC),
+                    config.get_string(sk::GRAPH_SYMBOL),
+                ),
+                cpu_histories: params.proc_cpu_histories,
+            };
             output.push_str(&ui::proc_box::draw_with_sort(
                 procs,
                 entries,
                 &area,
                 &view,
+                &proc_settings,
                 theme,
                 &snapshot.proc_data.status,
             ));
@@ -721,7 +776,60 @@ mod tests {
         assert!(state.cached_layout.is_none());
         assert!(state.current_snapshot.is_none());
         assert!(state.proc_entries.is_empty());
+        assert!(state.proc_cpu_histories.is_empty());
         assert!(state.selected_iface.is_empty());
+    }
+
+    #[test]
+    fn update_proc_cpu_histories_tracks_prunes_and_caps() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config, Instant::now());
+        let mut runner = runner::Runner {
+            cpu: crate::collect::cpu::CpuCollector::default(),
+            disk: crate::collect::disk::DiskCollector::default(),
+            gpu: crate::collect::gpu::GpuCollector::default(),
+            mem: crate::collect::memory::MemCollector::default(),
+            net: crate::collect::network::NetCollector::default(),
+            proc_collector: crate::collect::process::ProcCollector::default(),
+        };
+        runner.cpu.info.core_count = 2;
+        runner.proc_collector.procs = vec![
+            crate::domain::process::ProcInfo {
+                pid: 1,
+                cpu_p: 50.0,
+                ..Default::default()
+            },
+            crate::domain::process::ProcInfo {
+                pid: 2,
+                cpu_p: f64::NAN,
+                ..Default::default()
+            },
+        ];
+
+        update_proc_cpu_histories(&mut state, &runner.snapshot(1));
+
+        assert_eq!(
+            state.proc_cpu_histories.get(&1).unwrap().back().copied(),
+            Some(50)
+        );
+        assert_eq!(
+            state.proc_cpu_histories.get(&2).unwrap().back().copied(),
+            Some(0)
+        );
+
+        runner.proc_collector.procs = vec![crate::domain::process::ProcInfo {
+            pid: 1,
+            cpu_p: 500.0,
+            ..Default::default()
+        }];
+        for seq in 2..(PROC_CPU_HISTORY_LIMIT + 4) as u64 {
+            update_proc_cpu_histories(&mut state, &runner.snapshot(seq));
+        }
+
+        assert!(!state.proc_cpu_histories.contains_key(&2));
+        let history = state.proc_cpu_histories.get(&1).unwrap();
+        assert_eq!(history.len(), PROC_CPU_HISTORY_LIMIT);
+        assert_eq!(history.back().copied(), Some(200));
     }
 
     #[test]

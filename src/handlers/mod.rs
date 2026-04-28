@@ -5,6 +5,7 @@ pub(crate) mod normal;
 pub(crate) mod options;
 
 use crate::{config, dirty::Dirty, domain::process::ProcDisplayEntry, draw, runner, theme};
+use std::collections::{HashMap, VecDeque};
 
 /// The current menu overlay state.
 #[derive(Clone, Copy, PartialEq)]
@@ -83,6 +84,7 @@ pub(crate) struct InputContext<'a> {
     pub(crate) theme: &'a mut theme::Theme,
     pub(crate) snapshot: Option<&'a runner::CollectionSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
+    pub(crate) proc_cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
     pub(crate) worker: &'a runner::CollectionWorker,
     pub(crate) menu_state: &'a mut MenuState,
     pub(crate) dirty: &'a mut Dirty,
@@ -127,6 +129,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             layout,
             snapshot,
             proc_entries: ctx.proc_entries,
+            proc_cpu_histories: ctx.proc_cpu_histories,
             selected_iface: ctx.selected_iface.as_str(),
             config: ctx.config,
             theme: ctx.theme,

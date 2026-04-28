@@ -3,9 +3,11 @@ use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
+use crate::draw::graph::{Graph, GraphSymbol};
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 use crate::tools;
+use std::collections::{HashMap, VecDeque};
 
 use super::{BoxArea, ProcView};
 
@@ -22,9 +24,23 @@ const PROG_NARROW: usize = 8;
 /// Number of spacing characters between columns.
 const COL_SPACING: usize = 4;
 const COL_SPACING_NO_CMD: usize = 3;
+const PROC_CPU_GRAPH_W: usize = 5;
 const DETAIL_LABEL_W: usize = 9;
 const DETAIL_COL_GAP: usize = 2;
 const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
+
+/// Process box display settings derived from the current config and snapshot.
+pub struct ProcBoxSettings<'a> {
+    pub proc_per_core: bool,
+    pub core_count: usize,
+    pub proc_mem_bytes: bool,
+    pub total_mem: u64,
+    pub proc_colors: bool,
+    pub proc_gradient: bool,
+    pub proc_cpu_graphs: bool,
+    pub graph_symbol: GraphSymbol,
+    pub cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
+}
 
 /// Draw the process list box into an ANSI string matching btop's layout.
 ///
@@ -41,6 +57,7 @@ pub fn draw_with_sort(
     entries: &[ProcDisplayEntry],
     area: &BoxArea,
     view: &ProcView,
+    settings: &ProcBoxSettings<'_>,
     theme: &Theme,
     status: &CollectStatus,
 ) -> String {
@@ -101,7 +118,15 @@ pub fn draw_with_sort(
             .filter_map(|entry| procs.get(entry.proc_index))
             .find(|proc| proc.pid == detailed_pid)
         {
-            buf.text(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
+            buf.text(&draw_detail_panel(
+                proc,
+                x,
+                y,
+                width,
+                detail_rows,
+                settings,
+                theme,
+            ));
         }
     }
 
@@ -110,6 +135,10 @@ pub fn draw_with_sort(
     let cpu_w = COL_CPU;
     let mem_w = COL_MEM;
     let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
+    let show_cpu_graphs =
+        settings.proc_cpu_graphs && has_cmd_col && inner_w > CMD_COL_THRESHOLD + PROC_CPU_GRAPH_W;
+    let graph_w = if show_cpu_graphs { PROC_CPU_GRAPH_W } else { 0 };
+    let graph_spacing = usize::from(show_cpu_graphs);
     let (name_w, cmd_w) = if has_cmd_col {
         let prog = if tree_mode {
             // Tree prefixes need more room
@@ -123,15 +152,20 @@ pub fn draw_with_sort(
         } else {
             PROG_NARROW
         };
-        let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + COL_SPACING);
+        let cmd = inner_w
+            .saturating_sub(pid_w + prog + graph_w + cpu_w + mem_w + COL_SPACING + graph_spacing);
         (prog, cmd)
     } else {
         let prog = if tree_mode {
             inner_w
-                .saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
+                .saturating_sub(
+                    pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
+                )
                 .max(PROG_NARROW + 8)
         } else {
-            inner_w.saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
+            inner_w.saturating_sub(
+                pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
+            )
         };
         (prog, 0)
     };
@@ -165,9 +199,9 @@ pub fn draw_with_sort(
         "Cpu%".into()
     };
     let mem_label = if is_sort("mem") {
-        format!("Mem%{arrow}")
+        format!("{}{}", mem_header_label(settings), arrow)
     } else {
-        "Mem%".into()
+        mem_header_label(settings).into()
     };
 
     // Build header with per-column coloring
@@ -199,6 +233,10 @@ pub fn draw_with_sort(
         let cmd_color = if is_sort("command") { hi } else { title_color };
         buf.mv(col_x, header_row_y).color(cmd_color).text(&cmd_str);
         col_x += cmd_w + 1;
+    }
+
+    if show_cpu_graphs {
+        col_x += graph_w + 1;
     }
 
     // Cpu% column
@@ -246,20 +284,17 @@ pub fn draw_with_sort(
         };
         let row = y + 4 + detail_rows + i;
 
-        // Format memory value
-        let mem_str = if proc.mem > 0 {
-            tools::floating_humanizer(proc.mem, true, 0, false, false, false)
-        } else {
-            "0B".into()
-        };
-
-        // Color process by CPU usage
-        let cpu_pct = proc.cpu_p.clamp(0.0, 100.0) as usize;
-        let proc_color = if !proc_grad.is_empty() {
-            &proc_grad[cpu_pct.min(100)]
-        } else {
-            fg
-        };
+        let display_cpu = display_proc_cpu(proc.cpu_p, settings);
+        let mem_str = format_proc_memory(proc.mem, settings);
+        let proc_color = process_row_color(
+            display_cpu,
+            i + start,
+            selected,
+            max_rows,
+            settings,
+            proc_grad,
+            fg,
+        );
 
         // Tree prefix rendered separately in tree_fg color
         let (tree_prefix, bare_name) = if tree_mode && !entry.prefix.is_empty() {
@@ -273,8 +308,13 @@ pub fn draw_with_sort(
 
         // Build the line without the name column (we render it separately for tree coloring)
         let pid_str = format!("{:<pid_w$}", proc.pid, pid_w = pid_w);
-        let cpu_str = format!("{:>cpu_w$.1}", proc.cpu_p, cpu_w = cpu_w);
+        let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = cpu_w);
         let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = mem_w);
+        let graph_str = if show_cpu_graphs {
+            proc_cpu_graph(proc.pid, settings, proc_grad, fg)
+        } else {
+            String::new()
+        };
 
         let cmd_display = if has_cmd_col && cmd_w > 0 {
             let raw = if proc.cmd.len() > proc.name.len() {
@@ -307,6 +347,9 @@ pub fn draw_with_sort(
                 buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
                 buf.text(" ");
             }
+            if show_cpu_graphs {
+                buf.text(&graph_str).text(bg_esc).color(sel_fg).text(" ");
+            }
             buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
             buf.text("\x1b[49m").reset();
         } else {
@@ -323,6 +366,9 @@ pub fn draw_with_sort(
             if has_cmd_col && cmd_w > 0 {
                 buf.text(&format!("{:<cmd_w$}", cmd_display, cmd_w = cmd_w));
                 buf.text(" ");
+            }
+            if show_cpu_graphs {
+                buf.text(&graph_str).color(proc_color).text(" ");
             }
             buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
         }
@@ -347,6 +393,161 @@ pub fn draw_with_sort(
     ));
 
     buf.finish()
+}
+
+fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings<'_>) -> f64 {
+    if !cpu_per_core.is_finite() {
+        return 0.0;
+    }
+    let core_count = settings.core_count.max(1);
+    let value = if settings.proc_per_core {
+        cpu_per_core
+    } else {
+        cpu_per_core / core_count as f64
+    };
+    let max_value = if settings.proc_per_core {
+        100.0 * core_count as f64
+    } else {
+        100.0
+    };
+    value.clamp(0.0, max_value)
+}
+
+fn mem_header_label(settings: &ProcBoxSettings<'_>) -> &'static str {
+    if settings.proc_mem_bytes {
+        "Mem"
+    } else {
+        "Mem%"
+    }
+}
+
+fn format_proc_memory(mem: u64, settings: &ProcBoxSettings<'_>) -> String {
+    if settings.proc_mem_bytes {
+        return if mem > 0 {
+            tools::floating_humanizer(mem, true, 0, false, false, false)
+        } else {
+            "0B".into()
+        };
+    }
+
+    let pct = if settings.total_mem == 0 {
+        0.0
+    } else {
+        (mem as f64 * 100.0 / settings.total_mem as f64).clamp(0.0, 100.0)
+    };
+    format!("{pct:.1}%")
+}
+
+fn process_row_color<'a>(
+    display_cpu: f64,
+    row_index: usize,
+    selected: usize,
+    visible_rows: usize,
+    settings: &ProcBoxSettings<'_>,
+    proc_grad: &'a [String],
+    fg: &'a str,
+) -> &'a str {
+    if !settings.proc_colors || proc_grad.is_empty() {
+        return fg;
+    }
+
+    let cpu_idx = display_cpu.round().clamp(0.0, 100.0) as usize;
+    if !settings.proc_gradient {
+        return proc_grad[cpu_idx.min(100)].as_str();
+    }
+
+    let distance = row_index.abs_diff(selected);
+    let fade_loss = distance.saturating_mul(100) / visible_rows.max(1);
+    let idx = (cpu_idx + 100)
+        .saturating_sub(fade_loss.min(100))
+        .saturating_sub(100)
+        .min(100);
+    proc_grad[idx].as_str()
+}
+
+fn proc_cpu_graph(
+    pid: u32,
+    settings: &ProcBoxSettings<'_>,
+    proc_grad: &[String],
+    fg: &str,
+) -> String {
+    let data: VecDeque<i64> = settings
+        .cpu_histories
+        .get(&pid)
+        .filter(|history| !history.is_empty())
+        .map(|history| {
+            history
+                .iter()
+                .map(|value| {
+                    display_proc_cpu(*value as f64, settings)
+                        .round()
+                        .clamp(0.0, 100.0) as i64
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| VecDeque::from(vec![0; PROC_CPU_GRAPH_W]));
+
+    let fallback_gradient;
+    let gradient = if settings.proc_colors && !proc_grad.is_empty() {
+        proc_grad
+    } else {
+        fallback_gradient = vec![fg.to_string(); 101];
+        &fallback_gradient
+    };
+
+    let mut graph = Graph::new(
+        PROC_CPU_GRAPH_W,
+        1,
+        settings.graph_symbol,
+        false,
+        true,
+        100,
+        0,
+    );
+    expand_cursor_right_padding(&graph.render_row_colored(&data, gradient))
+}
+
+fn expand_cursor_right_padding(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'\x1b' && bytes.get(i + 1) == Some(&b'[') {
+            let digits_start = i + 2;
+            let mut cursor = digits_start;
+            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
+                cursor += 1;
+            }
+
+            if cursor > digits_start && bytes.get(cursor) == Some(&b'C') {
+                if let Ok(count) = input[digits_start..cursor].parse::<usize>() {
+                    out.push_str(&" ".repeat(count));
+                    i = cursor + 1;
+                    continue;
+                }
+            }
+
+            let mut end = i + 2;
+            while end < bytes.len() {
+                end += 1;
+                if bytes[end - 1].is_ascii_alphabetic() {
+                    break;
+                }
+            }
+            out.push_str(&input[i..end]);
+            i = end;
+            continue;
+        }
+
+        let Some(ch) = input[i..].chars().next() else {
+            break;
+        };
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+
+    out
 }
 
 /// Render the top border with reverse, tree, and sort selector labels.
@@ -451,6 +652,7 @@ fn draw_detail_panel(
     y: usize,
     width: usize,
     rows: usize,
+    settings: &ProcBoxSettings<'_>,
     theme: &Theme,
 ) -> String {
     let fg = theme.c(tc::MAIN_FG);
@@ -494,7 +696,7 @@ fn draw_detail_panel(
         draw_detail_field(&mut buf, &cmd_field, inner_w, title_color);
     }
 
-    let fields = detail_fields(proc, fg, hi, proc_grad);
+    let fields = detail_fields(proc, settings, fg, hi, proc_grad);
     let grid_rows = content_rows.saturating_sub(2);
     if inner_w >= DETAIL_TWO_COL_MIN_WIDTH {
         for (row, pair) in fields.chunks(2).take(grid_rows).enumerate() {
@@ -578,12 +780,18 @@ fn draw_detail_header(
 
 fn detail_fields<'a>(
     proc: &ProcInfo,
+    settings: &ProcBoxSettings<'_>,
     fg: &'a str,
     hi: &'a str,
     proc_grad: &'a [String],
 ) -> Vec<DetailField<'a>> {
-    let cpu_pct = proc.cpu_p.clamp(0.0, 100.0) as usize;
-    let cpu_color = proc_grad.get(cpu_pct).map(String::as_str).unwrap_or(fg);
+    let display_cpu = display_proc_cpu(proc.cpu_p, settings);
+    let cpu_pct = display_cpu.round().clamp(0.0, 100.0) as usize;
+    let cpu_color = if settings.proc_colors {
+        proc_grad.get(cpu_pct).map(String::as_str).unwrap_or(fg)
+    } else {
+        fg
+    };
     let priority_color = if proc.priority >= PriorityClass::High {
         hi
     } else {
@@ -613,12 +821,12 @@ fn detail_fields<'a>(
         },
         DetailField {
             label: "CPU",
-            value: format!("{:.1}%", proc.cpu_p),
+            value: format!("{display_cpu:.1}%"),
             color: cpu_color,
         },
         DetailField {
             label: "Memory",
-            value: tools::floating_humanizer(proc.mem, true, 0, false, false, false),
+            value: format_proc_memory(proc.mem, settings),
             color: fg,
         },
         DetailField {
@@ -799,6 +1007,72 @@ mod tests {
         }
     }
 
+    fn empty_histories() -> &'static HashMap<u32, VecDeque<i64>> {
+        static HISTORIES: std::sync::OnceLock<HashMap<u32, VecDeque<i64>>> =
+            std::sync::OnceLock::new();
+        HISTORIES.get_or_init(HashMap::new)
+    }
+
+    fn make_settings() -> ProcBoxSettings<'static> {
+        ProcBoxSettings {
+            proc_per_core: true,
+            core_count: 4,
+            proc_mem_bytes: true,
+            total_mem: 1024 * 1024 * 1024,
+            proc_colors: true,
+            proc_gradient: true,
+            proc_cpu_graphs: false,
+            graph_symbol: GraphSymbol::Braille,
+            cpu_histories: empty_histories(),
+        }
+    }
+
+    fn make_settings_with_histories<'a>(
+        histories: &'a HashMap<u32, VecDeque<i64>>,
+    ) -> ProcBoxSettings<'a> {
+        ProcBoxSettings {
+            cpu_histories: histories,
+            ..make_settings()
+        }
+    }
+
+    #[test]
+    fn display_proc_cpu_matches_total_power_semantics() {
+        let settings = ProcBoxSettings {
+            proc_per_core: false,
+            core_count: 24,
+            ..make_settings()
+        };
+
+        assert_eq!(display_proc_cpu(300.0, &settings), 12.5);
+        assert_eq!(display_proc_cpu(2400.0, &settings), 100.0);
+    }
+
+    #[test]
+    fn display_proc_cpu_matches_per_core_semantics() {
+        let settings = ProcBoxSettings {
+            proc_per_core: true,
+            core_count: 24,
+            ..make_settings()
+        };
+
+        assert_eq!(display_proc_cpu(300.0, &settings), 300.0);
+        assert_eq!(display_proc_cpu(3000.0, &settings), 2400.0);
+    }
+
+    #[test]
+    fn display_proc_cpu_handles_invalid_values() {
+        let settings = ProcBoxSettings {
+            proc_per_core: false,
+            core_count: 0,
+            ..make_settings()
+        };
+
+        assert_eq!(display_proc_cpu(f64::NAN, &settings), 0.0);
+        assert_eq!(display_proc_cpu(-10.0, &settings), 0.0);
+        assert_eq!(display_proc_cpu(100.0, &settings), 100.0);
+    }
+
     #[test]
     fn draw_contains_proc_title() {
         let output = draw_with_sort(
@@ -806,6 +1080,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &make_view(),
+            &make_settings(),
             &Theme::default(),
             &CollectStatus::Ok,
         );
@@ -820,6 +1095,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &make_view(),
+            &make_settings(),
             &Theme::default(),
             &CollectStatus::Ok,
         );
@@ -845,6 +1121,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &make_view(),
+            &make_settings(),
             &Theme::default(),
             &CollectStatus::Ok,
         );
@@ -864,6 +1141,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &view,
+            &make_settings(),
             &Theme::default(),
             &CollectStatus::Ok,
         );
@@ -877,9 +1155,203 @@ mod tests {
     }
 
     #[test]
+    fn proc_per_core_setting_changes_rendered_cpu() {
+        let mut procs = make_procs();
+        procs[0].cpu_p = 400.0;
+
+        let per_core = draw_with_sort(
+            &procs,
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let total_power = draw_with_sort(
+            &procs,
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &ProcBoxSettings {
+                proc_per_core: false,
+                core_count: 4,
+                ..make_settings()
+            },
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+
+        assert!(strip_ansi(&per_core).contains("400.0"));
+        assert!(strip_ansi(&total_power).contains("100.0"));
+    }
+
+    #[test]
+    fn proc_mem_bytes_setting_changes_header_and_values() {
+        let bytes_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let pct_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &ProcBoxSettings {
+                proc_mem_bytes: false,
+                total_mem: 1024 * 1024 * 1024,
+                ..make_settings()
+            },
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let bytes_plain = strip_ansi(&bytes_output);
+        let pct_plain = strip_ansi(&pct_output);
+
+        assert!(bytes_plain.contains("Mem"));
+        assert!(!bytes_plain.contains("Mem%"));
+        assert!(bytes_plain.contains("100M"));
+        assert!(pct_plain.contains("Mem%"));
+        assert!(pct_plain.contains("9.8%"));
+    }
+
+    #[test]
+    fn proc_colors_setting_disables_cpu_row_coloring() {
+        let theme = Theme::default();
+        let cpu_color = theme.g(tc::GRAD_PROCESS)[5].clone();
+        let mut view = make_view();
+        view.selected = usize::MAX;
+
+        let colored = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &view,
+            &ProcBoxSettings {
+                proc_gradient: false,
+                ..make_settings()
+            },
+            &theme,
+            &CollectStatus::Ok,
+        );
+        let plain = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &view,
+            &ProcBoxSettings {
+                proc_colors: false,
+                ..make_settings()
+            },
+            &theme,
+            &CollectStatus::Ok,
+        );
+
+        assert!(colored.contains(&cpu_color));
+        assert!(!plain.contains(&cpu_color));
+    }
+
+    #[test]
+    fn proc_gradient_setting_changes_row_color_mode() {
+        let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
+        let settings = make_settings();
+        let no_gradient = ProcBoxSettings {
+            proc_gradient: false,
+            ..make_settings()
+        };
+
+        assert_eq!(
+            process_row_color(50.0, 5, 0, 10, &settings, &gradient, "fg"),
+            "0"
+        );
+        assert_eq!(
+            process_row_color(50.0, 5, 0, 10, &no_gradient, &gradient, "fg"),
+            "50"
+        );
+    }
+
+    #[test]
+    fn proc_cpu_graphs_setting_gates_mini_graph_output() {
+        let mut histories = HashMap::new();
+        histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
+        let graph_settings = ProcBoxSettings {
+            proc_cpu_graphs: true,
+            graph_symbol: GraphSymbol::Tty,
+            ..make_settings_with_histories(&histories)
+        };
+        let no_graph_settings = ProcBoxSettings {
+            proc_cpu_graphs: false,
+            graph_symbol: GraphSymbol::Tty,
+            ..make_settings_with_histories(&histories)
+        };
+
+        let graph_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &graph_settings,
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let no_graph_output = draw_with_sort(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &make_view(),
+            &no_graph_settings,
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+
+        assert!(strip_ansi(&graph_output).contains("#####"));
+        assert!(!strip_ansi(&no_graph_output).contains("#####"));
+    }
+
+    #[test]
+    fn proc_cpu_graph_expands_cursor_padding_to_spaces() {
+        let mut histories = HashMap::new();
+        histories.insert(100, VecDeque::from(vec![0, 0, 0, 0, 0]));
+        let settings = ProcBoxSettings {
+            proc_cpu_graphs: true,
+            graph_symbol: GraphSymbol::Tty,
+            ..make_settings_with_histories(&histories)
+        };
+
+        let graph = proc_cpu_graph(100, &settings, Theme::default().g(tc::GRAD_PROCESS), "fg");
+
+        assert!(
+            !graph.contains("\x1b[1C"),
+            "graph padding should paint row background instead of moving the cursor"
+        );
+        assert_eq!(tools::ulen(&strip_ansi(&graph), false), PROC_CPU_GRAPH_W);
+        assert_ne!(strip_ansi(&graph), " ".repeat(PROC_CPU_GRAPH_W));
+    }
+
+    #[test]
+    fn proc_cpu_graph_renders_baseline_without_history() {
+        let histories = HashMap::new();
+        let settings = ProcBoxSettings {
+            proc_cpu_graphs: true,
+            graph_symbol: GraphSymbol::Tty,
+            ..make_settings_with_histories(&histories)
+        };
+
+        let graph = proc_cpu_graph(100, &settings, Theme::default().g(tc::GRAD_PROCESS), "fg");
+
+        assert_eq!(tools::ulen(&strip_ansi(&graph), false), PROC_CPU_GRAPH_W);
+        assert_ne!(strip_ansi(&graph), " ".repeat(PROC_CPU_GRAPH_W));
+    }
+
+    #[test]
     fn detail_panel_right_aligns_pid_header() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &Theme::default());
+        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &make_settings(), &Theme::default());
         let plain = strip_ansi(&output);
         let expected_gap = 76 - "alpha.exe".len() - "PID 100".len();
         let expected = format!("alpha.exe{}PID 100", " ".repeat(expected_gap));
@@ -895,7 +1367,7 @@ mod tests {
         let mut procs = make_procs();
         procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(80));
 
-        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &Theme::default());
+        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &make_settings(), &Theme::default());
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("Cmd      alpha.exe"));
@@ -908,7 +1380,7 @@ mod tests {
     #[test]
     fn detail_panel_narrow_mode_keeps_high_priority_fields() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &Theme::default());
+        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &make_settings(), &Theme::default());
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("User     Admin"));
