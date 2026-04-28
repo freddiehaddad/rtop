@@ -34,8 +34,8 @@ pub fn draw_with_selection(
     selected: usize,
     theme: &Theme,
 ) -> String {
-    let hi_rgb = theme.rgbs.get(tc::HI_FG).copied().unwrap_or_default();
-    let fg_rgb = theme.rgbs.get(tc::MAIN_FG).copied().unwrap_or_default();
+    let hi_rgb = theme.rgb(tc::HI_FG);
+    let fg_rgb = theme.rgb(tc::MAIN_FG);
     let colors_selected = banner::gradient3(hi_rgb);
     let colors_normal = banner::gradient3(fg_rgb);
 

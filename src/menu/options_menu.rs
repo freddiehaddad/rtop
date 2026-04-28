@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{Config, ConfigKey, KeyKind, StringKey};
 use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 use crate::draw::box_drawing::{self, symbols};
 use crate::term;
@@ -22,7 +22,7 @@ pub enum OptKind {
 
 /// A single option definition.
 pub struct OptDef {
-    pub key: &'static str,
+    pub key: ConfigKey,
     pub desc: &'static [&'static str],
 }
 
@@ -31,24 +31,37 @@ pub struct OptDef {
 // ---------------------------------------------------------------------------
 
 /// Return the list of valid values for a browsable option key.
-pub fn browsable_values(key: &str) -> &'static [&'static str] {
-    if let Some(values) = Config::string_choice_values(key) {
-        return values;
-    }
-
+pub fn browsable_values(key: ConfigKey) -> &'static [&'static str] {
     match key {
-        sk::CPU_SENSOR | sk::SELECTED_BATTERY | sk::NET_IFACE => &["Auto"],
+        ConfigKey::String(key) => string_browsable_values(key),
         _ => &[],
     }
 }
 
-fn classify(key: &str, _config: &Config) -> OptKind {
-    match Config::key_kind(key) {
-        Some(crate::config::KeyKind::Bool) => OptKind::Bool,
-        Some(crate::config::KeyKind::Int) => OptKind::Int,
-        _ if !browsable_values(key).is_empty() => OptKind::Browsable,
-        _ => OptKind::StringVal,
+fn string_browsable_values(key: StringKey) -> &'static [&'static str] {
+    if let Some(values) = key.choice_values() {
+        return values;
     }
+
+    if key == sk::CPU_SENSOR || key == sk::SELECTED_BATTERY || key == sk::NET_IFACE {
+        &["Auto"]
+    } else {
+        &[]
+    }
+}
+
+fn classify(key: ConfigKey, _config: &Config) -> OptKind {
+    match key.kind() {
+        KeyKind::Bool => OptKind::Bool,
+        KeyKind::Int => OptKind::Int,
+        KeyKind::String if !browsable_values(key).is_empty() => OptKind::Browsable,
+        KeyKind::String => OptKind::StringVal,
+    }
+}
+
+/// Classify how an option key can be edited.
+pub fn opt_kind(key: ConfigKey, config: &Config) -> OptKind {
+    classify(key, config)
 }
 
 // ---------------------------------------------------------------------------
@@ -61,7 +74,7 @@ pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", 
 /// Options in the "general" category.
 pub const GENERAL: &[OptDef] = &[
     OptDef {
-        key: sk::COLOR_THEME,
+        key: ConfigKey::String(sk::COLOR_THEME),
         desc: &[
             "Set color theme.",
             "",
@@ -71,7 +84,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::THEME_BACKGROUND,
+        key: ConfigKey::Bool(bk::THEME_BACKGROUND),
         desc: &[
             "If the theme set background should be shown.",
             "",
@@ -80,7 +93,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::VIM_KEYS,
+        key: ConfigKey::Bool(bk::VIM_KEYS),
         desc: &[
             "Enable vim keys.",
             "Set to True to enable \"h,j,k,l\" keys for",
@@ -88,11 +101,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::DISABLE_MOUSE,
+        key: ConfigKey::Bool(bk::DISABLE_MOUSE),
         desc: &["Disable all mouse events."],
     },
     OptDef {
-        key: sk::PRESETS,
+        key: ConfigKey::String(sk::PRESETS),
         desc: &[
             "Define presets for the layout of the boxes.",
             "",
@@ -103,7 +116,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::SHOWN_BOXES,
+        key: ConfigKey::String(sk::SHOWN_BOXES),
         desc: &[
             "Manually set which boxes to show.",
             "",
@@ -112,7 +125,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ik::UPDATE_MS,
+        key: ConfigKey::Int(ik::UPDATE_MS),
         desc: &[
             "Update time in milliseconds.",
             "",
@@ -124,11 +137,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::ROUNDED_CORNERS,
+        key: ConfigKey::Bool(bk::ROUNDED_CORNERS),
         desc: &["Rounded corners on boxes.", "", "True or False"],
     },
     OptDef {
-        key: bk::TERMINAL_SYNC,
+        key: ConfigKey::Bool(bk::TERMINAL_SYNC),
         desc: &[
             "Output synchronization.",
             "",
@@ -137,7 +150,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::GRAPH_SYMBOL,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL),
         desc: &[
             "Default symbols to use for graph creation.",
             "",
@@ -145,7 +158,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CLOCK_FORMAT,
+        key: ConfigKey::String(sk::CLOCK_FORMAT),
         desc: &[
             "Draw a clock at top of screen.",
             "(Only visible if cpu box is enabled!)",
@@ -155,7 +168,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::BASE_10_SIZES,
+        key: ConfigKey::Bool(bk::BASE_10_SIZES),
         desc: &[
             "Use base 10 for bits and bytes sizes.",
             "",
@@ -163,7 +176,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::BACKGROUND_UPDATE,
+        key: ConfigKey::Bool(bk::BACKGROUND_UPDATE),
         desc: &[
             "Update main ui when menus are showing.",
             "",
@@ -171,14 +184,14 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_BATTERY,
+        key: ConfigKey::Bool(bk::SHOW_BATTERY),
         desc: &[
             "Show battery stats.",
             "(Only visible if cpu box is enabled!)",
         ],
     },
     OptDef {
-        key: sk::SELECTED_BATTERY,
+        key: ConfigKey::String(sk::SELECTED_BATTERY),
         desc: &[
             "Select battery.",
             "",
@@ -187,11 +200,11 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_BATTERY_WATTS,
+        key: ConfigKey::Bool(bk::SHOW_BATTERY_WATTS),
         desc: &["Show battery power.", "", "Show discharge/charging power."],
     },
     OptDef {
-        key: sk::LOG_LEVEL,
+        key: ConfigKey::String(sk::LOG_LEVEL),
         desc: &[
             "Set loglevel for error.log",
             "",
@@ -199,7 +212,7 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SAVE_CONFIG_ON_EXIT,
+        key: ConfigKey::Bool(bk::SAVE_CONFIG_ON_EXIT),
         desc: &[
             "Save config on exit.",
             "",
@@ -212,7 +225,7 @@ pub const GENERAL: &[OptDef] = &[
 /// Options in the "cpu" category.
 pub const CPU: &[OptDef] = &[
     OptDef {
-        key: bk::CPU_BOTTOM,
+        key: ConfigKey::Bool(bk::CPU_BOTTOM),
         desc: &[
             "Cpu box location.",
             "",
@@ -221,7 +234,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::GRAPH_SYMBOL_CPU,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_CPU),
         desc: &[
             "Graph symbol to use for graphs in cpu box.",
             "",
@@ -229,7 +242,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CPU_GRAPH_UPPER,
+        key: ConfigKey::String(sk::CPU_GRAPH_UPPER),
         desc: &[
             "Cpu upper graph.",
             "",
@@ -238,7 +251,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CPU_GRAPH_LOWER,
+        key: ConfigKey::String(sk::CPU_GRAPH_LOWER),
         desc: &[
             "Cpu lower graph.",
             "",
@@ -247,7 +260,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::CPU_INVERT_LOWER,
+        key: ConfigKey::Bool(bk::CPU_INVERT_LOWER),
         desc: &[
             "Toggles orientation of the lower CPU graph.",
             "",
@@ -255,7 +268,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::CPU_SINGLE_GRAPH,
+        key: ConfigKey::Bool(bk::CPU_SINGLE_GRAPH),
         desc: &[
             "Completely disable the lower CPU graph.",
             "",
@@ -264,11 +277,11 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::CHECK_TEMP,
+        key: ConfigKey::Bool(bk::CHECK_TEMP),
         desc: &["Enable cpu temperature reporting.", "", "True or False."],
     },
     OptDef {
-        key: sk::CPU_SENSOR,
+        key: ConfigKey::String(sk::CPU_SENSOR),
         desc: &[
             "Cpu temperature sensor.",
             "",
@@ -279,7 +292,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_CORETEMP,
+        key: ConfigKey::Bool(bk::SHOW_CORETEMP),
         desc: &[
             "Show temperatures for cpu cores.",
             "",
@@ -288,7 +301,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CPU_CORE_MAP,
+        key: ConfigKey::String(sk::CPU_CORE_MAP),
         desc: &[
             "Custom mapping between core and coretemp.",
             "",
@@ -298,7 +311,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::TEMP_SCALE,
+        key: ConfigKey::String(sk::TEMP_SCALE),
         desc: &[
             "Which temperature scale to use.",
             "",
@@ -306,7 +319,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_CPU_FREQ,
+        key: ConfigKey::Bool(bk::SHOW_CPU_FREQ),
         desc: &[
             "Show CPU frequency.",
             "",
@@ -315,7 +328,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CUSTOM_CPU_NAME,
+        key: ConfigKey::String(sk::CUSTOM_CPU_NAME),
         desc: &[
             "Custom cpu model name in cpu percentage box.",
             "",
@@ -323,7 +336,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_UPTIME,
+        key: ConfigKey::Bool(bk::SHOW_UPTIME),
         desc: &[
             "Shows the system uptime in the CPU box.",
             "",
@@ -331,7 +344,7 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_CPU_WATTS,
+        key: ConfigKey::Bool(bk::SHOW_CPU_WATTS),
         desc: &[
             "Shows the CPU power consumption in watts.",
             "",
@@ -343,7 +356,7 @@ pub const CPU: &[OptDef] = &[
 /// Options in the "mem" category.
 pub const MEM: &[OptDef] = &[
     OptDef {
-        key: bk::MEM_BELOW_NET,
+        key: ConfigKey::Bool(bk::MEM_BELOW_NET),
         desc: &[
             "Mem box location.",
             "",
@@ -351,7 +364,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::GRAPH_SYMBOL_MEM,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_MEM),
         desc: &[
             "Graph symbol to use for graphs in mem box.",
             "",
@@ -359,15 +372,15 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::MEM_GRAPHS,
+        key: ConfigKey::Bool(bk::MEM_GRAPHS),
         desc: &["Show graphs for memory values.", "", "True or False."],
     },
     OptDef {
-        key: bk::SHOW_DISKS,
+        key: ConfigKey::Bool(bk::SHOW_DISKS),
         desc: &["Split memory box to also show disks.", "", "True or False."],
     },
     OptDef {
-        key: bk::SHOW_IO_STAT,
+        key: ConfigKey::Bool(bk::SHOW_IO_STAT),
         desc: &[
             "Toggle IO activity graphs.",
             "",
@@ -376,7 +389,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::IO_MODE,
+        key: ConfigKey::Bool(bk::IO_MODE),
         desc: &[
             "Toggles io mode for disks.",
             "",
@@ -385,7 +398,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::IO_GRAPH_COMBINED,
+        key: ConfigKey::Bool(bk::IO_GRAPH_COMBINED),
         desc: &[
             "Toggle combined read and write graphs.",
             "",
@@ -393,7 +406,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::IO_GRAPH_SPEEDS,
+        key: ConfigKey::String(sk::IO_GRAPH_SPEEDS),
         desc: &[
             "Set top speeds for the io graphs.",
             "",
@@ -403,7 +416,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SHOW_SWAP,
+        key: ConfigKey::Bool(bk::SHOW_SWAP),
         desc: &[
             "If swap memory should be shown in memory box.",
             "",
@@ -411,7 +424,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SWAP_DISK,
+        key: ConfigKey::Bool(bk::SWAP_DISK),
         desc: &[
             "Show swap as a disk.",
             "",
@@ -420,7 +433,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::ONLY_PHYSICAL,
+        key: ConfigKey::Bool(bk::ONLY_PHYSICAL),
         desc: &[
             "Filter out non physical disks.",
             "",
@@ -429,7 +442,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::DISK_FREE_PRIV,
+        key: ConfigKey::Bool(bk::DISK_FREE_PRIV),
         desc: &[
             "Type of available disk space.",
             "",
@@ -438,7 +451,7 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::DISKS_FILTER,
+        key: ConfigKey::String(sk::DISKS_FILTER),
         desc: &[
             "Optional filter for shown disks.",
             "",
@@ -451,7 +464,7 @@ pub const MEM: &[OptDef] = &[
 /// Options in the "net" category.
 pub const NET: &[OptDef] = &[
     OptDef {
-        key: sk::GRAPH_SYMBOL_NET,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_NET),
         desc: &[
             "Graph symbol to use for graphs in net box.",
             "",
@@ -459,11 +472,11 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::SWAP_UPLOAD_DOWNLOAD,
+        key: ConfigKey::Bool(bk::SWAP_UPLOAD_DOWNLOAD),
         desc: &["Swap the positions of the upload and download", "graphs."],
     },
     OptDef {
-        key: ik::NET_DOWNLOAD,
+        key: ConfigKey::Int(ik::NET_DOWNLOAD),
         desc: &[
             "Fixed network graph download value.",
             "",
@@ -473,7 +486,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ik::NET_UPLOAD,
+        key: ConfigKey::Int(ik::NET_UPLOAD),
         desc: &[
             "Fixed network graph upload value.",
             "",
@@ -483,7 +496,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::NET_AUTO,
+        key: ConfigKey::Bool(bk::NET_AUTO),
         desc: &[
             "Start in network graphs auto rescaling mode.",
             "",
@@ -492,7 +505,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::NET_SYNC,
+        key: ConfigKey::Bool(bk::NET_SYNC),
         desc: &[
             "Network scale sync.",
             "",
@@ -501,7 +514,7 @@ pub const NET: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::NET_IFACE,
+        key: ConfigKey::String(sk::NET_IFACE),
         desc: &[
             "Network Interface.",
             "",
@@ -516,7 +529,7 @@ pub const NET: &[OptDef] = &[
 /// Options in the "proc" category.
 pub const PROC: &[OptDef] = &[
     OptDef {
-        key: bk::PROC_LEFT,
+        key: ConfigKey::Bool(bk::PROC_LEFT),
         desc: &[
             "Proc box location.",
             "",
@@ -525,7 +538,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::GRAPH_SYMBOL_PROC,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_PROC),
         desc: &[
             "Graph symbol to use for graphs in proc box.",
             "",
@@ -533,7 +546,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::PROC_SORTING,
+        key: ConfigKey::String(sk::PROC_SORTING),
         desc: &[
             "Processes sorting option.",
             "",
@@ -543,11 +556,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_REVERSED,
+        key: ConfigKey::Bool(bk::PROC_REVERSED),
         desc: &["Reverse processes sorting order.", "", "True or False."],
     },
     OptDef {
-        key: bk::PROC_TREE,
+        key: ConfigKey::Bool(bk::PROC_TREE),
         desc: &[
             "Processes tree view.",
             "",
@@ -557,7 +570,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_AGGREGATE,
+        key: ConfigKey::Bool(bk::PROC_AGGREGATE),
         desc: &[
             "Aggregate child's resources in parent.",
             "",
@@ -566,11 +579,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_COLORS,
+        key: ConfigKey::Bool(bk::PROC_COLORS),
         desc: &["Enable colors in process view.", "", "True or False."],
     },
     OptDef {
-        key: bk::PROC_GRADIENT,
+        key: ConfigKey::Bool(bk::PROC_GRADIENT),
         desc: &[
             "Enable process view gradient fade.",
             "",
@@ -578,7 +591,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_PER_CORE,
+        key: ConfigKey::Bool(bk::PROC_PER_CORE),
         desc: &[
             "Process usage per core.",
             "",
@@ -588,7 +601,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_MEM_BYTES,
+        key: ConfigKey::Bool(bk::PROC_MEM_BYTES),
         desc: &[
             "Show memory as bytes in process list.",
             "",
@@ -597,7 +610,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::KEEP_DEAD_PROC_USAGE,
+        key: ConfigKey::Bool(bk::KEEP_DEAD_PROC_USAGE),
         desc: &[
             "Cpu and Mem usage for dead processes",
             "",
@@ -606,11 +619,11 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_CPU_GRAPHS,
+        key: ConfigKey::Bool(bk::PROC_CPU_GRAPHS),
         desc: &["Show cpu graph for each process.", "", "True or False"],
     },
     OptDef {
-        key: bk::PROC_FILTER_KERNEL,
+        key: ConfigKey::Bool(bk::PROC_FILTER_KERNEL),
         desc: &[
             "Filter kernel processes from output.",
             "",
@@ -619,7 +632,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::PROC_FOLLOW_DETAILED,
+        key: ConfigKey::Bool(bk::PROC_FOLLOW_DETAILED),
         desc: &[
             "Follow selected process with detailed view",
             "",
@@ -628,7 +641,7 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::PROC_FILTER,
+        key: ConfigKey::String(sk::PROC_FILTER),
         desc: &["Filter processes by name.", "", "Prefix with ! for regex."],
     },
 ];
@@ -636,11 +649,11 @@ pub const PROC: &[OptDef] = &[
 /// Options in the "gpu" category.
 pub const GPU: &[OptDef] = &[
     OptDef {
-        key: bk::GPU_MIRROR_GRAPH,
+        key: ConfigKey::Bool(bk::GPU_MIRROR_GRAPH),
         desc: &["Mirror GPU graph.", "", "True or False."],
     },
     OptDef {
-        key: sk::GRAPH_SYMBOL_GPU,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_GPU),
         desc: &[
             "Graph symbol to use for graphs in gpu box.",
             "",
@@ -648,27 +661,27 @@ pub const GPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME0,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME0),
         desc: &["Custom GPU name for GPU 0.", "", "Empty string to disable."],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME1,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME1),
         desc: &["Custom GPU name for GPU 1.", "", "Empty string to disable."],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME2,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME2),
         desc: &["Custom GPU name for GPU 2.", "", "Empty string to disable."],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME3,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME3),
         desc: &["Custom GPU name for GPU 3.", "", "Empty string to disable."],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME4,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME4),
         desc: &["Custom GPU name for GPU 4.", "", "Empty string to disable."],
     },
     OptDef {
-        key: sk::CUSTOM_GPU_NAME5,
+        key: ConfigKey::String(sk::CUSTOM_GPU_NAME5),
         desc: &["Custom GPU name for GPU 5.", "", "Empty string to disable."],
     },
 ];
@@ -676,7 +689,7 @@ pub const GPU: &[OptDef] = &[
 /// Options in the "disk" category.
 pub const DISK: &[OptDef] = &[
     OptDef {
-        key: sk::GRAPH_SYMBOL_DISK,
+        key: ConfigKey::String(sk::GRAPH_SYMBOL_DISK),
         desc: &[
             "Graph symbol to use for disk IO graphs.",
             "",
@@ -684,7 +697,7 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: sk::DISKS_FILTER,
+        key: ConfigKey::String(sk::DISKS_FILTER),
         desc: &[
             "Optional filter for shown disks.",
             "",
@@ -693,7 +706,7 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::ONLY_PHYSICAL,
+        key: ConfigKey::Bool(bk::ONLY_PHYSICAL),
         desc: &[
             "Filter out non physical disks.",
             "",
@@ -702,7 +715,7 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: bk::DISK_IO_MODE,
+        key: ConfigKey::Bool(bk::DISK_IO_MODE),
         desc: &[
             "Show IO activity.",
             "",
@@ -722,23 +735,26 @@ pub fn categories() -> &'static [&'static [OptDef]] {
 // ---------------------------------------------------------------------------
 
 /// Get the display value for an option.
-pub fn get_value(key: &str, config: &Config) -> String {
-    match Config::key_kind(key) {
-        Some(crate::config::KeyKind::Bool) => {
+pub fn get_value(key: ConfigKey, config: &Config) -> String {
+    match key {
+        ConfigKey::Bool(key) => {
             if config.get_bool(key) {
                 "True".to_string()
             } else {
                 "False".to_string()
             }
         }
-        Some(crate::config::KeyKind::Int) => config.get_int(key).to_string(),
-        _ => config.get_string(key).to_string(),
+        ConfigKey::Int(key) => config.get_int(key).to_string(),
+        ConfigKey::String(key) => config.get_string(key).to_string(),
     }
 }
 
 /// Cycle a browsable option left or right. Returns true if changed.
-pub fn cycle_browsable(key: &str, config: &mut Config, direction: i32) -> bool {
-    let vals = browsable_values(key);
+pub fn cycle_browsable(key: ConfigKey, config: &mut Config, direction: i32) -> bool {
+    let ConfigKey::String(key) = key else {
+        return false;
+    };
+    let vals = string_browsable_values(key);
     if vals.is_empty() {
         return false;
     }
@@ -754,7 +770,7 @@ pub fn cycle_browsable(key: &str, config: &mut Config, direction: i32) -> bool {
 }
 
 /// Step an int option by `delta`.
-pub fn step_int(key: &str, config: &mut Config, delta: i64) {
+pub fn step_int(key: crate::config::IntKey, config: &mut Config, delta: i64) {
     let step = if key == ik::UPDATE_MS { 100 } else { 1 };
     let value = config.get_int(key) + delta * step;
     config.set_int(key, value);
@@ -776,8 +792,9 @@ fn cjust(s: &str, width: usize) -> String {
 }
 
 /// Capitalize first letter of each word, replace underscores with spaces.
-fn capitalize_option(key: &str) -> String {
-    key.replace('_', " ")
+fn capitalize_option(key: ConfigKey) -> String {
+    key.name()
+        .replace('_', " ")
         .split(' ')
         .map(|w| {
             let mut c = w.chars();
@@ -835,12 +852,12 @@ pub fn draw(
         .saturating_sub(1);
     let selected = selected.min(select_max);
 
-    let hi = theme.c(tc::HI_FG);
-    let title_c = theme.c(tc::TITLE);
-    let fg = theme.c(tc::MAIN_FG);
-    let sel_bg = theme.c(tc::SELECTED_BG);
-    let sel_fg = theme.c(tc::SELECTED_FG);
-    let opts_c = theme.c(tc::OPTIONS_BOX);
+    let hi = theme.color(tc::HI_FG);
+    let title_c = theme.color(tc::TITLE);
+    let fg = theme.color(tc::MAIN_FG);
+    let sel_bg = theme.color(tc::SELECTED_BG);
+    let sel_fg = theme.color(tc::SELECTED_FG);
+    let opts_c = theme.color(tc::OPTIONS_BOX);
     let reset = "\x1b[0m";
 
     let mut out = String::with_capacity(4096);
@@ -1016,12 +1033,7 @@ pub fn draw(
 }
 
 /// Return the option key at `(cat, index)`.
-pub fn opt_key(
-    cat: usize,
-    page: usize,
-    selected: usize,
-    term_height: usize,
-) -> Option<&'static str> {
+pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> Option<ConfigKey> {
     let cats = categories();
     if cat >= cats.len() {
         return None;
@@ -1068,4 +1080,18 @@ pub fn select_max(cat: usize, page: usize, term_height: usize) -> usize {
     let ipp = items_per_page(cat, term_height);
     let remaining = max_items.saturating_sub(ipp * page);
     ipp.min(remaining).saturating_sub(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn option_keys_roundtrip_through_config_parser() {
+        for category in categories() {
+            for option in *category {
+                assert_eq!(ConfigKey::parse(option.key.name()), Some(option.key));
+            }
+        }
+    }
 }

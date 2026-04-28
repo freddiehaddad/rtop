@@ -1,8 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
-
 /// Static box names (non-GPU).
 const STATIC_BOX_NAMES: &[&str] = &["cpu", "mem", "net", "proc", "disk"];
 
@@ -31,20 +29,131 @@ pub enum KeyKind {
     String,
 }
 
-/// Generates the `Config` struct with named fields and string-based accessors.
+/// Boolean config key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct BoolKey {
+    name: &'static str,
+}
+
+impl BoolKey {
+    /// External config file name for this key.
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+}
+
+/// Integer config key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct IntKey {
+    name: &'static str,
+}
+
+impl IntKey {
+    /// External config file name for this key.
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+}
+
+/// String config key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StringKey {
+    name: &'static str,
+}
+
+impl StringKey {
+    /// External config file name for this key.
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+}
+
+/// Any config key, preserving its value kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ConfigKey {
+    Bool(BoolKey),
+    Int(IntKey),
+    String(StringKey),
+}
+
+impl ConfigKey {
+    /// External config file name for this key.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Bool(key) => key.name(),
+            Self::Int(key) => key.name(),
+            Self::String(key) => key.name(),
+        }
+    }
+
+    /// Value kind for this key.
+    pub const fn kind(self) -> KeyKind {
+        match self {
+            Self::Bool(_) => KeyKind::Bool,
+            Self::Int(_) => KeyKind::Int,
+            Self::String(_) => KeyKind::String,
+        }
+    }
+}
+
+/// Generates typed config keys and the `Config` struct with named fields.
 ///
-/// Each field is private; access is via `get_bool`/`set_bool`/`get_int`/`set_int`/
-/// `get_string`/`set_string` which dispatch by key name.
+/// Each field is private; access is via typed `get_*`/`set_*` accessors.
 macro_rules! define_config {
     (
-        bools { $( $bfield:ident : $bkey:literal => $bdefault:expr ),* $(,)? }
-        ints { $( $ifield:ident : $ikey:literal => $idefault:expr , $imin:expr , $imax:expr ),* $(,)? }
-        strings { $( $sfield:ident : $skey:literal => $sdefault:expr ),* $(,)? }
+        bools { $( $bconst:ident $bfield:ident : $bkey:literal => $bdefault:expr ),* $(,)? }
+        ints { $( $iconst:ident $ifield:ident : $ikey:literal => $idefault:expr , $imin:expr , $imax:expr ),* $(,)? }
+        strings { $( $sconst:ident $sfield:ident : $skey:literal => $sdefault:expr ),* $(,)? }
     ) => {
+        /// Boolean config keys.
+        pub mod bool_keys {
+            use super::BoolKey;
+
+            $( pub const $bconst: BoolKey = BoolKey { name: $bkey }; )*
+        }
+
+        /// Integer config keys.
+        pub mod int_keys {
+            use super::IntKey;
+
+            $( pub const $iconst: IntKey = IntKey { name: $ikey }; )*
+        }
+
+        /// String config keys.
+        pub mod str_keys {
+            use super::StringKey;
+
+            $( pub const $sconst: StringKey = StringKey { name: $skey }; )*
+            pub const INITIAL_SHOWN_BOXES: StringKey = StringKey {
+                name: "initial_shown_boxes",
+            };
+        }
+
+        impl ConfigKey {
+            /// Parse an external config file key name into a typed key.
+            pub fn parse(name: &str) -> Option<Self> {
+                match name {
+                    $( $bkey => Some(Self::Bool(bool_keys::$bconst)), )*
+                    $( $ikey => Some(Self::Int(int_keys::$iconst)), )*
+                    $( $skey => Some(Self::String(str_keys::$sconst)), )*
+                    _ => None,
+                }
+            }
+        }
+
+        impl IntKey {
+            /// Return the valid range for this integer config key.
+            pub fn bounds(self) -> (i64, i64) {
+                match self.name() {
+                    $( $ikey => ($imin, $imax), )*
+                    _ => unreachable!("unknown integer config key '{}'", self.name()),
+                }
+            }
+        }
+
         /// All configuration state for rtop.
         ///
-        /// Fields are private; use the `get_*`/`set_*` accessors for type-safe access
-        /// by config key name.
+        /// Fields are private; use the typed `get_*`/`set_*` accessors.
         #[derive(Debug, Clone)]
         pub struct Config {
             $( $bfield: bool, )*
@@ -74,79 +183,61 @@ macro_rules! define_config {
                 // initial_shown_boxes intentionally NOT reset
             }
 
-            /// Get a boolean config value by key name.
-            pub fn get_bool(&self, name: &str) -> bool {
-                match name {
+            /// Get a boolean config value by typed key.
+            pub fn get_bool(&self, key: BoolKey) -> bool {
+                match key.name() {
                     $( $bkey => self.$bfield, )*
-                    _ => false,
+                    _ => unreachable!("unknown boolean config key '{}'", key.name()),
                 }
             }
 
-            /// Set a boolean config value by key name.
-            pub fn set_bool(&mut self, name: &str, value: bool) {
-                match name {
+            /// Set a boolean config value by typed key.
+            pub fn set_bool(&mut self, key: BoolKey, value: bool) {
+                match key.name() {
                     $( $bkey => self.$bfield = value, )*
-                    _ => {}
+                    _ => unreachable!("unknown boolean config key '{}'", key.name()),
                 }
             }
 
             /// Toggle a boolean config value.
-            pub fn flip(&mut self, name: &str) {
-                match name {
+            pub fn flip(&mut self, key: BoolKey) {
+                match key.name() {
                     $( $bkey => self.$bfield = !self.$bfield, )*
-                    _ => {}
+                    _ => unreachable!("unknown boolean config key '{}'", key.name()),
                 }
             }
 
-            /// Get an integer config value by key name.
-            pub fn get_int(&self, name: &str) -> i64 {
-                match name {
+            /// Get an integer config value by typed key.
+            pub fn get_int(&self, key: IntKey) -> i64 {
+                match key.name() {
                     $( $ikey => self.$ifield, )*
-                    _ => 0,
+                    _ => unreachable!("unknown integer config key '{}'", key.name()),
                 }
             }
 
-            /// Set an integer config value by key name, with range clamping.
-            pub fn set_int(&mut self, name: &str, value: i64) {
-                match name {
+            /// Set an integer config value by typed key, with range clamping.
+            pub fn set_int(&mut self, key: IntKey, value: i64) {
+                match key.name() {
                     $( $ikey => self.$ifield = value.clamp($imin, $imax), )*
-                    _ => {}
+                    _ => unreachable!("unknown integer config key '{}'", key.name()),
                 }
             }
 
-            /// Get a string config value by key name.
-            pub fn get_string(&self, name: &str) -> &str {
-                match name {
+            /// Get a string config value by typed key.
+            pub fn get_string(&self, key: StringKey) -> &str {
+                match key.name() {
                     $( $skey => &self.$sfield, )*
-                    sk::INITIAL_SHOWN_BOXES => &self.initial_shown_boxes,
-                    _ => "",
+                    "initial_shown_boxes" => &self.initial_shown_boxes,
+                    _ => unreachable!("unknown string config key '{}'", key.name()),
                 }
             }
 
-            /// Set a string config value by key name.
-            pub fn set_string(&mut self, name: &str, value: &str) {
-                match name {
+            /// Set a string config value by typed key.
+            pub fn set_string(&mut self, key: StringKey, value: &str) {
+                match key.name() {
                     $( $skey => self.$sfield = value.to_string(), )*
-                    sk::INITIAL_SHOWN_BOXES => self.initial_shown_boxes = value.to_string(),
-                    _ => {}
-                }
-            }
-
-            /// Determine the kind of a config key, or `None` if unknown.
-            pub fn key_kind(name: &str) -> Option<KeyKind> {
-                match name {
-                    $( $bkey => Some(KeyKind::Bool), )*
-                    $( $ikey => Some(KeyKind::Int), )*
-                    $( $skey => Some(KeyKind::String), )*
-                    _ => None,
-                }
-            }
-
-            /// Return the valid range for an integer config key.
-            pub fn int_bounds(name: &str) -> Option<(i64, i64)> {
-                match name {
-                    $( $ikey => Some(($imin, $imax)), )*
-                    _ => None,
+                    "initial_shown_boxes" => self.initial_shown_boxes = value.to_string(),
+                    _ => unreachable!("unknown string config key '{}'", key.name()),
                 }
             }
 
@@ -211,38 +302,36 @@ macro_rules! define_config {
                     let key = key.trim();
                     let value = value.trim().trim_matches('"');
 
-                    match Self::key_kind(key) {
-                        Some(KeyKind::Bool) => {
+                    match ConfigKey::parse(key) {
+                        Some(ConfigKey::Bool(key)) => {
                             match value.to_lowercase().as_str() {
                                 "true" => self.set_bool(key, true),
                                 "false" => self.set_bool(key, false),
-                                _ => {
-                                    warnings.push(format!(
-                                        "Invalid boolean value for '{key}': {value}"
-                                    ));
-                                }
+                                _ => warnings.push(format!(
+                                    "Invalid boolean value for '{}': {value}",
+                                    key.name()
+                                )),
                             }
                         }
-                        Some(KeyKind::Int) => {
+                        Some(ConfigKey::Int(key)) => {
                             match value.parse::<i64>() {
                                 Ok(v) => {
-                                    if let Some((min, max)) = Self::int_bounds(key) {
-                                        if v < min || v > max {
-                                            warnings.push(format!(
-                                                "Integer value for '{key}' out of range: {v} (expected {min}..={max})"
-                                            ));
-                                        }
+                                    let (min, max) = key.bounds();
+                                    if v < min || v > max {
+                                        warnings.push(format!(
+                                            "Integer value for '{}' out of range: {v} (expected {min}..={max})",
+                                            key.name()
+                                        ));
                                     }
                                     self.set_int(key, v);
                                 }
-                                Err(_) => {
-                                    warnings.push(format!(
-                                        "Invalid integer value for '{key}': {value}"
-                                    ));
-                                }
+                                Err(_) => warnings.push(format!(
+                                    "Invalid integer value for '{}': {value}",
+                                    key.name()
+                                )),
                             }
                         }
-                        Some(KeyKind::String) => {
+                        Some(ConfigKey::String(key)) => {
                             if let Some(warning) = Self::validate_string_value(key, value) {
                                 warnings.push(warning);
                             } else {
@@ -263,118 +352,127 @@ macro_rules! define_config {
 
 define_config! {
     bools {
-        theme_background:    "theme_background"    => true,
-        rounded_corners:     "rounded_corners"     => true,
-        proc_reversed:       "proc_reversed"       => false,
-        proc_tree:           "proc_tree"           => false,
-        proc_colors:         "proc_colors"         => true,
-        proc_gradient:       "proc_gradient"       => true,
-        proc_per_core:       "proc_per_core"       => false,
-        proc_mem_bytes:      "proc_mem_bytes"      => true,
-        proc_cpu_graphs:     "proc_cpu_graphs"     => true,
-        proc_left:           "proc_left"           => false,
-        proc_filter_kernel:  "proc_filter_kernel"  => false,
-        proc_follow_detailed: "proc_follow_detailed" => true,
-        proc_aggregate:      "proc_aggregate"      => false,
-        keep_dead_proc_usage: "keep_dead_proc_usage" => false,
-        cpu_invert_lower:    "cpu_invert_lower"    => true,
-        cpu_single_graph:    "cpu_single_graph"    => false,
-        cpu_bottom:          "cpu_bottom"          => false,
-        show_uptime:         "show_uptime"         => true,
-        show_cpu_watts:      "show_cpu_watts"      => true,
-        check_temp:          "check_temp"          => true,
-        show_coretemp:       "show_coretemp"       => true,
-        show_cpu_freq:       "show_cpu_freq"       => true,
-        mem_graphs:          "mem_graphs"          => true,
-        mem_below_net:       "mem_below_net"       => false,
-        show_swap:           "show_swap"           => true,
-        swap_disk:           "swap_disk"           => true,
-        show_disks:          "show_disks"          => true,
-        only_physical:       "only_physical"       => true,
-        show_io_stat:        "show_io_stat"        => true,
-        io_mode:             "io_mode"             => false,
-        io_graph_combined:   "io_graph_combined"   => false,
-        swap_upload_download: "swap_upload_download" => false,
-        base_10_sizes:       "base_10_sizes"       => false,
-        net_auto:            "net_auto"            => true,
-        net_sync:            "net_sync"            => false,
-        show_battery:        "show_battery"        => true,
-        show_battery_watts:  "show_battery_watts"  => true,
-        vim_keys:            "vim_keys"            => false,
-        background_update:   "background_update"   => true,
-        terminal_sync:       "terminal_sync"       => true,
-        save_config_on_exit: "save_config_on_exit" => true,
-        disable_mouse:       "disable_mouse"       => false,
-        disk_free_priv:      "disk_free_priv"      => false,
-        gpu_mirror_graph:    "gpu_mirror_graph"    => true,
-        disk_io_mode:        "disk_io_mode"        => false,
+        THEME_BACKGROUND theme_background:    "theme_background"    => true,
+        ROUNDED_CORNERS rounded_corners:      "rounded_corners"     => true,
+        PROC_REVERSED proc_reversed:          "proc_reversed"       => false,
+        PROC_TREE proc_tree:                  "proc_tree"           => false,
+        PROC_COLORS proc_colors:              "proc_colors"         => true,
+        PROC_GRADIENT proc_gradient:          "proc_gradient"       => true,
+        PROC_PER_CORE proc_per_core:          "proc_per_core"       => false,
+        PROC_MEM_BYTES proc_mem_bytes:        "proc_mem_bytes"      => true,
+        PROC_CPU_GRAPHS proc_cpu_graphs:      "proc_cpu_graphs"     => true,
+        PROC_LEFT proc_left:                  "proc_left"           => false,
+        PROC_FILTER_KERNEL proc_filter_kernel: "proc_filter_kernel"  => false,
+        PROC_FOLLOW_DETAILED proc_follow_detailed: "proc_follow_detailed" => true,
+        PROC_AGGREGATE proc_aggregate:        "proc_aggregate"      => false,
+        KEEP_DEAD_PROC_USAGE keep_dead_proc_usage: "keep_dead_proc_usage" => false,
+        CPU_INVERT_LOWER cpu_invert_lower:    "cpu_invert_lower"    => true,
+        CPU_SINGLE_GRAPH cpu_single_graph:    "cpu_single_graph"    => false,
+        CPU_BOTTOM cpu_bottom:                "cpu_bottom"          => false,
+        SHOW_UPTIME show_uptime:              "show_uptime"         => true,
+        SHOW_CPU_WATTS show_cpu_watts:        "show_cpu_watts"      => true,
+        CHECK_TEMP check_temp:                "check_temp"          => true,
+        SHOW_CORETEMP show_coretemp:          "show_coretemp"       => true,
+        SHOW_CPU_FREQ show_cpu_freq:          "show_cpu_freq"       => true,
+        MEM_GRAPHS mem_graphs:                "mem_graphs"          => true,
+        MEM_BELOW_NET mem_below_net:          "mem_below_net"       => false,
+        SHOW_SWAP show_swap:                  "show_swap"           => true,
+        SWAP_DISK swap_disk:                  "swap_disk"           => true,
+        SHOW_DISKS show_disks:                "show_disks"          => true,
+        ONLY_PHYSICAL only_physical:          "only_physical"       => true,
+        SHOW_IO_STAT show_io_stat:            "show_io_stat"        => true,
+        IO_MODE io_mode:                      "io_mode"             => false,
+        IO_GRAPH_COMBINED io_graph_combined:  "io_graph_combined"   => false,
+        SWAP_UPLOAD_DOWNLOAD swap_upload_download: "swap_upload_download" => false,
+        BASE_10_SIZES base_10_sizes:          "base_10_sizes"       => false,
+        NET_AUTO net_auto:                    "net_auto"            => true,
+        NET_SYNC net_sync:                    "net_sync"            => false,
+        SHOW_BATTERY show_battery:            "show_battery"        => true,
+        SHOW_BATTERY_WATTS show_battery_watts: "show_battery_watts"  => true,
+        VIM_KEYS vim_keys:                    "vim_keys"            => false,
+        BACKGROUND_UPDATE background_update:  "background_update"   => true,
+        TERMINAL_SYNC terminal_sync:          "terminal_sync"       => true,
+        SAVE_CONFIG_ON_EXIT save_config_on_exit: "save_config_on_exit" => true,
+        DISABLE_MOUSE disable_mouse:          "disable_mouse"       => false,
+        DISK_FREE_PRIV disk_free_priv:        "disk_free_priv"      => false,
+        GPU_MIRROR_GRAPH gpu_mirror_graph:    "gpu_mirror_graph"    => true,
+        DISK_IO_MODE disk_io_mode:            "disk_io_mode"        => false,
     }
     ints {
-        update_ms:       "update_ms"       => 2000,    100,         86_400_000,
-        net_download:    "net_download"    => 100,     0,           10_000_000,
-        net_upload:      "net_upload"      => 100,     0,           10_000_000,
-        detailed_pid:    "detailed_pid"    => 0,       i64::MIN,    i64::MAX,
-        selected_pid:    "selected_pid"    => 0,       0,           i64::MAX,
-        followed_pid:    "followed_pid"    => 0,       0,           i64::MAX,
-        proc_start:      "proc_start"      => 0,       0,           i64::MAX,
-        proc_selected:   "proc_selected"   => 0,       0,           i64::MAX,
-        current_preset:  "current_preset"  => 0,       0,           i64::MAX,
+        UPDATE_MS update_ms:             "update_ms"       => 2000,    100,         86_400_000,
+        NET_DOWNLOAD net_download:       "net_download"    => 100,     0,           10_000_000,
+        NET_UPLOAD net_upload:           "net_upload"      => 100,     0,           10_000_000,
+        DETAILED_PID detailed_pid:       "detailed_pid"    => 0,       i64::MIN,    i64::MAX,
+        SELECTED_PID selected_pid:       "selected_pid"    => 0,       0,           i64::MAX,
+        FOLLOWED_PID followed_pid:       "followed_pid"    => 0,       0,           i64::MAX,
+        PROC_START proc_start:           "proc_start"      => 0,       0,           i64::MAX,
+        PROC_SELECTED proc_selected:     "proc_selected"   => 0,       0,           i64::MAX,
+        CURRENT_PRESET current_preset:   "current_preset"  => 0,       0,           i64::MAX,
     }
     strings {
-        color_theme:      "color_theme"      => "Default",
-        shown_boxes:      "shown_boxes"      => "cpu mem net proc disk",
-        graph_symbol:     "graph_symbol"     => "braille",
-        graph_symbol_cpu: "graph_symbol_cpu" => "default",
-        graph_symbol_gpu: "graph_symbol_gpu" => "default",
-        graph_symbol_mem: "graph_symbol_mem" => "default",
-        graph_symbol_net: "graph_symbol_net" => "default",
-        graph_symbol_proc: "graph_symbol_proc" => "default",
-        graph_symbol_disk: "graph_symbol_disk" => "default",
-        proc_sorting:     "proc_sorting"     => "cpu lazy",
-        cpu_graph_upper:  "cpu_graph_upper"  => "user",
-        cpu_graph_lower:  "cpu_graph_lower"  => "system",
-        cpu_sensor:       "cpu_sensor"       => "Auto",
-        selected_battery: "selected_battery" => "Auto",
-        cpu_core_map:     "cpu_core_map"     => "",
-        temp_scale:       "temp_scale"       => "celsius",
-        clock_format:     "clock_format"     => "%X",
-        custom_cpu_name:  "custom_cpu_name"  => "",
-        disks_filter:     "disks_filter"     => "",
-        io_graph_speeds:  "io_graph_speeds"  => "",
-        net_iface:        "net_iface"        => "",
-        log_level:        "log_level"        => "WARNING",
-        proc_filter:      "proc_filter"      => "",
-        presets:          "presets"           => "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
-        custom_gpu_name0: "custom_gpu_name0" => "",
-        custom_gpu_name1: "custom_gpu_name1" => "",
-        custom_gpu_name2: "custom_gpu_name2" => "",
-        custom_gpu_name3: "custom_gpu_name3" => "",
-        custom_gpu_name4: "custom_gpu_name4" => "",
-        custom_gpu_name5: "custom_gpu_name5" => "",
+        COLOR_THEME color_theme:           "color_theme"      => "Default",
+        SHOWN_BOXES shown_boxes:           "shown_boxes"      => "cpu mem net proc disk",
+        GRAPH_SYMBOL graph_symbol:         "graph_symbol"     => "braille",
+        GRAPH_SYMBOL_CPU graph_symbol_cpu: "graph_symbol_cpu" => "default",
+        GRAPH_SYMBOL_GPU graph_symbol_gpu: "graph_symbol_gpu" => "default",
+        GRAPH_SYMBOL_MEM graph_symbol_mem: "graph_symbol_mem" => "default",
+        GRAPH_SYMBOL_NET graph_symbol_net: "graph_symbol_net" => "default",
+        GRAPH_SYMBOL_PROC graph_symbol_proc: "graph_symbol_proc" => "default",
+        GRAPH_SYMBOL_DISK graph_symbol_disk: "graph_symbol_disk" => "default",
+        PROC_SORTING proc_sorting:         "proc_sorting"     => "cpu lazy",
+        CPU_GRAPH_UPPER cpu_graph_upper:   "cpu_graph_upper"  => "user",
+        CPU_GRAPH_LOWER cpu_graph_lower:   "cpu_graph_lower"  => "system",
+        CPU_SENSOR cpu_sensor:             "cpu_sensor"       => "Auto",
+        SELECTED_BATTERY selected_battery: "selected_battery" => "Auto",
+        CPU_CORE_MAP cpu_core_map:         "cpu_core_map"     => "",
+        TEMP_SCALE temp_scale:             "temp_scale"       => "celsius",
+        CLOCK_FORMAT clock_format:         "clock_format"     => "%X",
+        CUSTOM_CPU_NAME custom_cpu_name:   "custom_cpu_name"  => "",
+        DISKS_FILTER disks_filter:         "disks_filter"     => "",
+        IO_GRAPH_SPEEDS io_graph_speeds:   "io_graph_speeds"  => "",
+        NET_IFACE net_iface:               "net_iface"        => "",
+        LOG_LEVEL log_level:               "log_level"        => "WARNING",
+        PROC_FILTER proc_filter:           "proc_filter"      => "",
+        PRESETS presets:                   "presets"           => "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default",
+        CUSTOM_GPU_NAME0 custom_gpu_name0: "custom_gpu_name0" => "",
+        CUSTOM_GPU_NAME1 custom_gpu_name1: "custom_gpu_name1" => "",
+        CUSTOM_GPU_NAME2 custom_gpu_name2: "custom_gpu_name2" => "",
+        CUSTOM_GPU_NAME3 custom_gpu_name3: "custom_gpu_name3" => "",
+        CUSTOM_GPU_NAME4 custom_gpu_name4: "custom_gpu_name4" => "",
+        CUSTOM_GPU_NAME5 custom_gpu_name5: "custom_gpu_name5" => "",
+    }
+}
+
+use self::{bool_keys as bk, int_keys as ik, str_keys as sk};
+
+impl StringKey {
+    /// Return strict choice values for string keys with constrained values.
+    pub fn choice_values(self) -> Option<&'static [&'static str]> {
+        match self {
+            key if key == sk::COLOR_THEME => Some(crate::theme::THEME_NAMES),
+            key if key == sk::GRAPH_SYMBOL
+                || key == sk::GRAPH_SYMBOL_CPU
+                || key == sk::GRAPH_SYMBOL_GPU
+                || key == sk::GRAPH_SYMBOL_MEM
+                || key == sk::GRAPH_SYMBOL_NET
+                || key == sk::GRAPH_SYMBOL_PROC
+                || key == sk::GRAPH_SYMBOL_DISK =>
+            {
+                Some(GRAPH_SYMBOL_VALUES)
+            }
+            key if key == sk::CPU_GRAPH_UPPER || key == sk::CPU_GRAPH_LOWER => {
+                Some(CPU_GRAPH_SOURCE_VALUES)
+            }
+            key if key == sk::TEMP_SCALE => Some(TEMP_SCALE_VALUES),
+            key if key == sk::PROC_SORTING => Some(crate::collect::process::SORT_OPTIONS),
+            key if key == sk::LOG_LEVEL => Some(LOG_LEVEL_VALUES),
+            _ => None,
+        }
     }
 }
 
 impl Config {
-    /// Return strict choice values for string keys with constrained values.
-    pub fn string_choice_values(name: &str) -> Option<&'static [&'static str]> {
-        match name {
-            sk::COLOR_THEME => Some(crate::theme::THEME_NAMES),
-            sk::GRAPH_SYMBOL
-            | sk::GRAPH_SYMBOL_CPU
-            | sk::GRAPH_SYMBOL_GPU
-            | sk::GRAPH_SYMBOL_MEM
-            | sk::GRAPH_SYMBOL_NET
-            | sk::GRAPH_SYMBOL_PROC
-            | sk::GRAPH_SYMBOL_DISK => Some(GRAPH_SYMBOL_VALUES),
-            sk::CPU_GRAPH_UPPER | sk::CPU_GRAPH_LOWER => Some(CPU_GRAPH_SOURCE_VALUES),
-            sk::TEMP_SCALE => Some(TEMP_SCALE_VALUES),
-            sk::PROC_SORTING => Some(crate::collect::process::SORT_OPTIONS),
-            sk::LOG_LEVEL => Some(LOG_LEVEL_VALUES),
-            _ => None,
-        }
-    }
-
-    fn validate_string_value(key: &str, value: &str) -> Option<String> {
+    fn validate_string_value(key: StringKey, value: &str) -> Option<String> {
         if key == sk::SHOWN_BOXES {
             let invalid: Vec<&str> = value
                 .split_whitespace()
@@ -384,17 +482,19 @@ impl Config {
                 return None;
             }
             return Some(format!(
-                "Invalid box name(s) for '{key}': {}",
+                "Invalid box name(s) for '{}': {}",
+                key.name(),
                 invalid.join(", ")
             ));
         }
 
-        let choices = Self::string_choice_values(key)?;
+        let choices = key.choice_values()?;
         if choices.contains(&value) {
             None
         } else {
             Some(format!(
-                "Invalid value for '{key}': {value} (expected one of: {})",
+                "Invalid value for '{}': {value} (expected one of: {})",
+                key.name(),
                 choices.join(", ")
             ))
         }
@@ -579,9 +679,9 @@ mod tests {
         fs::write(&tmp, "").unwrap();
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.get_int("update_ms"), 2000);
-        assert_eq!(config.get_string("color_theme"), "Default");
-        assert!(config.get_bool("theme_background"));
+        assert_eq!(config.get_int(ik::UPDATE_MS), 2000);
+        assert_eq!(config.get_string(sk::COLOR_THEME), "Default");
+        assert!(config.get_bool(bk::THEME_BACKGROUND));
         let _ = fs::remove_file(&tmp);
     }
 
@@ -597,9 +697,9 @@ mod tests {
 
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.get_string("color_theme"), "dracula");
-        assert!(!config.get_bool("theme_background"));
-        assert_eq!(config.get_int("update_ms"), 500);
+        assert_eq!(config.get_string(sk::COLOR_THEME), "dracula");
+        assert!(!config.get_bool(bk::THEME_BACKGROUND));
+        assert_eq!(config.get_int(ik::UPDATE_MS), 500);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -610,7 +710,7 @@ mod tests {
         fs::write(&tmp, "# this is a comment\nupdate_ms = 1000\n").unwrap();
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.get_int("update_ms"), 1000);
+        assert_eq!(config.get_int(ik::UPDATE_MS), 1000);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -632,7 +732,7 @@ mod tests {
         fs::write(&tmp, "update_ms = not_a_number\n").unwrap();
         let warnings = config.load(&tmp);
         assert_eq!(warnings.len(), 1);
-        assert_eq!(config.get_int("update_ms"), 2000);
+        assert_eq!(config.get_int(ik::UPDATE_MS), 2000);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -644,7 +744,7 @@ mod tests {
         let warnings = config.load(&tmp);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("out of range"));
-        assert_eq!(config.get_int("update_ms"), 100);
+        assert_eq!(config.get_int(ik::UPDATE_MS), 100);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -674,70 +774,70 @@ mod tests {
                 .iter()
                 .any(|warning| warning.contains("shown_boxes") && warning.contains("nope"))
         );
-        assert_eq!(config.get_string("color_theme"), "Default");
-        assert_eq!(config.get_string("graph_symbol"), "braille");
-        assert_eq!(config.get_string("shown_boxes"), "cpu mem net proc disk");
+        assert_eq!(config.get_string(sk::COLOR_THEME), "Default");
+        assert_eq!(config.get_string(sk::GRAPH_SYMBOL), "braille");
+        assert_eq!(config.get_string(sk::SHOWN_BOXES), "cpu mem net proc disk");
         let _ = fs::remove_file(&tmp);
     }
 
     #[test]
     fn write_roundtrip_preserves_values() {
         let mut config = Config::new();
-        config.set_string("color_theme", "nord");
-        config.set_bool("vim_keys", true);
-        config.set_int("update_ms", 1500);
+        config.set_string(sk::COLOR_THEME, "nord");
+        config.set_bool(bk::VIM_KEYS, true);
+        config.set_int(ik::UPDATE_MS, 1500);
 
         let tmp = std::env::temp_dir().join("rtop_test_roundtrip.conf");
         config.write(&tmp).unwrap();
 
         let mut config2 = Config::new();
         config2.load(&tmp);
-        assert_eq!(config2.get_string("color_theme"), "nord");
-        assert!(config2.get_bool("vim_keys"));
-        assert_eq!(config2.get_int("update_ms"), 1500);
+        assert_eq!(config2.get_string(sk::COLOR_THEME), "nord");
+        assert!(config2.get_bool(bk::VIM_KEYS));
+        assert_eq!(config2.get_int(ik::UPDATE_MS), 1500);
         let _ = fs::remove_file(&tmp);
     }
 
     #[test]
     fn get_bool_returns_default() {
         let config = Config::new();
-        assert!(config.get_bool("theme_background"));
-        assert!(!config.get_bool("vim_keys"));
+        assert!(config.get_bool(bk::THEME_BACKGROUND));
+        assert!(!config.get_bool(bk::VIM_KEYS));
     }
 
     #[test]
     fn set_int_clamps_to_range() {
         let mut config = Config::new();
-        config.set_int("update_ms", 50);
-        assert_eq!(config.get_int("update_ms"), 100);
-        config.set_int("update_ms", 100_000_000);
-        assert_eq!(config.get_int("update_ms"), 86_400_000);
+        config.set_int(ik::UPDATE_MS, 50);
+        assert_eq!(config.get_int(ik::UPDATE_MS), 100);
+        config.set_int(ik::UPDATE_MS, 100_000_000);
+        assert_eq!(config.get_int(ik::UPDATE_MS), 86_400_000);
     }
 
     #[test]
     fn flip_toggles_boolean() {
         let mut config = Config::new();
-        assert!(config.get_bool("theme_background"));
-        config.flip("theme_background");
-        assert!(!config.get_bool("theme_background"));
-        config.flip("theme_background");
-        assert!(config.get_bool("theme_background"));
+        assert!(config.get_bool(bk::THEME_BACKGROUND));
+        config.flip(bk::THEME_BACKGROUND);
+        assert!(!config.get_bool(bk::THEME_BACKGROUND));
+        config.flip(bk::THEME_BACKGROUND);
+        assert!(config.get_bool(bk::THEME_BACKGROUND));
     }
 
     #[test]
     fn toggle_box_adds_when_missing() {
         let mut config = Config::new();
-        config.set_string("shown_boxes", "cpu mem");
+        config.set_string(sk::SHOWN_BOXES, "cpu mem");
         assert!(config.toggle_box("net"));
-        assert!(config.get_string("shown_boxes").contains("net"));
+        assert!(config.get_string(sk::SHOWN_BOXES).contains("net"));
     }
 
     #[test]
     fn toggle_box_removes_when_present() {
         let mut config = Config::new();
-        config.set_string("shown_boxes", "cpu mem net");
+        config.set_string(sk::SHOWN_BOXES, "cpu mem net");
         assert!(config.toggle_box("net"));
-        assert!(!config.get_string("shown_boxes").contains("net"));
+        assert!(!config.get_string(sk::SHOWN_BOXES).contains("net"));
     }
 
     #[test]
@@ -759,22 +859,57 @@ mod tests {
     #[test]
     fn default_has_all_expected_keys() {
         let config = Config::new();
-        // Verify key_kind returns correct types for known keys
-        assert_eq!(Config::key_kind("color_theme"), Some(KeyKind::String));
-        assert_eq!(Config::key_kind("proc_sorting"), Some(KeyKind::String));
-        assert_eq!(Config::key_kind("theme_background"), Some(KeyKind::Bool));
-        assert_eq!(Config::key_kind("show_battery"), Some(KeyKind::Bool));
-        assert_eq!(Config::key_kind("update_ms"), Some(KeyKind::Int));
-        assert_eq!(Config::key_kind("net_download"), Some(KeyKind::Int));
+        // Verify raw file keys parse to the correct typed key kinds.
+        assert_eq!(
+            ConfigKey::parse("color_theme").map(ConfigKey::kind),
+            Some(KeyKind::String)
+        );
+        assert_eq!(
+            ConfigKey::parse("proc_sorting").map(ConfigKey::kind),
+            Some(KeyKind::String)
+        );
+        assert_eq!(
+            ConfigKey::parse("theme_background").map(ConfigKey::kind),
+            Some(KeyKind::Bool)
+        );
+        assert_eq!(
+            ConfigKey::parse("show_battery").map(ConfigKey::kind),
+            Some(KeyKind::Bool)
+        );
+        assert_eq!(
+            ConfigKey::parse("update_ms").map(ConfigKey::kind),
+            Some(KeyKind::Int)
+        );
+        assert_eq!(
+            ConfigKey::parse("net_download").map(ConfigKey::kind),
+            Some(KeyKind::Int)
+        );
         // Verify defaults are accessible
-        assert_eq!(config.get_string("color_theme"), "Default");
-        assert!(config.get_bool("theme_background"));
-        assert_eq!(config.get_int("update_ms"), 2000);
+        assert_eq!(config.get_string(sk::COLOR_THEME), "Default");
+        assert!(config.get_bool(bk::THEME_BACKGROUND));
+        assert_eq!(config.get_int(ik::UPDATE_MS), 2000);
     }
 
     #[test]
-    fn key_kind_returns_none_for_unknown() {
-        assert_eq!(Config::key_kind("nonexistent"), None);
+    fn config_key_parse_returns_none_for_unknown() {
+        assert_eq!(ConfigKey::parse("nonexistent"), None);
+    }
+
+    #[test]
+    fn typed_config_keys_roundtrip_through_parser() {
+        let keys = [
+            ConfigKey::String(sk::COLOR_THEME),
+            ConfigKey::String(sk::PROC_SORTING),
+            ConfigKey::Bool(bk::THEME_BACKGROUND),
+            ConfigKey::Bool(bk::SHOW_BATTERY),
+            ConfigKey::Int(ik::UPDATE_MS),
+            ConfigKey::Int(ik::NET_DOWNLOAD),
+        ];
+
+        for key in keys {
+            assert_eq!(ConfigKey::parse(key.name()), Some(key));
+        }
+        assert_eq!(ConfigKey::parse(sk::INITIAL_SHOWN_BOXES.name()), None);
     }
 
     #[test]
@@ -789,7 +924,7 @@ mod tests {
     fn preset_list_with_custom_presets() {
         let mut config = Config::new();
         config.set_string(
-            "presets",
+            sk::PRESETS,
             "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default",
         );
         let list = config.preset_list();
@@ -800,40 +935,40 @@ mod tests {
     fn apply_preset_sets_shown_boxes() {
         let mut config = Config::new();
         config.apply_preset("cpu:0:default,proc:1:default");
-        assert_eq!(config.get_string("shown_boxes"), "cpu proc");
-        assert!(config.get_bool("proc_left"));
+        assert_eq!(config.get_string(sk::SHOWN_BOXES), "cpu proc");
+        assert!(config.get_bool(bk::PROC_LEFT));
     }
 
     #[test]
     fn apply_preset_cpu_bottom() {
         let mut config = Config::new();
         config.apply_preset("cpu:1:default,mem:0:default");
-        assert!(config.get_bool("cpu_bottom"));
-        assert!(!config.get_bool("mem_below_net"));
+        assert!(config.get_bool(bk::CPU_BOTTOM));
+        assert!(!config.get_bool(bk::MEM_BELOW_NET));
     }
 
     #[test]
     fn current_preset_default_is_zero() {
         let config = Config::new();
-        assert_eq!(config.get_int("current_preset"), 0);
+        assert_eq!(config.get_int(ik::CURRENT_PRESET), 0);
     }
 
     #[test]
     fn detailed_pid_allows_zero() {
         let mut config = Config::new();
-        config.set_int("detailed_pid", 0);
-        assert_eq!(config.get_int("detailed_pid"), 0);
+        config.set_int(ik::DETAILED_PID, 0);
+        assert_eq!(config.get_int(ik::DETAILED_PID), 0);
     }
 
     #[test]
     fn save_preset_appends_and_sets_current() {
         let mut config = Config::new();
-        config.set_string("presets", "");
-        config.set_string("shown_boxes", "cpu proc");
-        config.set_bool("proc_left", true);
+        config.set_string(sk::PRESETS, "");
+        config.set_string(sk::SHOWN_BOXES, "cpu proc");
+        config.set_bool(bk::PROC_LEFT, true);
         let idx = config.save_preset();
         assert!(idx > 0);
-        assert_eq!(config.get_int("current_preset"), idx as i64);
+        assert_eq!(config.get_int(ik::CURRENT_PRESET), idx as i64);
         let list = config.preset_list();
         let last = &list[idx];
         assert!(last.contains("cpu:0:default"));
@@ -844,7 +979,7 @@ mod tests {
     fn delete_preset_removes_custom() {
         let mut config = Config::new();
         config.set_string(
-            "presets",
+            sk::PRESETS,
             "cpu:0:default,proc:0:default mem:0:default,net:0:default",
         );
         let before = config.preset_list().len();
@@ -862,8 +997,8 @@ mod tests {
     #[test]
     fn initial_shown_boxes_is_internal() {
         let mut config = Config::new();
-        config.set_string("initial_shown_boxes", "cpu mem");
-        assert_eq!(config.get_string("initial_shown_boxes"), "cpu mem");
+        config.set_string(sk::INITIAL_SHOWN_BOXES, "cpu mem");
+        assert_eq!(config.get_string(sk::INITIAL_SHOWN_BOXES), "cpu mem");
         // Should not appear in serialized output
         let output = config.to_config_string();
         assert!(!output.contains("initial_shown_boxes"));

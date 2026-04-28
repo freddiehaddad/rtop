@@ -36,15 +36,15 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c(tc::DISK_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let hi = theme.c(tc::HI_FG);
-    let avail_grad = theme.g(tc::GRAD_AVAILABLE);
-    let read_grad = theme.g(tc::GRAD_DISK_READ);
-    let write_grad = theme.g(tc::GRAD_DISK_WRITE);
-    let busy_grad = theme.g(tc::GRAD_DISK_BUSY);
-    let meter_bg = theme.c(tc::METER_BG);
+    let box_color = theme.color(tc::DISK_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
+    let hi = theme.color(tc::HI_FG);
+    let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
+    let read_grad = theme.gradient(tc::GRAD_DISK_READ);
+    let write_grad = theme.gradient(tc::GRAD_DISK_WRITE);
+    let busy_grad = theme.gradient(tc::GRAD_DISK_BUSY);
+    let meter_bg = theme.color(tc::METER_BG);
 
     let inner_h = height.saturating_sub(2);
     let inner_w = width.saturating_sub(4);
@@ -144,8 +144,8 @@ fn draw_perf_row(
         return;
     }
 
-    let fg = params.theme.c(tc::MAIN_FG);
-    let title_color = params.theme.c(tc::TITLE);
+    let fg = params.theme.color(tc::MAIN_FG);
+    let title_color = params.theme.color(tc::TITLE);
     let read_speed =
         tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, false);
     let write_speed =

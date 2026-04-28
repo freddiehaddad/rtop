@@ -51,17 +51,17 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c(tc::GPU_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let hi = theme.c(tc::HI_FG);
-    let title_color = theme.c(tc::TITLE);
-    let meter_bg = theme.c(tc::METER_BG);
+    let box_color = theme.color(tc::GPU_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let hi = theme.color(tc::HI_FG);
+    let title_color = theme.color(tc::TITLE);
+    let meter_bg = theme.color(tc::METER_BG);
     // Per-row gradients — each GPU metric has its own semantic color
-    let grad_gpu = theme.g(tc::GRAD_GPU);
-    let grad_clock = theme.g(tc::GRAD_GPU_CLOCK);
-    let grad_temp = theme.g(tc::GRAD_TEMP);
-    let grad_power = theme.g(tc::GRAD_GPU_POWER);
-    let grad_vram = theme.g(tc::GRAD_GPU_VRAM);
+    let grad_gpu = theme.gradient(tc::GRAD_GPU);
+    let grad_clock = theme.gradient(tc::GRAD_GPU_CLOCK);
+    let grad_temp = theme.gradient(tc::GRAD_TEMP);
+    let grad_power = theme.gradient(tc::GRAD_GPU_POWER);
+    let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
 
     let title = format!("gpu{index}");
     let num = 5u8;

@@ -1,4 +1,5 @@
 use crate::{
+    config::ConfigKey,
     config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
@@ -114,19 +115,14 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                 ctx.overlay.options_selected,
                 ctx.th,
             ) {
-                let kind = match crate::config::Config::key_kind(opt_key) {
-                    Some(crate::config::KeyKind::Bool) => menu::options_menu::OptKind::Bool,
-                    Some(crate::config::KeyKind::Int) => menu::options_menu::OptKind::Int,
-                    _ if !menu::options_menu::browsable_values(opt_key).is_empty() => {
-                        menu::options_menu::OptKind::Browsable
-                    }
-                    _ => menu::options_menu::OptKind::StringVal,
-                };
-
+                let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
                 let dir: i64 = if key == "left" || key == "h" { -1 } else { 1 };
 
                 match kind {
                     menu::options_menu::OptKind::Bool => {
+                        let ConfigKey::Bool(opt_key) = opt_key else {
+                            unreachable!("bool option kind without bool key");
+                        };
                         ctx.config.flip(opt_key);
                         ctx.runtime.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
                         if opt_key == bk::THEME_BACKGROUND {
@@ -137,6 +133,9 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                         }
                     }
                     menu::options_menu::OptKind::Int => {
+                        let ConfigKey::Int(opt_key) = opt_key else {
+                            unreachable!("int option kind without int key");
+                        };
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
                         if opt_key == ik::UPDATE_MS {
                             ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
@@ -144,8 +143,11 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                         }
                     }
                     menu::options_menu::OptKind::Browsable => {
+                        let ConfigKey::String(string_key) = opt_key else {
+                            unreachable!("browsable option kind without string key");
+                        };
                         menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);
-                        if opt_key == sk::COLOR_THEME {
+                        if string_key == sk::COLOR_THEME {
                             let name = ctx.config.get_string(sk::COLOR_THEME).to_string();
                             *ctx.theme = theme::Theme::from_name(&name);
                             let base = ctx

@@ -121,14 +121,14 @@ struct ProcColors<'a> {
 impl<'a> ProcColors<'a> {
     fn from_theme(theme: &'a Theme) -> Self {
         Self {
-            box_color: theme.c(tc::PROC_BOX),
-            fg: theme.c(tc::MAIN_FG),
-            title_color: theme.c(tc::TITLE),
-            hi: theme.c(tc::HI_FG),
-            sel_bg_esc: theme.bg(tc::SELECTED_BG),
-            sel_fg: theme.c(tc::SELECTED_FG),
-            tree_fg: theme.c(tc::PROC_TREE_FG),
-            proc_grad: theme.g(tc::GRAD_PROCESS),
+            box_color: theme.color(tc::PROC_BOX),
+            fg: theme.color(tc::MAIN_FG),
+            title_color: theme.color(tc::TITLE),
+            hi: theme.color(tc::HI_FG),
+            sel_bg_esc: theme.background(tc::SELECTED_BG),
+            sel_fg: theme.color(tc::SELECTED_FG),
+            tree_fg: theme.color(tc::PROC_TREE_FG),
+            proc_grad: theme.gradient(tc::GRAD_PROCESS),
         }
     }
 }
@@ -868,9 +868,9 @@ fn draw_top_border(
     tree_mode: bool,
     theme: &Theme,
 ) -> String {
-    let box_color = theme.c(tc::PROC_BOX);
-    let hi = theme.c(tc::HI_FG);
-    let title_color = theme.c(tc::TITLE);
+    let box_color = theme.color(tc::PROC_BOX);
+    let hi = theme.color(tc::HI_FG);
+    let title_color = theme.color(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
     let sort_name = if sort_by.is_empty() {
@@ -921,10 +921,10 @@ struct BottomBorderParams<'a> {
 
 /// Render the bottom border with select, info, terminate, and filter labels.
 fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> String {
-    let box_color = theme.c(tc::PROC_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let hi = theme.c(tc::HI_FG);
-    let title_color = theme.c(tc::TITLE);
+    let box_color = theme.color(tc::PROC_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let hi = theme.color(tc::HI_FG);
+    let title_color = theme.color(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
     let select_text = format!("↑{} select {}↓", title_color, hi);
@@ -964,10 +964,10 @@ fn draw_detail_panel(
     settings: &ProcBoxSettings<'_>,
     theme: &Theme,
 ) -> String {
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let hi = theme.c(tc::HI_FG);
-    let proc_grad = theme.g(tc::GRAD_PROCESS);
+    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
+    let hi = theme.color(tc::HI_FG);
+    let proc_grad = theme.gradient(tc::GRAD_PROCESS);
     let inner_w = width.saturating_sub(4);
     let content_rows = rows.saturating_sub(1);
     let detail_x = x + 3;
@@ -1531,7 +1531,7 @@ mod tests {
     #[test]
     fn selected_row_with_cpu_graph_restores_selection_background() {
         let theme = Theme::default();
-        let selected_bg = theme.bg(tc::SELECTED_BG);
+        let selected_bg = theme.background(tc::SELECTED_BG);
         let mut histories = HashMap::new();
         histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
         let settings = ProcBoxSettings {
@@ -1677,7 +1677,7 @@ mod tests {
     #[test]
     fn proc_colors_setting_disables_cpu_row_coloring() {
         let theme = Theme::default();
-        let cpu_color = theme.g(tc::GRAD_PROCESS)[5].clone();
+        let cpu_color = theme.gradient(tc::GRAD_PROCESS)[5].clone();
         let mut view = make_view();
         view.selected = usize::MAX;
 
@@ -1777,7 +1777,12 @@ mod tests {
             ..make_settings_with_histories(&histories)
         };
 
-        let graph = proc_cpu_graph(100, &settings, Theme::default().g(tc::GRAD_PROCESS), "fg");
+        let graph = proc_cpu_graph(
+            100,
+            &settings,
+            Theme::default().gradient(tc::GRAD_PROCESS),
+            "fg",
+        );
 
         assert!(
             !graph.contains("\x1b[1C"),
@@ -1796,7 +1801,12 @@ mod tests {
             ..make_settings_with_histories(&histories)
         };
 
-        let graph = proc_cpu_graph(100, &settings, Theme::default().g(tc::GRAD_PROCESS), "fg");
+        let graph = proc_cpu_graph(
+            100,
+            &settings,
+            Theme::default().gradient(tc::GRAD_PROCESS),
+            "fg",
+        );
 
         assert_eq!(tools::ulen(&strip_ansi(&graph), false), PROC_CPU_GRAPH_W);
         assert_ne!(strip_ansi(&graph), " ".repeat(PROC_CPU_GRAPH_W));

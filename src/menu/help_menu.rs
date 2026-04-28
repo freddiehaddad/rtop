@@ -177,10 +177,10 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
     let x = (term_width.saturating_sub(w)) / 2;
     let y = (term_height.saturating_sub(h)) / 2;
 
-    let hi = theme.c(tc::HI_FG);
-    let title_c = theme.c(tc::TITLE);
-    let fg = theme.c(tc::MAIN_FG);
-    let help_c = theme.c(tc::HELP_BOX);
+    let hi = theme.color(tc::HI_FG);
+    let title_c = theme.color(tc::TITLE);
+    let fg = theme.color(tc::MAIN_FG);
+    let help_c = theme.color(tc::HELP_BOX);
 
     let mut out = box_drawing::create_box(&box_drawing::BoxConfig {
         x,

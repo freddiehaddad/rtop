@@ -63,11 +63,11 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c(tc::CPU_BOX);
-    let hi = theme.c(tc::HI_FG);
-    let title_color = theme.c(tc::TITLE);
-    let cpu_gradient = theme.g(tc::GRAD_CPU);
-    let graph_text_color = theme.c(tc::GRAPH_TEXT);
+    let box_color = theme.color(tc::CPU_BOX);
+    let hi = theme.color(tc::HI_FG);
+    let title_color = theme.color(tc::TITLE);
+    let cpu_gradient = theme.gradient(tc::GRAD_CPU);
+    let graph_text_color = theme.color(tc::GRAPH_TEXT);
     let graph_sym = settings.graph_symbol;
     let upper_key = match settings.upper_source {
         "user" => "user",
@@ -326,16 +326,16 @@ fn draw_core_panel(
     graph_sym: GraphSymbol,
     theme: &Theme,
 ) -> String {
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let box_color = theme.c(tc::CPU_BOX);
-    let cpu_gradient = theme.g(tc::GRAD_CPU);
-    let temp_gradient = theme.g(tc::GRAD_TEMP);
+    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
+    let box_color = theme.color(tc::CPU_BOX);
+    let cpu_gradient = theme.gradient(tc::GRAD_CPU);
+    let temp_gradient = theme.gradient(tc::GRAD_TEMP);
     let mut buf = AnsiBuffer::new();
     let core_count = cpu.core_percent.len();
 
     let panel_inner_w = panel.width;
-    let meter_bg = theme.c(tc::METER_BG);
+    let meter_bg = theme.color(tc::METER_BG);
 
     // Row 0 of core panel: CPU meter line (btop line 842)
     {
@@ -494,9 +494,9 @@ fn draw_bottom_hints(
     current_preset: i64,
     theme: &Theme,
 ) -> String {
-    let box_color = theme.c(tc::CPU_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let hi = theme.c(tc::HI_FG);
+    let box_color = theme.color(tc::CPU_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let hi = theme.color(tc::HI_FG);
 
     let preset_label = format!("p{}reset *{}", fg, current_preset);
     let rate_label = format!("{}ms", update_ms);

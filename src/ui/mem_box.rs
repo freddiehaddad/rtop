@@ -33,14 +33,14 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c(tc::MEM_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let hi = theme.c(tc::HI_FG);
-    let used_grad = theme.g(tc::GRAD_USED);
-    let free_grad = theme.g(tc::GRAD_FREE);
-    let cached_grad = theme.g(tc::GRAD_CACHED);
-    let avail_grad = theme.g(tc::GRAD_AVAILABLE);
+    let box_color = theme.color(tc::MEM_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
+    let hi = theme.color(tc::HI_FG);
+    let used_grad = theme.gradient(tc::GRAD_USED);
+    let free_grad = theme.gradient(tc::GRAD_FREE);
+    let cached_grad = theme.gradient(tc::GRAD_CACHED);
+    let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
 
     let inner_h = height.saturating_sub(2);
 
@@ -77,7 +77,7 @@ pub fn draw(
     let inner_w = width.saturating_sub(4);
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
     let content_x = x + 3;
-    let meter_bg = theme.c(tc::METER_BG);
+    let meter_bg = theme.color(tc::METER_BG);
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
     let cached_meter = Meter::new(meter_w, cached_grad, meter_bg);

@@ -53,12 +53,12 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.c(tc::NET_BOX);
-    let fg = theme.c(tc::MAIN_FG);
-    let title_color = theme.c(tc::TITLE);
-    let dl_grad = theme.g(tc::GRAD_DOWNLOAD);
-    let ul_grad = theme.g(tc::GRAD_UPLOAD);
-    let hi = theme.c(tc::HI_FG);
+    let box_color = theme.color(tc::NET_BOX);
+    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
+    let dl_grad = theme.gradient(tc::GRAD_DOWNLOAD);
+    let ul_grad = theme.gradient(tc::GRAD_UPLOAD);
+    let hi = theme.color(tc::HI_FG);
 
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {

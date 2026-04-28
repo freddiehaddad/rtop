@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::theme_keys::{ColorKey, GradientKey};
+
 /// All theme color data.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -119,8 +121,9 @@ impl Theme {
     }
 
     /// Load theme colors from a theme file content string.
-    pub fn load_from_string(&mut self, content: &str) {
+    pub fn load_from_string(&mut self, content: &str) -> Vec<String> {
         self.load_defaults();
+        let mut warnings = Vec::new();
         let mut provided = HashSet::new();
 
         for line in content.lines() {
@@ -141,6 +144,7 @@ impl Theme {
             let value = value.trim().trim_matches('"');
 
             if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
+                warnings.push(format!("Unknown theme key: '{key}'"));
                 continue;
             }
             provided.insert(key.to_string());
@@ -164,6 +168,7 @@ impl Theme {
 
         self.apply_fallbacks(&provided);
         self.generate_gradients();
+        warnings
     }
 
     fn load_defaults(&mut self) {
@@ -172,6 +177,9 @@ impl Theme {
             let escape = rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]);
             self.rgbs.insert(key.to_string(), rgb);
             self.colors.insert(key.to_string(), escape);
+        }
+        for key in crate::theme_keys::COLOR_KEYS {
+            debug_assert!(self.colors.contains_key(key.name()));
         }
     }
 
@@ -303,26 +311,8 @@ impl Theme {
     }
 
     fn generate_gradients(&mut self) {
-        let gradient_names = [
-            "temp",
-            "cpu",
-            "free",
-            "cached",
-            "available",
-            "used",
-            "download",
-            "upload",
-            "process",
-            "gpu",
-            "gpu_clock",
-            "gpu_power",
-            "gpu_vram",
-            "disk_read",
-            "disk_write",
-            "disk_busy",
-        ];
-
-        for name in gradient_names {
+        for key in crate::theme_keys::GRADIENT_KEYS {
+            let name = key.name();
             let start_key = format!("{name}_start");
             let mid_key = format!("{name}_mid");
             let end_key = format!("{name}_end");
@@ -336,25 +326,33 @@ impl Theme {
         }
     }
 
-    /// Get a color escape code by name.
-    pub fn c(&self, name: &str) -> &str {
-        self.colors.get(name).map(|s| s.as_str()).unwrap_or("")
+    /// Get a color escape code by typed key.
+    pub fn color(&self, key: ColorKey) -> &str {
+        match self.colors.get(key.name()) {
+            Some(color) => color.as_str(),
+            None => panic!("missing theme color '{}'", key.name()),
+        }
     }
 
     /// Get a background color escape string for a theme color name.
     /// Converts the foreground escape (38;2;r;g;b) to background (48;2;r;g;b).
-    pub fn bg(&self, name: &str) -> String {
-        self.c(name).replace("38;2", "48;2")
+    pub fn background(&self, key: ColorKey) -> String {
+        self.color(key).replace("38;2", "48;2")
+    }
+
+    /// Get an RGB value for a typed color key.
+    pub fn rgb(&self, key: ColorKey) -> [u8; 3] {
+        self.rgbs.get(key.name()).copied().unwrap_or_default()
     }
 
     /// Base terminal style for normal text and background rendering.
     pub fn base_style(&self, theme_background: bool) -> String {
         let bg = if theme_background {
-            self.bg("main_bg")
+            self.background(crate::theme_keys::MAIN_BG)
         } else {
             "\x1b[49m".to_string()
         };
-        format!("{}{}", self.c("main_fg"), bg)
+        format!("{}{}", self.color(crate::theme_keys::MAIN_FG), bg)
     }
 
     /// Prefix output with the base style and make hard resets return to it.
@@ -364,12 +362,12 @@ impl Theme {
         format!("{base}{}", output.replace("\x1b[0m", &reset))
     }
 
-    /// Get a gradient array by name (101 elements, indices 0–100).
-    pub fn g(&self, name: &str) -> &[String] {
-        self.gradients
-            .get(name)
-            .map(|v| v.as_slice())
-            .unwrap_or(&[])
+    /// Get a gradient array by typed key (101 elements, indices 0–100).
+    pub fn gradient(&self, key: GradientKey) -> &[String] {
+        match self.gradients.get(key.name()) {
+            Some(gradient) => gradient.as_slice(),
+            None => panic!("missing theme gradient '{}'", key.name()),
+        }
     }
 }
 
@@ -642,26 +640,32 @@ mod tests {
     #[test]
     fn default_theme_has_all_keys() {
         let theme = Theme::new();
-        assert!(theme.colors.contains_key("main_fg"));
-        assert!(theme.colors.contains_key("cpu_start"));
-        assert!(theme.colors.contains_key("proc_box"));
+        for key in tc::COLOR_KEYS {
+            assert!(
+                theme.colors.contains_key(key.name()),
+                "default theme missing color key '{}'",
+                key.name()
+            );
+        }
     }
 
     #[test]
     fn default_theme_has_gradients() {
         let theme = Theme::new();
-        assert_eq!(theme.g(tc::GRAD_CPU).len(), 101);
-        assert_eq!(theme.g(tc::GRAD_TEMP).len(), 101);
-        assert_eq!(theme.g(tc::GRAD_DOWNLOAD).len(), 101);
-        assert_eq!(theme.g(tc::GRAD_DISK_READ).len(), 101);
-        assert_eq!(theme.g(tc::GRAD_DISK_WRITE).len(), 101);
-        assert_eq!(theme.g(tc::GRAD_DISK_BUSY).len(), 101);
+        for key in tc::GRADIENT_KEYS {
+            assert_eq!(
+                theme.gradient(*key).len(),
+                101,
+                "default theme missing gradient '{}'",
+                key.name()
+            );
+        }
     }
 
     #[test]
-    fn theme_c_accessor() {
+    fn theme_color_accessor() {
         let theme = Theme::new();
-        let color = theme.c(tc::MAIN_FG);
+        let color = theme.color(tc::MAIN_FG);
         assert!(color.starts_with("\x1b[38;2;"));
     }
 
@@ -705,7 +709,7 @@ mod tests {
             "##,
         );
 
-        assert_eq!(theme.bg(tc::MAIN_BG), "");
+        assert_eq!(theme.background(tc::MAIN_BG), "");
         assert!(!theme.base_style(true).contains("\x1b[48;2;0;0;0m"));
     }
 
@@ -720,10 +724,24 @@ mod tests {
             "##,
         );
 
-        let cpu = theme.g(tc::GRAD_CPU);
+        let cpu = theme.gradient(tc::GRAD_CPU);
         assert_eq!(cpu[0], rgb_to_fg_escape(0x12, 0x34, 0x56));
         assert_eq!(cpu[50], cpu[0]);
         assert_eq!(cpu[100], cpu[0]);
+    }
+
+    #[test]
+    fn unknown_theme_keys_generate_warnings() {
+        let mut theme = Theme::new();
+        let warnings = theme.load_from_string(
+            r##"
+            theme[main_fg]="#111111"
+            theme[not_a_real_key]="#222222"
+            "##,
+        );
+
+        assert_eq!(warnings, vec!["Unknown theme key: 'not_a_real_key'"]);
+        assert_eq!(theme.color(tc::MAIN_FG), rgb_to_fg_escape(0x11, 0x11, 0x11));
     }
 
     #[test]
@@ -742,23 +760,41 @@ mod tests {
             "##,
         );
 
-        assert_eq!(theme.c(tc::METER_BG), rgb_to_fg_escape(0x11, 0x22, 0x33));
-        assert_eq!(theme.c(tc::GRAPH_TEXT), rgb_to_fg_escape(0x11, 0x22, 0x33));
         assert_eq!(
-            theme.c(tc::PROC_TREE_FG),
+            theme.color(tc::METER_BG),
             rgb_to_fg_escape(0x11, 0x22, 0x33)
         );
-        assert_eq!(theme.g(tc::GRAD_PROCESS)[0], rgb_to_fg_escape(1, 2, 3));
-        assert_eq!(theme.g(tc::GRAD_PROCESS)[50], rgb_to_fg_escape(4, 5, 6));
-        assert_eq!(theme.g(tc::GRAD_PROCESS)[100], rgb_to_fg_escape(7, 8, 9));
-        assert_eq!(theme.c("proc_pause_bg"), rgb_to_fg_escape(0xaa, 0, 0));
-        assert_eq!(theme.c("proc_follow_bg"), rgb_to_fg_escape(0, 0, 0xaa));
         assert_eq!(
-            theme.c("proc_banner_bg"),
+            theme.color(tc::GRAPH_TEXT),
+            rgb_to_fg_escape(0x11, 0x22, 0x33)
+        );
+        assert_eq!(
+            theme.color(tc::PROC_TREE_FG),
+            rgb_to_fg_escape(0x11, 0x22, 0x33)
+        );
+        assert_eq!(
+            theme.gradient(tc::GRAD_PROCESS)[0],
+            rgb_to_fg_escape(1, 2, 3)
+        );
+        assert_eq!(
+            theme.gradient(tc::GRAD_PROCESS)[50],
+            rgb_to_fg_escape(4, 5, 6)
+        );
+        assert_eq!(
+            theme.gradient(tc::GRAD_PROCESS)[100],
+            rgb_to_fg_escape(7, 8, 9)
+        );
+        assert_eq!(theme.color(tc::PROC_PAUSE_BG), rgb_to_fg_escape(0xaa, 0, 0));
+        assert_eq!(
+            theme.color(tc::PROC_FOLLOW_BG),
+            rgb_to_fg_escape(0, 0, 0xaa)
+        );
+        assert_eq!(
+            theme.color(tc::PROC_BANNER_BG),
             rgb_to_fg_escape(0x44, 0x55, 0x66)
         );
         assert_eq!(
-            theme.c("proc_banner_fg"),
+            theme.color(tc::PROC_BANNER_FG),
             rgb_to_fg_escape(0xdd, 0xee, 0xff)
         );
     }

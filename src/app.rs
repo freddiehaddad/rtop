@@ -379,7 +379,7 @@ fn render_too_small(size: TerminalSize, theme: &theme::Theme) -> String {
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
     format!(
         "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
-        theme.c(tc::HI_FG)
+        theme.color(tc::HI_FG)
     )
 }
 
@@ -410,7 +410,7 @@ fn render_waiting_for_snapshot(size: TerminalSize, theme: &theme::Theme) -> Stri
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
     format!(
         "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
-        theme.c(tc::HI_FG)
+        theme.color(tc::HI_FG)
     )
 }
 
