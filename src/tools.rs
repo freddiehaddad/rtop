@@ -291,7 +291,11 @@ pub fn username() -> String {
 ///
 /// Priority: `XDG_CONFIG_HOME/rtop` > `%APPDATA%/rtop` (via `directories` crate)
 pub fn config_dir() -> std::path::PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+    config_dir_inner(std::env::var("XDG_CONFIG_HOME").ok().as_deref())
+}
+
+fn config_dir_inner(xdg: Option<&str>) -> std::path::PathBuf {
+    if let Some(xdg) = xdg {
         let p = std::path::PathBuf::from(xdg);
         if p.is_absolute() {
             return p.join("rtop");
@@ -306,7 +310,11 @@ pub fn config_dir() -> std::path::PathBuf {
 ///
 /// Priority: `XDG_STATE_HOME/rtop` > `%LOCALAPPDATA%/rtop` (via `directories` crate)
 pub fn data_dir() -> std::path::PathBuf {
-    if let Ok(xdg) = std::env::var("XDG_STATE_HOME") {
+    data_dir_inner(std::env::var("XDG_STATE_HOME").ok().as_deref())
+}
+
+fn data_dir_inner(xdg: Option<&str>) -> std::path::PathBuf {
+    if let Some(xdg) = xdg {
         let p = std::path::PathBuf::from(xdg);
         if p.is_absolute() {
             return p.join("rtop");
@@ -623,37 +631,13 @@ mod tests {
 
     #[test]
     fn config_dir_respects_xdg_env() {
-        let original = std::env::var("XDG_CONFIG_HOME").ok();
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", "C:\\custom\\xdg");
-        }
-        let dir = config_dir();
+        let dir = config_dir_inner(Some("C:\\custom\\xdg"));
         assert_eq!(dir, std::path::PathBuf::from("C:\\custom\\xdg\\rtop"));
-        match original {
-            Some(v) => unsafe {
-                std::env::set_var("XDG_CONFIG_HOME", v);
-            },
-            None => unsafe {
-                std::env::remove_var("XDG_CONFIG_HOME");
-            },
-        }
     }
 
     #[test]
     fn config_dir_ignores_relative_xdg() {
-        let original = std::env::var("XDG_CONFIG_HOME").ok();
-        unsafe {
-            std::env::set_var("XDG_CONFIG_HOME", "relative/path");
-        }
-        let dir = config_dir();
+        let dir = config_dir_inner(Some("relative/path"));
         assert_ne!(dir, std::path::PathBuf::from("relative/path/rtop"));
-        match original {
-            Some(v) => unsafe {
-                std::env::set_var("XDG_CONFIG_HOME", v);
-            },
-            None => unsafe {
-                std::env::remove_var("XDG_CONFIG_HOME");
-            },
-        }
     }
 }
