@@ -4,8 +4,12 @@ pub(crate) mod main_menu;
 pub(crate) mod normal;
 pub(crate) mod options;
 
-use crate::{config, dirty::Dirty, domain::process::ProcDisplayEntry, draw, runner, theme};
-use std::collections::{HashMap, VecDeque};
+use crate::{
+    app::{NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
+    config,
+    dirty::Dirty,
+    runner, theme,
+};
 
 /// The current menu overlay state.
 #[derive(Clone, Copy, PartialEq)]
@@ -83,24 +87,12 @@ pub(crate) struct InputContext<'a> {
     pub(crate) config: &'a mut config::Config,
     pub(crate) theme: &'a mut theme::Theme,
     pub(crate) snapshot: Option<&'a runner::CollectionSnapshot>,
-    pub(crate) proc_entries: &'a [ProcDisplayEntry],
-    pub(crate) proc_cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
     pub(crate) worker: &'a runner::CollectionWorker,
-    pub(crate) menu_state: &'a mut MenuState,
-    pub(crate) dirty: &'a mut Dirty,
-    pub(crate) rounded: &'a mut bool,
-    pub(crate) update_ms: &'a mut u64,
-    pub(crate) main_menu_selected: &'a mut usize,
-    pub(crate) options_cat: &'a mut usize,
-    pub(crate) options_selected: &'a mut usize,
-    pub(crate) options_page: &'a mut usize,
-    pub(crate) proc_selected: &'a mut usize,
-    pub(crate) proc_start: &'a mut usize,
-    pub(crate) selected_iface: &'a mut String,
-    pub(crate) filter_text: &'a mut String,
-    pub(crate) cached_layout: &'a Option<draw::layout::Layout>,
-    /// Where Options/Help was opened from — return here on escape.
-    pub(crate) menu_return_to: &'a mut MenuState,
+    pub(crate) runtime: &'a mut RuntimeState,
+    pub(crate) render: &'a mut RenderState,
+    pub(crate) overlay: &'a mut OverlayState,
+    pub(crate) process: &'a mut ProcessViewState,
+    pub(crate) network: &'a mut NetworkViewState,
     pub(crate) tw: usize,
     pub(crate) th: usize,
 }
@@ -108,8 +100,9 @@ pub(crate) struct InputContext<'a> {
 impl InputContext<'_> {
     pub(crate) fn selected_proc_pid(&self) -> Option<u32> {
         let snapshot = self.snapshot?;
-        self.proc_entries
-            .get(*self.proc_selected)
+        self.process
+            .entries
+            .get(self.process.selected)
             .and_then(|entry| snapshot.proc_data.procs.get(entry.proc_index))
             .map(|proc| proc.pid)
     }
@@ -123,27 +116,31 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
     use crate::app::{RenderParams, render_all};
 
     let mut out = String::new();
-    if let (Some(layout), Some(snapshot)) = (ctx.cached_layout.as_ref(), ctx.snapshot) {
+    if let (Some(layout), Some(snapshot)) = (ctx.render.cached_layout.as_ref(), ctx.snapshot) {
         let params = RenderParams {
             dirty: Dirty::ALL_BOXES,
             layout,
             snapshot,
-            proc_entries: ctx.proc_entries,
-            proc_cpu_histories: ctx.proc_cpu_histories,
-            selected_iface: ctx.selected_iface.as_str(),
+            proc_entries: &ctx.process.entries,
+            proc_cpu_histories: &ctx.process.cpu_histories,
+            selected_iface: ctx.network.selected_iface.as_str(),
             config: ctx.config,
             theme: ctx.theme,
-            rounded: *ctx.rounded,
-            update_ms: *ctx.update_ms,
+            rounded: ctx.runtime.rounded,
+            update_ms: ctx.runtime.update_ms,
             is_filtering: false,
         };
         out.push_str("\x1b[2J");
-        out.push_str(&render_all(&params, ctx.proc_selected, ctx.proc_start));
-        if *ctx.menu_return_to == MenuState::Main {
+        out.push_str(&render_all(
+            &params,
+            &mut ctx.process.selected,
+            &mut ctx.process.start,
+        ));
+        if ctx.overlay.menu_return_to == MenuState::Main {
             out.push_str(&crate::menu::main_menu::draw_with_selection(
                 ctx.tw,
                 ctx.th,
-                *ctx.main_menu_selected,
+                ctx.overlay.main_menu_selected,
                 ctx.theme,
             ));
         }

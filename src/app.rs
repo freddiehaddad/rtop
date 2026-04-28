@@ -31,7 +31,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             continue;
         }
 
-        if state.current_snapshot.is_none() {
+        if state.snapshot.current.is_none() {
             if handle_waiting_for_snapshot(&mut state, config, terminal, theme, size)
                 == AppCommand::Quit
             {
@@ -40,7 +40,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             continue;
         }
 
-        if state.render_ui() && !state.dirty.is_empty() {
+        if state.overlay.render_ui() && !state.render.dirty.is_empty() {
             execute_dirty_work(&mut state, config, size);
             write_dirty_frame(&mut state, config, terminal, theme);
         }
@@ -57,66 +57,216 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
 }
 
 struct AppState {
-    rounded: bool,
-    update_ms: u64,
-    menu_state: MenuState,
-    options_cat: usize,
-    options_selected: usize,
-    options_page: usize,
-    main_menu_selected: usize,
-    proc_start: usize,
-    proc_selected: usize,
-    filter_text: String,
-    menu_return_to: MenuState,
-    dirty: Dirty,
-    cached_layout: Option<draw::layout::Layout>,
-    current_snapshot: Option<Arc<runner::CollectionSnapshot>>,
-    last_layout_hints: Option<runner::LayoutHints>,
-    proc_entries: Vec<ProcDisplayEntry>,
-    proc_cpu_histories: HashMap<u32, VecDeque<i64>>,
-    selected_iface: String,
-    startup_boxes_initialized: bool,
+    runtime: RuntimeState,
+    render: RenderState,
+    snapshot: SnapshotState,
+    overlay: OverlayState,
+    process: ProcessViewState,
+    network: NetworkViewState,
+    startup: StartupState,
 }
 
 impl AppState {
     fn new(config: &config::Config, _now: Instant) -> Self {
         Self {
+            runtime: RuntimeState::new(config),
+            render: RenderState::new(),
+            snapshot: SnapshotState::new(),
+            overlay: OverlayState::new(),
+            process: ProcessViewState::new(),
+            network: NetworkViewState::new(),
+            startup: StartupState::new(),
+        }
+    }
+
+    fn poll_timeout_ms(&self) -> u64 {
+        SNAPSHOT_POLL_MS
+    }
+}
+
+pub(crate) struct RuntimeState {
+    pub(crate) rounded: bool,
+    pub(crate) update_ms: u64,
+}
+
+impl RuntimeState {
+    fn new(config: &config::Config) -> Self {
+        Self {
             rounded: config.get_bool(bk::ROUNDED_CORNERS),
             update_ms: config.get_int(ik::UPDATE_MS) as u64,
+        }
+    }
+}
+
+pub(crate) struct RenderState {
+    pub(crate) dirty: Dirty,
+    pub(crate) cached_layout: Option<draw::layout::Layout>,
+    pub(crate) last_layout_hints: Option<runner::LayoutHints>,
+}
+
+impl RenderState {
+    fn new() -> Self {
+        Self {
+            dirty: Dirty::FULL,
+            cached_layout: None,
+            last_layout_hints: None,
+        }
+    }
+
+    pub(crate) fn mark_resize(&mut self) {
+        self.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+    }
+
+    pub(crate) fn clear_dirty(&mut self) {
+        self.dirty = Dirty::empty();
+    }
+}
+
+struct SnapshotState {
+    current: Option<Arc<runner::CollectionSnapshot>>,
+}
+
+impl SnapshotState {
+    fn new() -> Self {
+        Self { current: None }
+    }
+}
+
+pub(crate) struct OverlayState {
+    pub(crate) menu_state: MenuState,
+    pub(crate) menu_return_to: MenuState,
+    pub(crate) main_menu_selected: usize,
+    pub(crate) options_cat: usize,
+    pub(crate) options_selected: usize,
+    pub(crate) options_page: usize,
+}
+
+impl OverlayState {
+    fn new() -> Self {
+        Self {
             menu_state: MenuState::None,
+            menu_return_to: MenuState::None,
+            main_menu_selected: 0,
             options_cat: 0,
             options_selected: 0,
             options_page: 0,
-            main_menu_selected: 0,
-            proc_start: 0,
-            proc_selected: 0,
-            filter_text: String::new(),
-            menu_return_to: MenuState::None,
-            dirty: Dirty::FULL,
-            cached_layout: None,
-            current_snapshot: None,
-            last_layout_hints: None,
-            proc_entries: Vec::new(),
-            proc_cpu_histories: HashMap::new(),
-            selected_iface: String::new(),
-            startup_boxes_initialized: false,
         }
     }
 
     fn render_ui(&self) -> bool {
         self.menu_state == MenuState::None || self.menu_state == MenuState::Filter
     }
+}
 
-    fn poll_timeout_ms(&self) -> u64 {
-        SNAPSHOT_POLL_MS
+pub(crate) struct ProcessViewState {
+    pub(crate) start: usize,
+    pub(crate) selected: usize,
+    pub(crate) filter_text: String,
+    pub(crate) entries: Vec<ProcDisplayEntry>,
+    pub(crate) cpu_histories: HashMap<u32, VecDeque<i64>>,
+}
+
+impl ProcessViewState {
+    fn new() -> Self {
+        Self {
+            start: 0,
+            selected: 0,
+            filter_text: String::new(),
+            entries: Vec::new(),
+            cpu_histories: HashMap::new(),
+        }
     }
 
-    fn mark_resize(&mut self) {
-        self.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+    fn update_cpu_histories(&mut self, snapshot: &runner::CollectionSnapshot) {
+        let active_pids: HashSet<u32> = snapshot
+            .proc_data
+            .procs
+            .iter()
+            .map(|proc| proc.pid)
+            .collect();
+        self.cpu_histories
+            .retain(|pid, _| active_pids.contains(pid));
+
+        let max_cpu = 100.0 * snapshot.cpu.info.core_count.max(1) as f64;
+        for proc in &snapshot.proc_data.procs {
+            let cpu = if proc.cpu_p.is_finite() {
+                proc.cpu_p.clamp(0.0, max_cpu).round() as i64
+            } else {
+                0
+            };
+            let history = self.cpu_histories.entry(proc.pid).or_default();
+            history.push_back(cpu);
+            while history.len() > PROC_CPU_HISTORY_LIMIT {
+                history.pop_front();
+            }
+        }
     }
 
-    fn clear_dirty(&mut self) {
-        self.dirty = Dirty::empty();
+    fn rebuild_entries(
+        &mut self,
+        snapshot: Option<&runner::CollectionSnapshot>,
+        config: &config::Config,
+    ) {
+        let Some(snapshot) = snapshot else {
+            self.entries.clear();
+            return;
+        };
+        let sort_by = config.get_string(sk::PROC_SORTING);
+        let reversed = config.get_bool(bk::PROC_REVERSED);
+        let filter = config.get_string(sk::PROC_FILTER);
+        let tree_mode = config.get_bool(bk::PROC_TREE);
+        self.entries = crate::collect::process::build_proc_display_entries(
+            &snapshot.proc_data.procs,
+            sort_by,
+            reversed,
+            filter,
+            tree_mode,
+        );
+    }
+}
+
+pub(crate) struct NetworkViewState {
+    pub(crate) selected_iface: String,
+}
+
+impl NetworkViewState {
+    fn new() -> Self {
+        Self {
+            selected_iface: String::new(),
+        }
+    }
+
+    fn reconcile(&mut self, snapshot: &runner::CollectionSnapshot, dirty: &mut Dirty) {
+        if snapshot.net.interfaces.is_empty() {
+            if !self.selected_iface.is_empty() {
+                self.selected_iface.clear();
+                *dirty |= Dirty::NET_BOX;
+            }
+            return;
+        }
+
+        if self.selected_iface.is_empty()
+            || !snapshot
+                .net
+                .interfaces
+                .iter()
+                .any(|iface| iface == &self.selected_iface)
+        {
+            self.selected_iface = snapshot.net.interfaces[0].clone();
+            *dirty |= Dirty::NET_BOX;
+        }
+    }
+}
+
+struct StartupState {
+    boxes_initialized: bool,
+}
+
+impl StartupState {
+    fn new() -> Self {
+        Self {
+            boxes_initialized: false,
+        }
     }
 }
 
@@ -134,7 +284,7 @@ enum AppCommand {
 
 fn refresh_terminal(state: &mut AppState, terminal: &mut term::Terminal) -> TerminalSize {
     if terminal.refresh() {
-        state.mark_resize();
+        state.render.mark_resize();
     }
     let (width, height) = terminal.size();
     TerminalSize {
@@ -148,67 +298,42 @@ fn pull_latest_snapshot(
     config: &mut config::Config,
     worker: &runner::CollectionWorker,
 ) {
-    let last_seen = state.current_snapshot.as_ref().map_or(0, |s| s.seq);
+    let last_seen = state.snapshot.current.as_ref().map_or(0, |s| s.seq);
     let Some(snapshot) = worker.latest_if_new(last_seen) else {
         return;
     };
 
     let new_hints = snapshot.layout_hints();
     if state
+        .render
         .last_layout_hints
         .is_none_or(|hints| hints != new_hints)
     {
-        state.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
-    state.last_layout_hints = Some(new_hints);
-    update_proc_cpu_histories(state, &snapshot);
-    state.current_snapshot = Some(snapshot);
+    state.render.last_layout_hints = Some(new_hints);
+    state.process.update_cpu_histories(&snapshot);
+    state.snapshot.current = Some(snapshot);
 
     apply_startup_snapshot_config(state, config);
     reconcile_selected_iface(state);
-    state.dirty |= Dirty::ALL_BOXES | Dirty::PROC_LIST;
-}
-
-fn update_proc_cpu_histories(state: &mut AppState, snapshot: &runner::CollectionSnapshot) {
-    let active_pids: HashSet<u32> = snapshot
-        .proc_data
-        .procs
-        .iter()
-        .map(|proc| proc.pid)
-        .collect();
-    state
-        .proc_cpu_histories
-        .retain(|pid, _| active_pids.contains(pid));
-
-    let max_cpu = 100.0 * snapshot.cpu.info.core_count.max(1) as f64;
-    for proc in &snapshot.proc_data.procs {
-        let cpu = if proc.cpu_p.is_finite() {
-            proc.cpu_p.clamp(0.0, max_cpu).round() as i64
-        } else {
-            0
-        };
-        let history = state.proc_cpu_histories.entry(proc.pid).or_default();
-        history.push_back(cpu);
-        while history.len() > PROC_CPU_HISTORY_LIMIT {
-            history.pop_front();
-        }
-    }
+    state.render.dirty |= Dirty::ALL_BOXES | Dirty::PROC_LIST;
 }
 
 fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Config) {
-    if state.startup_boxes_initialized {
+    if state.startup.boxes_initialized {
         return;
     }
-    let Some(snapshot) = state.current_snapshot.as_ref() else {
+    let Some(snapshot) = state.snapshot.current.as_ref() else {
         return;
     };
 
     if auto_add_gpu_boxes(config, snapshot.gpu.gpus.len()) {
-        state.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
     let initial = config.get_string(sk::SHOWN_BOXES).to_string();
     config.set_string(sk::INITIAL_SHOWN_BOXES, &initial);
-    state.startup_boxes_initialized = true;
+    state.startup.boxes_initialized = true;
 }
 
 fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
@@ -233,28 +358,10 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
 }
 
 fn reconcile_selected_iface(state: &mut AppState) {
-    let Some(snapshot) = state.current_snapshot.as_ref() else {
+    let Some(snapshot) = state.snapshot.current.as_ref() else {
         return;
     };
-
-    if snapshot.net.interfaces.is_empty() {
-        if !state.selected_iface.is_empty() {
-            state.selected_iface.clear();
-            state.dirty |= Dirty::NET_BOX;
-        }
-        return;
-    }
-
-    if state.selected_iface.is_empty()
-        || !snapshot
-            .net
-            .interfaces
-            .iter()
-            .any(|iface| iface == &state.selected_iface)
-    {
-        state.selected_iface = snapshot.net.interfaces[0].clone();
-        state.dirty |= Dirty::NET_BOX;
-    }
+    state.network.reconcile(snapshot, &mut state.render.dirty);
 }
 
 fn is_too_small(size: TerminalSize) -> bool {
@@ -283,10 +390,11 @@ fn handle_small_terminal(
     theme: &theme::Theme,
     size: TerminalSize,
 ) -> AppCommand {
-    if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
+    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
+    {
         let output = style_terminal_output(&render_too_small(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
-        state.clear_dirty();
+        state.render.clear_dirty();
     }
 
     if input::poll(state.poll_timeout_ms()) && input::get().is_some_and(|key| key == "q") {
@@ -313,11 +421,12 @@ fn handle_waiting_for_snapshot(
     theme: &theme::Theme,
     size: TerminalSize,
 ) -> AppCommand {
-    if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
+    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
+    {
         let output =
             style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
-        state.clear_dirty();
+        state.render.clear_dirty();
     }
 
     if input::poll(state.poll_timeout_ms()) && input::get().is_some_and(|key| key == "q") {
@@ -328,34 +437,23 @@ fn handle_waiting_for_snapshot(
 }
 
 fn execute_dirty_work(state: &mut AppState, config: &config::Config, size: TerminalSize) {
-    if state.dirty.contains(Dirty::PROC_LIST) {
+    if state.render.dirty.contains(Dirty::PROC_LIST) {
         rebuild_proc_list(state, config);
     }
 
-    if state.dirty.contains(Dirty::LAYOUT) || state.cached_layout.is_none() {
-        state.cached_layout = state
-            .current_snapshot
+    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.cached_layout.is_none() {
+        state.render.cached_layout = state
+            .snapshot
+            .current
             .as_ref()
             .map(|snapshot| calculate_layout(config, snapshot, size));
     }
 }
 
 fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
-    let Some(snapshot) = state.current_snapshot.as_ref() else {
-        state.proc_entries.clear();
-        return;
-    };
-    let sort_by = config.get_string(sk::PROC_SORTING);
-    let reversed = config.get_bool(bk::PROC_REVERSED);
-    let filter = config.get_string(sk::PROC_FILTER);
-    let tree_mode = config.get_bool(bk::PROC_TREE);
-    state.proc_entries = crate::collect::process::build_proc_display_entries(
-        &snapshot.proc_data.procs,
-        sort_by,
-        reversed,
-        filter,
-        tree_mode,
-    );
+    state
+        .process
+        .rebuild_entries(state.snapshot.current.as_deref(), config);
 }
 
 fn calculate_layout(
@@ -393,7 +491,7 @@ fn write_dirty_frame(
     if let Err(e) = terminal.write_synced(&output) {
         tracing::debug!("terminal write failed: {e}");
     }
-    state.clear_dirty();
+    state.render.clear_dirty();
 }
 
 fn render_dirty_frame(
@@ -402,36 +500,38 @@ fn render_dirty_frame(
     theme: &theme::Theme,
 ) -> String {
     let layout = state
+        .render
         .cached_layout
         .as_ref()
         .expect("layout must be initialized before rendering");
     let snapshot = state
-        .current_snapshot
+        .snapshot
+        .current
         .as_ref()
         .expect("snapshot must be initialized before rendering");
     let mut output = String::new();
 
-    if state.dirty.contains(Dirty::LAYOUT) {
+    if state.render.dirty.contains(Dirty::LAYOUT) {
         output.push_str("\x1b[2J");
     }
 
     let params = RenderParams {
-        dirty: state.dirty,
+        dirty: state.render.dirty,
         layout,
         snapshot,
-        proc_entries: &state.proc_entries,
-        proc_cpu_histories: &state.proc_cpu_histories,
-        selected_iface: &state.selected_iface,
+        proc_entries: &state.process.entries,
+        proc_cpu_histories: &state.process.cpu_histories,
+        selected_iface: &state.network.selected_iface,
         config,
         theme,
-        rounded: state.rounded,
-        update_ms: state.update_ms,
-        is_filtering: state.menu_state == MenuState::Filter,
+        rounded: state.runtime.rounded,
+        update_ms: state.runtime.update_ms,
+        is_filtering: state.overlay.menu_state == MenuState::Filter,
     };
     output.push_str(&render_all(
         &params,
-        &mut state.proc_selected,
-        &mut state.proc_start,
+        &mut state.process.selected,
+        &mut state.process.start,
     ));
     output
 }
@@ -466,7 +566,7 @@ fn handle_input_key(
 ) -> AppCommand {
     if key.is_empty() || key.starts_with("mouse_") || key == "resize" {
         if key == "resize" {
-            state.mark_resize();
+            state.render.mark_resize();
         }
         return AppCommand::Continue;
     }
@@ -474,24 +574,13 @@ fn handle_input_key(
     let mut ctx = InputContext {
         config,
         theme,
-        snapshot: state.current_snapshot.as_deref(),
-        proc_entries: &state.proc_entries,
-        proc_cpu_histories: &state.proc_cpu_histories,
         worker,
-        menu_state: &mut state.menu_state,
-        dirty: &mut state.dirty,
-        rounded: &mut state.rounded,
-        update_ms: &mut state.update_ms,
-        main_menu_selected: &mut state.main_menu_selected,
-        options_cat: &mut state.options_cat,
-        options_selected: &mut state.options_selected,
-        options_page: &mut state.options_page,
-        proc_selected: &mut state.proc_selected,
-        proc_start: &mut state.proc_start,
-        selected_iface: &mut state.selected_iface,
-        filter_text: &mut state.filter_text,
-        cached_layout: &state.cached_layout,
-        menu_return_to: &mut state.menu_return_to,
+        snapshot: state.snapshot.current.as_deref(),
+        runtime: &mut state.runtime,
+        render: &mut state.render,
+        overlay: &mut state.overlay,
+        process: &mut state.process,
+        network: &mut state.network,
         tw: size.width,
         th: size.height,
     };
@@ -511,7 +600,7 @@ fn handle_input_key(
 }
 
 fn dispatch_handler(key: &str, ctx: &mut InputContext) -> handlers::HandleResult {
-    match *ctx.menu_state {
+    match ctx.overlay.menu_state {
         MenuState::Main => handlers::main_menu::handle(key, ctx),
         MenuState::Help => handlers::help::handle(key, ctx),
         MenuState::Options => handlers::options::handle(key, ctx),
@@ -801,15 +890,15 @@ mod tests {
 
         let state = AppState::new(&config, now);
 
-        assert!(!state.rounded);
-        assert_eq!(state.update_ms, 1_500);
-        assert!(state.menu_state == MenuState::None);
-        assert_eq!(state.dirty, Dirty::FULL);
-        assert!(state.cached_layout.is_none());
-        assert!(state.current_snapshot.is_none());
-        assert!(state.proc_entries.is_empty());
-        assert!(state.proc_cpu_histories.is_empty());
-        assert!(state.selected_iface.is_empty());
+        assert!(!state.runtime.rounded);
+        assert_eq!(state.runtime.update_ms, 1_500);
+        assert!(state.overlay.menu_state == MenuState::None);
+        assert_eq!(state.render.dirty, Dirty::FULL);
+        assert!(state.render.cached_layout.is_none());
+        assert!(state.snapshot.current.is_none());
+        assert!(state.process.entries.is_empty());
+        assert!(state.process.cpu_histories.is_empty());
+        assert!(state.network.selected_iface.is_empty());
     }
 
     #[test]
@@ -838,14 +927,14 @@ mod tests {
             },
         ];
 
-        update_proc_cpu_histories(&mut state, &runner.snapshot(1));
+        state.process.update_cpu_histories(&runner.snapshot(1));
 
         assert_eq!(
-            state.proc_cpu_histories.get(&1).unwrap().back().copied(),
+            state.process.cpu_histories.get(&1).unwrap().back().copied(),
             Some(50)
         );
         assert_eq!(
-            state.proc_cpu_histories.get(&2).unwrap().back().copied(),
+            state.process.cpu_histories.get(&2).unwrap().back().copied(),
             Some(0)
         );
 
@@ -855,11 +944,11 @@ mod tests {
             ..Default::default()
         }];
         for seq in 2..(PROC_CPU_HISTORY_LIMIT + 4) as u64 {
-            update_proc_cpu_histories(&mut state, &runner.snapshot(seq));
+            state.process.update_cpu_histories(&runner.snapshot(seq));
         }
 
-        assert!(!state.proc_cpu_histories.contains_key(&2));
-        let history = state.proc_cpu_histories.get(&1).unwrap();
+        assert!(!state.process.cpu_histories.contains_key(&2));
+        let history = state.process.cpu_histories.get(&1).unwrap();
         assert_eq!(history.len(), PROC_CPU_HISTORY_LIMIT);
         assert_eq!(history.back().copied(), Some(200));
     }
@@ -869,20 +958,20 @@ mod tests {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
 
-        state.menu_state = MenuState::None;
-        assert!(state.render_ui());
+        state.overlay.menu_state = MenuState::None;
+        assert!(state.overlay.render_ui());
 
-        state.menu_state = MenuState::Filter;
-        assert!(state.render_ui());
+        state.overlay.menu_state = MenuState::Filter;
+        assert!(state.overlay.render_ui());
 
-        state.menu_state = MenuState::Main;
-        assert!(!state.render_ui());
+        state.overlay.menu_state = MenuState::Main;
+        assert!(!state.overlay.render_ui());
 
-        state.menu_state = MenuState::Help;
-        assert!(!state.render_ui());
+        state.overlay.menu_state = MenuState::Help;
+        assert!(!state.overlay.render_ui());
 
-        state.menu_state = MenuState::Options;
-        assert!(!state.render_ui());
+        state.overlay.menu_state = MenuState::Options;
+        assert!(!state.overlay.render_ui());
     }
 
     #[test]
@@ -897,12 +986,12 @@ mod tests {
     fn mark_resize_sets_layout_and_all_boxes() {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
-        state.clear_dirty();
+        state.render.clear_dirty();
 
-        state.mark_resize();
+        state.render.mark_resize();
 
-        assert!(state.dirty.contains(Dirty::LAYOUT));
-        assert!(state.dirty.contains(Dirty::ALL_BOXES));
+        assert!(state.render.dirty.contains(Dirty::LAYOUT));
+        assert!(state.render.dirty.contains(Dirty::ALL_BOXES));
     }
 
     #[test]
@@ -927,7 +1016,7 @@ mod tests {
     fn reconcile_selected_iface_selects_first_available_interface() {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
-        state.clear_dirty();
+        state.render.clear_dirty();
         let mut runner = runner::Runner {
             cpu: crate::collect::cpu::CpuCollector::default(),
             disk: crate::collect::disk::DiskCollector::default(),
@@ -937,12 +1026,12 @@ mod tests {
             proc_collector: crate::collect::process::ProcCollector::default(),
         };
         runner.net.interfaces = vec!["Ethernet".into(), "Wi-Fi".into()];
-        state.current_snapshot = Some(Arc::new(runner.snapshot(1)));
+        state.snapshot.current = Some(Arc::new(runner.snapshot(1)));
 
         reconcile_selected_iface(&mut state);
 
-        assert_eq!(state.selected_iface, "Ethernet");
-        assert!(state.dirty.contains(Dirty::NET_BOX));
+        assert_eq!(state.network.selected_iface, "Ethernet");
+        assert!(state.render.dirty.contains(Dirty::NET_BOX));
     }
 
     #[test]
