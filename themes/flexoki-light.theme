@@ -39,6 +39,9 @@ theme[meter_bg]="#DAD8CE"
 # Misc colors for processes box including mini cpu graphs, details memory graph and details status text
 theme[proc_misc]="#66800B"
 
+# Color of process tree prefix lines
+theme[proc_tree_fg]="#B7B5AC"
+
 # Cpu box outline color
 theme[cpu_box]="#205EA6"
 

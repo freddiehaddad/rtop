@@ -5,7 +5,7 @@ use crate::{
     dirty::Dirty,
     draw, handlers,
     handlers::{InputContext, MenuState},
-    input, runner, term, theme, tools, ui,
+    input, runner, term, theme, theme_keys as tc, tools, ui,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -261,7 +261,7 @@ fn is_too_small(size: TerminalSize) -> bool {
     size.width < draw::layout::MIN_TERM_WIDTH || size.height < draw::layout::MIN_TERM_HEIGHT
 }
 
-fn render_too_small(size: TerminalSize) -> String {
+fn render_too_small(size: TerminalSize, theme: &theme::Theme) -> String {
     let min_w = draw::layout::MIN_TERM_WIDTH;
     let min_h = draw::layout::MIN_TERM_HEIGHT;
     let msg = format!(
@@ -270,7 +270,10 @@ fn render_too_small(size: TerminalSize) -> String {
     );
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
-    format!("\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1;33m{msg}\x1b[0m")
+    format!(
+        "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
+        theme.c(tc::HI_FG)
+    )
 }
 
 fn handle_small_terminal(
@@ -281,7 +284,7 @@ fn handle_small_terminal(
     size: TerminalSize,
 ) -> AppCommand {
     if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
-        let output = style_terminal_output(&render_too_small(size), config, theme);
+        let output = style_terminal_output(&render_too_small(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
         state.clear_dirty();
     }
@@ -293,11 +296,14 @@ fn handle_small_terminal(
     }
 }
 
-fn render_waiting_for_snapshot(size: TerminalSize) -> String {
+fn render_waiting_for_snapshot(size: TerminalSize, theme: &theme::Theme) -> String {
     let msg = "Collecting data...";
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
-    format!("\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1;33m{msg}\x1b[0m")
+    format!(
+        "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
+        theme.c(tc::HI_FG)
+    )
 }
 
 fn handle_waiting_for_snapshot(
@@ -308,7 +314,8 @@ fn handle_waiting_for_snapshot(
     size: TerminalSize,
 ) -> AppCommand {
     if state.dirty.contains(Dirty::LAYOUT) || state.dirty.intersects(Dirty::ALL_BOXES) {
-        let output = style_terminal_output(&render_waiting_for_snapshot(size), config, theme);
+        let output =
+            style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
         state.clear_dirty();
     }
@@ -956,10 +963,13 @@ mod tests {
 
     #[test]
     fn too_small_message_includes_actual_and_required_size() {
-        let out = render_too_small(TerminalSize {
-            width: 40,
-            height: 10,
-        });
+        let out = render_too_small(
+            TerminalSize {
+                width: 40,
+                height: 10,
+            },
+            &theme::Theme::new(),
+        );
 
         assert!(out.contains("Terminal too small (40x10)."));
         assert!(out.contains(&format!(

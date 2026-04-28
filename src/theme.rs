@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// All theme color data.
 #[derive(Debug, Clone)]
@@ -121,6 +121,7 @@ impl Theme {
     /// Load theme colors from a theme file content string.
     pub fn load_from_string(&mut self, content: &str) {
         self.load_defaults();
+        let mut provided = HashSet::new();
 
         for line in content.lines() {
             let trimmed = line.trim();
@@ -142,12 +143,11 @@ impl Theme {
             if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
                 continue;
             }
-            if key == "main_bg" && value.is_empty() {
+            provided.insert(key.to_string());
+
+            if value.is_empty() {
                 self.rgbs.remove(key);
                 self.colors.insert(key.to_string(), String::new());
-                continue;
-            }
-            if value.is_empty() {
                 continue;
             }
 
@@ -162,7 +162,7 @@ impl Theme {
             self.colors.insert(key.to_string(), escape);
         }
 
-        self.apply_fallbacks();
+        self.apply_fallbacks(&provided);
         self.generate_gradients();
     }
 
@@ -175,38 +175,26 @@ impl Theme {
         }
     }
 
-    fn apply_fallbacks(&mut self) {
+    fn apply_fallbacks(&mut self, provided: &HashSet<String>) {
         // meter_bg defaults to inactive_fg
-        if !self.rgbs.contains_key("meter_bg") {
-            if let Some(rgb) = self.rgbs.get("inactive_fg").copied() {
-                self.rgbs.insert("meter_bg".to_string(), rgb);
-                self.colors.insert(
-                    "meter_bg".to_string(),
-                    rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]),
-                );
-            }
+        if !provided.contains("meter_bg") {
+            self.copy_color("meter_bg", "inactive_fg");
         }
         // process_* defaults to cpu_*
         for suffix in &["_start", "_mid", "_end"] {
             let proc_key = format!("process{suffix}");
             let cpu_key = format!("cpu{suffix}");
-            if !self.rgbs.contains_key(&proc_key) {
-                if let Some(rgb) = self.rgbs.get(&cpu_key).copied() {
-                    self.rgbs.insert(proc_key.clone(), rgb);
-                    self.colors
-                        .insert(proc_key, rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
-                }
+            if !provided.contains(&proc_key) {
+                self.copy_color(&proc_key, &cpu_key);
             }
         }
         // graph_text defaults to inactive_fg
-        if !self.rgbs.contains_key("graph_text") {
-            if let Some(rgb) = self.rgbs.get("inactive_fg").copied() {
-                self.rgbs.insert("graph_text".to_string(), rgb);
-                self.colors.insert(
-                    "graph_text".to_string(),
-                    rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]),
-                );
-            }
+        if !provided.contains("graph_text") {
+            self.copy_color("graph_text", "inactive_fg");
+        }
+        // proc_tree_fg defaults to inactive_fg
+        if !provided.contains("proc_tree_fg") {
+            self.copy_color("proc_tree_fg", "inactive_fg");
         }
         // GPU gradient fallbacks: gpu→cpu, gpu_clock→cpu, gpu_power→used, gpu_vram→cached
         let gpu_fallbacks: &[(&str, &str)] = &[
@@ -219,12 +207,8 @@ impl Theme {
             for suffix in &["_start", "_mid", "_end"] {
                 let key = format!("{gpu_prefix}{suffix}");
                 let fb_key = format!("{fallback_prefix}{suffix}");
-                if !self.rgbs.contains_key(&key) {
-                    if let Some(rgb) = self.rgbs.get(&fb_key).copied() {
-                        self.rgbs.insert(key.clone(), rgb);
-                        self.colors
-                            .insert(key, rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
-                    }
+                if !provided.contains(&key) {
+                    self.copy_color(&key, &fb_key);
                 }
             }
         }
@@ -238,15 +222,84 @@ impl Theme {
             for suffix in &["_start", "_mid", "_end"] {
                 let key = format!("{disk_prefix}{suffix}");
                 let fb_key = format!("{fallback_prefix}{suffix}");
-                if !self.rgbs.contains_key(&key) {
-                    if let Some(rgb) = self.rgbs.get(&fb_key).copied() {
-                        self.rgbs.insert(key.clone(), rgb);
-                        self.colors
-                            .insert(key, rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]));
-                    }
+                if !provided.contains(&key) {
+                    self.copy_color(&key, &fb_key);
                 }
             }
         }
+        if !provided.contains("proc_pause_bg") {
+            self.copy_first_provided_color(
+                "proc_pause_bg",
+                &["used_end", "used_mid", "used_start", "hi_fg"],
+                provided,
+            );
+        }
+        if !provided.contains("proc_follow_bg") {
+            self.copy_first_provided_color(
+                "proc_follow_bg",
+                &[
+                    "download_start",
+                    "download_mid",
+                    "net_box",
+                    "hi_fg",
+                    "download_end",
+                ],
+                provided,
+            );
+        }
+        if !provided.contains("proc_banner_bg") {
+            self.copy_color("proc_banner_bg", "selected_bg");
+        }
+        if !provided.contains("proc_banner_fg") {
+            self.copy_color("proc_banner_fg", "selected_fg");
+        }
+        if !provided.contains("followed_bg") {
+            self.copy_color("followed_bg", "proc_follow_bg");
+        }
+        if !provided.contains("followed_fg") {
+            self.copy_color("followed_fg", "selected_fg");
+        }
+    }
+
+    fn copy_color(&mut self, target: &str, source: &str) {
+        let color = self.colors.get(source).cloned().unwrap_or_default();
+        self.colors.insert(target.to_string(), color);
+        if let Some(rgb) = self.rgbs.get(source).copied() {
+            self.rgbs.insert(target.to_string(), rgb);
+        } else {
+            self.rgbs.remove(target);
+        }
+    }
+
+    fn copy_first_provided_color(
+        &mut self,
+        target: &str,
+        sources: &[&str],
+        provided: &HashSet<String>,
+    ) {
+        let source = sources
+            .iter()
+            .copied()
+            .find(|source| {
+                provided.contains(*source)
+                    && self
+                        .colors
+                        .get(*source)
+                        .is_some_and(|color| !color.is_empty())
+            })
+            .or_else(|| {
+                sources.iter().copied().find(|source| {
+                    self.colors
+                        .get(*source)
+                        .is_some_and(|color| !color.is_empty())
+                })
+            });
+        let Some(source) = source else {
+            self.colors.insert(target.to_string(), String::new());
+            self.rgbs.remove(target);
+            return;
+        };
+        self.copy_color(target, source);
     }
 
     fn generate_gradients(&mut self) {
@@ -654,6 +707,90 @@ mod tests {
 
         assert_eq!(theme.bg(tc::MAIN_BG), "");
         assert!(!theme.base_style(true).contains("\x1b[48;2;0;0;0m"));
+    }
+
+    #[test]
+    fn empty_gradient_values_override_defaults() {
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[cpu_start]="#123456"
+            theme[cpu_mid]=""
+            theme[cpu_end]=""
+            "##,
+        );
+
+        let cpu = theme.g(tc::GRAD_CPU);
+        assert_eq!(cpu[0], rgb_to_fg_escape(0x12, 0x34, 0x56));
+        assert_eq!(cpu[50], cpu[0]);
+        assert_eq!(cpu[100], cpu[0]);
+    }
+
+    #[test]
+    fn missing_theme_keys_fall_back_to_theme_palette() {
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[inactive_fg]="#112233"
+            theme[selected_bg]="#445566"
+            theme[selected_fg]="#ddeeff"
+            theme[cpu_start]="#010203"
+            theme[cpu_mid]="#040506"
+            theme[cpu_end]="#070809"
+            theme[used_end]="#aa0000"
+            theme[download_end]="#0000aa"
+            "##,
+        );
+
+        assert_eq!(theme.c(tc::METER_BG), rgb_to_fg_escape(0x11, 0x22, 0x33));
+        assert_eq!(theme.c(tc::GRAPH_TEXT), rgb_to_fg_escape(0x11, 0x22, 0x33));
+        assert_eq!(
+            theme.c(tc::PROC_TREE_FG),
+            rgb_to_fg_escape(0x11, 0x22, 0x33)
+        );
+        assert_eq!(theme.g(tc::GRAD_PROCESS)[0], rgb_to_fg_escape(1, 2, 3));
+        assert_eq!(theme.g(tc::GRAD_PROCESS)[50], rgb_to_fg_escape(4, 5, 6));
+        assert_eq!(theme.g(tc::GRAD_PROCESS)[100], rgb_to_fg_escape(7, 8, 9));
+        assert_eq!(theme.c("proc_pause_bg"), rgb_to_fg_escape(0xaa, 0, 0));
+        assert_eq!(theme.c("proc_follow_bg"), rgb_to_fg_escape(0, 0, 0xaa));
+        assert_eq!(
+            theme.c("proc_banner_bg"),
+            rgb_to_fg_escape(0x44, 0x55, 0x66)
+        );
+        assert_eq!(
+            theme.c("proc_banner_fg"),
+            rgb_to_fg_escape(0xdd, 0xee, 0xff)
+        );
+    }
+
+    #[test]
+    fn bundled_themes_declare_all_default_keys() {
+        for theme_name in THEME_NAMES
+            .iter()
+            .copied()
+            .filter(|name| *name != "Default")
+        {
+            let content = get_bundled_theme(theme_name).expect("theme should be bundled");
+            let declared: HashSet<&str> = content
+                .lines()
+                .filter_map(|line| {
+                    let trimmed = line.trim();
+                    let rest = trimmed.strip_prefix("theme[")?;
+                    let (key, _) = rest.split_once(']')?;
+                    Some(key)
+                })
+                .collect();
+            let missing: Vec<&str> = DEFAULT_THEME
+                .iter()
+                .map(|(key, _)| *key)
+                .filter(|key| !declared.contains(key))
+                .collect();
+
+            assert!(
+                missing.is_empty(),
+                "{theme_name} is missing theme keys: {missing:?}"
+            );
+        }
     }
 
     #[test]

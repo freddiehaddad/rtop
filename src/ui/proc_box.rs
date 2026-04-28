@@ -351,7 +351,7 @@ pub fn draw_with_sort(
                 buf.text(&graph_str).text(bg_esc).color(sel_fg).text(" ");
             }
             buf.text(&cpu_str).text(" ").text(&mem_str_fmt);
-            buf.text("\x1b[49m").reset();
+            buf.reset();
         } else {
             buf.mv(x + 2, row).color(proc_color);
             buf.text(&pid_str).text(" ");

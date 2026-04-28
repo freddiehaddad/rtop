@@ -24,11 +24,17 @@ theme[selected_fg]="#dbbc7f"
 # Color of inactive/disabled text
 theme[inactive_fg]="#2d353b"  
 
+# Background color of the percentage meters
+theme[meter_bg]="#2d353b"
+
 # Color of text appearing on top of graphs, i.e uptime and current network graph scaling
 theme[graph_text]="#d3c6aa"
 
 # Misc colors for processes box including mini cpu graphs, details memory graph and details status text
 theme[proc_misc]="#a7c080"
+
+# Color of process tree prefix lines
+theme[proc_tree_fg]="#2d353b"
 
 # Cpu box outline color
 theme[cpu_box]="#3d484d"
@@ -115,6 +121,16 @@ theme[disk_busy_end]="#f85552"
 theme[process_start]="#a7c080"
 theme[process_mid]="#e67e80"
 theme[process_end]="#f85552"
+
+# Process list banner attributes
+theme[proc_pause_bg]="#f85552"
+theme[proc_follow_bg]="#a7c080"
+theme[proc_banner_bg]="#3d484d"
+theme[proc_banner_fg]="#dbbc7f"
+
+# Process following attributes
+theme[followed_bg]="#a7c080"
+theme[followed_fg]="#dbbc7f"
 
 # GPU utilization meter
 theme[gpu_start]="#a7c080"

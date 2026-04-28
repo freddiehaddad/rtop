@@ -31,6 +31,9 @@ theme[meter_bg]="#5ec4bc"
 # Misc colors for processes box including mini cpu graphs, details memory graph and details status text
 theme[proc_misc]="#21d6c9"
 
+# Color of process tree prefix lines
+theme[proc_tree_fg]="#5ec4bc"
+
 # Cpu box outline color
 theme[cpu_box]="#d486d4"
 
@@ -116,6 +119,16 @@ theme[disk_busy_end]="#5ec4bc"
 theme[process_start]="#21d6c9"
 theme[process_mid]="#1aaba0"
 theme[process_end]="#ba1a84"
+
+# Process list banner attributes
+theme[proc_pause_bg]="#5ec4bc"
+theme[proc_follow_bg]="#21d6c9"
+theme[proc_banner_bg]="#1aaba0"
+theme[proc_banner_fg]="#e8f6f5"
+
+# Process following attributes
+theme[followed_bg]="#21d6c9"
+theme[followed_fg]="#e8f6f5"
 
 # GPU utilization meter
 theme[gpu_start]="#21d6c9"
