@@ -9,8 +9,28 @@ use crate::{
 
 /// Handle input in normal (no-menu) mode.
 pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
+    if let Some(result) = handle_quit_and_menus(key, ctx) {
+        return result;
+    }
+    if let Some(result) = handle_presets(key, ctx) {
+        return result;
+    }
+    if let Some(result) = handle_config_reload(key, ctx) {
+        return result;
+    }
+    handle_process_nav(key, ctx);
+    handle_process_keys(key, ctx);
+    handle_box_toggles(key, ctx);
+    handle_network(key, ctx);
+    handle_update_rate(key, ctx);
+    HandleResult::none()
+}
+
+// --- Quit / menu transitions ---
+
+fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
     match *key {
-        Key::Char('q') => return HandleResult::quit(),
+        Key::Char('q') => Some(HandleResult::quit()),
         Key::Escape | Key::Char('m') => {
             ctx.overlay.main_menu_selected = 0;
             let menu_out = menu::main_menu::draw_with_selection(
@@ -20,13 +40,13 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 ctx.theme,
             );
             ctx.overlay.menu_state = MenuState::Main;
-            return HandleResult::raw(menu_out);
+            Some(HandleResult::raw(menu_out))
         }
         Key::Char('h') | Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.menu_state = MenuState::Help;
-            return HandleResult::raw(menu_out);
+            Some(HandleResult::raw(menu_out))
         }
         Key::Char('o') | Key::F(2) => {
             ctx.overlay.options_cat = 0;
@@ -43,9 +63,16 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             );
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.menu_state = MenuState::Options;
-            return HandleResult::raw(menu_out);
+            Some(HandleResult::raw(menu_out))
         }
-        // Preset cycling
+        _ => None,
+    }
+}
+
+// --- Presets ---
+
+fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
+    match *key {
         Key::Char('p') => {
             let presets = ctx.config.preset_list();
             if !presets.is_empty() {
@@ -60,6 +87,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 sync_update_ms(ctx);
                 ctx.render.dirty |= Dirty::FULL;
             }
+            Some(HandleResult::none())
         }
         Key::Char('P') => {
             let presets = ctx.config.preset_list();
@@ -75,13 +103,13 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 sync_update_ms(ctx);
                 ctx.render.dirty |= Dirty::FULL;
             }
+            Some(HandleResult::none())
         }
-        // Save current layout as preset
         Key::CtrlS => {
             ctx.config.save_preset();
             ctx.render.dirty |= Dirty::CPU_BOX;
+            Some(HandleResult::none())
         }
-        // Delete current preset
         Key::CtrlD => {
             let cur = ctx.config.get_int(ik::CURRENT_PRESET);
             if cur > 0 {
@@ -94,24 +122,37 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 }
                 ctx.render.dirty |= Dirty::FULL;
             }
+            Some(HandleResult::none())
         }
-        // Config reload
-        Key::CtrlR => {
-            let warnings = ctx.config.reload();
-            for w in &warnings {
-                tracing::warn!("{}", w);
-            }
-            // Reapply theme
-            let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
-            *ctx.theme = theme::Theme::from_name(&theme_name);
-            let base = ctx
-                .theme
-                .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
-            ctx.runtime.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
-            sync_update_ms(ctx);
-            ctx.render.dirty |= Dirty::FULL;
-            return HandleResult::raw(base);
-        }
+        _ => None,
+    }
+}
+
+// --- Config reload ---
+
+fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
+    if *key != Key::CtrlR {
+        return None;
+    }
+    let warnings = ctx.config.reload();
+    for w in &warnings {
+        tracing::warn!("{}", w);
+    }
+    let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
+    *ctx.theme = theme::Theme::from_name(&theme_name);
+    let base = ctx
+        .theme
+        .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
+    ctx.runtime.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
+    sync_update_ms(ctx);
+    ctx.render.dirty |= Dirty::FULL;
+    Some(HandleResult::raw(base))
+}
+
+// --- Process navigation ---
+
+fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
+    match *key {
         Key::Up | Key::Char('k') if ctx.process.selected > 0 => {
             ctx.process.selected -= 1;
             ctx.render.dirty |= Dirty::PROC_BOX;
@@ -144,35 +185,14 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.process.selected = count.saturating_sub(1);
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        Key::Char('1') => {
-            ctx.config.toggle_box("cpu");
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        Key::Char('2') => {
-            ctx.config.toggle_box("mem");
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        Key::Char('3') => {
-            ctx.config.toggle_box("net");
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        Key::Char('4') => {
-            ctx.config.toggle_box("proc");
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        Key::Char('5') => {
-            // Toggle all detected GPU boxes
-            let gpu_count = ctx.snapshot.map_or(0, |snapshot| snapshot.gpu.gpus.len());
-            for i in 0..gpu_count {
-                ctx.config.toggle_box(&format!("gpu{i}"));
-            }
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        Key::Char('6') => {
-            ctx.config.toggle_box("disk");
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-        }
-        // Process keybinds
+        _ => {}
+    }
+}
+
+// --- Process modes, sorting, and actions ---
+
+fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
+    match *key {
         Key::Char('f') | Key::Char('/') => {
             ctx.overlay.menu_state = MenuState::Filter;
             ctx.process.filter_text = ctx.config.get_string(sk::PROC_FILTER).to_string();
@@ -215,14 +235,12 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('t') if ctx.process.selected < ctx.process.entries.len() => {
-            // Terminate selected process
             if let Some(pid) = ctx.selected_proc_pid() {
                 terminate_process(pid);
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
         Key::Enter if ctx.process.selected < ctx.process.entries.len() => {
-            // Toggle process detailed view
             if let Some(pid) = ctx.selected_proc_pid() {
                 let current_detailed = ctx.config.get_int(ik::DETAILED_PID);
                 if current_detailed == pid as i64 {
@@ -233,20 +251,41 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        // Network keybinds
-        Key::Char('b')
-            if ctx
-                .snapshot
-                .is_some_and(|snapshot| !snapshot.net.nets.is_empty()) =>
-        {
+        _ => {}
+    }
+}
+
+// --- Box visibility toggles ---
+
+fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
+    match *key {
+        Key::Char('1') => ctx.config.toggle_box("cpu"),
+        Key::Char('2') => ctx.config.toggle_box("mem"),
+        Key::Char('3') => ctx.config.toggle_box("net"),
+        Key::Char('4') => ctx.config.toggle_box("proc"),
+        Key::Char('5') => {
+            let gpu_count = ctx.snapshot.map_or(0, |s| s.gpu.gpus.len());
+            for i in 0..gpu_count {
+                ctx.config.toggle_box(&format!("gpu{i}"));
+            }
+            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+            return;
+        }
+        Key::Char('6') => ctx.config.toggle_box("disk"),
+        _ => return,
+    };
+    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+}
+
+// --- Network ---
+
+fn handle_network(key: &Key, ctx: &mut InputContext) {
+    match *key {
+        Key::Char('b') if ctx.snapshot.is_some_and(|s| !s.net.nets.is_empty()) => {
             cycle_net_iface(ctx, -1);
             ctx.render.dirty |= Dirty::NET_BOX;
         }
-        Key::Char('n')
-            if ctx
-                .snapshot
-                .is_some_and(|snapshot| !snapshot.net.nets.is_empty()) =>
-        {
+        Key::Char('n') if ctx.snapshot.is_some_and(|s| !s.net.nets.is_empty()) => {
             cycle_net_iface(ctx, 1);
             ctx.render.dirty |= Dirty::NET_BOX;
         }
@@ -258,41 +297,36 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.config.flip(bk::NET_SYNC);
             ctx.render.dirty |= Dirty::NET_BOX;
         }
-        // Network zero reset
         Key::Char('z') if !ctx.network.selected_iface.is_empty() => {
             ctx.worker
                 .reset_net_totals(ctx.network.selected_iface.clone());
             ctx.render.dirty |= Dirty::NET_BOX;
         }
-        // Update rate keybinds
-        Key::Char('+') => {
-            let step = if ctx.runtime.update_ms > 2000 {
-                1000
-            } else {
-                100
-            };
-            let new_ms = (ctx.runtime.update_ms as i64 + step).min(86_400_000);
-            ctx.config.set_int(ik::UPDATE_MS, new_ms);
-            ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
-            ctx.worker.set_update_ms(ctx.runtime.update_ms);
-            ctx.render.dirty |= Dirty::CPU_BOX;
-        }
-        Key::Char('-') => {
-            let step = if ctx.runtime.update_ms > 2000 {
-                1000
-            } else {
-                100
-            };
-            let new_ms = (ctx.runtime.update_ms as i64 - step).max(100);
-            ctx.config.set_int(ik::UPDATE_MS, new_ms);
-            ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
-            ctx.worker.set_update_ms(ctx.runtime.update_ms);
-            ctx.render.dirty |= Dirty::CPU_BOX;
-        }
         _ => {}
     }
-    HandleResult::none()
 }
+
+// --- Update rate ---
+
+fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
+    let delta: i64 = match *key {
+        Key::Char('+') => 1,
+        Key::Char('-') => -1,
+        _ => return,
+    };
+    let step = if ctx.runtime.update_ms > 2000 {
+        1000
+    } else {
+        100
+    };
+    let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
+    ctx.config.set_int(ik::UPDATE_MS, new_ms);
+    ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
+    ctx.worker.set_update_ms(ctx.runtime.update_ms);
+    ctx.render.dirty |= Dirty::CPU_BOX;
+}
+
+// --- Helpers ---
 
 fn sync_update_ms(ctx: &mut InputContext) {
     ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
