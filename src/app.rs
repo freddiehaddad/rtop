@@ -561,7 +561,7 @@ fn clamp_proc_selection(
     selected: &mut usize,
     start: &mut usize,
 ) {
-    let max_visible = box_height.saturating_sub(5 + detail_rows);
+    let max_visible = ui::proc_box::visible_row_count(box_height, detail_rows);
     if count == 0 {
         *selected = 0;
         *start = 0;
@@ -943,6 +943,17 @@ mod tests {
 
         assert_eq!(state.selected_iface, "Ethernet");
         assert!(state.dirty.contains(Dirty::NET_BOX));
+    }
+
+    #[test]
+    fn clamp_proc_selection_allows_last_visible_row() {
+        let mut selected = 3;
+        let mut start = 0;
+
+        clamp_proc_selection(10, 8, 0, &mut selected, &mut start);
+
+        assert_eq!(selected, 3);
+        assert_eq!(start, 0);
     }
 
     #[test]

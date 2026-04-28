@@ -29,6 +29,11 @@ const DETAIL_LABEL_W: usize = 9;
 const DETAIL_COL_GAP: usize = 2;
 const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
 
+/// Rows available for process entries between the header divider and bottom border.
+pub(crate) fn visible_row_count(box_height: usize, detail_rows: usize) -> usize {
+    box_height.saturating_sub(detail_rows + 4)
+}
+
 /// Process box display settings derived from the current config and snapshot.
 pub struct ProcBoxSettings<'a> {
     pub proc_per_core: bool,
@@ -276,8 +281,7 @@ pub fn draw_with_sort(
     }
 
     // Process rows
-    let header_overhead = 3 + detail_rows; // border + header + divider + detail
-    let max_rows = height.saturating_sub(header_overhead + 2); // -2 for top/bottom border
+    let max_rows = visible_row_count(height, detail_rows);
     for (i, entry) in entries.iter().skip(start).take(max_rows).enumerate() {
         let Some(proc) = procs.get(entry.proc_index) else {
             continue;
@@ -984,6 +988,30 @@ mod tests {
             .collect()
     }
 
+    fn make_entries_for(procs: &[ProcInfo]) -> Vec<ProcDisplayEntry> {
+        (0..procs.len()).map(ProcDisplayEntry::flat).collect()
+    }
+
+    fn make_numbered_procs(count: usize) -> Vec<ProcInfo> {
+        (0..count)
+            .map(|i| ProcInfo {
+                pid: ((i + 1) * 100) as u32,
+                name: format!("proc{i}.exe"),
+                cmd: format!("proc{i}.exe"),
+                threads: 1,
+                user: "User".into(),
+                mem: 1024 * 1024,
+                cpu_p: i as f64,
+                state: ProcState::Running,
+                priority: PriorityClass::Normal,
+                ppid: 1,
+                cpu_time: 0,
+                io_read: 0,
+                io_write: 0,
+            })
+            .collect()
+    }
+
     fn make_area() -> BoxArea {
         BoxArea {
             x: 1,
@@ -1130,6 +1158,37 @@ mod tests {
             plain.contains('▲') || plain.contains('▼'),
             "output should contain a sort direction indicator (▲ or ▼)"
         );
+    }
+
+    #[test]
+    fn process_rows_fill_last_line_above_bottom_border() {
+        let procs = make_numbered_procs(4);
+        let entries = make_entries_for(&procs);
+        let area = BoxArea {
+            x: 1,
+            y: 1,
+            width: 80,
+            height: 8,
+            rounded: true,
+        };
+
+        let output = draw_with_sort(
+            &procs,
+            &entries,
+            &area,
+            &make_view(),
+            &make_settings(),
+            &Theme::default(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+
+        assert!(
+            output.contains("\x1b[8;3H"),
+            "fourth process row should be drawn on the last usable row"
+        );
+        assert!(plain.contains("proc3.exe"));
+        assert!(plain.contains("4/4"));
     }
 
     #[test]
