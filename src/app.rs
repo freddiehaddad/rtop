@@ -365,13 +365,12 @@ fn save_config_on_exit(config: &config::Config) {
 }
 
 fn clamp_proc_selection(
-    procs: &[crate::domain::process::ProcInfo],
+    count: usize,
     box_height: usize,
     detail_rows: usize,
     selected: &mut usize,
     start: &mut usize,
 ) {
-    let count = procs.len();
     let max_visible = box_height.saturating_sub(5 + detail_rows);
     if count == 0 {
         *selected = 0;
@@ -531,7 +530,8 @@ pub(crate) fn render_all(
 
     if dirty.intersects(Dirty::PROC_BOX) {
         if let Some(ref proc_dim) = layout.proc_box {
-            let procs = &runner.proc_collector.display_procs;
+            let procs = &runner.proc_collector.procs;
+            let entries = &runner.proc_collector.display_entries;
             let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
             let detail_rows = if detailed_pid > 0 {
                 8_usize.min(proc_dim.height.saturating_sub(6))
@@ -539,7 +539,7 @@ pub(crate) fn render_all(
                 0
             };
             clamp_proc_selection(
-                procs,
+                entries.len(),
                 proc_dim.height,
                 detail_rows,
                 proc_selected,
@@ -562,6 +562,7 @@ pub(crate) fn render_all(
             };
             output.push_str(&ui::proc_box::draw_with_sort(
                 procs,
+                entries,
                 &area,
                 &view,
                 theme,

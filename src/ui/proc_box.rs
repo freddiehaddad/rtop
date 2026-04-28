@@ -1,5 +1,5 @@
 use crate::collect::CollectStatus;
-use crate::domain::process::ProcInfo;
+use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
@@ -35,6 +35,7 @@ const COL_SPACING_NO_CMD: usize = 3;
 /// Draw the process list box with sort indicator on the active column.
 pub fn draw_with_sort(
     procs: &[ProcInfo],
+    entries: &[ProcDisplayEntry],
     area: &BoxArea,
     view: &ProcView,
     theme: &Theme,
@@ -92,7 +93,11 @@ pub fn draw_with_sort(
         0
     };
     if detailed_pid > 0 && detail_rows > 0 {
-        if let Some(proc) = procs.iter().find(|p| p.pid == detailed_pid) {
+        if let Some(proc) = entries
+            .iter()
+            .filter_map(|entry| procs.get(entry.proc_index))
+            .find(|proc| proc.pid == detailed_pid)
+        {
             buf.text(&draw_detail_panel(proc, x, y, width, detail_rows, theme));
         }
     }
@@ -232,7 +237,10 @@ pub fn draw_with_sort(
     // Process rows
     let header_overhead = 3 + detail_rows; // border + header + divider + detail
     let max_rows = height.saturating_sub(header_overhead + 2); // -2 for top/bottom border
-    for (i, proc) in procs.iter().skip(start).take(max_rows).enumerate() {
+    for (i, entry) in entries.iter().skip(start).take(max_rows).enumerate() {
+        let Some(proc) = procs.get(entry.proc_index) else {
+            continue;
+        };
         let row = y + 4 + detail_rows + i;
 
         // Format memory value
@@ -251,8 +259,8 @@ pub fn draw_with_sort(
         };
 
         // Tree prefix rendered separately in tree_fg color
-        let (tree_prefix, bare_name) = if tree_mode && !proc.prefix.is_empty() {
-            (proc.prefix.as_str(), proc.name.as_str())
+        let (tree_prefix, bare_name) = if tree_mode && !entry.prefix.is_empty() {
+            (entry.prefix.as_str(), proc.name.as_str())
         } else {
             ("", proc.name.as_str())
         };
@@ -321,7 +329,7 @@ pub fn draw_with_sort(
     buf.text(&draw_top_border(x, y, width, sort_by, tree_mode, theme));
 
     // BOTTOM border
-    let visible = procs.len().min(max_rows);
+    let visible = entries.len().min(max_rows);
     buf.text(&draw_bottom_border(
         &BottomBorderParams {
             x,
@@ -330,7 +338,7 @@ pub fn draw_with_sort(
             filter,
             filtering,
             visible,
-            total: procs.len(),
+            total: entries.len(),
         },
         theme,
     ));
@@ -567,9 +575,6 @@ mod tests {
                 cpu_time: 0,
                 io_read: 0,
                 io_write: 0,
-                prefix: String::new(),
-                depth: 0,
-                tree_index: 0,
             },
             ProcInfo {
                 pid: 200,
@@ -585,9 +590,6 @@ mod tests {
                 cpu_time: 0,
                 io_read: 0,
                 io_write: 0,
-                prefix: String::new(),
-                depth: 0,
-                tree_index: 1,
             },
             ProcInfo {
                 pid: 300,
@@ -603,11 +605,14 @@ mod tests {
                 cpu_time: 0,
                 io_read: 0,
                 io_write: 0,
-                prefix: String::new(),
-                depth: 0,
-                tree_index: 2,
             },
         ]
+    }
+
+    fn make_entries() -> Vec<ProcDisplayEntry> {
+        (0..make_procs().len())
+            .map(ProcDisplayEntry::flat)
+            .collect()
     }
 
     fn make_area() -> BoxArea {
@@ -637,6 +642,7 @@ mod tests {
     fn draw_contains_proc_title() {
         let output = draw_with_sort(
             &make_procs(),
+            &make_entries(),
             &make_area(),
             &make_view(),
             &Theme::default(),
@@ -650,6 +656,7 @@ mod tests {
     fn draw_contains_process_names() {
         let output = draw_with_sort(
             &make_procs(),
+            &make_entries(),
             &make_area(),
             &make_view(),
             &Theme::default(),
@@ -674,6 +681,7 @@ mod tests {
     fn draw_contains_sort_column_indicator() {
         let output = draw_with_sort(
             &make_procs(),
+            &make_entries(),
             &make_area(),
             &make_view(),
             &Theme::default(),

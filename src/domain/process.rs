@@ -29,12 +29,6 @@ pub struct ProcInfo {
     pub io_read: u64,
     /// Total IO bytes written.
     pub io_write: u64,
-    /// Tree view prefix string (e.g. "├─ ", "│  └─ ").
-    pub prefix: String,
-    /// Depth in process tree (0 = root).
-    pub depth: usize,
-    /// Index in flattened tree list.
-    pub tree_index: usize,
 }
 
 impl Default for ProcInfo {
@@ -53,9 +47,35 @@ impl Default for ProcInfo {
             cpu_time: 0,
             io_read: 0,
             io_write: 0,
+        }
+    }
+}
+
+/// Display-only metadata for one visible process row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProcDisplayEntry {
+    /// Index into the collector's raw `procs` vector.
+    pub proc_index: usize,
+    /// Tree view prefix string (e.g. "├─ ", "│  └─ ").
+    pub prefix: String,
+    /// Depth in process tree (0 = root).
+    pub depth: usize,
+}
+
+impl ProcDisplayEntry {
+    pub fn flat(proc_index: usize) -> Self {
+        Self {
+            proc_index,
             prefix: String::new(),
             depth: 0,
-            tree_index: 0,
+        }
+    }
+
+    pub fn tree(proc_index: usize, prefix: String, depth: usize) -> Self {
+        Self {
+            proc_index,
+            prefix,
+            depth,
         }
     }
 }

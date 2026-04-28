@@ -1,5 +1,5 @@
-use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
-use std::collections::HashMap;
+use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo, ProcState};
+use std::collections::{HashMap, HashSet};
 
 use super::{
     Collector,
@@ -7,7 +7,7 @@ use super::{
 };
 
 /// Canonical sort options for the process list.
-/// Used by app.rs keybinds, options_menu.rs browsable values, and sort_procs().
+/// Used by app.rs keybinds, options_menu.rs browsable values, and display sorting.
 pub const SORT_OPTIONS: &[&str] = &[
     "pid",
     "name",
@@ -60,9 +60,9 @@ impl ParsedFilter {
 pub struct ProcCollector {
     /// Raw collected process data — never sorted/filtered in place.
     pub procs: Vec<ProcInfo>,
-    /// Derived display list — sorted, filtered, tree-prefixed.
+    /// Derived display list — sorted, filtered, tree-prefixed raw indices.
     /// Rebuilt from `procs` whenever PROC_LIST dirty flag is set.
-    pub display_procs: Vec<ProcInfo>,
+    pub display_entries: Vec<ProcDisplayEntry>,
     pub status: super::CollectStatus,
     prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
     last_collect: std::time::Instant,
@@ -80,7 +80,7 @@ impl ProcCollector {
     pub fn new() -> Self {
         Self {
             procs: Vec::new(),
-            display_procs: Vec::new(),
+            display_entries: Vec::new(),
             status: super::CollectStatus::Ok,
             prev_times: HashMap::new(),
             last_collect: std::time::Instant::now(),
@@ -93,7 +93,7 @@ impl ProcCollector {
         self.core_count = count;
     }
 
-    /// Rebuild `display_procs` from raw `procs` by sorting, filtering, and
+    /// Rebuild display entries from raw `procs` by sorting, filtering, and
     /// optionally building tree prefixes.
     pub fn rebuild_display(
         &mut self,
@@ -102,21 +102,38 @@ impl ProcCollector {
         filter: &str,
         tree_mode: bool,
     ) {
-        self.display_procs = self.procs.clone();
         let parsed = ParsedFilter::parse(filter);
-        if !filter.is_empty() {
-            self.display_procs.retain(|p| parsed.matches(p));
-        }
+        let mut indices: Vec<usize> = self
+            .procs
+            .iter()
+            .enumerate()
+            .filter(|(_, proc)| filter.is_empty() || parsed.matches(proc))
+            .map(|(idx, _)| idx)
+            .collect();
+        sort_proc_indices(&mut indices, &self.procs, sort_by, reversed);
+
         if tree_mode {
-            // In tree mode: sort children within each parent by the selected column,
-            // build tree structure, then flatten by tree_index for display order.
-            sort_procs(&mut self.display_procs, sort_by, reversed);
-            let children = build_tree(&self.display_procs);
-            generate_tree_prefixes(&mut self.display_procs, &children);
-            self.display_procs.sort_by_key(|p| p.tree_index);
+            self.display_entries = build_tree_display_entries(&self.procs, &indices);
         } else {
-            sort_procs(&mut self.display_procs, sort_by, reversed);
+            self.display_entries = indices.into_iter().map(ProcDisplayEntry::flat).collect();
         }
+    }
+
+    /// Number of rows in the current derived process display.
+    pub fn display_len(&self) -> usize {
+        self.display_entries.len()
+    }
+
+    /// Return the raw process for a derived display row.
+    pub fn display_proc(&self, display_index: usize) -> Option<&ProcInfo> {
+        self.display_entries
+            .get(display_index)
+            .and_then(|entry| self.procs.get(entry.proc_index))
+    }
+
+    /// Return the process ID for a derived display row.
+    pub fn display_pid(&self, display_index: usize) -> Option<u32> {
+        self.display_proc(display_index).map(|proc| proc.pid)
     }
 
     fn collect_impl(&mut self) {
@@ -194,9 +211,6 @@ impl ProcCollector {
                         cpu_time,
                         io_read: 0,
                         io_write: 0,
-                        prefix: String::new(),
-                        depth: 0,
-                        tree_index: 0,
                     });
 
                     if Process32NextW(snapshot.get(), &mut entry).is_err() {
@@ -552,84 +566,114 @@ pub fn cpu_percent_from_times(
     process_cpu_percent(prev_total, curr_total, elapsed_secs, core_count)
 }
 
-/// Build a process tree from PPID relationships.
-/// Build a parent-PID-to-child-indices map for process tree display.
-pub fn build_tree(procs: &[ProcInfo]) -> HashMap<u32, Vec<usize>> {
+/// Build a parent-PID-to-raw-process-indices map for process tree display.
+pub fn build_tree(procs: &[ProcInfo], indices: &[usize]) -> HashMap<u32, Vec<usize>> {
     let mut children: HashMap<u32, Vec<usize>> = HashMap::new();
-    for (i, p) in procs.iter().enumerate() {
-        children.entry(p.ppid).or_default().push(i);
+    for &idx in indices {
+        if let Some(proc) = procs.get(idx) {
+            children.entry(proc.ppid).or_default().push(idx);
+        }
     }
     children
 }
 
-/// Generate tree prefix strings for display.
-/// Assign tree-view prefix strings (e.g. "├─ ", "└─ ") to each process.
-pub fn generate_tree_prefixes(procs: &mut [ProcInfo], children: &HashMap<u32, Vec<usize>>) {
-    // Find root processes (ppid not in process list)
-    let pids: std::collections::HashSet<u32> = procs.iter().map(|p| p.pid).collect();
-    let roots: Vec<usize> = procs
+/// Build flattened tree display entries from sorted raw process indices.
+pub fn build_tree_display_entries(
+    procs: &[ProcInfo],
+    sorted_indices: &[usize],
+) -> Vec<ProcDisplayEntry> {
+    let pids: HashSet<u32> = sorted_indices
         .iter()
-        .enumerate()
-        .filter(|(_, p)| !pids.contains(&p.ppid))
-        .map(|(i, _)| i)
+        .filter_map(|&idx| procs.get(idx).map(|proc| proc.pid))
+        .collect();
+    let children = build_tree(procs, sorted_indices);
+    let roots: Vec<usize> = sorted_indices
+        .iter()
+        .copied()
+        .filter(|&idx| {
+            procs
+                .get(idx)
+                .is_some_and(|proc| !pids.contains(&proc.ppid))
+        })
         .collect();
 
-    let mut tree_index = 0;
-    for &root_idx in &roots {
-        assign_prefix(procs, children, root_idx, "", true, &mut tree_index);
+    let mut entries = Vec::with_capacity(sorted_indices.len());
+    {
+        let mut builder = TreeDisplayBuilder {
+            procs,
+            children: &children,
+            entries: &mut entries,
+        };
+        for &root_idx in &roots {
+            builder.push(root_idx, "", "", 0, true);
+        }
     }
+    entries
 }
 
-fn assign_prefix(
-    procs: &mut [ProcInfo],
-    children: &HashMap<u32, Vec<usize>>,
-    idx: usize,
-    header: &str,
-    is_last: bool,
-    tree_index: &mut usize,
-) {
-    let pid = procs[idx].pid;
-    procs[idx].prefix = header.to_string();
-    procs[idx].tree_index = *tree_index;
-    *tree_index += 1;
+struct TreeDisplayBuilder<'a, 'b> {
+    procs: &'a [ProcInfo],
+    children: &'a HashMap<u32, Vec<usize>>,
+    entries: &'b mut Vec<ProcDisplayEntry>,
+}
 
-    if let Some(child_indices) = children.get(&pid) {
-        let len = child_indices.len();
-        for (i, &child_idx) in child_indices.iter().enumerate() {
-            let last = i == len - 1;
-            let connector = if last { "└─ " } else { "├─ " };
-            let new_header = if is_last {
-                format!("{}   ", header)
-            } else {
-                format!("{}│  ", header)
-            };
-            procs[child_idx].depth = procs[idx].depth + 1;
-            let prefix = format!("{}{}", new_header, connector);
-            procs[child_idx].prefix = prefix;
-            assign_prefix(procs, children, child_idx, &new_header, last, tree_index);
+impl TreeDisplayBuilder<'_, '_> {
+    fn push(&mut self, idx: usize, prefix: &str, child_header: &str, depth: usize, is_last: bool) {
+        let Some(proc) = self.procs.get(idx) else {
+            return;
+        };
+
+        self.entries
+            .push(ProcDisplayEntry::tree(idx, prefix.to_string(), depth));
+
+        if let Some(child_indices) = self.children.get(&proc.pid) {
+            let len = child_indices.len();
+            for (i, &child_idx) in child_indices.iter().enumerate() {
+                let last = i == len - 1;
+                let connector = if last { "└─ " } else { "├─ " };
+                let next_child_header = if is_last {
+                    format!("{child_header}   ")
+                } else {
+                    format!("{child_header}│  ")
+                };
+                let child_prefix = format!("{next_child_header}{connector}");
+                self.push(
+                    child_idx,
+                    &child_prefix,
+                    &next_child_header,
+                    depth + 1,
+                    last,
+                );
+            }
         }
     }
 }
 
-/// Sort processes by the given column.
-/// Sort processes in place by the given column name.
-pub fn sort_procs(procs: &mut [ProcInfo], sort_by: &str, reverse: bool) {
-    procs.sort_by(|a, b| {
-        let cmp = match sort_by {
-            "pid" => a.pid.cmp(&b.pid),
-            "name" => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-            "command" => a.cmd.to_lowercase().cmp(&b.cmd.to_lowercase()),
-            "threads" => a.threads.cmp(&b.threads),
-            "user" => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
-            "memory" => a.mem.cmp(&b.mem),
-            "cpu direct" | "cpu lazy" => a
-                .cpu_p
-                .partial_cmp(&b.cpu_p)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            _ => std::cmp::Ordering::Equal,
+/// Sort raw process indices by the given process column.
+pub fn sort_proc_indices(indices: &mut [usize], procs: &[ProcInfo], sort_by: &str, reverse: bool) {
+    indices.sort_by(|&a_idx, &b_idx| {
+        let cmp = match (procs.get(a_idx), procs.get(b_idx)) {
+            (Some(a), Some(b)) => compare_procs(a, b, sort_by),
+            _ => a_idx.cmp(&b_idx),
         };
         if reverse { cmp.reverse() } else { cmp }
     });
+}
+
+fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: &str) -> std::cmp::Ordering {
+    match sort_by {
+        "pid" => a.pid.cmp(&b.pid),
+        "name" => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        "command" => a.cmd.to_lowercase().cmp(&b.cmd.to_lowercase()),
+        "threads" => a.threads.cmp(&b.threads),
+        "user" => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
+        "memory" => a.mem.cmp(&b.mem),
+        "cpu direct" | "cpu lazy" => a
+            .cpu_p
+            .partial_cmp(&b.cpu_p)
+            .unwrap_or(std::cmp::Ordering::Equal),
+        _ => std::cmp::Ordering::Equal,
+    }
 }
 
 /// Test if a process matches a filter string.
@@ -716,14 +760,15 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let tree = build_tree(&procs);
+        let indices = vec![0, 1, 2, 3];
+        let tree = build_tree(&procs, &indices);
         assert_eq!(tree.get(&1).unwrap().len(), 2); // pid 1 has 2 children
         assert_eq!(tree.get(&2).unwrap().len(), 1); // pid 2 has 1 child
     }
 
     #[test]
     fn sort_by_cpu() {
-        let mut procs = vec![
+        let procs = vec![
             ProcInfo {
                 pid: 1,
                 cpu_p: 10.0,
@@ -740,14 +785,15 @@ mod tests {
                 ..Default::default()
             },
         ];
-        sort_procs(&mut procs, "cpu lazy", false);
-        assert_eq!(procs[0].pid, 3);
-        assert_eq!(procs[2].pid, 2);
+        let mut indices = vec![0, 1, 2];
+        sort_proc_indices(&mut indices, &procs, "cpu lazy", false);
+        assert_eq!(procs[indices[0]].pid, 3);
+        assert_eq!(procs[indices[2]].pid, 2);
     }
 
     #[test]
     fn sort_by_memory() {
-        let mut procs = vec![
+        let procs = vec![
             ProcInfo {
                 pid: 1,
                 mem: 1000,
@@ -764,14 +810,15 @@ mod tests {
                 ..Default::default()
             },
         ];
-        sort_procs(&mut procs, "memory", true); // Reverse = descending
-        assert_eq!(procs[0].pid, 2);
-        assert_eq!(procs[2].pid, 3);
+        let mut indices = vec![0, 1, 2];
+        sort_proc_indices(&mut indices, &procs, "memory", true); // Reverse = descending
+        assert_eq!(procs[indices[0]].pid, 2);
+        assert_eq!(procs[indices[2]].pid, 3);
     }
 
     #[test]
     fn sort_by_name() {
-        let mut procs = vec![
+        let procs = vec![
             ProcInfo {
                 pid: 1,
                 name: "chrome.exe".into(),
@@ -788,9 +835,10 @@ mod tests {
                 ..Default::default()
             },
         ];
-        sort_procs(&mut procs, "name", false);
-        assert_eq!(procs[0].name, "Acrobat.exe");
-        assert_eq!(procs[2].name, "zsh.exe");
+        let mut indices = vec![0, 1, 2];
+        sort_proc_indices(&mut indices, &procs, "name", false);
+        assert_eq!(procs[indices[0]].name, "Acrobat.exe");
+        assert_eq!(procs[indices[2]].name, "zsh.exe");
     }
 
     #[test]
@@ -824,33 +872,67 @@ mod tests {
 
     #[test]
     fn tree_prefix_generation() {
-        let mut procs = vec![
+        let procs = vec![
             ProcInfo {
                 pid: 1,
                 ppid: 0,
-                depth: 0,
                 ..Default::default()
             },
             ProcInfo {
                 pid: 2,
                 ppid: 1,
-                depth: 0,
                 ..Default::default()
             },
             ProcInfo {
                 pid: 3,
                 ppid: 1,
-                depth: 0,
                 ..Default::default()
             },
         ];
-        let tree = build_tree(&procs);
-        generate_tree_prefixes(&mut procs, &tree);
+        let entries = build_tree_display_entries(&procs, &[0, 1, 2]);
         // Root has no prefix
-        assert_eq!(procs[0].depth, 0);
+        assert_eq!(entries[0].depth, 0);
+        assert_eq!(entries[0].prefix, "");
         // Children have depth 1
-        assert_eq!(procs[1].depth, 1);
-        assert_eq!(procs[2].depth, 1);
+        assert_eq!(entries[1].depth, 1);
+        assert_eq!(entries[2].depth, 1);
+        assert_eq!(entries[1].prefix, "   ├─ ");
+        assert_eq!(entries[2].prefix, "   └─ ");
+    }
+
+    #[test]
+    fn rebuild_display_uses_raw_indices() {
+        let mut collector = ProcCollector::new();
+        collector.procs = vec![
+            ProcInfo {
+                pid: 1,
+                name: "alpha.exe".into(),
+                cpu_p: 10.0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 2,
+                name: "beta.exe".into(),
+                cpu_p: 30.0,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 3,
+                name: "gamma.exe".into(),
+                cpu_p: 20.0,
+                ..Default::default()
+            },
+        ];
+
+        collector.rebuild_display("cpu lazy", true, "", false);
+
+        let pids: Vec<u32> = collector
+            .display_entries
+            .iter()
+            .filter_map(|entry| collector.procs.get(entry.proc_index))
+            .map(|proc| proc.pid)
+            .collect();
+        assert_eq!(pids, vec![2, 3, 1]);
     }
 
     #[test]

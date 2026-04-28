@@ -111,7 +111,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             *ctx.dirty |= Dirty::PROC_BOX;
         }
         "down" | "j" => {
-            let count = ctx.runner.proc_collector.display_procs.len();
+            let count = ctx.runner.proc_collector.display_len();
             if *ctx.proc_selected + 1 < count {
                 *ctx.proc_selected += 1;
                 *ctx.dirty |= Dirty::PROC_BOX;
@@ -124,7 +124,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
         }
         "page_down" => {
             let page = ctx.th.saturating_sub(10);
-            let count = ctx.runner.proc_collector.display_procs.len();
+            let count = ctx.runner.proc_collector.display_len();
             *ctx.proc_selected = (*ctx.proc_selected + page).min(count.saturating_sub(1));
             *ctx.dirty |= Dirty::PROC_BOX;
         }
@@ -134,7 +134,7 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
             *ctx.dirty |= Dirty::PROC_BOX;
         }
         "end" | "G" => {
-            let count = ctx.runner.proc_collector.display_procs.len();
+            let count = ctx.runner.proc_collector.display_len();
             *ctx.proc_selected = count.saturating_sub(1);
             *ctx.dirty |= Dirty::PROC_BOX;
         }
@@ -207,20 +207,22 @@ pub(crate) fn handle(key: &str, ctx: &mut InputContext) -> HandleResult {
                 .set_string(sk::PROC_SORTING, SORT_OPTIONS[new_idx]);
             *ctx.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
-        "t" if *ctx.proc_selected < ctx.runner.proc_collector.display_procs.len() => {
+        "t" if *ctx.proc_selected < ctx.runner.proc_collector.display_len() => {
             // Terminate selected process
-            let pid = ctx.runner.proc_collector.display_procs[*ctx.proc_selected].pid;
-            terminate_process(pid);
+            if let Some(pid) = ctx.runner.proc_collector.display_pid(*ctx.proc_selected) {
+                terminate_process(pid);
+            }
             *ctx.dirty |= Dirty::PROC_BOX;
         }
-        "enter" if *ctx.proc_selected < ctx.runner.proc_collector.display_procs.len() => {
+        "enter" if *ctx.proc_selected < ctx.runner.proc_collector.display_len() => {
             // Toggle process detailed view
-            let pid = ctx.runner.proc_collector.display_procs[*ctx.proc_selected].pid;
-            let current_detailed = ctx.config.get_int(ik::DETAILED_PID);
-            if current_detailed == pid as i64 {
-                ctx.config.set_int(ik::DETAILED_PID, 0);
-            } else {
-                ctx.config.set_int(ik::DETAILED_PID, pid as i64);
+            if let Some(pid) = ctx.runner.proc_collector.display_pid(*ctx.proc_selected) {
+                let current_detailed = ctx.config.get_int(ik::DETAILED_PID);
+                if current_detailed == pid as i64 {
+                    ctx.config.set_int(ik::DETAILED_PID, 0);
+                } else {
+                    ctx.config.set_int(ik::DETAILED_PID, pid as i64);
+                }
             }
             *ctx.dirty |= Dirty::PROC_BOX;
         }
