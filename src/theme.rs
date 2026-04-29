@@ -13,6 +13,110 @@ pub struct Theme {
     pub gradients: HashMap<String, Vec<String>>,
 }
 
+/// A declarative fallback rule for theme colors not provided by the theme file.
+enum FallbackRule {
+    /// Copy a single color: target ← source.
+    Single {
+        target: &'static str,
+        source: &'static str,
+    },
+    /// Expand a gradient prefix: `{target}_start` ← `{source}_start`, etc.
+    Gradient {
+        target: &'static str,
+        source: &'static str,
+    },
+    /// Use the first source that was explicitly provided by the theme file,
+    /// falling back to the first source with a non-empty default value.
+    FirstAvailable {
+        target: &'static str,
+        sources: &'static [&'static str],
+    },
+}
+
+/// Theme color fallback rules, applied in order.
+///
+/// **Ordering matters** for chained dependencies: `followed_bg` depends on
+/// `proc_follow_bg`, so `proc_follow_bg` must appear first.
+const FALLBACK_RULES: &[FallbackRule] = &[
+    FallbackRule::Single {
+        target: "meter_bg",
+        source: "inactive_fg",
+    },
+    FallbackRule::Gradient {
+        target: "process",
+        source: "cpu",
+    },
+    FallbackRule::Single {
+        target: "graph_text",
+        source: "inactive_fg",
+    },
+    FallbackRule::Single {
+        target: "proc_tree_fg",
+        source: "inactive_fg",
+    },
+    // GPU gradient fallbacks
+    FallbackRule::Gradient {
+        target: "gpu",
+        source: "cpu",
+    },
+    FallbackRule::Gradient {
+        target: "gpu_clock",
+        source: "cpu",
+    },
+    FallbackRule::Gradient {
+        target: "gpu_power",
+        source: "used",
+    },
+    FallbackRule::Gradient {
+        target: "gpu_vram",
+        source: "cached",
+    },
+    // Disk IO gradient fallbacks
+    FallbackRule::Gradient {
+        target: "disk_read",
+        source: "download",
+    },
+    FallbackRule::Gradient {
+        target: "disk_write",
+        source: "upload",
+    },
+    FallbackRule::Gradient {
+        target: "disk_busy",
+        source: "used",
+    },
+    FallbackRule::FirstAvailable {
+        target: "proc_pause_bg",
+        sources: &["used_end", "used_mid", "used_start", "hi_fg"],
+    },
+    FallbackRule::FirstAvailable {
+        target: "proc_follow_bg",
+        sources: &[
+            "download_start",
+            "download_mid",
+            "net_box",
+            "hi_fg",
+            "download_end",
+        ],
+    },
+    FallbackRule::Single {
+        target: "proc_banner_bg",
+        source: "selected_bg",
+    },
+    FallbackRule::Single {
+        target: "proc_banner_fg",
+        source: "selected_fg",
+    },
+    // followed_bg depends on proc_follow_bg resolved above
+    FallbackRule::Single {
+        target: "followed_bg",
+        source: "proc_follow_bg",
+    },
+    FallbackRule::Single {
+        target: "followed_fg",
+        source: "selected_fg",
+    },
+];
+
 /// Default theme color values (hex).
 const DEFAULT_THEME: &[(&str, &str)] = &[
     ("main_bg", "#00"),
@@ -184,88 +288,28 @@ impl Theme {
     }
 
     fn apply_fallbacks(&mut self, provided: &HashSet<String>) {
-        // meter_bg defaults to inactive_fg
-        if !provided.contains("meter_bg") {
-            self.copy_color("meter_bg", "inactive_fg");
-        }
-        // process_* defaults to cpu_*
-        for suffix in &["_start", "_mid", "_end"] {
-            let proc_key = format!("process{suffix}");
-            let cpu_key = format!("cpu{suffix}");
-            if !provided.contains(&proc_key) {
-                self.copy_color(&proc_key, &cpu_key);
-            }
-        }
-        // graph_text defaults to inactive_fg
-        if !provided.contains("graph_text") {
-            self.copy_color("graph_text", "inactive_fg");
-        }
-        // proc_tree_fg defaults to inactive_fg
-        if !provided.contains("proc_tree_fg") {
-            self.copy_color("proc_tree_fg", "inactive_fg");
-        }
-        // GPU gradient fallbacks: gpu→cpu, gpu_clock→cpu, gpu_power→used, gpu_vram→cached
-        let gpu_fallbacks: &[(&str, &str)] = &[
-            ("gpu", "cpu"),
-            ("gpu_clock", "cpu"),
-            ("gpu_power", "used"),
-            ("gpu_vram", "cached"),
-        ];
-        for (gpu_prefix, fallback_prefix) in gpu_fallbacks {
-            for suffix in &["_start", "_mid", "_end"] {
-                let key = format!("{gpu_prefix}{suffix}");
-                let fb_key = format!("{fallback_prefix}{suffix}");
-                if !provided.contains(&key) {
-                    self.copy_color(&key, &fb_key);
+        for rule in FALLBACK_RULES {
+            match rule {
+                FallbackRule::Single { target, source } => {
+                    if !provided.contains(*target) {
+                        self.copy_color(target, source);
+                    }
+                }
+                FallbackRule::Gradient { target, source } => {
+                    for suffix in ["_start", "_mid", "_end"] {
+                        let key = format!("{target}{suffix}");
+                        if !provided.contains(&key) {
+                            let fb = format!("{source}{suffix}");
+                            self.copy_color(&key, &fb);
+                        }
+                    }
+                }
+                FallbackRule::FirstAvailable { target, sources } => {
+                    if !provided.contains(*target) {
+                        self.copy_first_provided_color(target, sources, provided);
+                    }
                 }
             }
-        }
-        // Disk IO gradient fallbacks: read→download, write→upload, busy→used
-        let disk_fallbacks: &[(&str, &str)] = &[
-            ("disk_read", "download"),
-            ("disk_write", "upload"),
-            ("disk_busy", "used"),
-        ];
-        for (disk_prefix, fallback_prefix) in disk_fallbacks {
-            for suffix in &["_start", "_mid", "_end"] {
-                let key = format!("{disk_prefix}{suffix}");
-                let fb_key = format!("{fallback_prefix}{suffix}");
-                if !provided.contains(&key) {
-                    self.copy_color(&key, &fb_key);
-                }
-            }
-        }
-        if !provided.contains("proc_pause_bg") {
-            self.copy_first_provided_color(
-                "proc_pause_bg",
-                &["used_end", "used_mid", "used_start", "hi_fg"],
-                provided,
-            );
-        }
-        if !provided.contains("proc_follow_bg") {
-            self.copy_first_provided_color(
-                "proc_follow_bg",
-                &[
-                    "download_start",
-                    "download_mid",
-                    "net_box",
-                    "hi_fg",
-                    "download_end",
-                ],
-                provided,
-            );
-        }
-        if !provided.contains("proc_banner_bg") {
-            self.copy_color("proc_banner_bg", "selected_bg");
-        }
-        if !provided.contains("proc_banner_fg") {
-            self.copy_color("proc_banner_fg", "selected_fg");
-        }
-        if !provided.contains("followed_bg") {
-            self.copy_color("followed_bg", "proc_follow_bg");
-        }
-        if !provided.contains("followed_fg") {
-            self.copy_color("followed_fg", "selected_fg");
         }
     }
 
@@ -852,5 +896,30 @@ mod tests {
         assert_eq!(grad[100], rgb_to_fg_escape(200, 100, 50));
         // Midpoint should be approximately half
         assert_eq!(grad[50], rgb_to_fg_escape(100, 50, 25));
+    }
+
+    #[test]
+    fn followed_bg_inherits_from_proc_follow_bg_via_chained_fallback() {
+        // proc_follow_bg is resolved from download_start (FirstAvailable),
+        // then followed_bg copies from proc_follow_bg (Single).
+        // This only works because FALLBACK_RULES processes proc_follow_bg first.
+        let mut theme = Theme::new();
+        theme.load_from_string(
+            r##"
+            theme[download_start]="#112233"
+            "##,
+        );
+
+        let expected = rgb_to_fg_escape(0x11, 0x22, 0x33);
+        assert_eq!(
+            theme.color(tc::PROC_FOLLOW_BG),
+            expected,
+            "proc_follow_bg should fall back to download_start"
+        );
+        assert_eq!(
+            theme.color(tc::FOLLOWED_BG),
+            expected,
+            "followed_bg should inherit from proc_follow_bg"
+        );
     }
 }
