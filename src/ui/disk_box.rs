@@ -14,10 +14,12 @@ use super::BoxArea;
 
 /// Right-aligned value column width for normal mode ("274G/1.6T" = up to 10 chars).
 const USAGE_VAL_W: usize = 10;
-/// Right-aligned value column for IO separate read/write rows (1 space + "9.9M/s").
-const IO_VAL_W: usize = 7;
-/// Right-aligned value column for IO combined rows (1 space + "R9.9M/s W9.9M/s").
-const IO_COMBINED_VAL_W: usize = 17;
+/// Right-aligned value column for IO separate read/write rows
+/// (1 space + max 7 chars, e.g. "1023B/s").
+const IO_VAL_W: usize = 8;
+/// Right-aligned value column for IO combined rows
+/// (1 space + max "R1023B/s W1023B/s" = 18 chars).
+const IO_COMBINED_VAL_W: usize = 19;
 /// Minimum graph/meter width.
 const MIN_METER_W: usize = 5;
 /// Minimum graph width in IO mode.
