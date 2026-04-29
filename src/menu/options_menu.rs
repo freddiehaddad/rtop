@@ -242,17 +242,6 @@ pub const CPU: &[OptDef] = &[
         desc: &["Enable cpu temperature reporting.", "", "True or False."],
     },
     OptDef {
-        key: ConfigKey::CpuSensor,
-        desc: &[
-            "Cpu temperature sensor.",
-            "",
-            "Select the sensor that corresponds to",
-            "your cpu temperature.",
-            "",
-            "Set to \"Auto\" for auto detection.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ShowCoretemp,
         desc: &[
             "Show temperatures for cpu cores.",

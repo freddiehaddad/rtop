@@ -135,7 +135,6 @@ pub struct Config {
     pub proc_sorting: String,
     pub cpu_graph_upper: String,
     pub cpu_graph_lower: String,
-    pub cpu_sensor: String,
 
     pub temp_scale: String,
     pub clock_format: String,
@@ -229,7 +228,6 @@ impl Default for Config {
             proc_sorting: "cpu lazy".to_string(),
             cpu_graph_upper: "user".to_string(),
             cpu_graph_lower: "system".to_string(),
-            cpu_sensor: "Auto".to_string(),
 
             temp_scale: "celsius".to_string(),
             clock_format: "%X".to_string(),
@@ -699,7 +697,6 @@ pub enum ConfigKey {
     ProcSorting,
     CpuGraphUpper,
     CpuGraphLower,
-    CpuSensor,
 
     TempScale,
     ClockFormat,
@@ -784,7 +781,6 @@ impl ConfigKey {
             Self::ProcSorting => "proc_sorting",
             Self::CpuGraphUpper => "cpu_graph_upper",
             Self::CpuGraphLower => "cpu_graph_lower",
-            Self::CpuSensor => "cpu_sensor",
 
             Self::TempScale => "temp_scale",
             Self::ClockFormat => "clock_format",
@@ -865,7 +861,6 @@ impl ConfigKey {
             | Self::ProcSorting
             | Self::CpuGraphUpper
             | Self::CpuGraphLower
-            | Self::CpuSensor
             | Self::TempScale
             | Self::ClockFormat
             | Self::CustomCpuName
@@ -950,7 +945,6 @@ impl ConfigKey {
             "proc_sorting" => Some(Self::ProcSorting),
             "cpu_graph_upper" => Some(Self::CpuGraphUpper),
             "cpu_graph_lower" => Some(Self::CpuGraphLower),
-            "cpu_sensor" => Some(Self::CpuSensor),
 
             "temp_scale" => Some(Self::TempScale),
             "clock_format" => Some(Self::ClockFormat),
@@ -1040,7 +1034,6 @@ impl ConfigKey {
             Self::ProcSorting => config.proc_sorting.clone(),
             Self::CpuGraphUpper => config.cpu_graph_upper.clone(),
             Self::CpuGraphLower => config.cpu_graph_lower.clone(),
-            Self::CpuSensor => config.cpu_sensor.clone(),
 
             Self::TempScale => config.temp_scale.clone(),
             Self::ClockFormat => config.clock_format.clone(),
@@ -1158,7 +1151,6 @@ impl ConfigKey {
             Self::ProcSorting => &config.proc_sorting,
             Self::CpuGraphUpper => &config.cpu_graph_upper,
             Self::CpuGraphLower => &config.cpu_graph_lower,
-            Self::CpuSensor => &config.cpu_sensor,
 
             Self::TempScale => &config.temp_scale,
             Self::ClockFormat => &config.clock_format,
@@ -1193,7 +1185,6 @@ impl ConfigKey {
             Self::ProcSorting => config.proc_sorting = value.to_string(),
             Self::CpuGraphUpper => config.cpu_graph_upper = value.to_string(),
             Self::CpuGraphLower => config.cpu_graph_lower = value.to_string(),
-            Self::CpuSensor => config.cpu_sensor = value.to_string(),
 
             Self::TempScale => config.temp_scale = value.to_string(),
             Self::ClockFormat => config.clock_format = value.to_string(),
@@ -1239,7 +1230,7 @@ impl ConfigKey {
             return values;
         }
         match self {
-            Self::CpuSensor | Self::NetIface => &["Auto"],
+            Self::NetIface => &["Auto"],
             _ => &[],
         }
     }
