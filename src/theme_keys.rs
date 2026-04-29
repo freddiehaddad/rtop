@@ -7,147 +7,71 @@
 //! theme.gradient(tc::GRAD_CPU);
 //! ```
 
-/// Color key for theme color lookups.
+/// Index-based color key for theme color lookups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ColorKey {
-    name: &'static str,
-}
+pub struct ColorKey(pub(crate) usize);
 
 impl ColorKey {
-    /// Theme file name for this color key.
-    pub const fn name(self) -> &'static str {
-        self.name
+    /// Array index for this color key.
+    pub const fn index(self) -> usize {
+        self.0
     }
 }
 
-/// Gradient key for theme gradient lookups.
+/// Index-based gradient key for theme gradient lookups.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct GradientKey {
-    name: &'static str,
-}
+pub struct GradientKey(pub(crate) usize);
 
 impl GradientKey {
-    /// Theme file prefix for this gradient key.
-    pub const fn name(self) -> &'static str {
-        self.name
+    /// Array index for this gradient key.
+    pub const fn index(self) -> usize {
+        self.0
     }
 }
 
 /// Color keys for `Theme::color()` lookups.
-pub const MAIN_BG: ColorKey = ColorKey { name: "main_bg" };
-pub const MAIN_FG: ColorKey = ColorKey { name: "main_fg" };
-pub const TITLE: ColorKey = ColorKey { name: "title" };
-pub const HI_FG: ColorKey = ColorKey { name: "hi_fg" };
-pub const SELECTED_BG: ColorKey = ColorKey {
-    name: "selected_bg",
-};
-pub const SELECTED_FG: ColorKey = ColorKey {
-    name: "selected_fg",
-};
-pub const INACTIVE_FG: ColorKey = ColorKey {
-    name: "inactive_fg",
-};
-pub const GRAPH_TEXT: ColorKey = ColorKey { name: "graph_text" };
-pub const METER_BG: ColorKey = ColorKey { name: "meter_bg" };
-pub const PROC_MISC: ColorKey = ColorKey { name: "proc_misc" };
+pub const MAIN_BG: ColorKey = ColorKey(0);
+pub const MAIN_FG: ColorKey = ColorKey(1);
+pub const TITLE: ColorKey = ColorKey(2);
+pub const HI_FG: ColorKey = ColorKey(3);
+pub const SELECTED_BG: ColorKey = ColorKey(4);
+pub const SELECTED_FG: ColorKey = ColorKey(5);
+pub const INACTIVE_FG: ColorKey = ColorKey(6);
+pub const GRAPH_TEXT: ColorKey = ColorKey(7);
+pub const METER_BG: ColorKey = ColorKey(8);
+pub const PROC_MISC: ColorKey = ColorKey(9);
 /// Color for tree view connector lines (├─, └─, │).
-pub const PROC_TREE_FG: ColorKey = ColorKey {
-    name: "proc_tree_fg",
-};
-pub const CPU_BOX: ColorKey = ColorKey { name: "cpu_box" };
-pub const MEM_BOX: ColorKey = ColorKey { name: "mem_box" };
-pub const NET_BOX: ColorKey = ColorKey { name: "net_box" };
-pub const PROC_BOX: ColorKey = ColorKey { name: "proc_box" };
-pub const GPU_BOX: ColorKey = ColorKey { name: "gpu_box" };
-pub const DISK_BOX: ColorKey = ColorKey { name: "disk_box" };
-pub const HELP_BOX: ColorKey = ColorKey { name: "help_box" };
-pub const OPTIONS_BOX: ColorKey = ColorKey {
-    name: "options_box",
-};
-pub const DIV_LINE: ColorKey = ColorKey { name: "div_line" };
-pub const PROC_PAUSE_BG: ColorKey = ColorKey {
-    name: "proc_pause_bg",
-};
-pub const PROC_FOLLOW_BG: ColorKey = ColorKey {
-    name: "proc_follow_bg",
-};
-pub const PROC_BANNER_BG: ColorKey = ColorKey {
-    name: "proc_banner_bg",
-};
-pub const PROC_BANNER_FG: ColorKey = ColorKey {
-    name: "proc_banner_fg",
-};
-pub const FOLLOWED_BG: ColorKey = ColorKey {
-    name: "followed_bg",
-};
-pub const FOLLOWED_FG: ColorKey = ColorKey {
-    name: "followed_fg",
-};
-
-/// All direct color keys known to the theme system.
-pub const COLOR_KEYS: &[ColorKey] = &[
-    MAIN_BG,
-    MAIN_FG,
-    TITLE,
-    HI_FG,
-    SELECTED_BG,
-    SELECTED_FG,
-    INACTIVE_FG,
-    GRAPH_TEXT,
-    METER_BG,
-    PROC_MISC,
-    PROC_TREE_FG,
-    CPU_BOX,
-    MEM_BOX,
-    NET_BOX,
-    PROC_BOX,
-    GPU_BOX,
-    DISK_BOX,
-    HELP_BOX,
-    OPTIONS_BOX,
-    DIV_LINE,
-    PROC_PAUSE_BG,
-    PROC_FOLLOW_BG,
-    PROC_BANNER_BG,
-    PROC_BANNER_FG,
-    FOLLOWED_BG,
-    FOLLOWED_FG,
-];
+pub const PROC_TREE_FG: ColorKey = ColorKey(10);
+pub const CPU_BOX: ColorKey = ColorKey(11);
+pub const MEM_BOX: ColorKey = ColorKey(12);
+pub const NET_BOX: ColorKey = ColorKey(13);
+pub const PROC_BOX: ColorKey = ColorKey(14);
+pub const GPU_BOX: ColorKey = ColorKey(15);
+pub const DISK_BOX: ColorKey = ColorKey(16);
+pub const HELP_BOX: ColorKey = ColorKey(17);
+pub const OPTIONS_BOX: ColorKey = ColorKey(18);
+pub const DIV_LINE: ColorKey = ColorKey(19);
+pub const PROC_PAUSE_BG: ColorKey = ColorKey(20);
+pub const PROC_FOLLOW_BG: ColorKey = ColorKey(21);
+pub const PROC_BANNER_BG: ColorKey = ColorKey(22);
+pub const PROC_BANNER_FG: ColorKey = ColorKey(23);
+pub const FOLLOWED_BG: ColorKey = ColorKey(24);
+pub const FOLLOWED_FG: ColorKey = ColorKey(25);
 
 /// Gradient keys for `Theme::gradient()` lookups.
-pub const GRAD_CPU: GradientKey = GradientKey { name: "cpu" };
-pub const GRAD_TEMP: GradientKey = GradientKey { name: "temp" };
-pub const GRAD_FREE: GradientKey = GradientKey { name: "free" };
-pub const GRAD_CACHED: GradientKey = GradientKey { name: "cached" };
-pub const GRAD_AVAILABLE: GradientKey = GradientKey { name: "available" };
-pub const GRAD_USED: GradientKey = GradientKey { name: "used" };
-pub const GRAD_DOWNLOAD: GradientKey = GradientKey { name: "download" };
-pub const GRAD_UPLOAD: GradientKey = GradientKey { name: "upload" };
-pub const GRAD_PROCESS: GradientKey = GradientKey { name: "process" };
-pub const GRAD_GPU: GradientKey = GradientKey { name: "gpu" };
-pub const GRAD_GPU_CLOCK: GradientKey = GradientKey { name: "gpu_clock" };
-pub const GRAD_GPU_POWER: GradientKey = GradientKey { name: "gpu_power" };
-pub const GRAD_GPU_VRAM: GradientKey = GradientKey { name: "gpu_vram" };
-pub const GRAD_DISK_READ: GradientKey = GradientKey { name: "disk_read" };
-pub const GRAD_DISK_WRITE: GradientKey = GradientKey { name: "disk_write" };
-pub const GRAD_DISK_BUSY: GradientKey = GradientKey { name: "disk_busy" };
-
-/// All gradient keys known to the theme system.
-pub const GRADIENT_KEYS: &[GradientKey] = &[
-    GRAD_CPU,
-    GRAD_TEMP,
-    GRAD_FREE,
-    GRAD_CACHED,
-    GRAD_AVAILABLE,
-    GRAD_USED,
-    GRAD_DOWNLOAD,
-    GRAD_UPLOAD,
-    GRAD_PROCESS,
-    GRAD_GPU,
-    GRAD_GPU_CLOCK,
-    GRAD_GPU_POWER,
-    GRAD_GPU_VRAM,
-    GRAD_DISK_READ,
-    GRAD_DISK_WRITE,
-    GRAD_DISK_BUSY,
-];
+pub const GRAD_CPU: GradientKey = GradientKey(0);
+pub const GRAD_TEMP: GradientKey = GradientKey(1);
+pub const GRAD_FREE: GradientKey = GradientKey(2);
+pub const GRAD_CACHED: GradientKey = GradientKey(3);
+pub const GRAD_AVAILABLE: GradientKey = GradientKey(4);
+pub const GRAD_USED: GradientKey = GradientKey(5);
+pub const GRAD_DOWNLOAD: GradientKey = GradientKey(6);
+pub const GRAD_UPLOAD: GradientKey = GradientKey(7);
+pub const GRAD_PROCESS: GradientKey = GradientKey(8);
+pub const GRAD_GPU: GradientKey = GradientKey(9);
+pub const GRAD_GPU_CLOCK: GradientKey = GradientKey(10);
+pub const GRAD_GPU_POWER: GradientKey = GradientKey(11);
+pub const GRAD_GPU_VRAM: GradientKey = GradientKey(12);
+pub const GRAD_DISK_READ: GradientKey = GradientKey(13);
+pub const GRAD_DISK_WRITE: GradientKey = GradientKey(14);
+pub const GRAD_DISK_BUSY: GradientKey = GradientKey(15);

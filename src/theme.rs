@@ -1,530 +1,182 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::theme_keys::{ColorKey, GradientKey};
+use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-/// All theme color data.
-#[derive(Debug, Clone)]
-pub struct Theme {
-    /// Color name → ANSI escape code string.
-    pub colors: HashMap<String, String>,
-    /// Color name → [R, G, B] decimal values.
-    pub rgbs: HashMap<String, [u8; 3]>,
-    /// Gradient name → 101-element array of ANSI escape codes (indices 0–100).
-    pub gradients: HashMap<String, Vec<String>>,
+pub const COLOR_COUNT: usize = 26;
+pub const GRADIENT_COUNT: usize = 16;
+
+struct BundledTheme {
+    name: &'static str,
+    content: &'static str,
 }
 
-/// A declarative fallback rule for theme colors not provided by the theme file.
-enum FallbackRule {
-    /// Copy a single color: target ← source.
-    Single {
-        target: &'static str,
-        source: &'static str,
+const BUNDLED_THEMES: &[BundledTheme] = &[
+    BundledTheme {
+        name: "Default",
+        content: include_str!("../themes/default.toml"),
     },
-    /// Expand a gradient prefix: `{target}_start` ← `{source}_start`, etc.
-    Gradient {
-        target: &'static str,
-        source: &'static str,
+    BundledTheme {
+        name: "adapta",
+        content: include_str!("../themes/adapta.toml"),
     },
-    /// Use the first source that was explicitly provided by the theme file,
-    /// falling back to the first source with a non-empty default value.
-    FirstAvailable {
-        target: &'static str,
-        sources: &'static [&'static str],
+    BundledTheme {
+        name: "adwaita-dark",
+        content: include_str!("../themes/adwaita-dark.toml"),
     },
-}
-
-/// Theme color fallback rules, applied in order.
-///
-/// **Ordering matters** for chained dependencies: `followed_bg` depends on
-/// `proc_follow_bg`, so `proc_follow_bg` must appear first.
-const FALLBACK_RULES: &[FallbackRule] = &[
-    FallbackRule::Single {
-        target: "meter_bg",
-        source: "inactive_fg",
+    BundledTheme {
+        name: "adwaita",
+        content: include_str!("../themes/adwaita.toml"),
     },
-    FallbackRule::Gradient {
-        target: "process",
-        source: "cpu",
+    BundledTheme {
+        name: "ayu",
+        content: include_str!("../themes/ayu.toml"),
     },
-    FallbackRule::Single {
-        target: "graph_text",
-        source: "inactive_fg",
+    BundledTheme {
+        name: "dracula",
+        content: include_str!("../themes/dracula.toml"),
     },
-    FallbackRule::Single {
-        target: "proc_tree_fg",
-        source: "inactive_fg",
+    BundledTheme {
+        name: "dusklight",
+        content: include_str!("../themes/dusklight.toml"),
     },
-    // GPU gradient fallbacks
-    FallbackRule::Gradient {
-        target: "gpu",
-        source: "cpu",
+    BundledTheme {
+        name: "elementarish",
+        content: include_str!("../themes/elementarish.toml"),
     },
-    FallbackRule::Gradient {
-        target: "gpu_clock",
-        source: "cpu",
+    BundledTheme {
+        name: "everforest-dark-hard",
+        content: include_str!("../themes/everforest-dark-hard.toml"),
     },
-    FallbackRule::Gradient {
-        target: "gpu_power",
-        source: "used",
+    BundledTheme {
+        name: "everforest-dark-medium",
+        content: include_str!("../themes/everforest-dark-medium.toml"),
     },
-    FallbackRule::Gradient {
-        target: "gpu_vram",
-        source: "cached",
+    BundledTheme {
+        name: "everforest-light-medium",
+        content: include_str!("../themes/everforest-light-medium.toml"),
     },
-    // Disk IO gradient fallbacks
-    FallbackRule::Gradient {
-        target: "disk_read",
-        source: "download",
+    BundledTheme {
+        name: "flat-remix-light",
+        content: include_str!("../themes/flat-remix-light.toml"),
     },
-    FallbackRule::Gradient {
-        target: "disk_write",
-        source: "upload",
+    BundledTheme {
+        name: "flat-remix",
+        content: include_str!("../themes/flat-remix.toml"),
     },
-    FallbackRule::Gradient {
-        target: "disk_busy",
-        source: "used",
+    BundledTheme {
+        name: "flexoki-dark",
+        content: include_str!("../themes/flexoki-dark.toml"),
     },
-    FallbackRule::FirstAvailable {
-        target: "proc_pause_bg",
-        sources: &["used_end", "used_mid", "used_start", "hi_fg"],
+    BundledTheme {
+        name: "flexoki-light",
+        content: include_str!("../themes/flexoki-light.toml"),
     },
-    FallbackRule::FirstAvailable {
-        target: "proc_follow_bg",
-        sources: &[
-            "download_start",
-            "download_mid",
-            "net_box",
-            "hi_fg",
-            "download_end",
-        ],
+    BundledTheme {
+        name: "gotham",
+        content: include_str!("../themes/gotham.toml"),
     },
-    FallbackRule::Single {
-        target: "proc_banner_bg",
-        source: "selected_bg",
+    BundledTheme {
+        name: "greyscale",
+        content: include_str!("../themes/greyscale.toml"),
     },
-    FallbackRule::Single {
-        target: "proc_banner_fg",
-        source: "selected_fg",
+    BundledTheme {
+        name: "gruvbox_dark",
+        content: include_str!("../themes/gruvbox_dark.toml"),
     },
-    // followed_bg depends on proc_follow_bg resolved above
-    FallbackRule::Single {
-        target: "followed_bg",
-        source: "proc_follow_bg",
+    BundledTheme {
+        name: "gruvbox_dark_v2",
+        content: include_str!("../themes/gruvbox_dark_v2.toml"),
     },
-    FallbackRule::Single {
-        target: "followed_fg",
-        source: "selected_fg",
+    BundledTheme {
+        name: "gruvbox_light",
+        content: include_str!("../themes/gruvbox_light.toml"),
+    },
+    BundledTheme {
+        name: "gruvbox_material_dark",
+        content: include_str!("../themes/gruvbox_material_dark.toml"),
+    },
+    BundledTheme {
+        name: "horizon",
+        content: include_str!("../themes/horizon.toml"),
+    },
+    BundledTheme {
+        name: "HotPurpleTrafficLight",
+        content: include_str!("../themes/HotPurpleTrafficLight.toml"),
+    },
+    BundledTheme {
+        name: "kanagawa-lotus",
+        content: include_str!("../themes/kanagawa-lotus.toml"),
+    },
+    BundledTheme {
+        name: "kanagawa-wave",
+        content: include_str!("../themes/kanagawa-wave.toml"),
+    },
+    BundledTheme {
+        name: "kyli0x",
+        content: include_str!("../themes/kyli0x.toml"),
+    },
+    BundledTheme {
+        name: "matcha-dark-sea",
+        content: include_str!("../themes/matcha-dark-sea.toml"),
+    },
+    BundledTheme {
+        name: "monokai",
+        content: include_str!("../themes/monokai.toml"),
+    },
+    BundledTheme {
+        name: "night-owl",
+        content: include_str!("../themes/night-owl.toml"),
+    },
+    BundledTheme {
+        name: "nord",
+        content: include_str!("../themes/nord.toml"),
+    },
+    BundledTheme {
+        name: "onedark",
+        content: include_str!("../themes/onedark.toml"),
+    },
+    BundledTheme {
+        name: "orange",
+        content: include_str!("../themes/orange.toml"),
+    },
+    BundledTheme {
+        name: "paper",
+        content: include_str!("../themes/paper.toml"),
+    },
+    BundledTheme {
+        name: "phoenix-night",
+        content: include_str!("../themes/phoenix-night.toml"),
+    },
+    BundledTheme {
+        name: "solarized_dark",
+        content: include_str!("../themes/solarized_dark.toml"),
+    },
+    BundledTheme {
+        name: "solarized_light",
+        content: include_str!("../themes/solarized_light.toml"),
+    },
+    BundledTheme {
+        name: "tokyo-night",
+        content: include_str!("../themes/tokyo-night.toml"),
+    },
+    BundledTheme {
+        name: "tokyo-storm",
+        content: include_str!("../themes/tokyo-storm.toml"),
+    },
+    BundledTheme {
+        name: "tomorrow-night",
+        content: include_str!("../themes/tomorrow-night.toml"),
+    },
+    BundledTheme {
+        name: "twilight",
+        content: include_str!("../themes/twilight.toml"),
+    },
+    BundledTheme {
+        name: "whiteout",
+        content: include_str!("../themes/whiteout.toml"),
     },
 ];
 
-/// Default theme color values (hex).
-const DEFAULT_THEME: &[(&str, &str)] = &[
-    ("main_bg", "#00"),
-    ("main_fg", "#cc"),
-    ("title", "#ee"),
-    ("hi_fg", "#b54040"),
-    ("selected_bg", "#6a2f2f"),
-    ("selected_fg", "#ee"),
-    ("inactive_fg", "#40"),
-    ("graph_text", "#60"),
-    ("meter_bg", "#40"),
-    ("proc_misc", "#0de756"),
-    ("proc_tree_fg", "#505050"),
-    ("cpu_box", "#556d59"),
-    ("mem_box", "#6c6c4b"),
-    ("net_box", "#5c588d"),
-    ("proc_box", "#805252"),
-    ("gpu_box", "#6b5673"),
-    ("disk_box", "#5e7a5e"),
-    ("help_box", "#4a7a99"),
-    ("options_box", "#997a4a"),
-    ("div_line", "#30"),
-    ("temp_start", "#4897d4"),
-    ("temp_mid", "#5474e8"),
-    ("temp_end", "#ff40b6"),
-    ("cpu_start", "#77ca9b"),
-    ("cpu_mid", "#cbc06c"),
-    ("cpu_end", "#dc4c4c"),
-    ("free_start", "#384f21"),
-    ("free_mid", "#b5e685"),
-    ("free_end", "#dcff85"),
-    ("cached_start", "#163350"),
-    ("cached_mid", "#74e6fc"),
-    ("cached_end", "#26c5ff"),
-    ("available_start", "#4e3f0e"),
-    ("available_mid", "#ffd77a"),
-    ("available_end", "#ffb814"),
-    ("used_start", "#592b26"),
-    ("used_mid", "#d9626d"),
-    ("used_end", "#ff4769"),
-    ("download_start", "#291f75"),
-    ("download_mid", "#4f43a3"),
-    ("download_end", "#b0a9de"),
-    ("upload_start", "#620665"),
-    ("upload_mid", "#7d4180"),
-    ("upload_end", "#dcafde"),
-    ("disk_read_start", "#291f75"),
-    ("disk_read_mid", "#4f43a3"),
-    ("disk_read_end", "#b0a9de"),
-    ("disk_write_start", "#620665"),
-    ("disk_write_mid", "#7d4180"),
-    ("disk_write_end", "#dcafde"),
-    ("disk_busy_start", "#592b26"),
-    ("disk_busy_mid", "#d9626d"),
-    ("disk_busy_end", "#ff4769"),
-    ("process_start", "#80d0a3"),
-    ("process_mid", "#dcd179"),
-    ("process_end", "#d45454"),
-    // GPU-specific meter gradients
-    ("gpu_start", "#77ca9b"),
-    ("gpu_mid", "#cbc06c"),
-    ("gpu_end", "#dc4c4c"),
-    ("gpu_clock_start", "#3a9a8e"),
-    ("gpu_clock_mid", "#3db8e8"),
-    ("gpu_clock_end", "#2196f3"),
-    ("gpu_power_start", "#d4a748"),
-    ("gpu_power_mid", "#e88c3d"),
-    ("gpu_power_end", "#dc4c4c"),
-    ("gpu_vram_start", "#6b4e8a"),
-    ("gpu_vram_mid", "#a855f7"),
-    ("gpu_vram_end", "#c084fc"),
-    ("proc_pause_bg", "#b54040"),
-    ("proc_follow_bg", "#4040b5"),
-    ("proc_banner_bg", "#7b407b"),
-    ("proc_banner_fg", "#ee"),
-    ("followed_bg", "#4040b5"),
-    ("followed_fg", "#ee"),
-];
-
-impl Theme {
-    /// Create a new theme with default values.
-    pub fn new() -> Self {
-        let mut theme = Self {
-            colors: HashMap::new(),
-            rgbs: HashMap::new(),
-            gradients: HashMap::new(),
-        };
-        theme.load_defaults();
-        theme.generate_gradients();
-        theme
-    }
-
-    /// Load a theme by name from the bundled themes list.
-    /// Returns a new Theme. Falls back to default if name not found.
-    pub fn from_name(name: &str) -> Self {
-        if name == "Default" || name.is_empty() {
-            return Self::new();
-        }
-        if let Some(content) = get_bundled_theme(name) {
-            let mut theme = Self::new();
-            theme.load_from_string(content);
-            theme
-        } else {
-            Self::new()
-        }
-    }
-
-    /// Load theme colors from a theme file content string.
-    pub fn load_from_string(&mut self, content: &str) -> Vec<String> {
-        self.load_defaults();
-        let mut warnings = Vec::new();
-        let mut provided = HashSet::new();
-
-        for line in content.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with('#') {
-                continue;
-            }
-
-            let Some(rest) = trimmed.strip_prefix("theme[") else {
-                continue;
-            };
-            let Some((key, rest)) = rest.split_once(']') else {
-                continue;
-            };
-            let Some((_, value)) = rest.split_once('=') else {
-                continue;
-            };
-            let value = value.trim().trim_matches('"');
-
-            if !DEFAULT_THEME.iter().any(|(k, _)| *k == key) {
-                warnings.push(format!("Unknown theme key: '{key}'"));
-                continue;
-            }
-            provided.insert(key.to_string());
-
-            if value.is_empty() {
-                self.rgbs.remove(key);
-                self.colors.insert(key.to_string(), String::new());
-                continue;
-            }
-
-            let rgb = if value.starts_with('#') {
-                parse_hex(value)
-            } else {
-                parse_decimal_rgb(value)
-            };
-
-            let escape = rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]);
-            self.rgbs.insert(key.to_string(), rgb);
-            self.colors.insert(key.to_string(), escape);
-        }
-
-        self.apply_fallbacks(&provided);
-        self.generate_gradients();
-        warnings
-    }
-
-    fn load_defaults(&mut self) {
-        for (key, hex) in DEFAULT_THEME {
-            let rgb = parse_hex(hex);
-            let escape = rgb_to_fg_escape(rgb[0], rgb[1], rgb[2]);
-            self.rgbs.insert(key.to_string(), rgb);
-            self.colors.insert(key.to_string(), escape);
-        }
-        for key in crate::theme_keys::COLOR_KEYS {
-            debug_assert!(self.colors.contains_key(key.name()));
-        }
-    }
-
-    fn apply_fallbacks(&mut self, provided: &HashSet<String>) {
-        for rule in FALLBACK_RULES {
-            match rule {
-                FallbackRule::Single { target, source } => {
-                    if !provided.contains(*target) {
-                        self.copy_color(target, source);
-                    }
-                }
-                FallbackRule::Gradient { target, source } => {
-                    for suffix in ["_start", "_mid", "_end"] {
-                        let key = format!("{target}{suffix}");
-                        if !provided.contains(&key) {
-                            let fb = format!("{source}{suffix}");
-                            self.copy_color(&key, &fb);
-                        }
-                    }
-                }
-                FallbackRule::FirstAvailable { target, sources } => {
-                    if !provided.contains(*target) {
-                        self.copy_first_provided_color(target, sources, provided);
-                    }
-                }
-            }
-        }
-    }
-
-    fn copy_color(&mut self, target: &str, source: &str) {
-        let color = self.colors.get(source).cloned().unwrap_or_default();
-        self.colors.insert(target.to_string(), color);
-        if let Some(rgb) = self.rgbs.get(source).copied() {
-            self.rgbs.insert(target.to_string(), rgb);
-        } else {
-            self.rgbs.remove(target);
-        }
-    }
-
-    fn copy_first_provided_color(
-        &mut self,
-        target: &str,
-        sources: &[&str],
-        provided: &HashSet<String>,
-    ) {
-        let source = sources
-            .iter()
-            .copied()
-            .find(|source| {
-                provided.contains(*source)
-                    && self
-                        .colors
-                        .get(*source)
-                        .is_some_and(|color| !color.is_empty())
-            })
-            .or_else(|| {
-                sources.iter().copied().find(|source| {
-                    self.colors
-                        .get(*source)
-                        .is_some_and(|color| !color.is_empty())
-                })
-            });
-        let Some(source) = source else {
-            self.colors.insert(target.to_string(), String::new());
-            self.rgbs.remove(target);
-            return;
-        };
-        self.copy_color(target, source);
-    }
-
-    fn generate_gradients(&mut self) {
-        for key in crate::theme_keys::GRADIENT_KEYS {
-            let name = key.name();
-            let start_key = format!("{name}_start");
-            let mid_key = format!("{name}_mid");
-            let end_key = format!("{name}_end");
-
-            let start = self.rgbs.get(&start_key).copied().unwrap_or_default();
-            let mid = self.rgbs.get(&mid_key).copied();
-            let end = self.rgbs.get(&end_key).copied();
-
-            let gradient = generate_gradient(start, mid, end);
-            self.gradients.insert(name.to_string(), gradient);
-        }
-    }
-
-    /// Get a color escape code by typed key.
-    ///
-    /// Returns an empty string (default terminal color) if the key is missing.
-    /// This should never happen — `load_defaults` + `apply_fallbacks` guarantee
-    /// all keys exist — but a fallback is safer than a panic in release builds.
-    pub fn color(&self, key: ColorKey) -> &str {
-        match self.colors.get(key.name()) {
-            Some(color) => color.as_str(),
-            None => {
-                tracing::warn!("missing theme color '{}', using fallback", key.name());
-                ""
-            }
-        }
-    }
-
-    /// Get a background color escape string for a theme color name.
-    /// Converts the foreground escape (38;2;r;g;b) to background (48;2;r;g;b).
-    pub fn background(&self, key: ColorKey) -> String {
-        self.color(key).replace("38;2", "48;2")
-    }
-
-    /// Get an RGB value for a typed color key.
-    pub fn rgb(&self, key: ColorKey) -> [u8; 3] {
-        self.rgbs.get(key.name()).copied().unwrap_or_default()
-    }
-
-    /// Base terminal style for normal text and background rendering.
-    pub fn base_style(&self, theme_background: bool) -> String {
-        let bg = if theme_background {
-            self.background(crate::theme_keys::MAIN_BG)
-        } else {
-            "\x1b[49m".to_string()
-        };
-        format!("{}{}", self.color(crate::theme_keys::MAIN_FG), bg)
-    }
-
-    /// Prefix output with the base style and make hard resets return to it.
-    pub fn style_output(&self, output: &str, theme_background: bool) -> String {
-        let base = self.base_style(theme_background);
-        let reset = format!("\x1b[0m{base}");
-        format!("{base}{}", output.replace("\x1b[0m", &reset))
-    }
-
-    /// Get a gradient array by typed key (101 elements, indices 0–100).
-    ///
-    /// Returns a static fallback gradient if the key is missing.
-    /// This should never happen — `generate_gradients` populates all keys —
-    /// but a fallback is safer than a panic in release builds.
-    pub fn gradient(&self, key: GradientKey) -> &[String] {
-        match self.gradients.get(key.name()) {
-            Some(gradient) => gradient.as_slice(),
-            None => {
-                tracing::warn!("missing theme gradient '{}', using fallback", key.name());
-                static FALLBACK: std::sync::LazyLock<Vec<String>> =
-                    std::sync::LazyLock::new(|| vec![String::new(); 101]);
-                &FALLBACK
-            }
-        }
-    }
-}
-
-impl Default for Theme {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Parse a hex color string to [R, G, B].
-/// Supports "#RRGGBB" (6-char) and "#GG" (2-char grayscale).
-pub fn parse_hex(hex: &str) -> [u8; 3] {
-    let hex = hex.trim_start_matches('#');
-    match hex.len() {
-        6 => {
-            let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
-            let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
-            let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
-            [r, g, b]
-        }
-        2 => {
-            let v = u8::from_str_radix(hex, 16).unwrap_or(0);
-            [v, v, v]
-        }
-        _ => [0, 0, 0],
-    }
-}
-
-/// Parse "R G B" decimal format to [R, G, B].
-pub fn parse_decimal_rgb(s: &str) -> [u8; 3] {
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.len() >= 3 {
-        let r = parts[0].parse::<u8>().unwrap_or(0);
-        let g = parts[1].parse::<u8>().unwrap_or(0);
-        let b = parts[2].parse::<u8>().unwrap_or(0);
-        [r, g, b]
-    } else {
-        [0, 0, 0]
-    }
-}
-
-/// Convert RGB to a foreground ANSI truecolor escape code.
-pub fn rgb_to_fg_escape(r: u8, g: u8, b: u8) -> String {
-    format!("\x1b[38;2;{r};{g};{b}m")
-}
-
-/// Generate a 101-element gradient from start, optional mid, and optional end colors.
-fn generate_gradient(start: [u8; 3], mid: Option<[u8; 3]>, end: Option<[u8; 3]>) -> Vec<String> {
-    let mut result = Vec::with_capacity(101);
-
-    match (mid, end) {
-        (_, None) => {
-            // Start only — fill all 101 with start color
-            let esc = rgb_to_fg_escape(start[0], start[1], start[2]);
-            result.resize(101, esc);
-        }
-        (None, Some(end)) => {
-            // Start + end — linear interpolation across 0–100
-            for i in 0..=100 {
-                let r = interpolate(start[0], end[0], i, 100);
-                let g = interpolate(start[1], end[1], i, 100);
-                let b = interpolate(start[2], end[2], i, 100);
-                result.push(rgb_to_fg_escape(r, g, b));
-            }
-        }
-        (Some(mid), Some(end)) => {
-            // Start + mid + end — two segments
-            for i in 0..=50 {
-                let r = interpolate(start[0], mid[0], i, 50);
-                let g = interpolate(start[1], mid[1], i, 50);
-                let b = interpolate(start[2], mid[2], i, 50);
-                result.push(rgb_to_fg_escape(r, g, b));
-            }
-            for i in 1..=50 {
-                let r = interpolate(mid[0], end[0], i, 50);
-                let g = interpolate(mid[1], end[1], i, 50);
-                let b = interpolate(mid[2], end[2], i, 50);
-                result.push(rgb_to_fg_escape(r, g, b));
-            }
-        }
-    }
-
-    result
-}
-
-fn interpolate(start: u8, end: u8, step: usize, total: usize) -> u8 {
-    if total == 0 {
-        return start;
-    }
-    let s = start as i32;
-    let e = end as i32;
-    (s + (step as i32) * (e - s) / (total as i32)).clamp(0, 255) as u8
-}
-
-// --- Bundled themes ---
-
-/// All available theme names (Default + bundled).
+/// All available theme names.
 pub const THEME_NAMES: &[&str] = &[
     "Default",
     "adapta",
@@ -569,91 +221,219 @@ pub const THEME_NAMES: &[&str] = &[
     "whiteout",
 ];
 
-/// Get the content of a bundled theme by name.
-fn get_bundled_theme(name: &str) -> Option<&'static str> {
-    match name {
-        "adapta" => Some(include_str!("../themes/adapta.theme")),
-        "adwaita-dark" => Some(include_str!("../themes/adwaita-dark.theme")),
-        "adwaita" => Some(include_str!("../themes/adwaita.theme")),
-        "ayu" => Some(include_str!("../themes/ayu.theme")),
-        "dracula" => Some(include_str!("../themes/dracula.theme")),
-        "dusklight" => Some(include_str!("../themes/dusklight.theme")),
-        "elementarish" => Some(include_str!("../themes/elementarish.theme")),
-        "everforest-dark-hard" => Some(include_str!("../themes/everforest-dark-hard.theme")),
-        "everforest-dark-medium" => Some(include_str!("../themes/everforest-dark-medium.theme")),
-        "everforest-light-medium" => Some(include_str!("../themes/everforest-light-medium.theme")),
-        "flat-remix-light" => Some(include_str!("../themes/flat-remix-light.theme")),
-        "flat-remix" => Some(include_str!("../themes/flat-remix.theme")),
-        "flexoki-dark" => Some(include_str!("../themes/flexoki-dark.theme")),
-        "flexoki-light" => Some(include_str!("../themes/flexoki-light.theme")),
-        "gotham" => Some(include_str!("../themes/gotham.theme")),
-        "greyscale" => Some(include_str!("../themes/greyscale.theme")),
-        "gruvbox_dark" => Some(include_str!("../themes/gruvbox_dark.theme")),
-        "gruvbox_dark_v2" => Some(include_str!("../themes/gruvbox_dark_v2.theme")),
-        "gruvbox_light" => Some(include_str!("../themes/gruvbox_light.theme")),
-        "gruvbox_material_dark" => Some(include_str!("../themes/gruvbox_material_dark.theme")),
-        "horizon" => Some(include_str!("../themes/horizon.theme")),
-        "HotPurpleTrafficLight" => Some(include_str!("../themes/HotPurpleTrafficLight.theme")),
-        "kanagawa-lotus" => Some(include_str!("../themes/kanagawa-lotus.theme")),
-        "kanagawa-wave" => Some(include_str!("../themes/kanagawa-wave.theme")),
-        "kyli0x" => Some(include_str!("../themes/kyli0x.theme")),
-        "matcha-dark-sea" => Some(include_str!("../themes/matcha-dark-sea.theme")),
-        "monokai" => Some(include_str!("../themes/monokai.theme")),
-        "night-owl" => Some(include_str!("../themes/night-owl.theme")),
-        "nord" => Some(include_str!("../themes/nord.theme")),
-        "onedark" => Some(include_str!("../themes/onedark.theme")),
-        "orange" => Some(include_str!("../themes/orange.theme")),
-        "paper" => Some(include_str!("../themes/paper.theme")),
-        "phoenix-night" => Some(include_str!("../themes/phoenix-night.theme")),
-        "solarized_dark" => Some(include_str!("../themes/solarized_dark.theme")),
-        "solarized_light" => Some(include_str!("../themes/solarized_light.theme")),
-        "tokyo-night" => Some(include_str!("../themes/tokyo-night.theme")),
-        "tokyo-storm" => Some(include_str!("../themes/tokyo-storm.theme")),
-        "tomorrow-night" => Some(include_str!("../themes/tomorrow-night.theme")),
-        "twilight" => Some(include_str!("../themes/twilight.theme")),
-        "whiteout" => Some(include_str!("../themes/whiteout.theme")),
-        _ => None,
+/// All theme color data — array-indexed, no HashMap.
+#[derive(Debug, Clone)]
+pub struct Theme {
+    colors: [String; COLOR_COUNT],
+    rgbs: [Option<Rgb>; COLOR_COUNT],
+    gradients: [Vec<String>; GRADIENT_COUNT],
+}
+
+impl Theme {
+    /// Create a new theme with default values (parses `default.toml`).
+    pub fn new() -> Self {
+        Self::from_name("Default")
     }
+
+    /// Load a theme by name from the bundled themes list.
+    /// Falls back to Default if name not found or parse fails.
+    pub fn from_name(name: &str) -> Self {
+        let content = BUNDLED_THEMES
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(name))
+            .or_else(|| BUNDLED_THEMES.first())
+            .map(|t| t.content)
+            .unwrap();
+
+        match toml::from_str::<ThemePalette>(content) {
+            Ok(palette) => Self::from_palette(&palette),
+            Err(e) => {
+                tracing::warn!("failed to parse theme '{name}': {e}, using Default");
+                let default = BUNDLED_THEMES[0].content;
+                let palette: ThemePalette =
+                    toml::from_str(default).expect("default theme must parse");
+                Self::from_palette(&palette)
+            }
+        }
+    }
+
+    /// Build a `Theme` from a parsed `ThemePalette`.
+    pub fn from_palette(palette: &ThemePalette) -> Self {
+        let c = &palette.colors;
+
+        // Extract colors in index order matching ColorKey constants.
+        let rgb_opts: [Option<Rgb>; COLOR_COUNT] = [
+            c.main_bg,              // 0
+            Some(c.main_fg),        // 1
+            Some(c.title),          // 2
+            Some(c.hi_fg),          // 3
+            Some(c.selected_bg),    // 4
+            Some(c.selected_fg),    // 5
+            Some(c.inactive_fg),    // 6
+            Some(c.graph_text),     // 7
+            Some(c.meter_bg),       // 8
+            Some(c.proc_misc),      // 9
+            Some(c.proc_tree_fg),   // 10
+            Some(c.cpu_box),        // 11
+            Some(c.mem_box),        // 12
+            Some(c.net_box),        // 13
+            Some(c.proc_box),       // 14
+            Some(c.gpu_box),        // 15
+            Some(c.disk_box),       // 16
+            Some(c.help_box),       // 17
+            Some(c.options_box),    // 18
+            Some(c.div_line),       // 19
+            Some(c.proc_pause_bg),  // 20
+            Some(c.proc_follow_bg), // 21
+            Some(c.proc_banner_bg), // 22
+            Some(c.proc_banner_fg), // 23
+            Some(c.followed_bg),    // 24
+            Some(c.followed_fg),    // 25
+        ];
+
+        let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| match rgb_opts[i] {
+            Some(rgb) => rgb.to_fg_escape(),
+            None => String::new(),
+        });
+
+        let g = &palette.gradients;
+        let gradient_defs: [&GradientDef; GRADIENT_COUNT] = [
+            &g.cpu,        // 0
+            &g.temp,       // 1
+            &g.free,       // 2
+            &g.cached,     // 3
+            &g.available,  // 4
+            &g.used,       // 5
+            &g.download,   // 6
+            &g.upload,     // 7
+            &g.process,    // 8
+            &g.gpu,        // 9
+            &g.gpu_clock,  // 10
+            &g.gpu_power,  // 11
+            &g.gpu_vram,   // 12
+            &g.disk_read,  // 13
+            &g.disk_write, // 14
+            &g.disk_busy,  // 15
+        ];
+
+        let gradients: [Vec<String>; GRADIENT_COUNT] = std::array::from_fn(|i| {
+            let def = gradient_defs[i];
+            generate_gradient(
+                [def.start.0, def.start.1, def.start.2],
+                Some([def.mid.0, def.mid.1, def.mid.2]),
+                Some([def.end.0, def.end.1, def.end.2]),
+            )
+        });
+
+        Self {
+            colors,
+            rgbs: rgb_opts,
+            gradients,
+        }
+    }
+
+    /// Get a color escape code by typed key.
+    pub fn color(&self, key: ColorKey) -> &str {
+        &self.colors[key.index()]
+    }
+
+    /// Get a background color escape string for a theme color.
+    /// Converts the foreground escape (38;2;r;g;b) to background (48;2;r;g;b).
+    pub fn background(&self, key: ColorKey) -> String {
+        self.color(key).replace("38;2", "48;2")
+    }
+
+    /// Get an RGB value for a typed color key.
+    pub fn rgb(&self, key: ColorKey) -> [u8; 3] {
+        match self.rgbs[key.index()] {
+            Some(rgb) => [rgb.0, rgb.1, rgb.2],
+            None => [0, 0, 0],
+        }
+    }
+
+    /// Base terminal style for normal text and background rendering.
+    pub fn base_style(&self, theme_background: bool) -> String {
+        let bg = if theme_background {
+            self.background(crate::theme_keys::MAIN_BG)
+        } else {
+            "\x1b[49m".to_string()
+        };
+        format!("{}{}", self.color(crate::theme_keys::MAIN_FG), bg)
+    }
+
+    /// Prefix output with the base style and make hard resets return to it.
+    pub fn style_output(&self, output: &str, theme_background: bool) -> String {
+        let base = self.base_style(theme_background);
+        let reset = format!("\x1b[0m{base}");
+        format!("{base}{}", output.replace("\x1b[0m", &reset))
+    }
+
+    /// Get a gradient array by typed key (101 elements, indices 0–100).
+    pub fn gradient(&self, key: GradientKey) -> &[String] {
+        &self.gradients[key.index()]
+    }
+}
+
+impl Default for Theme {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Convert RGB to a foreground ANSI truecolor escape code.
+fn rgb_to_fg_escape(r: u8, g: u8, b: u8) -> String {
+    format!("\x1b[38;2;{r};{g};{b}m")
+}
+
+/// Generate a 101-element gradient from start, optional mid, and optional end colors.
+fn generate_gradient(start: [u8; 3], mid: Option<[u8; 3]>, end: Option<[u8; 3]>) -> Vec<String> {
+    let mut result = Vec::with_capacity(101);
+
+    match (mid, end) {
+        (_, None) => {
+            let esc = rgb_to_fg_escape(start[0], start[1], start[2]);
+            result.resize(101, esc);
+        }
+        (None, Some(end)) => {
+            for i in 0..=100 {
+                let r = interpolate(start[0], end[0], i, 100);
+                let g = interpolate(start[1], end[1], i, 100);
+                let b = interpolate(start[2], end[2], i, 100);
+                result.push(rgb_to_fg_escape(r, g, b));
+            }
+        }
+        (Some(mid), Some(end)) => {
+            for i in 0..=50 {
+                let r = interpolate(start[0], mid[0], i, 50);
+                let g = interpolate(start[1], mid[1], i, 50);
+                let b = interpolate(start[2], mid[2], i, 50);
+                result.push(rgb_to_fg_escape(r, g, b));
+            }
+            for i in 1..=50 {
+                let r = interpolate(mid[0], end[0], i, 50);
+                let g = interpolate(mid[1], end[1], i, 50);
+                let b = interpolate(mid[2], end[2], i, 50);
+                result.push(rgb_to_fg_escape(r, g, b));
+            }
+        }
+    }
+
+    result
+}
+
+fn interpolate(start: u8, end: u8, step: usize, total: usize) -> u8 {
+    if total == 0 {
+        return start;
+    }
+    let s = start as i32;
+    let e = end as i32;
+    (s + (step as i32) * (e - s) / (total as i32)).clamp(0, 255) as u8
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::theme_keys as tc;
-
-    // --- hex parsing ---
-
-    #[test]
-    fn parse_hex_6char() {
-        assert_eq!(parse_hex("#ff0000"), [255, 0, 0]);
-        assert_eq!(parse_hex("#00ff00"), [0, 255, 0]);
-        assert_eq!(parse_hex("#282a36"), [40, 42, 54]);
-    }
-
-    #[test]
-    fn parse_hex_2char_grayscale() {
-        assert_eq!(parse_hex("#cc"), [204, 204, 204]);
-        assert_eq!(parse_hex("#00"), [0, 0, 0]);
-        assert_eq!(parse_hex("#ff"), [255, 255, 255]);
-    }
-
-    #[test]
-    fn parse_hex_invalid_returns_black() {
-        assert_eq!(parse_hex("#xyz"), [0, 0, 0]);
-        assert_eq!(parse_hex(""), [0, 0, 0]);
-    }
-
-    #[test]
-    fn parse_decimal_rgb_valid() {
-        assert_eq!(parse_decimal_rgb("255 128 0"), [255, 128, 0]);
-    }
-
-    // --- color conversion ---
-
-    #[test]
-    fn rgb_to_fg_escape_format() {
-        assert_eq!(rgb_to_fg_escape(255, 0, 0), "\x1b[38;2;255;0;0m");
-    }
 
     // --- gradient generation ---
 
@@ -669,9 +449,7 @@ mod tests {
     fn gradient_start_end_linear_interpolation() {
         let grad = generate_gradient([0, 0, 0], None, Some([255, 255, 255]));
         assert_eq!(grad.len(), 101);
-        // Start should be black
         assert_eq!(grad[0], rgb_to_fg_escape(0, 0, 0));
-        // End should be near-white (integer rounding)
         assert_eq!(grad[100], rgb_to_fg_escape(255, 255, 255));
     }
 
@@ -680,7 +458,6 @@ mod tests {
         let grad = generate_gradient([0, 0, 0], Some([128, 128, 128]), Some([255, 255, 255]));
         assert_eq!(grad.len(), 101);
         assert_eq!(grad[0], rgb_to_fg_escape(0, 0, 0));
-        // Midpoint should be approximately mid color
         assert_eq!(grad[50], rgb_to_fg_escape(128, 128, 128));
         assert_eq!(grad[100], rgb_to_fg_escape(255, 255, 255));
     }
@@ -698,195 +475,64 @@ mod tests {
     // --- Theme ---
 
     #[test]
-    fn default_theme_has_all_keys() {
+    fn default_theme_constructs() {
         let theme = Theme::new();
-        for key in tc::COLOR_KEYS {
-            assert!(
-                theme.colors.contains_key(key.name()),
-                "default theme missing color key '{}'",
-                key.name()
-            );
-        }
-    }
-
-    #[test]
-    fn default_theme_has_gradients() {
-        let theme = Theme::new();
-        for key in tc::GRADIENT_KEYS {
-            assert_eq!(
-                theme.gradient(*key).len(),
-                101,
-                "default theme missing gradient '{}'",
-                key.name()
-            );
-        }
-    }
-
-    #[test]
-    fn theme_color_accessor() {
-        let theme = Theme::new();
+        // main_fg should be a valid ANSI escape
         let color = theme.color(tc::MAIN_FG);
         assert!(color.starts_with("\x1b[38;2;"));
     }
 
     #[test]
-    fn base_style_honors_theme_background() {
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[main_fg]="#111111"
-            theme[main_bg]="#f6f5f4"
-            "##,
-        );
+    fn default_theme_has_all_gradients() {
+        let theme = Theme::new();
+        assert_eq!(theme.gradient(tc::GRAD_CPU).len(), 101);
+        assert_eq!(theme.gradient(tc::GRAD_TEMP).len(), 101);
+        assert_eq!(theme.gradient(tc::GRAD_DISK_BUSY).len(), 101);
+    }
 
-        assert!(theme.base_style(true).contains("\x1b[48;2;246;245;244m"));
+    #[test]
+    fn from_name_dracula() {
+        let theme = Theme::from_name("dracula");
+        let color = theme.color(tc::MAIN_FG);
+        assert!(color.starts_with("\x1b[38;2;"));
+    }
+
+    #[test]
+    fn from_name_unknown_falls_back_to_default() {
+        let theme = Theme::from_name("nonexistent_theme_xyz");
+        let default = Theme::new();
+        assert_eq!(theme.color(tc::MAIN_FG), default.color(tc::MAIN_FG));
+    }
+
+    #[test]
+    fn base_style_honors_theme_background() {
+        let theme = Theme::from_name("Default");
+        assert!(theme.base_style(true).contains("\x1b[48;2;"));
         assert!(theme.base_style(false).contains("\x1b[49m"));
-        assert!(!theme.base_style(false).contains("\x1b[48;2;246;245;244m"));
     }
 
     #[test]
     fn style_output_reapplies_base_after_reset() {
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[main_fg]="#111111"
-            theme[main_bg]="#f6f5f4"
-            "##,
-        );
+        let theme = Theme::from_name("Default");
         let base = theme.base_style(true);
         let styled = theme.style_output("left\x1b[0mright", true);
-
         assert!(styled.starts_with(&base));
         assert!(styled.contains(&format!("\x1b[0m{base}right")));
     }
 
     #[test]
-    fn empty_theme_main_bg_keeps_terminal_background() {
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[main_bg]=""
-            "##,
-        );
+    fn empty_main_bg_keeps_terminal_background() {
+        // Use a theme TOML where main_bg is omitted
+        let toml_str = include_str!("../themes/whiteout.toml");
+        let palette: ThemePalette = toml::from_str(toml_str).unwrap();
+        // whiteout has main_bg, but we can test the mechanism with a palette
+        // that has None for main_bg
+        let mut palette_no_bg = palette;
+        palette_no_bg.colors.main_bg = None;
+        let theme = Theme::from_palette(&palette_no_bg);
 
         assert_eq!(theme.background(tc::MAIN_BG), "");
         assert!(!theme.base_style(true).contains("\x1b[48;2;0;0;0m"));
-    }
-
-    #[test]
-    fn empty_gradient_values_override_defaults() {
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[cpu_start]="#123456"
-            theme[cpu_mid]=""
-            theme[cpu_end]=""
-            "##,
-        );
-
-        let cpu = theme.gradient(tc::GRAD_CPU);
-        assert_eq!(cpu[0], rgb_to_fg_escape(0x12, 0x34, 0x56));
-        assert_eq!(cpu[50], cpu[0]);
-        assert_eq!(cpu[100], cpu[0]);
-    }
-
-    #[test]
-    fn unknown_theme_keys_generate_warnings() {
-        let mut theme = Theme::new();
-        let warnings = theme.load_from_string(
-            r##"
-            theme[main_fg]="#111111"
-            theme[not_a_real_key]="#222222"
-            "##,
-        );
-
-        assert_eq!(warnings, vec!["Unknown theme key: 'not_a_real_key'"]);
-        assert_eq!(theme.color(tc::MAIN_FG), rgb_to_fg_escape(0x11, 0x11, 0x11));
-    }
-
-    #[test]
-    fn missing_theme_keys_fall_back_to_theme_palette() {
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[inactive_fg]="#112233"
-            theme[selected_bg]="#445566"
-            theme[selected_fg]="#ddeeff"
-            theme[cpu_start]="#010203"
-            theme[cpu_mid]="#040506"
-            theme[cpu_end]="#070809"
-            theme[used_end]="#aa0000"
-            theme[download_end]="#0000aa"
-            "##,
-        );
-
-        assert_eq!(
-            theme.color(tc::METER_BG),
-            rgb_to_fg_escape(0x11, 0x22, 0x33)
-        );
-        assert_eq!(
-            theme.color(tc::GRAPH_TEXT),
-            rgb_to_fg_escape(0x11, 0x22, 0x33)
-        );
-        assert_eq!(
-            theme.color(tc::PROC_TREE_FG),
-            rgb_to_fg_escape(0x11, 0x22, 0x33)
-        );
-        assert_eq!(
-            theme.gradient(tc::GRAD_PROCESS)[0],
-            rgb_to_fg_escape(1, 2, 3)
-        );
-        assert_eq!(
-            theme.gradient(tc::GRAD_PROCESS)[50],
-            rgb_to_fg_escape(4, 5, 6)
-        );
-        assert_eq!(
-            theme.gradient(tc::GRAD_PROCESS)[100],
-            rgb_to_fg_escape(7, 8, 9)
-        );
-        assert_eq!(theme.color(tc::PROC_PAUSE_BG), rgb_to_fg_escape(0xaa, 0, 0));
-        assert_eq!(
-            theme.color(tc::PROC_FOLLOW_BG),
-            rgb_to_fg_escape(0, 0, 0xaa)
-        );
-        assert_eq!(
-            theme.color(tc::PROC_BANNER_BG),
-            rgb_to_fg_escape(0x44, 0x55, 0x66)
-        );
-        assert_eq!(
-            theme.color(tc::PROC_BANNER_FG),
-            rgb_to_fg_escape(0xdd, 0xee, 0xff)
-        );
-    }
-
-    #[test]
-    fn bundled_themes_declare_all_default_keys() {
-        for theme_name in THEME_NAMES
-            .iter()
-            .copied()
-            .filter(|name| *name != "Default")
-        {
-            let content = get_bundled_theme(theme_name).expect("theme should be bundled");
-            let declared: HashSet<&str> = content
-                .lines()
-                .filter_map(|line| {
-                    let trimmed = line.trim();
-                    let rest = trimmed.strip_prefix("theme[")?;
-                    let (key, _) = rest.split_once(']')?;
-                    Some(key)
-                })
-                .collect();
-            let missing: Vec<&str> = DEFAULT_THEME
-                .iter()
-                .map(|(key, _)| *key)
-                .filter(|key| !declared.contains(key))
-                .collect();
-
-            assert!(
-                missing.is_empty(),
-                "{theme_name} is missing theme keys: {missing:?}"
-            );
-        }
     }
 
     #[test]
@@ -894,32 +540,51 @@ mod tests {
         let grad = generate_gradient([0, 0, 0], None, Some([200, 100, 50]));
         assert_eq!(grad[0], rgb_to_fg_escape(0, 0, 0));
         assert_eq!(grad[100], rgb_to_fg_escape(200, 100, 50));
-        // Midpoint should be approximately half
         assert_eq!(grad[50], rgb_to_fg_escape(100, 50, 25));
     }
 
     #[test]
-    fn followed_bg_inherits_from_proc_follow_bg_via_chained_fallback() {
-        // proc_follow_bg is resolved from download_start (FirstAvailable),
-        // then followed_bg copies from proc_follow_bg (Single).
-        // This only works because FALLBACK_RULES processes proc_follow_bg first.
-        let mut theme = Theme::new();
-        theme.load_from_string(
-            r##"
-            theme[download_start]="#112233"
-            "##,
-        );
+    fn all_bundled_themes_parse_successfully() {
+        for bt in BUNDLED_THEMES {
+            let result = toml::from_str::<ThemePalette>(bt.content);
+            assert!(
+                result.is_ok(),
+                "bundled theme '{}' failed to parse: {}",
+                bt.name,
+                result.unwrap_err()
+            );
+        }
+    }
 
-        let expected = rgb_to_fg_escape(0x11, 0x22, 0x33);
+    #[test]
+    fn theme_names_matches_bundled_themes() {
         assert_eq!(
-            theme.color(tc::PROC_FOLLOW_BG),
-            expected,
-            "proc_follow_bg should fall back to download_start"
+            THEME_NAMES.len(),
+            BUNDLED_THEMES.len(),
+            "THEME_NAMES and BUNDLED_THEMES must have the same length"
         );
-        assert_eq!(
-            theme.color(tc::FOLLOWED_BG),
-            expected,
-            "followed_bg should inherit from proc_follow_bg"
-        );
+        for (i, bt) in BUNDLED_THEMES.iter().enumerate() {
+            assert_eq!(
+                THEME_NAMES[i], bt.name,
+                "THEME_NAMES[{i}] does not match BUNDLED_THEMES"
+            );
+        }
+    }
+
+    #[test]
+    fn rgb_accessor_returns_values() {
+        let theme = Theme::new();
+        let rgb = theme.rgb(tc::MAIN_FG);
+        // Default main_fg is #cccccc
+        assert_eq!(rgb, [0xcc, 0xcc, 0xcc]);
+    }
+
+    #[test]
+    fn rgb_accessor_returns_zero_for_none_bg() {
+        let toml_str = include_str!("../themes/default.toml");
+        let mut palette: ThemePalette = toml::from_str(toml_str).unwrap();
+        palette.colors.main_bg = None;
+        let theme = Theme::from_palette(&palette);
+        assert_eq!(theme.rgb(tc::MAIN_BG), [0, 0, 0]);
     }
 }

@@ -1,0 +1,108 @@
+[colors]
+main_bg = "#24283b"
+main_fg = "#cfc9c2"
+title = "#cfc9c2"
+hi_fg = "#7dcfff"
+selected_bg = "#414868"
+selected_fg = "#cfc9c2"
+inactive_fg = "#565f89"
+graph_text = "#565f89"
+meter_bg = "#565f89"
+proc_misc = "#7dcfff"
+proc_tree_fg = "#565f89"
+cpu_box = "#565f89"
+mem_box = "#565f89"
+net_box = "#565f89"
+proc_box = "#565f89"
+gpu_box = "#565f89"
+disk_box = "#565f89"
+help_box = "#565f89"
+options_box = "#565f89"
+div_line = "#565f89"
+proc_pause_bg = "#f7768e"
+proc_follow_bg = "#9ece6a"
+proc_banner_bg = "#414868"
+proc_banner_fg = "#cfc9c2"
+followed_bg = "#9ece6a"
+followed_fg = "#cfc9c2"
+
+[gradients.temp]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.cpu]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.free]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.cached]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.available]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.used]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.download]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.upload]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.disk_read]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.disk_write]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.disk_busy]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.process]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.gpu]
+start = "#9ece6a"
+mid = "#e0af68"
+end = "#f7768e"
+
+[gradients.gpu_clock]
+start = "#7aa2f7"
+mid = "#7dcfff"
+end = "#89ddff"
+
+[gradients.gpu_power]
+start = "#ff9e64"
+mid = "#f7768e"
+end = "#db4b4b"
+
+[gradients.gpu_vram]
+start = "#bb9af7"
+mid = "#9d7cd8"
+end = "#7f63c4"
+
