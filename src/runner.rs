@@ -86,7 +86,7 @@ impl CollectionSnapshot {
                 status: runner.cpu.status.clone(),
             },
             disk: DiskSnapshot {
-                data: runner.disk.data.clone(),
+                info: runner.disk.info.clone(),
                 status: runner.disk.status.clone(),
             },
             gpu: GpuSnapshot {
@@ -112,7 +112,7 @@ impl CollectionSnapshot {
         LayoutHints {
             core_count: self.cpu.info.core_count,
             gpu_count: self.gpu.gpus.len(),
-            disk_count: self.disk.data.disks.len(),
+            disk_count: self.disk.info.disks.len(),
             has_swap: self.mem.info.stats.swap_total > 0,
         }
     }
@@ -126,7 +126,7 @@ pub(crate) struct CpuSnapshot {
 
 #[derive(Debug, Clone)]
 pub(crate) struct DiskSnapshot {
-    pub(crate) data: DiskData,
+    pub(crate) info: DiskData,
     pub(crate) status: CollectStatus,
 }
 

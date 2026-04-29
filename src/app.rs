@@ -489,7 +489,7 @@ fn calculate_layout(
         proc_left: config.get_bool(bk::PROC_LEFT),
         core_count: snapshot.cpu.info.core_count,
         gpu_count: snapshot.gpu.gpus.len(),
-        disk_count: snapshot.disk.data.disks.len(),
+        disk_count: snapshot.disk.info.disks.len(),
         has_swap: snapshot.mem.info.stats.swap_total > 0,
     })
 }
@@ -790,7 +790,7 @@ pub(crate) fn render_all(
                 ),
             };
             output.push_str(&ui::disk_box::draw(
-                &snapshot.disk.data,
+                &snapshot.disk.info,
                 &area,
                 theme,
                 &disk_settings,

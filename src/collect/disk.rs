@@ -18,7 +18,7 @@ struct DiskPerfCounters {
 /// Disk data collector using Windows APIs.
 pub struct DiskCollector {
     /// Collected disk data.
-    pub data: DiskData,
+    pub info: DiskData,
     pub status: super::CollectStatus,
     pdh_query: Option<PdhQuery>,
     pdh_counters: HashMap<String, DiskPerfCounters>,
@@ -37,7 +37,7 @@ impl DiskCollector {
     /// Create a new disk collector.
     pub fn new() -> Self {
         Self {
-            data: DiskData::default(),
+            info: DiskData::default(),
             status: super::CollectStatus::Ok,
             pdh_query: None,
             pdh_counters: HashMap::new(),
@@ -53,7 +53,7 @@ impl DiskCollector {
         use windows::Win32::Storage::FileSystem::*;
         use windows::core::*;
 
-        let previous_disks = std::mem::take(&mut self.data.disks);
+        let previous_disks = std::mem::take(&mut self.info.disks);
 
         let Some(drives_buf) = logical_drive_strings() else {
             tracing::warn!("Disk: GetLogicalDriveStringsW returned no drives");
@@ -121,7 +121,7 @@ impl DiskCollector {
                     disk.used = used;
                     disk.used_percent = used_pct;
 
-                    self.data.disks.push(disk);
+                    self.info.disks.push(disk);
                 }
             }
         }
@@ -131,7 +131,7 @@ impl DiskCollector {
     }
 
     fn ensure_perf_query(&mut self) {
-        let drives: Vec<String> = self.data.disks.iter().map(|d| d.name.clone()).collect();
+        let drives: Vec<String> = self.info.disks.iter().map(|d| d.name.clone()).collect();
         if self.pdh_initialized && self.pdh_drive_order == drives {
             return;
         }
@@ -202,7 +202,7 @@ impl DiskCollector {
             let write = counter_value_to_u64(counters.write.formatted_f64());
             let busy = counter_value_to_percent(counters.busy.formatted_f64());
 
-            if let Some(disk) = self.data.get_mut(&drive) {
+            if let Some(disk) = self.info.get_mut(&drive) {
                 disk.read_bytes_per_sec = read;
                 disk.write_bytes_per_sec = write;
                 disk.read_top = disk.read_top.max(read);
@@ -306,7 +306,7 @@ mod tests {
     #[test]
     fn disk_collector_new_is_empty() {
         let c = DiskCollector::new();
-        assert!(c.data.disks.is_empty());
+        assert!(c.info.disks.is_empty());
     }
 
     #[test]
@@ -330,9 +330,9 @@ mod tests {
     fn collect_finds_at_least_one_drive() {
         let mut c = DiskCollector::new();
         c.collect();
-        assert!(!c.data.disks.is_empty(), "expected at least one disk");
+        assert!(!c.info.disks.is_empty(), "expected at least one disk");
         assert!(
-            c.data.disks.iter().any(|d| d.name == "C:"),
+            c.info.disks.iter().any(|d| d.name == "C:"),
             "expected C: drive"
         );
     }
