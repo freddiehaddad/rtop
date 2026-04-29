@@ -325,7 +325,7 @@ pub const NET: &[OptDef] = &[
     },
     OptDef {
         key: ConfigKey::SwapUploadDownload,
-        desc: &["Swap the positions of the upload and download", "graphs."],
+        desc: &["Swap upload and download graph positions."],
     },
     OptDef {
         key: ConfigKey::NetDownload,
