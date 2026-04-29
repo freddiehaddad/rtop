@@ -63,6 +63,7 @@ pub(super) struct BottomBorderParams<'a> {
     pub(super) width: usize,
     pub(super) filter: &'a str,
     pub(super) filtering: bool,
+    pub(super) followed_pid: u32,
     pub(super) visible: usize,
     pub(super) total: usize,
 }
@@ -92,6 +93,14 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
         box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
     };
     buf.text(&filter_label);
+
+    // Following label
+    if p.followed_pid > 0 {
+        let follow_bg = theme.color(tc::PROC_FOLLOW_BG);
+        let follow_text = format!("{}following", follow_bg);
+        let follow_inset = box_drawing::title_inset(&follow_text, box_color, title_color, true);
+        buf.text(&follow_inset);
+    }
 
     // Right side: process count with border inset chars
     let count_str = format!("{}/{}", p.visible, p.total);

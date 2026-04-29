@@ -52,7 +52,7 @@ impl Default for ProcInfo {
 }
 
 /// Display-only metadata for one visible process row.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ProcDisplayEntry {
     /// Index into the collector's raw `procs` vector.
     pub proc_index: usize,
@@ -60,6 +60,10 @@ pub struct ProcDisplayEntry {
     pub prefix: String,
     /// Depth in process tree (0 = root).
     pub depth: usize,
+    /// Aggregated CPU% override (used when `proc_aggregate` is on in tree mode).
+    pub cpu_override: Option<f64>,
+    /// Aggregated memory override (used when `proc_aggregate` is on in tree mode).
+    pub mem_override: Option<u64>,
 }
 
 impl ProcDisplayEntry {
@@ -68,6 +72,8 @@ impl ProcDisplayEntry {
             proc_index,
             prefix: String::new(),
             depth: 0,
+            cpu_override: None,
+            mem_override: None,
         }
     }
 
@@ -76,6 +82,8 @@ impl ProcDisplayEntry {
             proc_index,
             prefix,
             depth,
+            cpu_override: None,
+            mem_override: None,
         }
     }
 }

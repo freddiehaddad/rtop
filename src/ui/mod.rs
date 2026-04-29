@@ -60,6 +60,7 @@ pub struct ProcView<'a> {
     pub sort_reversed: bool,
     pub tree_mode: bool,
     pub detailed_pid: u32,
+    pub followed_pid: u32,
     pub filter: &'a str,
     pub filtering: bool,
 }

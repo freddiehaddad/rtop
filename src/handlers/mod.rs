@@ -124,11 +124,15 @@ pub(crate) struct InputContext<'a> {
 
 impl InputContext<'_> {
     pub(crate) fn selected_proc_pid(&self) -> Option<u32> {
-        let snapshot = self.snapshot?;
+        let procs: &[crate::domain::process::ProcInfo] = self
+            .process
+            .display_procs
+            .as_deref()
+            .or_else(|| self.snapshot.map(|s| s.proc_data.procs.as_slice()))?;
         self.process
             .entries
             .get(self.process.selected)
-            .and_then(|entry| snapshot.proc_data.procs.get(entry.proc_index))
+            .and_then(|entry| procs.get(entry.proc_index))
             .map(|proc| proc.pid)
     }
 }
@@ -147,6 +151,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             layout,
             snapshot,
             proc_entries: &ctx.process.entries,
+            proc_display_procs: ctx.process.display_procs.as_deref(),
             proc_cpu_histories: &ctx.process.cpu_histories,
             selected_iface: ctx.network.selected_iface.as_str(),
             config: ctx.config,

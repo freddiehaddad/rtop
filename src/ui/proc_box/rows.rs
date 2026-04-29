@@ -12,6 +12,7 @@ pub(super) struct ProcessRowsParams<'a> {
     pub(super) layout: &'a ProcBoxLayout,
     pub(super) start: usize,
     pub(super) selected: usize,
+    pub(super) followed_pid: u32,
     pub(super) tree_mode: bool,
     pub(super) settings: &'a ProcBoxSettings<'a>,
     pub(super) colors: &'a ProcColors<'a>,
@@ -24,6 +25,7 @@ struct ProcessRowParams<'a> {
     row_y: usize,
     layout: &'a ProcBoxLayout,
     selected: usize,
+    followed_pid: u32,
     tree_mode: bool,
     settings: &'a ProcBoxSettings<'a>,
     colors: &'a ProcColors<'a>,
@@ -61,6 +63,7 @@ pub(super) fn draw_rows(buf: &mut AnsiBuffer, params: &ProcessRowsParams<'_>) {
                 row_y: params.layout.first_row_y + i,
                 layout: params.layout,
                 selected: params.selected,
+                followed_pid: params.followed_pid,
                 tree_mode: params.tree_mode,
                 settings: params.settings,
                 colors: params.colors,
@@ -71,8 +74,10 @@ pub(super) fn draw_rows(buf: &mut AnsiBuffer, params: &ProcessRowsParams<'_>) {
 
 fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let columns = &params.layout.columns;
-    let display_cpu = display_proc_cpu(params.proc.cpu_p, params.settings);
-    let mem_str = format_proc_memory(params.proc.mem, params.settings);
+    let cpu_p = params.entry.cpu_override.unwrap_or(params.proc.cpu_p);
+    let mem = params.entry.mem_override.unwrap_or(params.proc.mem);
+    let display_cpu = display_proc_cpu(cpu_p, params.settings);
+    let mem_str = format_proc_memory(mem, params.settings);
     let proc_color = process_row_color(
         display_cpu,
         params.absolute_index,
@@ -107,8 +112,26 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let cmd_display = command_display(params.proc, columns);
     let name_padded = tools::ljust(&display_name, name_avail, false);
 
+    let is_followed = params.followed_pid > 0 && params.proc.pid == params.followed_pid;
+
     if params.absolute_index == params.selected {
         draw_selected_process_row(
+            buf,
+            params,
+            &RowText {
+                pid: pid_str,
+                tree_prefix,
+                name: name_padded,
+                cmd: cmd_display,
+                graph: graph_str,
+                cpu: cpu_str,
+                mem: mem_str_fmt,
+                prefix_w,
+                name_avail,
+            },
+        );
+    } else if is_followed {
+        draw_followed_process_row(
             buf,
             params,
             &RowText {
@@ -182,6 +205,36 @@ fn draw_selected_process_row(
         buf.text(&row.graph)
             .text(bg_esc)
             .color(params.colors.sel_fg)
+            .text(" ");
+    }
+    buf.text(&row.cpu).text(" ").text(&row.mem);
+    buf.reset();
+}
+
+fn draw_followed_process_row(
+    buf: &mut AnsiBuffer,
+    params: &ProcessRowParams<'_>,
+    row: &RowText<'_>,
+) {
+    let columns = &params.layout.columns;
+    let bg_esc = &params.colors.followed_bg_esc;
+    buf.mv(params.layout.x + 2, params.row_y)
+        .text(bg_esc)
+        .color(params.colors.followed_fg);
+    buf.text(&row.pid).text(" ");
+    if !row.tree_prefix.is_empty() {
+        buf.text(row.tree_prefix);
+    }
+    draw_process_name_padding(buf, row, columns.name_w);
+    buf.text(" ");
+    if columns.has_cmd_col && columns.cmd_w > 0 {
+        buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
+        buf.text(" ");
+    }
+    if columns.show_cpu_graphs {
+        buf.text(&row.graph)
+            .text(bg_esc)
+            .color(params.colors.followed_fg)
             .text(" ");
     }
     buf.text(&row.cpu).text(" ").text(&row.mem);

@@ -270,6 +270,16 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
+        Key::Char('F') if ctx.process.selected < ctx.process.entries.len() => {
+            if let Some(pid) = ctx.selected_proc_pid() {
+                if ctx.config.followed_pid == pid as i64 {
+                    ctx.config.followed_pid = 0;
+                } else {
+                    ctx.config.followed_pid = pid as i64;
+                }
+            }
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
         Key::Enter if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
                 let current_detailed = ctx.config.detailed_pid;

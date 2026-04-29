@@ -86,6 +86,7 @@ pub fn draw(
             layout: &layout,
             start: view.start,
             selected: view.selected,
+            followed_pid: view.followed_pid,
             tree_mode: view.tree_mode,
             settings,
             colors: &colors,
@@ -103,6 +104,8 @@ struct ProcColors<'a> {
     hi: &'a str,
     sel_bg_esc: String,
     sel_fg: &'a str,
+    followed_bg_esc: String,
+    followed_fg: &'a str,
     tree_fg: &'a str,
     proc_grad: &'a [String],
 }
@@ -116,6 +119,8 @@ impl<'a> ProcColors<'a> {
             hi: theme.color(tc::HI_FG),
             sel_bg_esc: theme.background(tc::SELECTED_BG),
             sel_fg: theme.color(tc::SELECTED_FG),
+            followed_bg_esc: theme.background(tc::FOLLOWED_BG),
+            followed_fg: theme.color(tc::FOLLOWED_FG),
             tree_fg: theme.color(tc::PROC_TREE_FG),
             proc_grad: theme.gradient(tc::GRAD_PROCESS),
         }
@@ -329,6 +334,7 @@ fn draw_proc_borders(
             width: layout.width,
             filter: view.filter,
             filtering: view.filtering,
+            followed_pid: view.followed_pid,
             visible,
             total: entry_count,
         },
@@ -458,6 +464,7 @@ mod tests {
             sort_reversed: false,
             tree_mode: false,
             detailed_pid: 0,
+            followed_pid: 0,
             filter: "",
             filtering: false,
         }

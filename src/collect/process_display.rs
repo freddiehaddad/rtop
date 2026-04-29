@@ -58,6 +58,7 @@ pub fn build_proc_display_entries(
     reversed: bool,
     filter: &str,
     tree_mode: bool,
+    aggregate: bool,
 ) -> Vec<ProcDisplayEntry> {
     let parsed = ParsedFilter::parse(filter);
     let mut indices: Vec<usize> = procs
@@ -69,7 +70,12 @@ pub fn build_proc_display_entries(
     sort_proc_indices(&mut indices, procs, sort_by, reversed);
 
     if tree_mode {
-        build_tree_display_entries(procs, &indices)
+        let entries = build_tree_display_entries(procs, &indices);
+        if aggregate {
+            aggregate_tree_entries(procs, &entries)
+        } else {
+            entries
+        }
     } else {
         indices.into_iter().map(ProcDisplayEntry::flat).collect()
     }
@@ -167,6 +173,62 @@ pub fn sort_proc_indices(indices: &mut [usize], procs: &[ProcInfo], sort_by: &st
         };
         if reverse { cmp.reverse() } else { cmp }
     });
+}
+
+/// Aggregate child CPU% and memory into parent entries in tree mode.
+///
+/// Walks the flat tree list bottom-up so that children are accumulated before
+/// their parents. Only modifies display overrides, not the raw data.
+fn aggregate_tree_entries(
+    procs: &[ProcInfo],
+    entries: &[ProcDisplayEntry],
+) -> Vec<ProcDisplayEntry> {
+    let mut result: Vec<ProcDisplayEntry> = entries.to_vec();
+    let len = result.len();
+
+    // Build PID→entry-index map for parent lookup.
+    let mut pid_to_idx: HashMap<u32, usize> = HashMap::new();
+    for (i, e) in result.iter().enumerate() {
+        if let Some(p) = procs.get(e.proc_index) {
+            pid_to_idx.insert(p.pid, i);
+        }
+    }
+
+    // Initialize aggregates from raw values.
+    let mut agg_cpu: Vec<f64> = result
+        .iter()
+        .map(|e| procs.get(e.proc_index).map_or(0.0, |p| p.cpu_p))
+        .collect();
+    let mut agg_mem: Vec<u64> = result
+        .iter()
+        .map(|e| procs.get(e.proc_index).map_or(0, |p| p.mem))
+        .collect();
+
+    // Walk bottom-up: accumulate each entry's values into its parent.
+    for i in (0..len).rev() {
+        let Some(p) = procs.get(result[i].proc_index) else {
+            continue;
+        };
+        if let Some(&parent_idx) = pid_to_idx.get(&p.ppid) {
+            agg_cpu[parent_idx] += agg_cpu[i];
+            agg_mem[parent_idx] += agg_mem[i];
+        }
+    }
+
+    // Only set overrides on entries that actually have children (aggregated
+    // values differ from the raw ones).
+    for i in 0..len {
+        let raw_cpu = procs.get(result[i].proc_index).map_or(0.0, |p| p.cpu_p);
+        let raw_mem = procs.get(result[i].proc_index).map_or(0, |p| p.mem);
+        if (agg_cpu[i] - raw_cpu).abs() > f64::EPSILON {
+            result[i].cpu_override = Some(agg_cpu[i]);
+        }
+        if agg_mem[i] != raw_mem {
+            result[i].mem_override = Some(agg_mem[i]);
+        }
+    }
+
+    result
 }
 
 fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: &str) -> std::cmp::Ordering {
@@ -401,7 +463,7 @@ mod tests {
             },
         ];
 
-        let entries = build_proc_display_entries(&procs, "cpu lazy", true, "", false);
+        let entries = build_proc_display_entries(&procs, "cpu lazy", true, "", false, false);
 
         let pids: Vec<u32> = entries
             .iter()
