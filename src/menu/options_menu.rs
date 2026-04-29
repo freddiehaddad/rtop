@@ -453,10 +453,11 @@ pub const PROC: &[OptDef] = &[
     OptDef {
         key: ConfigKey::KeepDeadProcUsage,
         desc: &[
-            "Cpu and Mem usage for dead processes",
+            "Cpu and Mem usage for dead processes.",
             "",
-            "Set true if process should preserve the cpu",
-            "and memory usage of when it died while paused.",
+            "Set true if process should preserve the",
+            "cpu and memory usage of when it died",
+            "while paused.",
         ],
     },
     OptDef {
