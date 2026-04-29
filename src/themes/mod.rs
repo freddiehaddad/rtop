@@ -47,11 +47,6 @@ impl Rgb {
     pub fn to_fg_escape(self) -> String {
         format!("\x1b[38;2;{};{};{}m", self.0, self.1, self.2)
     }
-
-    /// Convert to a background ANSI truecolor escape code.
-    pub fn to_bg_escape(self) -> String {
-        format!("\x1b[48;2;{};{};{}m", self.0, self.1, self.2)
-    }
 }
 
 /// Three-stop gradient definition (start → mid → end).
@@ -154,11 +149,6 @@ mod tests {
     #[test]
     fn rgb_to_fg_escape_format() {
         assert_eq!(Rgb(255, 0, 0).to_fg_escape(), "\x1b[38;2;255;0;0m");
-    }
-
-    #[test]
-    fn rgb_to_bg_escape_format() {
-        assert_eq!(Rgb(255, 0, 0).to_bg_escape(), "\x1b[48;2;255;0;0m");
     }
 
     #[test]

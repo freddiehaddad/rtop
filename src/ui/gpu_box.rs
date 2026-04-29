@@ -15,10 +15,6 @@ pub struct GpuBoxSettings<'a> {
     pub temp_scale: &'a str,
     pub custom_name: &'a str,
     pub base_10: bool,
-    /// Invert GPU utilization graphs when true. Currently unused because the
-    /// GPU box renders meters only; will take effect once GPU graphs are added.
-    #[allow(dead_code)]
-    pub gpu_mirror_graph: bool,
 }
 
 /// Format bytes into a short human-readable string (e.g., "10.8G").
@@ -272,7 +268,6 @@ mod tests {
             temp_scale: "celsius",
             custom_name: "",
             base_10: false,
-            gpu_mirror_graph: true,
         }
     }
 

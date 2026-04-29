@@ -428,9 +428,19 @@ impl CpuCollector {
             return;
         };
 
-        let mut package_temp: Option<i64> = None;
-        let mut core_temps: Vec<i64> = Vec::new();
-        let mut cpu_watts: Option<f64> = None;
+        struct LhmCpuData {
+            package_temp: Option<i64>,
+            core_temps: Vec<i64>,
+            watts: Option<f64>,
+            max_watts: Option<f64>,
+        }
+
+        let mut data = LhmCpuData {
+            package_temp: None,
+            core_temps: Vec::new(),
+            watts: None,
+            max_watts: None,
+        };
 
         // Walk the tree looking for "Temperatures" and "Powers" under CPU hardware nodes.
         // Generic approach: identify package-level temp by known keywords,
@@ -440,9 +450,7 @@ impl CpuCollector {
             in_temps: bool,
             in_powers: bool,
             in_cpu: bool,
-            pkg: &mut Option<i64>,
-            cores: &mut Vec<i64>,
-            watts: &mut Option<f64>,
+            out: &mut LhmCpuData,
         ) {
             let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
             let hw_id = node
@@ -484,9 +492,11 @@ impl CpuCollector {
                     || text == "CPU (Tctl)"
                     || text == "CPU (Tdie)"
                 {
-                    // Prefer CPU Package > Tdie > Tctl > others
-                    if pkg.is_none() || text == "CPU Package" || (text == "Tdie" && pkg.is_none()) {
-                        *pkg = Some(temp);
+                    if out.package_temp.is_none()
+                        || text == "CPU Package"
+                        || (text == "Tdie" && out.package_temp.is_none())
+                    {
+                        out.package_temp = Some(temp);
                     }
                 }
                 // Everything else under CPU temps = per-core
@@ -497,7 +507,7 @@ impl CpuCollector {
                     && !text.contains("PCIe")
                     && !text.contains("M2")
                 {
-                    cores.push(temp);
+                    out.core_temps.push(temp);
                 }
             }
 
@@ -510,9 +520,14 @@ impl CpuCollector {
                     || text == "CPU PPT"
                     || text.starts_with("CPU"))
                 && let Some(w) = parse_power_value(val_str)
-                && (watts.is_none() || text == "CPU Package")
+                && (out.watts.is_none() || text == "CPU Package")
             {
-                *watts = Some(w);
+                out.watts = Some(w);
+                if let Some(max_str) = node.get("Max").and_then(|v| v.as_str())
+                    && let Some(mw) = parse_power_value(max_str)
+                {
+                    out.max_watts = Some(mw);
+                }
             }
 
             if let Some(children) = node.get("Children").and_then(|v| v.as_array()) {
@@ -522,28 +537,19 @@ impl CpuCollector {
                         is_temps && is_cpu_hw,
                         is_powers && is_cpu_hw,
                         is_cpu_hw,
-                        pkg,
-                        cores,
-                        watts,
+                        out,
                     );
                 }
             }
         }
 
-        walk(
-            &json,
-            false,
-            false,
-            false,
-            &mut package_temp,
-            &mut core_temps,
-            &mut cpu_watts,
-        );
+        walk(&json, false, false, false, &mut data);
 
-        self.info.cpu_watts = cpu_watts;
+        self.info.cpu_watts = data.watts;
+        self.info.cpu_max_watts = data.max_watts;
 
         // Total entries: 1 (package) + per-core count
-        let total = 1 + core_temps.len();
+        let total = 1 + data.core_temps.len();
 
         // Ensure self.info.temp has enough VecDeques
         while self.info.temp.len() < total {
@@ -551,11 +557,11 @@ impl CpuCollector {
         }
 
         // Index 0 = package temp
-        let pkg = package_temp.unwrap_or(0);
+        let pkg = data.package_temp.unwrap_or(0);
         push_history(&mut self.info.temp[0], pkg);
 
         // Index 1+ = per-core temps in discovery order
-        for (slot, &temp) in core_temps.iter().enumerate() {
+        for (slot, &temp) in data.core_temps.iter().enumerate() {
             push_history(&mut self.info.temp[slot + 1], temp);
         }
     }

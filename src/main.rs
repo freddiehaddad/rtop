@@ -13,9 +13,7 @@ mod menu;
 mod runner;
 mod term;
 mod theme;
-#[allow(dead_code)]
 mod theme_keys;
-#[allow(dead_code)]
 mod themes;
 mod tools;
 mod ui;

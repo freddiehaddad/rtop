@@ -12,6 +12,24 @@ cargo fmt -- --check           # Format check
 
 All four must pass with zero warnings before committing.
 
+## Warning Policy — Zero Tolerance
+
+Never suppress compiler or clippy warnings. Specifically:
+
+- **No `#[allow(dead_code)]`** — if code is unused, delete it. If it's
+  test-only, gate it with `#[cfg(test)]`.
+- **No `#[allow(unused_*)]`** — no unused variables, imports, fields,
+  or parameters. Remove them or use them.
+- **No `#[allow(clippy::*)]`** — fix the root cause. If clippy says
+  too many arguments, extract a struct. If it flags a pattern, refactor.
+- **No `_` prefix to hide unused variables** — `_foo` is not a fix.
+  Either use the variable or remove it.
+- **No `#[allow(warnings)]` or `#![allow(...)]`** at any scope.
+
+If code exists, it must be reachable and used. Dead feature scaffolding
+(config fields, enum variants, UI options for unimplemented features)
+must not be checked in — add it when the feature is built, not before.
+
 ## Commit Style
 
 Use Conventional Commit subjects that match the existing history:

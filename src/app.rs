@@ -603,6 +603,11 @@ fn calculate_layout(
         .split_whitespace()
         .map(String::from)
         .collect();
+    let has_temp = config.check_temp && !snapshot.cpu.info.temp.is_empty();
+    let has_watts = config.show_cpu_watts && snapshot.cpu.info.cpu_watts.is_some();
+    let stats_rows = ui::cpu_box::stats_row_count(has_temp, has_watts);
+    let cpu_panel_overhead = stats_rows + 2; // stats + load detail row + section divider
+
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
@@ -614,6 +619,7 @@ fn calculate_layout(
         gpu_count: snapshot.gpu.gpus.len(),
         disk_count: snapshot.disk.info.disks.len(),
         has_swap: config.show_swap && snapshot.mem.info.stats.swap_total > 0,
+        cpu_panel_overhead,
     })
 }
 
@@ -867,6 +873,7 @@ pub(crate) fn render_all(
             custom_cpu_name: &config.custom_cpu_name,
             show_cpu_watts: config.show_cpu_watts,
             cpu_watts: snapshot.cpu.info.cpu_watts,
+            cpu_max_watts: snapshot.cpu.info.cpu_max_watts,
             clock_format: &config.clock_format,
         };
         output.push_str(&ui::cpu_box::draw(
@@ -896,7 +903,6 @@ pub(crate) fn render_all(
                     temp_scale: &config.temp_scale,
                     custom_name,
                     base_10: config.base_10_sizes,
-                    gpu_mirror_graph: config.gpu_mirror_graph,
                 };
                 output.push_str(&ui::gpu_box::draw(
                     &snapshot.gpu.gpus[gi],

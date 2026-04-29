@@ -41,6 +41,8 @@ pub struct CpuInfo {
     pub temp: Vec<VecDeque<i64>>,
     /// CPU package power in watts (from LHM), if available.
     pub cpu_watts: Option<f64>,
+    /// Maximum observed CPU package power in watts (from LHM), if available.
+    pub cpu_max_watts: Option<f64>,
 }
 
 impl Default for CpuInfo {
@@ -55,6 +57,7 @@ impl Default for CpuInfo {
             uptime_seconds: 0,
             temp: Vec::new(),
             cpu_watts: None,
+            cpu_max_watts: None,
         }
     }
 }

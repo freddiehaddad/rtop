@@ -516,15 +516,6 @@ pub const PROC: &[OptDef] = &[
 /// Options in the "gpu" category.
 pub const GPU: &[OptDef] = &[
     OptDef {
-        key: ConfigKey::GpuMirrorGraph,
-        desc: &[
-            "Mirror GPU graph.",
-            "",
-            "Invert the GPU utilization graph",
-            "orientation.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::GraphSymbolGpu,
         desc: &[
             "GPU graph symbol.",

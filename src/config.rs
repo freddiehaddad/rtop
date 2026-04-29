@@ -109,7 +109,6 @@ pub struct Config {
     pub terminal_sync: bool,
     pub save_config_on_exit: bool,
 
-    pub gpu_mirror_graph: bool,
     pub disk_io_mode: bool,
 
     // -- ints --
@@ -202,7 +201,6 @@ impl Default for Config {
             terminal_sync: true,
             save_config_on_exit: true,
 
-            gpu_mirror_graph: true,
             disk_io_mode: false,
 
             // ints
@@ -630,7 +628,6 @@ impl Config {
 
 /// A flat enum identifying every config field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub enum ConfigKey {
     // -- bool variants --
     ThemeBackground,
@@ -671,19 +668,12 @@ pub enum ConfigKey {
     TerminalSync,
     SaveConfigOnExit,
 
-    GpuMirrorGraph,
     DiskIoMode,
 
     // -- int variants --
     UpdateMs,
     NetDownload,
     NetUpload,
-    DetailedPid,
-    SelectedPid,
-    FollowedPid,
-    ProcStart,
-    ProcSelected,
-    CurrentPreset,
 
     // -- string variants --
     ColorTheme,
@@ -703,7 +693,6 @@ pub enum ConfigKey {
     CustomCpuName,
     DisksFilter,
     IoGraphSpeeds,
-    NetIface,
     LogLevel,
     ProcFilter,
     Presets,
@@ -757,18 +746,11 @@ impl ConfigKey {
             Self::TerminalSync => "terminal_sync",
             Self::SaveConfigOnExit => "save_config_on_exit",
 
-            Self::GpuMirrorGraph => "gpu_mirror_graph",
             Self::DiskIoMode => "disk_io_mode",
 
             Self::UpdateMs => "update_ms",
             Self::NetDownload => "net_download",
             Self::NetUpload => "net_upload",
-            Self::DetailedPid => "detailed_pid",
-            Self::SelectedPid => "selected_pid",
-            Self::FollowedPid => "followed_pid",
-            Self::ProcStart => "proc_start",
-            Self::ProcSelected => "proc_selected",
-            Self::CurrentPreset => "current_preset",
 
             Self::ColorTheme => "color_theme",
             Self::ShownBoxes => "shown_boxes",
@@ -787,7 +769,6 @@ impl ConfigKey {
             Self::CustomCpuName => "custom_cpu_name",
             Self::DisksFilter => "disks_filter",
             Self::IoGraphSpeeds => "io_graph_speeds",
-            Self::NetIface => "net_iface",
             Self::LogLevel => "log_level",
             Self::ProcFilter => "proc_filter",
             Self::Presets => "presets",
@@ -837,18 +818,9 @@ impl ConfigKey {
             | Self::BackgroundUpdate
             | Self::TerminalSync
             | Self::SaveConfigOnExit
-            | Self::GpuMirrorGraph
             | Self::DiskIoMode => KeyKind::Bool,
 
-            Self::UpdateMs
-            | Self::NetDownload
-            | Self::NetUpload
-            | Self::DetailedPid
-            | Self::SelectedPid
-            | Self::FollowedPid
-            | Self::ProcStart
-            | Self::ProcSelected
-            | Self::CurrentPreset => KeyKind::Int,
+            Self::UpdateMs | Self::NetDownload | Self::NetUpload => KeyKind::Int,
 
             Self::ColorTheme
             | Self::ShownBoxes
@@ -866,7 +838,6 @@ impl ConfigKey {
             | Self::CustomCpuName
             | Self::DisksFilter
             | Self::IoGraphSpeeds
-            | Self::NetIface
             | Self::LogLevel
             | Self::ProcFilter
             | Self::Presets
@@ -880,7 +851,7 @@ impl ConfigKey {
     }
 
     /// Parse a TOML field name into a ConfigKey.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "theme_background" => Some(Self::ThemeBackground),
@@ -921,18 +892,11 @@ impl ConfigKey {
             "terminal_sync" => Some(Self::TerminalSync),
             "save_config_on_exit" => Some(Self::SaveConfigOnExit),
 
-            "gpu_mirror_graph" => Some(Self::GpuMirrorGraph),
             "disk_io_mode" => Some(Self::DiskIoMode),
 
             "update_ms" => Some(Self::UpdateMs),
             "net_download" => Some(Self::NetDownload),
             "net_upload" => Some(Self::NetUpload),
-            "detailed_pid" => Some(Self::DetailedPid),
-            "selected_pid" => Some(Self::SelectedPid),
-            "followed_pid" => Some(Self::FollowedPid),
-            "proc_start" => Some(Self::ProcStart),
-            "proc_selected" => Some(Self::ProcSelected),
-            "current_preset" => Some(Self::CurrentPreset),
 
             "color_theme" => Some(Self::ColorTheme),
             "shown_boxes" => Some(Self::ShownBoxes),
@@ -951,7 +915,6 @@ impl ConfigKey {
             "custom_cpu_name" => Some(Self::CustomCpuName),
             "disks_filter" => Some(Self::DisksFilter),
             "io_graph_speeds" => Some(Self::IoGraphSpeeds),
-            "net_iface" => Some(Self::NetIface),
             "log_level" => Some(Self::LogLevel),
             "proc_filter" => Some(Self::ProcFilter),
             "presets" => Some(Self::Presets),
@@ -1008,19 +971,12 @@ impl ConfigKey {
             Self::TerminalSync => bool_display(config.terminal_sync),
             Self::SaveConfigOnExit => bool_display(config.save_config_on_exit),
 
-            Self::GpuMirrorGraph => bool_display(config.gpu_mirror_graph),
             Self::DiskIoMode => bool_display(config.disk_io_mode),
 
             // ints
             Self::UpdateMs => config.update_ms.to_string(),
             Self::NetDownload => config.net_download.to_string(),
             Self::NetUpload => config.net_upload.to_string(),
-            Self::DetailedPid => config.detailed_pid.to_string(),
-            Self::SelectedPid => config.selected_pid.to_string(),
-            Self::FollowedPid => config.followed_pid.to_string(),
-            Self::ProcStart => config.proc_start.to_string(),
-            Self::ProcSelected => config.proc_selected.to_string(),
-            Self::CurrentPreset => config.current_preset.to_string(),
 
             // strings
             Self::ColorTheme => config.color_theme.clone(),
@@ -1040,7 +996,6 @@ impl ConfigKey {
             Self::CustomCpuName => config.custom_cpu_name.clone(),
             Self::DisksFilter => config.disks_filter.clone(),
             Self::IoGraphSpeeds => config.io_graph_speeds.clone(),
-            Self::NetIface => config.net_iface.clone(),
             Self::LogLevel => config.log_level.clone(),
             Self::ProcFilter => config.proc_filter.clone(),
             Self::Presets => config.presets.clone(),
@@ -1098,7 +1053,6 @@ impl ConfigKey {
             Self::TerminalSync => config.terminal_sync = !config.terminal_sync,
             Self::SaveConfigOnExit => config.save_config_on_exit = !config.save_config_on_exit,
 
-            Self::GpuMirrorGraph => config.gpu_mirror_graph = !config.gpu_mirror_graph,
             Self::DiskIoMode => config.disk_io_mode = !config.disk_io_mode,
             _ => panic!("toggle_bool called on non-bool key '{}'", self.name()),
         }
@@ -1110,12 +1064,6 @@ impl ConfigKey {
             Self::UpdateMs => config.update_ms,
             Self::NetDownload => config.net_download,
             Self::NetUpload => config.net_upload,
-            Self::DetailedPid => config.detailed_pid,
-            Self::SelectedPid => config.selected_pid,
-            Self::FollowedPid => config.followed_pid,
-            Self::ProcStart => config.proc_start,
-            Self::ProcSelected => config.proc_selected,
-            Self::CurrentPreset => config.current_preset,
             _ => panic!("get_int called on non-int key '{}'", self.name()),
         }
     }
@@ -1127,12 +1075,6 @@ impl ConfigKey {
             Self::UpdateMs => config.update_ms = value,
             Self::NetDownload => config.net_download = value,
             Self::NetUpload => config.net_upload = value,
-            Self::DetailedPid => config.detailed_pid = value,
-            Self::SelectedPid => config.selected_pid = value,
-            Self::FollowedPid => config.followed_pid = value,
-            Self::ProcStart => config.proc_start = value,
-            Self::ProcSelected => config.proc_selected = value,
-            Self::CurrentPreset => config.current_preset = value,
             _ => panic!("set_int called on non-int key '{}'", self.name()),
         }
     }
@@ -1157,7 +1099,6 @@ impl ConfigKey {
             Self::CustomCpuName => &config.custom_cpu_name,
             Self::DisksFilter => &config.disks_filter,
             Self::IoGraphSpeeds => &config.io_graph_speeds,
-            Self::NetIface => &config.net_iface,
             Self::LogLevel => &config.log_level,
             Self::ProcFilter => &config.proc_filter,
             Self::Presets => &config.presets,
@@ -1191,7 +1132,6 @@ impl ConfigKey {
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
             Self::DisksFilter => config.disks_filter = value.to_string(),
             Self::IoGraphSpeeds => config.io_graph_speeds = value.to_string(),
-            Self::NetIface => config.net_iface = value.to_string(),
             Self::LogLevel => config.log_level = value.to_string(),
             Self::ProcFilter => config.proc_filter = value.to_string(),
             Self::Presets => config.presets = value.to_string(),

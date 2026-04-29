@@ -220,7 +220,8 @@ pub(crate) fn percent_u64(part: u64, total: u64) -> i64 {
         return 0;
     }
 
-    ((part as u128 * 100) / total as u128).min(i64::MAX as u128) as i64
+    // Round to nearest instead of truncating
+    ((part as u128 * 100 + total as u128 / 2) / total as u128).min(i64::MAX as u128) as i64
 }
 
 #[cfg(test)]

@@ -36,10 +36,10 @@ pub const TITLE: ColorKey = ColorKey(2);
 pub const HI_FG: ColorKey = ColorKey(3);
 pub const SELECTED_BG: ColorKey = ColorKey(4);
 pub const SELECTED_FG: ColorKey = ColorKey(5);
-pub const INACTIVE_FG: ColorKey = ColorKey(6);
+// ColorKey(6) reserved for inactive_fg (loaded from theme, not yet used)
 pub const GRAPH_TEXT: ColorKey = ColorKey(7);
 pub const METER_BG: ColorKey = ColorKey(8);
-pub const PROC_MISC: ColorKey = ColorKey(9);
+// ColorKey(9) reserved for proc_misc (loaded from theme, not yet used)
 /// Color for tree view connector lines (├─, └─, │).
 pub const PROC_TREE_FG: ColorKey = ColorKey(10);
 pub const CPU_BOX: ColorKey = ColorKey(11);
@@ -50,11 +50,11 @@ pub const GPU_BOX: ColorKey = ColorKey(15);
 pub const DISK_BOX: ColorKey = ColorKey(16);
 pub const HELP_BOX: ColorKey = ColorKey(17);
 pub const OPTIONS_BOX: ColorKey = ColorKey(18);
-pub const DIV_LINE: ColorKey = ColorKey(19);
-pub const PROC_PAUSE_BG: ColorKey = ColorKey(20);
+// ColorKey(19) reserved for div_line (loaded from theme, not yet used)
+// ColorKey(20) reserved for proc_pause_bg (loaded from theme, not yet used)
 pub const PROC_FOLLOW_BG: ColorKey = ColorKey(21);
-pub const PROC_BANNER_BG: ColorKey = ColorKey(22);
-pub const PROC_BANNER_FG: ColorKey = ColorKey(23);
+// ColorKey(22) reserved for proc_banner_bg (loaded from theme, not yet used)
+// ColorKey(23) reserved for proc_banner_fg (loaded from theme, not yet used)
 pub const FOLLOWED_BG: ColorKey = ColorKey(24);
 pub const FOLLOWED_FG: ColorKey = ColorKey(25);
 

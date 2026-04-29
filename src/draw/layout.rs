@@ -63,6 +63,8 @@ pub struct LayoutConfig<'a> {
     pub disk_count: usize,
     /// Whether swap is active (adds 3 rows to mem height).
     pub has_swap: bool,
+    /// CPU core panel overhead rows (stats meters + load detail + divider).
+    pub cpu_panel_overhead: usize,
 }
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
@@ -95,11 +97,11 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // GPU boxes — each takes MIN_GPU_HEIGHT, placed in the left column
     let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
 
-    // CPU box height based on core count
+    // CPU box height computed by the renderer's sizing logic
     let cpu_height = if has_cpu {
-        let rows = core_count.div_ceil(2); // 2 cores per row
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
-        (rows + 5).clamp(MIN_CPU_HEIGHT, max_h)
+        crate::ui::cpu_box::compute_height(core_count, cfg.cpu_panel_overhead, max_h)
+            .clamp(MIN_CPU_HEIGHT, max_h)
     } else {
         0
     };
@@ -271,6 +273,7 @@ mod tests {
             gpu_count: 0,
             disk_count: 2,
             has_swap: false,
+            cpu_panel_overhead: 4, // 2 stats + load detail + divider
         }
     }
 
