@@ -316,7 +316,7 @@ pub fn draw(
         }
     }
 
-    // CPU name inset on the top border (right-aligned)
+    // CPU name inset on the top border (right-aligned, left of core panel)
     {
         let name_display = if settings.custom_cpu_name.is_empty() {
             settings.cpu_name
@@ -324,13 +324,27 @@ pub fn draw(
             settings.custom_cpu_name
         };
         if !name_display.is_empty() {
-            let max_name_w = width.saturating_sub(12);
+            // Limit name to area left of the core panel divider
+            let name_area = if b_width > 0 {
+                b_x.saturating_sub(x)
+            } else {
+                width
+            };
+            let max_name_w = name_area.saturating_sub(12);
             let name_trunc = tools::uresize(name_display, max_name_w, false);
             if !name_trunc.is_empty() {
-                let inset = box_drawing::title_inset(&name_trunc, box_color, title_color, false);
-                let inset_x =
-                    box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
-                buf.mv(inset_x, y + 1).text(&inset);
+                let vis_w = box_drawing::inset_width(&name_trunc);
+                let inset_x = if b_width > 0 {
+                    // Place just left of the core panel divider
+                    (b_x + 1).saturating_sub(vis_w + 1)
+                } else {
+                    box_drawing::right_inset_x(x, width, vis_w)
+                };
+                if inset_x > x + 6 {
+                    let inset =
+                        box_drawing::title_inset(&name_trunc, box_color, title_color, false);
+                    buf.mv(inset_x, y + 1).text(&inset);
+                }
             }
         }
     }
