@@ -315,56 +315,11 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::ShowIoStat,
-        desc: &[
-            "Toggle IO activity graphs.",
-            "",
-            "Show small IO graphs for disk activity",
-            "when not in IO mode.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoMode,
-        desc: &[
-            "Toggles io mode for disks.",
-            "",
-            "Shows big graphs for disk read/write speeds",
-            "instead of used/free percentage meters.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoGraphCombined,
-        desc: &[
-            "Toggle combined read and write graphs.",
-            "",
-            "Only has effect if \"io mode\" is True.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoGraphSpeeds,
-        desc: &[
-            "Set top speeds for the io graphs.",
-            "",
-            "Manually set which speed in MiB/s that",
-            "equals 100 percent in the io graphs.",
-            "(100 MiB/s by default).",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ShowSwap,
         desc: &[
             "If swap memory should be shown in memory box.",
             "",
             "True or False.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::DisksFilter,
-        desc: &[
-            "Optional filter for shown disks.",
-            "",
-            "Should be full path of a mountpoint.",
-            "Separate multiple values with whitespace.",
         ],
     },
 ];
@@ -596,6 +551,46 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
+        key: ConfigKey::ShowIoStat,
+        desc: &[
+            "Toggle IO activity graphs.",
+            "",
+            "Show IO graphs for disk read/write activity",
+            "when not in IO mode.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::IoMode,
+        desc: &[
+            "Toggles IO mode for disks.",
+            "",
+            "Shows graphs for disk read/write speeds",
+            "instead of used/free percentage meters.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::IoGraphCombined,
+        desc: &[
+            "Toggle combined read and write graphs.",
+            "",
+            "Only has effect if \"io mode\" is True.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::IoGraphSpeeds,
+        desc: &[
+            "Set top speeds for the IO graphs.",
+            "",
+            "Manually set which speed in MiB/s that",
+            "equals 100 percent in the IO graphs.",
+            "(100 MiB/s by default).",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::DiskIoMode,
+        desc: &["Shows disk IO activity instead of", "usage percentage."],
+    },
+    OptDef {
         key: ConfigKey::DisksFilter,
         desc: &[
             "Optional filter for shown disks.",
@@ -603,10 +598,6 @@ pub const DISK: &[OptDef] = &[
             "Should be full path of a mountpoint.",
             "Separate multiple values with whitespace.",
         ],
-    },
-    OptDef {
-        key: ConfigKey::DiskIoMode,
-        desc: &["", "Shows disk IO activity instead of", "usage percentage."],
     },
 ];
 
