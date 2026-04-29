@@ -153,6 +153,16 @@ impl OverlayState {
         }
     }
 
+    pub(crate) fn set_menu_state(&mut self, new: MenuState) {
+        debug_assert!(
+            self.menu_state.can_transition_to(new),
+            "invalid menu transition: {:?} → {:?}",
+            self.menu_state,
+            new,
+        );
+        self.menu_state = new;
+    }
+
     fn render_ui(&self) -> bool {
         self.menu_state == MenuState::None || self.menu_state == MenuState::Filter
     }

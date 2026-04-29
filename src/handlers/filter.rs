@@ -9,13 +9,13 @@ use crate::{
 pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     match *key {
         Key::Escape => {
-            ctx.overlay.menu_state = MenuState::None;
+            ctx.overlay.set_menu_state(MenuState::None);
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Enter => {
             ctx.config
                 .set_string(sk::PROC_FILTER, &ctx.process.filter_text);
-            ctx.overlay.menu_state = MenuState::None;
+            ctx.overlay.set_menu_state(MenuState::None);
             ctx.process.selected = 0;
             ctx.process.start = 0;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;

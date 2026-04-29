@@ -12,13 +12,38 @@ use crate::{
 };
 
 /// The current menu overlay state.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum MenuState {
     None,
     Main,
     Help,
     Options,
     Filter,
+}
+
+impl MenuState {
+    /// Whether transitioning from `self` to `to` is a valid menu navigation.
+    pub(crate) fn can_transition_to(self, to: MenuState) -> bool {
+        matches!(
+            (self, to),
+            // From normal view
+            (MenuState::None, MenuState::Main)
+                | (MenuState::None, MenuState::Help)
+                | (MenuState::None, MenuState::Options)
+                | (MenuState::None, MenuState::Filter)
+                // From main menu
+                | (MenuState::Main, MenuState::None)
+                | (MenuState::Main, MenuState::Help)
+                | (MenuState::Main, MenuState::Options)
+                // From submenus back to parent
+                | (MenuState::Help, MenuState::None)
+                | (MenuState::Help, MenuState::Main)
+                | (MenuState::Options, MenuState::None)
+                | (MenuState::Options, MenuState::Main)
+                // From filter back to normal
+                | (MenuState::Filter, MenuState::None)
+        )
+    }
 }
 
 /// A terminal write operation produced by a handler.
@@ -146,4 +171,52 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MenuState;
+
+    #[test]
+    fn valid_transitions_from_none() {
+        assert!(MenuState::None.can_transition_to(MenuState::Main));
+        assert!(MenuState::None.can_transition_to(MenuState::Help));
+        assert!(MenuState::None.can_transition_to(MenuState::Options));
+        assert!(MenuState::None.can_transition_to(MenuState::Filter));
+    }
+
+    #[test]
+    fn valid_transitions_from_main() {
+        assert!(MenuState::Main.can_transition_to(MenuState::None));
+        assert!(MenuState::Main.can_transition_to(MenuState::Help));
+        assert!(MenuState::Main.can_transition_to(MenuState::Options));
+    }
+
+    #[test]
+    fn valid_transitions_from_submenus() {
+        assert!(MenuState::Help.can_transition_to(MenuState::None));
+        assert!(MenuState::Help.can_transition_to(MenuState::Main));
+        assert!(MenuState::Options.can_transition_to(MenuState::None));
+        assert!(MenuState::Options.can_transition_to(MenuState::Main));
+    }
+
+    #[test]
+    fn valid_transitions_from_filter() {
+        assert!(MenuState::Filter.can_transition_to(MenuState::None));
+    }
+
+    #[test]
+    fn invalid_transitions_rejected() {
+        // Filter can only go to None
+        assert!(!MenuState::Filter.can_transition_to(MenuState::Main));
+        assert!(!MenuState::Filter.can_transition_to(MenuState::Help));
+        // Help/Options cannot go to Filter
+        assert!(!MenuState::Help.can_transition_to(MenuState::Filter));
+        assert!(!MenuState::Options.can_transition_to(MenuState::Filter));
+        // Main cannot go to Filter
+        assert!(!MenuState::Main.can_transition_to(MenuState::Filter));
+        // Identity transitions are not valid (state should change)
+        assert!(!MenuState::None.can_transition_to(MenuState::None));
+        assert!(!MenuState::Main.can_transition_to(MenuState::Main));
+    }
 }

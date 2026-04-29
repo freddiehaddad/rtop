@@ -10,7 +10,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     match *key {
         Key::Char('q') => return HandleResult::quit(),
         Key::Escape | Key::Char('m') => {
-            ctx.overlay.menu_state = MenuState::None;
+            ctx.overlay.set_menu_state(MenuState::None);
             ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
         }
         Key::Up | Key::Char('k') | Key::ShiftTab => {
@@ -54,7 +54,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                         ctx.theme,
                     );
                     ctx.overlay.menu_return_to = MenuState::Main;
-                    ctx.overlay.menu_state = MenuState::Options;
+                    ctx.overlay.set_menu_state(MenuState::Options);
                     return HandleResult::raw(menu_out);
                 }
                 1 => {
@@ -62,7 +62,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                     let menu_out =
                         menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
                     ctx.overlay.menu_return_to = MenuState::Main;
-                    ctx.overlay.menu_state = MenuState::Help;
+                    ctx.overlay.set_menu_state(MenuState::Help);
                     return HandleResult::raw(menu_out);
                 }
                 2 => {
@@ -86,13 +86,13 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 ctx.theme,
             );
             ctx.overlay.menu_return_to = MenuState::Main;
-            ctx.overlay.menu_state = MenuState::Options;
+            ctx.overlay.set_menu_state(MenuState::Options);
             return HandleResult::raw(menu_out);
         }
         Key::Char('h') | Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::Main;
-            ctx.overlay.menu_state = MenuState::Help;
+            ctx.overlay.set_menu_state(MenuState::Help);
             return HandleResult::raw(menu_out);
         }
         _ => {}

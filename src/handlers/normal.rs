@@ -39,13 +39,13 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
                 ctx.overlay.main_menu_selected,
                 ctx.theme,
             );
-            ctx.overlay.menu_state = MenuState::Main;
+            ctx.overlay.set_menu_state(MenuState::Main);
             Some(HandleResult::raw(menu_out))
         }
         Key::Char('h') | Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::None;
-            ctx.overlay.menu_state = MenuState::Help;
+            ctx.overlay.set_menu_state(MenuState::Help);
             Some(HandleResult::raw(menu_out))
         }
         Key::Char('o') | Key::F(2) => {
@@ -62,7 +62,7 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
                 ctx.theme,
             );
             ctx.overlay.menu_return_to = MenuState::None;
-            ctx.overlay.menu_state = MenuState::Options;
+            ctx.overlay.set_menu_state(MenuState::Options);
             Some(HandleResult::raw(menu_out))
         }
         _ => None,
@@ -194,7 +194,7 @@ fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
 fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
     match *key {
         Key::Char('f') | Key::Char('/') => {
-            ctx.overlay.menu_state = MenuState::Filter;
+            ctx.overlay.set_menu_state(MenuState::Filter);
             ctx.process.filter_text = ctx.config.get_string(sk::PROC_FILTER).to_string();
             ctx.render.dirty |= Dirty::PROC_BOX;
         }

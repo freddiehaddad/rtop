@@ -10,7 +10,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         Key::Char('q') => return HandleResult::quit(),
         Key::Escape | Key::Char('h') | Key::Char('?') | Key::F(1) => {
             let return_to = ctx.overlay.menu_return_to;
-            ctx.overlay.menu_state = return_to;
+            ctx.overlay.set_menu_state(return_to);
             if return_to == MenuState::None {
                 ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
             }
