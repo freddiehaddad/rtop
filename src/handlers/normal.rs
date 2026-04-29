@@ -365,10 +365,9 @@ fn terminate_process(pid: u32) {
         if let Some(handle) = OpenProcess(PROCESS_TERMINATE, false, pid)
             .ok()
             .and_then(OwnedHandle::new)
+            && TerminateProcess(handle.get(), 1).is_err()
         {
-            if TerminateProcess(handle.get(), 1).is_err() {
-                tracing::warn!("Process: TerminateProcess failed for pid {pid}");
-            }
+            tracing::warn!("Process: TerminateProcess failed for pid {pid}");
         }
     }
 }

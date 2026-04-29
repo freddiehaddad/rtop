@@ -41,12 +41,12 @@ impl Terminal {
 
     /// Check if the terminal size has changed. Returns true if resized.
     pub fn refresh(&mut self) -> bool {
-        if let Ok((w, h)) = terminal::size() {
-            if w != self.width || h != self.height {
-                self.width = w;
-                self.height = h;
-                return true;
-            }
+        if let Ok((w, h)) = terminal::size()
+            && (w != self.width || h != self.height)
+        {
+            self.width = w;
+            self.height = h;
+            return true;
         }
         false
     }

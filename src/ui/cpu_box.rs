@@ -218,14 +218,15 @@ pub fn draw(
     }
 
     // Upper graph (normal orientation)
-    if upper_h > 0 && graph_width > 0 {
-        if let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key) {
-            let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, true, 100, 0);
-            graph.create(data);
-            let rows = graph.render_rows_colored(data, cpu_gradient);
-            for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, y + 2 + i).text(row);
-            }
+    if upper_h > 0
+        && graph_width > 0
+        && let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key)
+    {
+        let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, true, 100, 0);
+        graph.create(data);
+        let rows = graph.render_rows_colored(data, cpu_gradient);
+        for (i, row) in rows.iter().enumerate() {
+            buf.mv(x + 2, y + 2 + i).text(row);
         }
     }
 
@@ -258,15 +259,16 @@ pub fn draw(
     }
 
     // Lower graph (inverted orientation)
-    if lower_h > 0 && graph_width > 0 {
-        if let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key) {
-            let lower_start_y = y + 2 + divider_row + 1;
-            let mut graph = Graph::new(graph_width, lower_h, graph_sym, true, true, 100, 0);
-            graph.create(data);
-            let rows = graph.render_rows_colored(data, cpu_gradient);
-            for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, lower_start_y + i).text(row);
-            }
+    if lower_h > 0
+        && graph_width > 0
+        && let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key)
+    {
+        let lower_start_y = y + 2 + divider_row + 1;
+        let mut graph = Graph::new(graph_width, lower_h, graph_sym, true, true, 100, 0);
+        graph.create(data);
+        let rows = graph.render_rows_colored(data, cpu_gradient);
+        for (i, row) in rows.iter().enumerate() {
+            buf.mv(x + 2, lower_start_y + i).text(row);
         }
     }
 
@@ -363,20 +365,18 @@ fn draw_core_panel(
                 .color(pct_color)
                 .text(&tools::rjust(&pct.to_string(), 4, false))
                 .text("%");
-            if has_temp {
-                if let Some(pkg_data) = cpu.temp.first() {
-                    let pkg_temp = pkg_data.back().copied().unwrap_or(0);
-                    let mut tg = Graph::new(5, 1, graph_sym, false, false, 100, 0);
-                    let tg_str = tg.render_row_colored(pkg_data, temp_gradient);
-                    let t_color = if !temp_gradient.is_empty() {
-                        &temp_gradient[(pkg_temp.clamp(0, 100)) as usize]
-                    } else {
-                        fg
-                    };
-                    let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, temp_scale);
-                    let temp_text = format!("{:>3}{}", conv_temp, temp_unit);
-                    buf.text(" ").text(&tg_str).color(t_color).text(&temp_text);
-                }
+            if has_temp && let Some(pkg_data) = cpu.temp.first() {
+                let pkg_temp = pkg_data.back().copied().unwrap_or(0);
+                let mut tg = Graph::new(5, 1, graph_sym, false, false, 100, 0);
+                let tg_str = tg.render_row_colored(pkg_data, temp_gradient);
+                let t_color = if !temp_gradient.is_empty() {
+                    &temp_gradient[(pkg_temp.clamp(0, 100)) as usize]
+                } else {
+                    fg
+                };
+                let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, temp_scale);
+                let temp_text = format!("{:>3}{}", conv_temp, temp_unit);
+                buf.text(" ").text(&tg_str).color(t_color).text(&temp_text);
             }
         }
     }

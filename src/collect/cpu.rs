@@ -461,42 +461,39 @@ impl CpuCollector {
 
             let is_temps = text == "Temperatures";
 
-            if in_temps && is_cpu_hw {
-                if let Some(val_str) = node.get("Value").and_then(|v| v.as_str()) {
-                    if let Some(temp) = parse_temp_value(val_str) {
-                        // Skip non-temperature entries
-                        if text.contains("Distance") || text.contains("TjMax") {
-                            // Skip distance-to-max entries
-                        }
-                        // Package/aggregate temps
-                        else if text == "CPU Package"
-                            || text == "CPU"
-                            || text == "Core Max"
-                            || text == "Core Average"
-                            || text == "Tctl"
-                            || text == "Tdie"
-                            || text == "CPU (Tctl)"
-                            || text == "CPU (Tdie)"
-                        {
-                            // Prefer CPU Package > Tdie > Tctl > others
-                            if pkg.is_none()
-                                || text == "CPU Package"
-                                || (text == "Tdie" && pkg.is_none())
-                            {
-                                *pkg = Some(temp);
-                            }
-                        }
-                        // Everything else under CPU temps = per-core
-                        else if !text.contains("System")
-                            && !text.contains("VRM")
-                            && !text.contains("PCH")
-                            && !text.contains("Socket")
-                            && !text.contains("PCIe")
-                            && !text.contains("M2")
-                        {
-                            cores.push(temp);
-                        }
+            if in_temps
+                && is_cpu_hw
+                && let Some(val_str) = node.get("Value").and_then(|v| v.as_str())
+                && let Some(temp) = parse_temp_value(val_str)
+            {
+                // Skip non-temperature entries
+                if text.contains("Distance") || text.contains("TjMax") {
+                    // Skip distance-to-max entries
+                }
+                // Package/aggregate temps
+                else if text == "CPU Package"
+                    || text == "CPU"
+                    || text == "Core Max"
+                    || text == "Core Average"
+                    || text == "Tctl"
+                    || text == "Tdie"
+                    || text == "CPU (Tctl)"
+                    || text == "CPU (Tdie)"
+                {
+                    // Prefer CPU Package > Tdie > Tctl > others
+                    if pkg.is_none() || text == "CPU Package" || (text == "Tdie" && pkg.is_none()) {
+                        *pkg = Some(temp);
                     }
+                }
+                // Everything else under CPU temps = per-core
+                else if !text.contains("System")
+                    && !text.contains("VRM")
+                    && !text.contains("PCH")
+                    && !text.contains("Socket")
+                    && !text.contains("PCIe")
+                    && !text.contains("M2")
+                {
+                    cores.push(temp);
                 }
             }
 
@@ -627,7 +624,7 @@ fn get_cpu_name() -> String {
             {
                 let byte_len = size as usize;
                 if byte_len <= buf.len() * std::mem::size_of::<u16>()
-                    && byte_len % std::mem::size_of::<u16>() == 0
+                    && byte_len.is_multiple_of(std::mem::size_of::<u16>())
                 {
                     let units = byte_len / std::mem::size_of::<u16>();
                     return string_from_utf16_buf(&buf[..units]);
@@ -661,7 +658,7 @@ fn perf_counter_to_u64(value: i64) -> u64 {
 fn processor_perf_record_count(return_len: u32, capacity: usize) -> Option<usize> {
     let record_size = std::mem::size_of::<ProcessorPerfInfo>();
     let return_len = return_len as usize;
-    if return_len == 0 || return_len % record_size != 0 {
+    if return_len == 0 || !return_len.is_multiple_of(record_size) {
         return None;
     }
     let count = return_len / record_size;

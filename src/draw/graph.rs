@@ -51,20 +51,20 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
                 // A padding escape like \x1b[5C represents 5 columns; expand to 5 elements
                 if remaining.as_bytes().get(end - 1) == Some(&b'C') {
                     // Parse the number between '[' and 'C'
-                    if let Some(num_str) = remaining.get(2..end - 1) {
-                        if let Ok(count) = num_str.parse::<usize>() {
-                            let esc = &remaining[..end];
-                            // For multi-column cursor-right, emit individual \x1b[1C elements
-                            if count > 1 {
-                                for _ in 0..count {
-                                    elements.push("\x1b[1C" as &str);
-                                }
-                            } else {
-                                elements.push(esc);
+                    if let Some(num_str) = remaining.get(2..end - 1)
+                        && let Ok(count) = num_str.parse::<usize>()
+                    {
+                        let esc = &remaining[..end];
+                        // For multi-column cursor-right, emit individual \x1b[1C elements
+                        if count > 1 {
+                            for _ in 0..count {
+                                elements.push("\x1b[1C" as &str);
                             }
-                            remaining = &remaining[end..];
-                            continue;
+                        } else {
+                            elements.push(esc);
                         }
+                        remaining = &remaining[end..];
+                        continue;
                     }
                 }
                 elements.push(&remaining[..end]);

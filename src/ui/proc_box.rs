@@ -842,12 +842,13 @@ fn expand_cursor_right_padding(input: &str) -> String {
                 cursor += 1;
             }
 
-            if cursor > digits_start && bytes.get(cursor) == Some(&b'C') {
-                if let Ok(count) = input[digits_start..cursor].parse::<usize>() {
-                    out.push_str(&" ".repeat(count));
-                    i = cursor + 1;
-                    continue;
-                }
+            if cursor > digits_start
+                && bytes.get(cursor) == Some(&b'C')
+                && let Ok(count) = input[digits_start..cursor].parse::<usize>()
+            {
+                out.push_str(&" ".repeat(count));
+                i = cursor + 1;
+                continue;
             }
 
             let mut end = i + 2;

@@ -6,7 +6,7 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/freddiehaddad/rtop"
 authors = ["Freddie Haddad"]
-rust-version = "1.85"
+rust-version = "1.95"
 
 [features]
 default = []

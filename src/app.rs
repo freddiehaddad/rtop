@@ -717,31 +717,31 @@ pub(crate) fn render_all(
     let is_filtering = params.is_filtering;
     let mut output = String::new();
 
-    if dirty.intersects(Dirty::CPU_BOX) {
-        if let Some(ref cpu_dim) = layout.cpu {
-            let area = ui::BoxArea::from_dim(cpu_dim, rounded);
-            let cpu_settings = ui::cpu_box::CpuBoxSettings {
-                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string(sk::GRAPH_SYMBOL_CPU),
-                    config.get_string(sk::GRAPH_SYMBOL),
-                ),
-                upper_source: config.get_string(sk::CPU_GRAPH_UPPER),
-                lower_source: config.get_string(sk::CPU_GRAPH_LOWER),
-                check_temp: config.get_bool(bk::CHECK_TEMP),
-                show_coretemp: config.get_bool(bk::SHOW_CORETEMP),
-                temp_scale: config.get_string(sk::TEMP_SCALE),
-                single_graph: config.get_bool(bk::CPU_SINGLE_GRAPH),
-                update_ms,
-                current_preset: config.get_int(ik::CURRENT_PRESET),
-            };
-            output.push_str(&ui::cpu_box::draw(
-                &snapshot.cpu.info,
-                &area,
-                theme,
-                &cpu_settings,
-                &snapshot.cpu.status,
-            ));
-        }
+    if dirty.intersects(Dirty::CPU_BOX)
+        && let Some(ref cpu_dim) = layout.cpu
+    {
+        let area = ui::BoxArea::from_dim(cpu_dim, rounded);
+        let cpu_settings = ui::cpu_box::CpuBoxSettings {
+            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                config.get_string(sk::GRAPH_SYMBOL_CPU),
+                config.get_string(sk::GRAPH_SYMBOL),
+            ),
+            upper_source: config.get_string(sk::CPU_GRAPH_UPPER),
+            lower_source: config.get_string(sk::CPU_GRAPH_LOWER),
+            check_temp: config.get_bool(bk::CHECK_TEMP),
+            show_coretemp: config.get_bool(bk::SHOW_CORETEMP),
+            temp_scale: config.get_string(sk::TEMP_SCALE),
+            single_graph: config.get_bool(bk::CPU_SINGLE_GRAPH),
+            update_ms,
+            current_preset: config.get_int(ik::CURRENT_PRESET),
+        };
+        output.push_str(&ui::cpu_box::draw(
+            &snapshot.cpu.info,
+            &area,
+            theme,
+            &cpu_settings,
+            &snapshot.cpu.status,
+        ));
     }
 
     if dirty.intersects(Dirty::GPU_BOX) {
@@ -763,134 +763,134 @@ pub(crate) fn render_all(
         }
     }
 
-    if dirty.intersects(Dirty::MEM_BOX) {
-        if let Some(ref mem_dim) = layout.mem {
-            let area = ui::BoxArea::from_dim(mem_dim, rounded);
-            output.push_str(&ui::mem_box::draw(
-                &snapshot.mem.info,
-                &area,
-                theme,
-                &ui::mem_box::MemBoxSettings {
-                    show_swap: config.get_bool(bk::SHOW_SWAP),
-                },
-                &snapshot.mem.status,
-            ));
-        }
+    if dirty.intersects(Dirty::MEM_BOX)
+        && let Some(ref mem_dim) = layout.mem
+    {
+        let area = ui::BoxArea::from_dim(mem_dim, rounded);
+        output.push_str(&ui::mem_box::draw(
+            &snapshot.mem.info,
+            &area,
+            theme,
+            &ui::mem_box::MemBoxSettings {
+                show_swap: config.get_bool(bk::SHOW_SWAP),
+            },
+            &snapshot.mem.status,
+        ));
     }
 
-    if dirty.intersects(Dirty::DISK_BOX) {
-        if let Some(ref disk_dim) = layout.disk {
-            let area = ui::BoxArea::from_dim(disk_dim, rounded);
-            let disk_settings = ui::disk_box::DiskBoxSettings {
-                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string(sk::GRAPH_SYMBOL_DISK),
-                    config.get_string(sk::GRAPH_SYMBOL),
-                ),
-            };
-            output.push_str(&ui::disk_box::draw(
-                &snapshot.disk.info,
-                &area,
-                theme,
-                &disk_settings,
-                &snapshot.disk.status,
-            ));
-        }
+    if dirty.intersects(Dirty::DISK_BOX)
+        && let Some(ref disk_dim) = layout.disk
+    {
+        let area = ui::BoxArea::from_dim(disk_dim, rounded);
+        let disk_settings = ui::disk_box::DiskBoxSettings {
+            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                config.get_string(sk::GRAPH_SYMBOL_DISK),
+                config.get_string(sk::GRAPH_SYMBOL),
+            ),
+        };
+        output.push_str(&ui::disk_box::draw(
+            &snapshot.disk.info,
+            &area,
+            theme,
+            &disk_settings,
+            &snapshot.disk.status,
+        ));
     }
 
-    if dirty.intersects(Dirty::NET_BOX) {
-        if let Some(ref net_dim) = layout.net {
-            let iface = params.selected_iface;
-            let default_net = crate::domain::network::NetInfo::default();
-            let net_info = snapshot
-                .net
-                .nets
-                .iter()
-                .find(|n| n.name == iface)
-                .unwrap_or(&default_net);
-            let area = ui::BoxArea::from_dim(net_dim, rounded);
-            let net_settings = ui::net_box::NetBoxSettings {
-                iface,
-                auto_scale: config.get_bool(bk::NET_AUTO),
-                sync_scale: config.get_bool(bk::NET_SYNC),
-                max_download: config.get_int(ik::NET_DOWNLOAD),
-                max_upload: config.get_int(ik::NET_UPLOAD),
-                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string(sk::GRAPH_SYMBOL_NET),
-                    config.get_string(sk::GRAPH_SYMBOL),
-                ),
-            };
-            output.push_str(&ui::net_box::draw(
-                net_info,
-                &area,
-                theme,
-                &net_settings,
-                &snapshot.net.status,
-            ));
-        }
+    if dirty.intersects(Dirty::NET_BOX)
+        && let Some(ref net_dim) = layout.net
+    {
+        let iface = params.selected_iface;
+        let default_net = crate::domain::network::NetInfo::default();
+        let net_info = snapshot
+            .net
+            .nets
+            .iter()
+            .find(|n| n.name == iface)
+            .unwrap_or(&default_net);
+        let area = ui::BoxArea::from_dim(net_dim, rounded);
+        let net_settings = ui::net_box::NetBoxSettings {
+            iface,
+            auto_scale: config.get_bool(bk::NET_AUTO),
+            sync_scale: config.get_bool(bk::NET_SYNC),
+            max_download: config.get_int(ik::NET_DOWNLOAD),
+            max_upload: config.get_int(ik::NET_UPLOAD),
+            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                config.get_string(sk::GRAPH_SYMBOL_NET),
+                config.get_string(sk::GRAPH_SYMBOL),
+            ),
+        };
+        output.push_str(&ui::net_box::draw(
+            net_info,
+            &area,
+            theme,
+            &net_settings,
+            &snapshot.net.status,
+        ));
     }
 
-    if dirty.intersects(Dirty::PROC_BOX) {
-        if let Some(ref proc_dim) = layout.proc_box {
-            let procs = &snapshot.proc_data.procs;
-            let entries = params.proc_entries;
-            let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
-            let detail_rows = if detailed_pid > 0 {
-                8_usize.min(proc_dim.height.saturating_sub(6))
-            } else {
-                0
-            };
-            clamp_proc_selection(
-                entries.len(),
-                proc_dim.height,
-                detail_rows,
-                proc_selected,
-                proc_start,
-            );
-            let sort_by = config.get_string(sk::PROC_SORTING);
-            let reversed = config.get_bool(bk::PROC_REVERSED);
-            let tree_mode = config.get_bool(bk::PROC_TREE);
-            let pf = config.get_string(sk::PROC_FILTER);
-            let area = ui::BoxArea::from_dim(proc_dim, rounded);
-            let view = ui::ProcView {
-                start: *proc_start,
-                selected: *proc_selected,
-                sort_by,
-                sort_reversed: reversed,
-                tree_mode,
-                detailed_pid,
-                filter: pf,
-                filtering: is_filtering,
-            };
-            let total_mem = snapshot
-                .mem
-                .info
-                .stats
-                .used
-                .saturating_add(snapshot.mem.info.stats.available);
-            let proc_settings = ui::proc_box::ProcBoxSettings {
-                proc_per_core: config.get_bool(bk::PROC_PER_CORE),
-                core_count: snapshot.cpu.info.core_count,
-                proc_mem_bytes: config.get_bool(bk::PROC_MEM_BYTES),
-                total_mem,
-                proc_colors: config.get_bool(bk::PROC_COLORS),
-                proc_gradient: config.get_bool(bk::PROC_GRADIENT),
-                proc_cpu_graphs: config.get_bool(bk::PROC_CPU_GRAPHS),
-                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    config.get_string(sk::GRAPH_SYMBOL_PROC),
-                    config.get_string(sk::GRAPH_SYMBOL),
-                ),
-                cpu_histories: params.proc_cpu_histories,
-            };
-            output.push_str(&ui::proc_box::draw(
-                procs,
-                entries,
-                &area,
-                theme,
-                &proc_settings,
-                &view,
-                &snapshot.proc_data.status,
-            ));
-        }
+    if dirty.intersects(Dirty::PROC_BOX)
+        && let Some(ref proc_dim) = layout.proc_box
+    {
+        let procs = &snapshot.proc_data.procs;
+        let entries = params.proc_entries;
+        let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
+        let detail_rows = if detailed_pid > 0 {
+            8_usize.min(proc_dim.height.saturating_sub(6))
+        } else {
+            0
+        };
+        clamp_proc_selection(
+            entries.len(),
+            proc_dim.height,
+            detail_rows,
+            proc_selected,
+            proc_start,
+        );
+        let sort_by = config.get_string(sk::PROC_SORTING);
+        let reversed = config.get_bool(bk::PROC_REVERSED);
+        let tree_mode = config.get_bool(bk::PROC_TREE);
+        let pf = config.get_string(sk::PROC_FILTER);
+        let area = ui::BoxArea::from_dim(proc_dim, rounded);
+        let view = ui::ProcView {
+            start: *proc_start,
+            selected: *proc_selected,
+            sort_by,
+            sort_reversed: reversed,
+            tree_mode,
+            detailed_pid,
+            filter: pf,
+            filtering: is_filtering,
+        };
+        let total_mem = snapshot
+            .mem
+            .info
+            .stats
+            .used
+            .saturating_add(snapshot.mem.info.stats.available);
+        let proc_settings = ui::proc_box::ProcBoxSettings {
+            proc_per_core: config.get_bool(bk::PROC_PER_CORE),
+            core_count: snapshot.cpu.info.core_count,
+            proc_mem_bytes: config.get_bool(bk::PROC_MEM_BYTES),
+            total_mem,
+            proc_colors: config.get_bool(bk::PROC_COLORS),
+            proc_gradient: config.get_bool(bk::PROC_GRADIENT),
+            proc_cpu_graphs: config.get_bool(bk::PROC_CPU_GRAPHS),
+            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                config.get_string(sk::GRAPH_SYMBOL_PROC),
+                config.get_string(sk::GRAPH_SYMBOL),
+            ),
+            cpu_histories: params.proc_cpu_histories,
+        };
+        output.push_str(&ui::proc_box::draw(
+            procs,
+            entries,
+            &area,
+            theme,
+            &proc_settings,
+            &view,
+            &snapshot.proc_data.status,
+        ));
     }
 
     output
