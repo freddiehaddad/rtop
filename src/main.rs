@@ -15,6 +15,9 @@ mod runner;
 mod term;
 mod theme;
 mod theme_keys;
+// Types used after theme system rewrite (commit 3).
+#[allow(dead_code)]
+mod themes;
 mod tools;
 mod ui;
 
