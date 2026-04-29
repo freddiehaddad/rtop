@@ -306,7 +306,7 @@ pub const MEM: &[OptDef] = &[
     OptDef {
         key: ConfigKey::ShowSwap,
         desc: &[
-            "If swap memory should be shown in memory box.",
+            "Show swap memory in the mem box.",
             "",
             "True or False.",
         ],
