@@ -1,5 +1,4 @@
 use crate::{
-    config_keys::str_keys as sk,
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
@@ -13,8 +12,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Enter => {
-            ctx.config
-                .set_string(sk::PROC_FILTER, &ctx.process.filter_text);
+            ctx.config.proc_filter = ctx.process.filter_text.clone();
             ctx.overlay.set_menu_state(MenuState::None);
             ctx.process.selected = 0;
             ctx.process.start = 0;
@@ -22,23 +20,21 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         }
         Key::Backspace => {
             ctx.process.filter_text.pop();
-            ctx.config
-                .set_string(sk::PROC_FILTER, &ctx.process.filter_text);
+            ctx.config.proc_filter = ctx.process.filter_text.clone();
             ctx.process.selected = 0;
             ctx.process.start = 0;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Delete => {
             ctx.process.filter_text.clear();
-            ctx.config.set_string(sk::PROC_FILTER, "");
+            ctx.config.proc_filter.clear();
             ctx.process.selected = 0;
             ctx.process.start = 0;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char(c) => {
             ctx.process.filter_text.push(c);
-            ctx.config
-                .set_string(sk::PROC_FILTER, &ctx.process.filter_text);
+            ctx.config.proc_filter = ctx.process.filter_text.clone();
             ctx.process.selected = 0;
             ctx.process.start = 0;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;

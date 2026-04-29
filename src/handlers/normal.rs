@@ -1,6 +1,5 @@
 use crate::{
     collect::process_display::SORT_OPTIONS,
-    config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
@@ -76,13 +75,13 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
         Key::Char('p') => {
             let presets = ctx.config.preset_list();
             if !presets.is_empty() {
-                let cur = ctx.config.get_int(ik::CURRENT_PRESET);
+                let cur = ctx.config.current_preset;
                 let next = if (cur + 1) >= presets.len() as i64 {
                     0i64
                 } else {
                     cur + 1
                 };
-                ctx.config.set_int(ik::CURRENT_PRESET, next);
+                ctx.config.current_preset = next;
                 ctx.config.apply_preset(&presets[next as usize]);
                 sync_update_ms(ctx);
                 ctx.render.dirty |= Dirty::FULL;
@@ -92,13 +91,13 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
         Key::Char('P') => {
             let presets = ctx.config.preset_list();
             if !presets.is_empty() {
-                let cur = ctx.config.get_int(ik::CURRENT_PRESET);
+                let cur = ctx.config.current_preset;
                 let next = if cur <= 0 {
                     presets.len() as i64 - 1
                 } else {
                     cur - 1
                 };
-                ctx.config.set_int(ik::CURRENT_PRESET, next);
+                ctx.config.current_preset = next;
                 ctx.config.apply_preset(&presets[next as usize]);
                 sync_update_ms(ctx);
                 ctx.render.dirty |= Dirty::FULL;
@@ -111,11 +110,11 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
             Some(HandleResult::none())
         }
         Key::CtrlD => {
-            let cur = ctx.config.get_int(ik::CURRENT_PRESET);
+            let cur = ctx.config.current_preset;
             if cur > 0 {
                 ctx.config.delete_preset(cur as usize);
                 let presets = ctx.config.preset_list();
-                let new_cur = ctx.config.get_int(ik::CURRENT_PRESET);
+                let new_cur = ctx.config.current_preset;
                 if !presets.is_empty() && (new_cur as usize) < presets.len() {
                     ctx.config.apply_preset(&presets[new_cur as usize]);
                     sync_update_ms(ctx);
@@ -138,12 +137,10 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
     for w in &warnings {
         tracing::warn!("{}", w);
     }
-    let theme_name = ctx.config.get_string(sk::COLOR_THEME).to_string();
+    let theme_name = ctx.config.color_theme.clone();
     *ctx.theme = theme::Theme::from_name(&theme_name);
-    let base = ctx
-        .theme
-        .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
-    ctx.runtime.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
+    let base = ctx.theme.base_style(ctx.config.theme_background);
+    ctx.runtime.rounded = ctx.config.rounded_corners;
     sync_update_ms(ctx);
     ctx.render.dirty |= Dirty::FULL;
     Some(HandleResult::raw(base))
@@ -195,43 +192,41 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
     match *key {
         Key::Char('f') | Key::Char('/') => {
             ctx.overlay.set_menu_state(MenuState::Filter);
-            ctx.process.filter_text = ctx.config.get_string(sk::PROC_FILTER).to_string();
+            ctx.process.filter_text = ctx.config.proc_filter.clone();
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
         Key::Char('e') => {
-            ctx.config.flip(bk::PROC_TREE);
+            ctx.config.proc_tree = !ctx.config.proc_tree;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('r') => {
-            ctx.config.flip(bk::PROC_REVERSED);
+            ctx.config.proc_reversed = !ctx.config.proc_reversed;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('c') => {
-            ctx.config.flip(bk::PROC_PER_CORE);
+            ctx.config.proc_per_core = !ctx.config.proc_per_core;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('i') => {
-            ctx.config.flip(bk::IO_MODE);
+            ctx.config.io_mode = !ctx.config.io_mode;
             ctx.render.dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
         }
         Key::Left => {
-            let current = ctx.config.get_string(sk::PROC_SORTING).to_string();
+            let current = ctx.config.proc_sorting.clone();
             let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
             let new_idx = if idx == 0 {
                 SORT_OPTIONS.len() - 1
             } else {
                 idx - 1
             };
-            ctx.config
-                .set_string(sk::PROC_SORTING, SORT_OPTIONS[new_idx]);
+            ctx.config.proc_sorting = SORT_OPTIONS[new_idx].to_string();
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Right => {
-            let current = ctx.config.get_string(sk::PROC_SORTING).to_string();
+            let current = ctx.config.proc_sorting.clone();
             let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
             let new_idx = (idx + 1) % SORT_OPTIONS.len();
-            ctx.config
-                .set_string(sk::PROC_SORTING, SORT_OPTIONS[new_idx]);
+            ctx.config.proc_sorting = SORT_OPTIONS[new_idx].to_string();
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('t') if ctx.process.selected < ctx.process.entries.len() => {
@@ -242,11 +237,11 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         }
         Key::Enter if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
-                let current_detailed = ctx.config.get_int(ik::DETAILED_PID);
+                let current_detailed = ctx.config.detailed_pid;
                 if current_detailed == pid as i64 {
-                    ctx.config.set_int(ik::DETAILED_PID, 0);
+                    ctx.config.detailed_pid = 0;
                 } else {
-                    ctx.config.set_int(ik::DETAILED_PID, pid as i64);
+                    ctx.config.detailed_pid = pid as i64;
                 }
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
@@ -290,11 +285,11 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('a') => {
-            ctx.config.flip(bk::NET_AUTO);
+            ctx.config.net_auto = !ctx.config.net_auto;
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('y') => {
-            ctx.config.flip(bk::NET_SYNC);
+            ctx.config.net_sync = !ctx.config.net_sync;
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('z') if !ctx.network.selected_iface.is_empty() => {
@@ -320,8 +315,8 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
         100
     };
     let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
-    ctx.config.set_int(ik::UPDATE_MS, new_ms);
-    ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
+    ctx.config.update_ms = new_ms;
+    ctx.runtime.update_ms = ctx.config.update_ms as u64;
     ctx.worker.set_update_ms(ctx.runtime.update_ms);
     ctx.render.dirty |= Dirty::CPU_BOX;
 }
@@ -329,7 +324,7 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
 // --- Helpers ---
 
 fn sync_update_ms(ctx: &mut InputContext) {
-    ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
+    ctx.runtime.update_ms = ctx.config.update_ms as u64;
     ctx.worker.set_update_ms(ctx.runtime.update_ms);
 }
 

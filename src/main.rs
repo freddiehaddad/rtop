@@ -3,7 +3,6 @@ mod banner;
 mod cli;
 mod collect;
 mod config;
-mod config_keys;
 mod dirty;
 mod domain;
 mod draw;
@@ -21,7 +20,6 @@ mod themes;
 mod tools;
 mod ui;
 
-use crate::config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk};
 use clap::Parser;
 
 fn main() {
@@ -29,7 +27,9 @@ fn main() {
 
     // --default-config: print and exit
     if cli.default_config {
-        print!("{}", config::Config::new().to_config_string());
+        let config = config::Config::new();
+        let output = toml::to_string_pretty(&config).unwrap_or_default();
+        print!("{output}");
         return;
     }
 
@@ -40,7 +40,7 @@ fn main() {
 
     // Load config (from CLI path or default location)
     let mut config = config::Config::new();
-    let default_conf_path = tools::config_dir().join("rtop.conf");
+    let default_conf_path = tools::config_dir().join("rtop.toml");
     if let Some(ref path) = cli.config_file {
         let warnings = config.load(path);
         for w in &warnings {
@@ -55,13 +55,13 @@ fn main() {
 
     // Apply CLI overrides
     if let Some(ms) = cli.update_ms {
-        config.set_int(ik::UPDATE_MS, ms as i64);
+        config.update_ms = ms as i64;
     }
     if let Some(ref f) = cli.filter {
-        config.set_string(sk::PROC_FILTER, f);
+        config.proc_filter = f.clone();
     }
     if let Some(p) = cli.preset {
-        config.set_int(ik::CURRENT_PRESET, p as i64);
+        config.current_preset = p as i64;
     }
 
     // Init terminal
@@ -74,10 +74,10 @@ fn main() {
     };
 
     // Init theme
-    let mut theme = theme::Theme::from_name(config.get_string(sk::COLOR_THEME));
+    let mut theme = theme::Theme::from_name(&config.color_theme);
 
     // Set terminal base colors from theme
-    let base_colors = theme.base_style(config.get_bool(bk::THEME_BACKGROUND));
+    let base_colors = theme.base_style(config.theme_background);
     let _ = terminal.write_raw(&base_colors);
 
     app::run(&mut config, &mut terminal, &mut theme);

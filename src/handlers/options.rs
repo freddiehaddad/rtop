@@ -1,6 +1,5 @@
 use crate::{
     config::ConfigKey,
-    config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
     input::Key,
@@ -125,39 +124,27 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
 
                 match kind {
                     menu::options_menu::OptKind::Bool => {
-                        let ConfigKey::Bool(opt_key) = opt_key else {
-                            unreachable!("bool option kind without bool key");
-                        };
-                        ctx.config.flip(opt_key);
-                        ctx.runtime.rounded = ctx.config.get_bool(bk::ROUNDED_CORNERS);
-                        if opt_key == bk::THEME_BACKGROUND {
+                        opt_key.toggle_bool(ctx.config);
+                        ctx.runtime.rounded = ctx.config.rounded_corners;
+                        if opt_key == ConfigKey::ThemeBackground {
                             extra_ops.push(TerminalOp::Raw(
-                                ctx.theme
-                                    .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND)),
+                                ctx.theme.base_style(ctx.config.theme_background),
                             ));
                         }
                     }
                     menu::options_menu::OptKind::Int => {
-                        let ConfigKey::Int(opt_key) = opt_key else {
-                            unreachable!("int option kind without int key");
-                        };
                         menu::options_menu::step_int(opt_key, ctx.config, dir);
-                        if opt_key == ik::UPDATE_MS {
-                            ctx.runtime.update_ms = ctx.config.get_int(ik::UPDATE_MS) as u64;
+                        if opt_key == ConfigKey::UpdateMs {
+                            ctx.runtime.update_ms = ctx.config.update_ms as u64;
                             ctx.worker.set_update_ms(ctx.runtime.update_ms);
                         }
                     }
                     menu::options_menu::OptKind::Browsable => {
-                        let ConfigKey::String(string_key) = opt_key else {
-                            unreachable!("browsable option kind without string key");
-                        };
                         menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);
-                        if string_key == sk::COLOR_THEME {
-                            let name = ctx.config.get_string(sk::COLOR_THEME).to_string();
+                        if opt_key == ConfigKey::ColorTheme {
+                            let name = ctx.config.color_theme.clone();
                             *ctx.theme = theme::Theme::from_name(&name);
-                            let base = ctx
-                                .theme
-                                .base_style(ctx.config.get_bool(bk::THEME_BACKGROUND));
+                            let base = ctx.theme.base_style(ctx.config.theme_background);
                             extra_ops.push(TerminalOp::Raw(base));
                         }
                     }

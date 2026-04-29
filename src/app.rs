@@ -1,7 +1,6 @@
 use crate::domain::process::ProcDisplayEntry;
 use crate::{
     config,
-    config_keys::{bool_keys as bk, int_keys as ik, str_keys as sk},
     dirty::Dirty,
     draw, handlers,
     handlers::{InputContext, MenuState},
@@ -16,7 +15,7 @@ const PROC_CPU_HISTORY_LIMIT: usize = 300;
 
 /// Run the main event loop: collect data, render UI, and handle input.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
-    let mut worker = runner::CollectionWorker::start(config.get_int(ik::UPDATE_MS) as u64);
+    let mut worker = runner::CollectionWorker::start(config.update_ms as u64);
     let mut state = AppState::new(config, Instant::now());
 
     loop {
@@ -92,8 +91,8 @@ pub(crate) struct RuntimeState {
 impl RuntimeState {
     fn new(config: &config::Config) -> Self {
         Self {
-            rounded: config.get_bool(bk::ROUNDED_CORNERS),
-            update_ms: config.get_int(ik::UPDATE_MS) as u64,
+            rounded: config.rounded_corners,
+            update_ms: config.update_ms as u64,
         }
     }
 }
@@ -221,10 +220,10 @@ impl ProcessViewState {
             self.entries.clear();
             return;
         };
-        let sort_by = config.get_string(sk::PROC_SORTING);
-        let reversed = config.get_bool(bk::PROC_REVERSED);
-        let filter = config.get_string(sk::PROC_FILTER);
-        let tree_mode = config.get_bool(bk::PROC_TREE);
+        let sort_by = &config.proc_sorting;
+        let reversed = config.proc_reversed;
+        let filter = &config.proc_filter;
+        let tree_mode = config.proc_tree;
         self.entries = crate::collect::process_display::build_proc_display_entries(
             &snapshot.proc_data.procs,
             sort_by,
@@ -341,8 +340,7 @@ fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Conf
     if auto_add_gpu_boxes(config, snapshot.gpu.gpus.len()) {
         state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
-    let initial = config.get_string(sk::SHOWN_BOXES).to_string();
-    config.set_string(sk::INITIAL_SHOWN_BOXES, &initial);
+    config.initial_shown_boxes = config.shown_boxes.clone();
     state.startup.boxes_initialized = true;
 }
 
@@ -351,7 +349,7 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
         return false;
     }
 
-    let shown = config.get_string(sk::SHOWN_BOXES).to_string();
+    let shown = config.shown_boxes.clone();
     let mut boxes: Vec<String> = shown.split_whitespace().map(String::from).collect();
     let mut changed = false;
     for i in 0..gpu_count {
@@ -362,7 +360,7 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
         }
     }
     if changed {
-        config.set_string(sk::SHOWN_BOXES, &boxes.join(" "));
+        config.shown_boxes = boxes.join(" ");
     }
     changed
 }
@@ -476,7 +474,7 @@ fn calculate_layout(
     size: TerminalSize,
 ) -> draw::layout::Layout {
     let shown: Vec<String> = config
-        .get_string(sk::SHOWN_BOXES)
+        .shown_boxes
         .split_whitespace()
         .map(String::from)
         .collect();
@@ -484,9 +482,9 @@ fn calculate_layout(
         term_width: size.width,
         term_height: size.height,
         shown_boxes: &shown,
-        cpu_bottom: config.get_bool(bk::CPU_BOTTOM),
-        mem_below_net: config.get_bool(bk::MEM_BELOW_NET),
-        proc_left: config.get_bool(bk::PROC_LEFT),
+        cpu_bottom: config.cpu_bottom,
+        mem_below_net: config.mem_below_net,
+        proc_left: config.proc_left,
         core_count: snapshot.cpu.info.core_count,
         gpu_count: snapshot.gpu.gpus.len(),
         disk_count: snapshot.disk.info.disks.len(),
@@ -645,12 +643,12 @@ fn execute_terminal_ops(
 }
 
 fn style_terminal_output(output: &str, config: &config::Config, theme: &theme::Theme) -> String {
-    theme.style_output(output, config.get_bool(bk::THEME_BACKGROUND))
+    theme.style_output(output, config.theme_background)
 }
 
 fn save_config_on_exit(config: &config::Config) {
-    if config.get_bool(bk::SAVE_CONFIG_ON_EXIT) {
-        let conf_path = tools::config_dir().join("rtop.conf");
+    if config.save_config_on_exit {
+        let conf_path = tools::config_dir().join("rtop.toml");
         let _ = config.write(&conf_path);
     }
 }
@@ -723,17 +721,17 @@ pub(crate) fn render_all(
         let area = ui::BoxArea::from_dim(cpu_dim, rounded);
         let cpu_settings = ui::cpu_box::CpuBoxSettings {
             graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                config.get_string(sk::GRAPH_SYMBOL_CPU),
-                config.get_string(sk::GRAPH_SYMBOL),
+                &config.graph_symbol_cpu,
+                &config.graph_symbol,
             ),
-            upper_source: config.get_string(sk::CPU_GRAPH_UPPER),
-            lower_source: config.get_string(sk::CPU_GRAPH_LOWER),
-            check_temp: config.get_bool(bk::CHECK_TEMP),
-            show_coretemp: config.get_bool(bk::SHOW_CORETEMP),
-            temp_scale: config.get_string(sk::TEMP_SCALE),
-            single_graph: config.get_bool(bk::CPU_SINGLE_GRAPH),
+            upper_source: &config.cpu_graph_upper,
+            lower_source: &config.cpu_graph_lower,
+            check_temp: config.check_temp,
+            show_coretemp: config.show_coretemp,
+            temp_scale: &config.temp_scale,
+            single_graph: config.cpu_single_graph,
             update_ms,
-            current_preset: config.get_int(ik::CURRENT_PRESET),
+            current_preset: config.current_preset,
         };
         output.push_str(&ui::cpu_box::draw(
             &snapshot.cpu.info,
@@ -750,7 +748,7 @@ pub(crate) fn render_all(
                 let area = ui::BoxArea::from_dim(gpu_dim, rounded);
                 let gpu_settings = ui::gpu_box::GpuBoxSettings {
                     index: gi,
-                    temp_scale: config.get_string(sk::TEMP_SCALE),
+                    temp_scale: &config.temp_scale,
                 };
                 output.push_str(&ui::gpu_box::draw(
                     &snapshot.gpu.gpus[gi],
@@ -772,7 +770,7 @@ pub(crate) fn render_all(
             &area,
             theme,
             &ui::mem_box::MemBoxSettings {
-                show_swap: config.get_bool(bk::SHOW_SWAP),
+                show_swap: config.show_swap,
             },
             &snapshot.mem.status,
         ));
@@ -784,8 +782,8 @@ pub(crate) fn render_all(
         let area = ui::BoxArea::from_dim(disk_dim, rounded);
         let disk_settings = ui::disk_box::DiskBoxSettings {
             graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                config.get_string(sk::GRAPH_SYMBOL_DISK),
-                config.get_string(sk::GRAPH_SYMBOL),
+                &config.graph_symbol_disk,
+                &config.graph_symbol,
             ),
         };
         output.push_str(&ui::disk_box::draw(
@@ -811,13 +809,13 @@ pub(crate) fn render_all(
         let area = ui::BoxArea::from_dim(net_dim, rounded);
         let net_settings = ui::net_box::NetBoxSettings {
             iface,
-            auto_scale: config.get_bool(bk::NET_AUTO),
-            sync_scale: config.get_bool(bk::NET_SYNC),
-            max_download: config.get_int(ik::NET_DOWNLOAD),
-            max_upload: config.get_int(ik::NET_UPLOAD),
+            auto_scale: config.net_auto,
+            sync_scale: config.net_sync,
+            max_download: config.net_download,
+            max_upload: config.net_upload,
             graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                config.get_string(sk::GRAPH_SYMBOL_NET),
-                config.get_string(sk::GRAPH_SYMBOL),
+                &config.graph_symbol_net,
+                &config.graph_symbol,
             ),
         };
         output.push_str(&ui::net_box::draw(
@@ -834,7 +832,7 @@ pub(crate) fn render_all(
     {
         let procs = &snapshot.proc_data.procs;
         let entries = params.proc_entries;
-        let detailed_pid = config.get_int(ik::DETAILED_PID) as u32;
+        let detailed_pid = config.detailed_pid as u32;
         let detail_rows = if detailed_pid > 0 {
             8_usize.min(proc_dim.height.saturating_sub(6))
         } else {
@@ -847,10 +845,10 @@ pub(crate) fn render_all(
             proc_selected,
             proc_start,
         );
-        let sort_by = config.get_string(sk::PROC_SORTING);
-        let reversed = config.get_bool(bk::PROC_REVERSED);
-        let tree_mode = config.get_bool(bk::PROC_TREE);
-        let pf = config.get_string(sk::PROC_FILTER);
+        let sort_by = &config.proc_sorting;
+        let reversed = config.proc_reversed;
+        let tree_mode = config.proc_tree;
+        let pf = &config.proc_filter;
         let area = ui::BoxArea::from_dim(proc_dim, rounded);
         let view = ui::ProcView {
             start: *proc_start,
@@ -869,16 +867,16 @@ pub(crate) fn render_all(
             .used
             .saturating_add(snapshot.mem.info.stats.available);
         let proc_settings = ui::proc_box::ProcBoxSettings {
-            proc_per_core: config.get_bool(bk::PROC_PER_CORE),
+            proc_per_core: config.proc_per_core,
             core_count: snapshot.cpu.info.core_count,
-            proc_mem_bytes: config.get_bool(bk::PROC_MEM_BYTES),
+            proc_mem_bytes: config.proc_mem_bytes,
             total_mem,
-            proc_colors: config.get_bool(bk::PROC_COLORS),
-            proc_gradient: config.get_bool(bk::PROC_GRADIENT),
-            proc_cpu_graphs: config.get_bool(bk::PROC_CPU_GRAPHS),
+            proc_colors: config.proc_colors,
+            proc_gradient: config.proc_gradient,
+            proc_cpu_graphs: config.proc_cpu_graphs,
             graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                config.get_string(sk::GRAPH_SYMBOL_PROC),
-                config.get_string(sk::GRAPH_SYMBOL),
+                &config.graph_symbol_proc,
+                &config.graph_symbol,
             ),
             cpu_histories: params.proc_cpu_histories,
         };
@@ -903,8 +901,8 @@ mod tests {
     #[test]
     fn app_state_initializes_from_config() {
         let mut config = config::Config::new();
-        config.set_bool(bk::ROUNDED_CORNERS, false);
-        config.set_int(ik::UPDATE_MS, 1_500);
+        config.rounded_corners = false;
+        config.update_ms = 1_500;
         let now = Instant::now();
 
         let state = AppState::new(&config, now);
@@ -1016,19 +1014,19 @@ mod tests {
     #[test]
     fn auto_add_gpu_boxes_adds_missing_boxes() {
         let mut config = config::Config::new();
-        config.set_string(sk::SHOWN_BOXES, "cpu mem proc");
+        config.shown_boxes = "cpu mem proc".to_string();
 
         assert!(auto_add_gpu_boxes(&mut config, 2));
-        assert_eq!(config.get_string(sk::SHOWN_BOXES), "cpu mem proc gpu0 gpu1");
+        assert_eq!(&config.shown_boxes, "cpu mem proc gpu0 gpu1");
     }
 
     #[test]
     fn auto_add_gpu_boxes_ignores_existing_boxes() {
         let mut config = config::Config::new();
-        config.set_string(sk::SHOWN_BOXES, "cpu mem proc gpu0");
+        config.shown_boxes = "cpu mem proc gpu0".to_string();
 
         assert!(!auto_add_gpu_boxes(&mut config, 1));
-        assert_eq!(config.get_string(sk::SHOWN_BOXES), "cpu mem proc gpu0");
+        assert_eq!(&config.shown_boxes, "cpu mem proc gpu0");
     }
 
     #[test]

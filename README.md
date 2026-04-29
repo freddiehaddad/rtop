@@ -129,7 +129,7 @@ rtop stores its config at:
 
 | Location | Path |
 |----------|------|
-| Config | `%APPDATA%\rtop\rtop.conf` (or `$XDG_CONFIG_HOME/rtop/`) |
+| Config | `%APPDATA%\rtop\rtop.toml` (or `$XDG_CONFIG_HOME/rtop/`) |
 | Logs | `%LOCALAPPDATA%\rtop\` (or `$XDG_STATE_HOME/rtop/`) |
 
 The config file is created automatically on first run when `save_config_on_exit` is enabled (default). All options are editable from the built-in options menu (`o` / `F2`).
@@ -142,7 +142,7 @@ rtop --default-config
 
 ### Themes
 
-rtop ships with 40 built-in themes. Change the theme from the options menu (General → color_theme) or set it in `rtop.conf`:
+rtop ships with 40 built-in themes. Change the theme from the options menu (General → color_theme) or set it in `rtop.toml`:
 
 ```
 color_theme = "dracula"
