@@ -393,7 +393,6 @@ define_config! {
         BACKGROUND_UPDATE background_update:  "background_update"   => true,
         TERMINAL_SYNC terminal_sync:          "terminal_sync"       => true,
         SAVE_CONFIG_ON_EXIT save_config_on_exit: "save_config_on_exit" => true,
-        DISABLE_MOUSE disable_mouse:          "disable_mouse"       => false,
         DISK_FREE_PRIV disk_free_priv:        "disk_free_priv"      => false,
         GPU_MIRROR_GRAPH gpu_mirror_graph:    "gpu_mirror_graph"    => true,
         DISK_IO_MODE disk_io_mode:            "disk_io_mode"        => false,

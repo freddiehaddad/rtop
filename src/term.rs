@@ -20,16 +20,11 @@ pub struct Terminal {
 }
 
 impl Terminal {
-    /// Initialize the terminal: raw mode, alternate screen, hide cursor, enable mouse.
+    /// Initialize the terminal: raw mode, alternate screen, hide cursor.
     pub fn init() -> io::Result<Self> {
         terminal::enable_raw_mode()?;
         let mut stdout = io::stdout();
-        execute!(
-            stdout,
-            terminal::EnterAlternateScreen,
-            cursor::Hide,
-            crossterm::event::EnableMouseCapture
-        )?;
+        execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
         let (w, h) = terminal::size()?;
         Ok(Self {
             width: w,
@@ -40,12 +35,7 @@ impl Terminal {
     /// Restore terminal to normal state.
     pub fn restore(&self) {
         let mut stdout = io::stdout();
-        let _ = execute!(
-            stdout,
-            crossterm::event::DisableMouseCapture,
-            cursor::Show,
-            terminal::LeaveAlternateScreen
-        );
+        let _ = execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen);
         let _ = terminal::disable_raw_mode();
     }
 

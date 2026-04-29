@@ -1,6 +1,4 @@
-use crossterm::event::{
-    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
-};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::time::Duration;
 
 /// Typed input key, replacing stringly-typed dispatch.
@@ -27,26 +25,7 @@ pub enum Key {
     CtrlR,
     CtrlS,
     CtrlD,
-    MouseClick,
-    MouseRelease,
-    MouseDrag,
-    MouseScrollUp,
-    MouseScrollDown,
     Resize,
-}
-
-impl Key {
-    /// True for mouse events that the UI ignores.
-    pub fn is_mouse(self) -> bool {
-        matches!(
-            self,
-            Key::MouseClick
-                | Key::MouseRelease
-                | Key::MouseDrag
-                | Key::MouseScrollUp
-                | Key::MouseScrollDown
-        )
-    }
 }
 
 /// Poll for input with a timeout in milliseconds. Returns true if input is available.
@@ -58,7 +37,6 @@ pub fn poll(timeout_ms: u64) -> bool {
 pub fn get() -> Option<Key> {
     match event::read() {
         Ok(Event::Key(key)) => translate_key(key),
-        Ok(Event::Mouse(mouse)) => Some(translate_mouse(mouse)),
         Ok(Event::Resize(_, _)) => Some(Key::Resize),
         _ => None,
     }
@@ -100,18 +78,6 @@ fn translate_key(key: KeyEvent) -> Option<Key> {
         KeyCode::F(n) => Some(Key::F(n)),
         KeyCode::Char(c) => Some(Key::Char(c)),
         _ => None,
-    }
-}
-
-/// Translate a crossterm MouseEvent to a typed Key.
-fn translate_mouse(mouse: MouseEvent) -> Key {
-    match mouse.kind {
-        MouseEventKind::Down(_) => Key::MouseClick,
-        MouseEventKind::Up(_) => Key::MouseRelease,
-        MouseEventKind::Drag(_) => Key::MouseDrag,
-        MouseEventKind::ScrollUp => Key::MouseScrollUp,
-        MouseEventKind::ScrollDown => Key::MouseScrollDown,
-        _ => Key::MouseClick,
     }
 }
 

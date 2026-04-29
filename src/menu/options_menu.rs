@@ -101,10 +101,6 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::Bool(bk::DISABLE_MOUSE),
-        desc: &["Disable all mouse events."],
-    },
-    OptDef {
         key: ConfigKey::String(sk::PRESETS),
         desc: &[
             "Define presets for the layout of the boxes.",

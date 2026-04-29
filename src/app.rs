@@ -578,10 +578,8 @@ fn handle_input_key(
     worker: &runner::CollectionWorker,
     size: TerminalSize,
 ) -> AppCommand {
-    if key.is_mouse() || *key == input::Key::Resize {
-        if *key == input::Key::Resize {
-            state.render.mark_resize();
-        }
+    if *key == input::Key::Resize {
+        state.render.mark_resize();
         return AppCommand::Continue;
     }
 
