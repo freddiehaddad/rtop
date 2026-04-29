@@ -595,7 +595,7 @@ fn calculate_layout(
         core_count: snapshot.cpu.info.core_count,
         gpu_count: snapshot.gpu.gpus.len(),
         disk_count: snapshot.disk.info.disks.len(),
-        has_swap: snapshot.mem.info.stats.swap_total > 0,
+        has_swap: config.show_swap && snapshot.mem.info.stats.swap_total > 0,
     })
 }
 
