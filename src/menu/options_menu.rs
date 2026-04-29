@@ -315,18 +315,6 @@ pub const MEM: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::GraphSymbolMem,
-        desc: &[
-            "Graph symbol to use for graphs in mem box.",
-            "",
-            "\"default\", \"braille\" or \"block\".",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::MemGraphs,
-        desc: &["Show graphs for memory values.", "", "True or False."],
-    },
-    OptDef {
         key: ConfigKey::ShowIoStat,
         desc: &[
             "Toggle IO activity graphs.",

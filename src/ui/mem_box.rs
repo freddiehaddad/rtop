@@ -2,7 +2,6 @@ use crate::collect::CollectStatus;
 use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::{Graph, GraphSymbol};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -14,8 +13,6 @@ use super::BoxArea;
 pub struct MemBoxSettings {
     pub show_swap: bool,
     pub base_10: bool,
-    pub mem_graphs: bool,
-    pub graph_symbol: GraphSymbol,
 }
 
 /// Draw the memory box into an ANSI string.
@@ -87,7 +84,6 @@ pub fn draw(
     let meter_w = inner_w.saturating_sub(label_w + val_w).max(5);
     let content_x = x + 3;
     let meter_bg = theme.color(tc::METER_BG);
-    let use_graphs = settings.mem_graphs;
     let used_meter = Meter::new(meter_w, used_grad, meter_bg);
     let avail_meter = Meter::new(meter_w, avail_grad, meter_bg);
     let cached_meter = Meter::new(meter_w, cached_grad, meter_bg);
@@ -111,61 +107,22 @@ pub fn draw(
             .text(&tools::rjust(value, val_w, false));
     };
 
-    // Helper: render graph row instead of meter
-    let render_graph_row = |buf: &mut AnsiBuffer,
-                            label: &str,
-                            history: &std::collections::VecDeque<i64>,
-                            gradient: &[String],
-                            value: &str,
-                            label_color: &str,
-                            val_color: &str,
-                            rx: usize,
-                            ry: usize,
-                            sym: GraphSymbol| {
-        buf.mv(rx, ry).color(label_color).text(label);
-        if !history.is_empty() && meter_w >= 3 {
-            let mut g = Graph::new(meter_w, 1, sym, false, false, 100, 0);
-            let row_str = g.render_row_colored(history, gradient);
-            buf.text(&row_str);
-        } else {
-            // Fallback: empty space when no history
-            buf.text(&" ".repeat(meter_w));
-        }
-        buf.color(val_color)
-            .text(&tools::rjust(value, val_w, false));
-    };
-
     // Used
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct as i64);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, settings.base_10);
     if row < inner_h {
-        if use_graphs {
-            render_graph_row(
-                &mut buf,
-                "Used  ",
-                &mem.percent.used,
-                used_grad,
-                &used_str,
-                title_color,
-                used_color,
-                content_x,
-                y + 2 + row,
-                settings.graph_symbol,
-            );
-        } else {
-            render_row(
-                &mut buf,
-                "Used  ",
-                used_meter.render(used_pct),
-                &used_str,
-                title_color,
-                used_color,
-                content_x,
-                y + 2 + row,
-            );
-        }
+        render_row(
+            &mut buf,
+            "Used  ",
+            used_meter.render(used_pct),
+            &used_str,
+            title_color,
+            used_color,
+            content_x,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -175,31 +132,16 @@ pub fn draw(
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, settings.base_10);
     if row < inner_h {
-        if use_graphs {
-            render_graph_row(
-                &mut buf,
-                "Avail ",
-                &mem.percent.available,
-                avail_grad,
-                &avail_str,
-                title_color,
-                avail_color,
-                content_x,
-                y + 2 + row,
-                settings.graph_symbol,
-            );
-        } else {
-            render_row(
-                &mut buf,
-                "Avail ",
-                avail_meter.render(avail_pct),
-                &avail_str,
-                title_color,
-                avail_color,
-                content_x,
-                y + 2 + row,
-            );
-        }
+        render_row(
+            &mut buf,
+            "Avail ",
+            avail_meter.render(avail_pct),
+            &avail_str,
+            title_color,
+            avail_color,
+            content_x,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -209,31 +151,16 @@ pub fn draw(
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, settings.base_10);
-        if use_graphs {
-            render_graph_row(
-                &mut buf,
-                "Cache ",
-                &mem.percent.cached,
-                cached_grad,
-                &cached_str,
-                title_color,
-                cache_color,
-                content_x,
-                y + 2 + row,
-                settings.graph_symbol,
-            );
-        } else {
-            render_row(
-                &mut buf,
-                "Cache ",
-                cached_meter.render(cached_pct),
-                &cached_str,
-                title_color,
-                cache_color,
-                content_x,
-                y + 2 + row,
-            );
-        }
+        render_row(
+            &mut buf,
+            "Cache ",
+            cached_meter.render(cached_pct),
+            &cached_str,
+            title_color,
+            cache_color,
+            content_x,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -243,31 +170,16 @@ pub fn draw(
     let free_color = gradient_color(free_grad, free_pct as i64);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, settings.base_10);
     if row < inner_h {
-        if use_graphs {
-            render_graph_row(
-                &mut buf,
-                "Free  ",
-                &mem.percent.free,
-                free_grad,
-                &free_str,
-                title_color,
-                free_color,
-                content_x,
-                y + 2 + row,
-                settings.graph_symbol,
-            );
-        } else {
-            render_row(
-                &mut buf,
-                "Free  ",
-                free_meter.render(free_pct),
-                &free_str,
-                title_color,
-                free_color,
-                content_x,
-                y + 2 + row,
-            );
-        }
+        render_row(
+            &mut buf,
+            "Free  ",
+            free_meter.render(free_pct),
+            &free_str,
+            title_color,
+            free_color,
+            content_x,
+            y + 2 + row,
+        );
         row += 1;
     }
 
@@ -283,31 +195,16 @@ pub fn draw(
         let swap_str =
             tools::floating_humanizer(swap_used, true, 0, false, false, settings.base_10);
         if row < inner_h {
-            if use_graphs {
-                render_graph_row(
-                    &mut buf,
-                    "Swap  ",
-                    &mem.percent.swap_used,
-                    used_grad,
-                    &swap_str,
-                    title_color,
-                    fg,
-                    content_x,
-                    y + 2 + row,
-                    settings.graph_symbol,
-                );
-            } else {
-                render_row(
-                    &mut buf,
-                    "Swap  ",
-                    used_meter.render(swap_pct),
-                    &swap_str,
-                    title_color,
-                    fg,
-                    content_x,
-                    y + 2 + row,
-                );
-            }
+            render_row(
+                &mut buf,
+                "Swap  ",
+                used_meter.render(swap_pct),
+                &swap_str,
+                title_color,
+                fg,
+                content_x,
+                y + 2 + row,
+            );
         }
     }
 
@@ -325,7 +222,6 @@ fn gradient_color(gradient: &[String], pct: i64) -> &str {
 mod tests {
     use super::*;
     use crate::domain::memory::{MemPercent, MemStats};
-    use crate::draw::graph::GraphSymbol;
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -382,8 +278,6 @@ mod tests {
             &MemBoxSettings {
                 show_swap: true,
                 base_10: false,
-                mem_graphs: false,
-                graph_symbol: GraphSymbol::Braille,
             },
             &CollectStatus::Ok,
         );
@@ -400,8 +294,6 @@ mod tests {
             &MemBoxSettings {
                 show_swap: true,
                 base_10: false,
-                mem_graphs: false,
-                graph_symbol: GraphSymbol::Braille,
             },
             &CollectStatus::Ok,
         );
@@ -418,8 +310,6 @@ mod tests {
             &MemBoxSettings {
                 show_swap: true,
                 base_10: false,
-                mem_graphs: false,
-                graph_symbol: GraphSymbol::Braille,
             },
             &CollectStatus::Ok,
         );
@@ -439,8 +329,6 @@ mod tests {
             &MemBoxSettings {
                 show_swap: false,
                 base_10: false,
-                mem_graphs: false,
-                graph_symbol: GraphSymbol::Braille,
             },
             &CollectStatus::Ok,
         );

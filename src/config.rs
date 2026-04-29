@@ -93,7 +93,6 @@ pub struct Config {
     pub check_temp: bool,
     pub show_coretemp: bool,
     pub show_cpu_freq: bool,
-    pub mem_graphs: bool,
     pub mem_below_net: bool,
     pub show_swap: bool,
 
@@ -130,7 +129,6 @@ pub struct Config {
     pub graph_symbol: String,
     pub graph_symbol_cpu: String,
     pub graph_symbol_gpu: String,
-    pub graph_symbol_mem: String,
     pub graph_symbol_net: String,
     pub graph_symbol_proc: String,
     pub graph_symbol_disk: String,
@@ -189,7 +187,6 @@ impl Default for Config {
             check_temp: true,
             show_coretemp: true,
             show_cpu_freq: true,
-            mem_graphs: true,
             mem_below_net: false,
             show_swap: true,
 
@@ -226,7 +223,6 @@ impl Default for Config {
             graph_symbol: "braille".to_string(),
             graph_symbol_cpu: "default".to_string(),
             graph_symbol_gpu: "default".to_string(),
-            graph_symbol_mem: "default".to_string(),
             graph_symbol_net: "default".to_string(),
             graph_symbol_proc: "default".to_string(),
             graph_symbol_disk: "default".to_string(),
@@ -408,13 +404,6 @@ impl Config {
             "default",
             GRAPH_SYMBOL_VALUES,
             "graph_symbol_gpu",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_mem,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_mem",
             &mut warnings,
         );
         validate_choice(
@@ -668,7 +657,6 @@ pub enum ConfigKey {
     CheckTemp,
     ShowCoretemp,
     ShowCpuFreq,
-    MemGraphs,
     MemBelowNet,
     ShowSwap,
 
@@ -705,7 +693,6 @@ pub enum ConfigKey {
     GraphSymbol,
     GraphSymbolCpu,
     GraphSymbolGpu,
-    GraphSymbolMem,
     GraphSymbolNet,
     GraphSymbolProc,
     GraphSymbolDisk,
@@ -757,7 +744,6 @@ impl ConfigKey {
             Self::CheckTemp => "check_temp",
             Self::ShowCoretemp => "show_coretemp",
             Self::ShowCpuFreq => "show_cpu_freq",
-            Self::MemGraphs => "mem_graphs",
             Self::MemBelowNet => "mem_below_net",
             Self::ShowSwap => "show_swap",
 
@@ -792,7 +778,6 @@ impl ConfigKey {
             Self::GraphSymbol => "graph_symbol",
             Self::GraphSymbolCpu => "graph_symbol_cpu",
             Self::GraphSymbolGpu => "graph_symbol_gpu",
-            Self::GraphSymbolMem => "graph_symbol_mem",
             Self::GraphSymbolNet => "graph_symbol_net",
             Self::GraphSymbolProc => "graph_symbol_proc",
             Self::GraphSymbolDisk => "graph_symbol_disk",
@@ -843,7 +828,6 @@ impl ConfigKey {
             | Self::CheckTemp
             | Self::ShowCoretemp
             | Self::ShowCpuFreq
-            | Self::MemGraphs
             | Self::MemBelowNet
             | Self::ShowSwap
             | Self::ShowIoStat
@@ -875,7 +859,6 @@ impl ConfigKey {
             | Self::GraphSymbol
             | Self::GraphSymbolCpu
             | Self::GraphSymbolGpu
-            | Self::GraphSymbolMem
             | Self::GraphSymbolNet
             | Self::GraphSymbolProc
             | Self::GraphSymbolDisk
@@ -927,7 +910,6 @@ impl ConfigKey {
             "check_temp" => Some(Self::CheckTemp),
             "show_coretemp" => Some(Self::ShowCoretemp),
             "show_cpu_freq" => Some(Self::ShowCpuFreq),
-            "mem_graphs" => Some(Self::MemGraphs),
             "mem_below_net" => Some(Self::MemBelowNet),
             "show_swap" => Some(Self::ShowSwap),
 
@@ -962,7 +944,6 @@ impl ConfigKey {
             "graph_symbol" => Some(Self::GraphSymbol),
             "graph_symbol_cpu" => Some(Self::GraphSymbolCpu),
             "graph_symbol_gpu" => Some(Self::GraphSymbolGpu),
-            "graph_symbol_mem" => Some(Self::GraphSymbolMem),
             "graph_symbol_net" => Some(Self::GraphSymbolNet),
             "graph_symbol_proc" => Some(Self::GraphSymbolProc),
             "graph_symbol_disk" => Some(Self::GraphSymbolDisk),
@@ -1017,7 +998,6 @@ impl ConfigKey {
             Self::CheckTemp => bool_display(config.check_temp),
             Self::ShowCoretemp => bool_display(config.show_coretemp),
             Self::ShowCpuFreq => bool_display(config.show_cpu_freq),
-            Self::MemGraphs => bool_display(config.mem_graphs),
             Self::MemBelowNet => bool_display(config.mem_below_net),
             Self::ShowSwap => bool_display(config.show_swap),
 
@@ -1054,7 +1034,6 @@ impl ConfigKey {
             Self::GraphSymbol => config.graph_symbol.clone(),
             Self::GraphSymbolCpu => config.graph_symbol_cpu.clone(),
             Self::GraphSymbolGpu => config.graph_symbol_gpu.clone(),
-            Self::GraphSymbolMem => config.graph_symbol_mem.clone(),
             Self::GraphSymbolNet => config.graph_symbol_net.clone(),
             Self::GraphSymbolProc => config.graph_symbol_proc.clone(),
             Self::GraphSymbolDisk => config.graph_symbol_disk.clone(),
@@ -1108,7 +1087,6 @@ impl ConfigKey {
             Self::CheckTemp => config.check_temp = !config.check_temp,
             Self::ShowCoretemp => config.show_coretemp = !config.show_coretemp,
             Self::ShowCpuFreq => config.show_cpu_freq = !config.show_cpu_freq,
-            Self::MemGraphs => config.mem_graphs = !config.mem_graphs,
             Self::MemBelowNet => config.mem_below_net = !config.mem_below_net,
             Self::ShowSwap => config.show_swap = !config.show_swap,
 
@@ -1174,7 +1152,6 @@ impl ConfigKey {
             Self::GraphSymbol => &config.graph_symbol,
             Self::GraphSymbolCpu => &config.graph_symbol_cpu,
             Self::GraphSymbolGpu => &config.graph_symbol_gpu,
-            Self::GraphSymbolMem => &config.graph_symbol_mem,
             Self::GraphSymbolNet => &config.graph_symbol_net,
             Self::GraphSymbolProc => &config.graph_symbol_proc,
             Self::GraphSymbolDisk => &config.graph_symbol_disk,
@@ -1210,7 +1187,6 @@ impl ConfigKey {
             Self::GraphSymbol => config.graph_symbol = value.to_string(),
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.to_string(),
             Self::GraphSymbolGpu => config.graph_symbol_gpu = value.to_string(),
-            Self::GraphSymbolMem => config.graph_symbol_mem = value.to_string(),
             Self::GraphSymbolNet => config.graph_symbol_net = value.to_string(),
             Self::GraphSymbolProc => config.graph_symbol_proc = value.to_string(),
             Self::GraphSymbolDisk => config.graph_symbol_disk = value.to_string(),
@@ -1245,7 +1221,6 @@ impl ConfigKey {
             Self::GraphSymbol
             | Self::GraphSymbolCpu
             | Self::GraphSymbolGpu
-            | Self::GraphSymbolMem
             | Self::GraphSymbolNet
             | Self::GraphSymbolProc
             | Self::GraphSymbolDisk => Some(GRAPH_SYMBOL_VALUES),

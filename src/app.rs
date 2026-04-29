@@ -902,11 +902,6 @@ pub(crate) fn render_all(
             &ui::mem_box::MemBoxSettings {
                 show_swap: config.show_swap,
                 base_10: config.base_10_sizes,
-                mem_graphs: config.mem_graphs,
-                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                    &config.graph_symbol_mem,
-                    &config.graph_symbol,
-                ),
             },
             &snapshot.mem.status,
         ));
