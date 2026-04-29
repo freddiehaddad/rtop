@@ -30,6 +30,8 @@ pub struct NetBoxSettings<'a> {
     pub max_download: i64,
     pub max_upload: i64,
     pub graph_symbol: GraphSymbol,
+    pub swap_dl_ul: bool,
+    pub base_10: bool,
 }
 
 /// Draw the network box into an ANSI string matching btop's layout.
@@ -88,6 +90,8 @@ pub fn draw(
     let graph_sym = settings.graph_symbol;
     let net_auto = settings.auto_scale;
     let net_sync = settings.sync_scale;
+    let swap = settings.swap_dl_ul;
+    let base_10 = settings.base_10;
 
     // Compute graph max values from the visible window only.
     let visible = graph_width;
@@ -112,76 +116,101 @@ pub fn draw(
         (dl_max_raw, ul_max_raw)
     };
 
-    // Split inner area between download (top half) and upload (bottom half)
-    let dl_rows = inner_h / 2;
-    let ul_rows = inner_h - dl_rows;
+    // When swap is true: upload on top (normal), download on bottom (inverted)
+    // When swap is false: download on top (normal), upload on bottom (inverted)
+    let top_bw = if swap {
+        &net.bandwidth.upload
+    } else {
+        &net.bandwidth.download
+    };
+    let bot_bw = if swap {
+        &net.bandwidth.download
+    } else {
+        &net.bandwidth.upload
+    };
+    let top_max = if swap { ul_max } else { dl_max };
+    let bot_max = if swap { dl_max } else { ul_max };
+    let top_grad = if swap { ul_grad } else { dl_grad };
+    let bot_grad = if swap { dl_grad } else { ul_grad };
+    let top_stat = if swap {
+        &net.stat.upload
+    } else {
+        &net.stat.download
+    };
+    let bot_stat = if swap {
+        &net.stat.download
+    } else {
+        &net.stat.upload
+    };
+    let top_arrow = if swap { "▲" } else { "▼" };
+    let bot_arrow = if swap { "▼" } else { "▲" };
 
-    // Download graph (normal orientation, top half)
+    // Split inner area between top half and bottom half
+    let top_rows = inner_h / 2;
+    let bot_rows = inner_h - top_rows;
+
+    // Top graph (normal orientation)
     {
-        let dl_bw = &net.bandwidth.download;
-        if dl_rows > 0 {
-            let mut graph = Graph::new(graph_width, dl_rows, graph_sym, false, true, 0, 0);
-            graph.max_value = dl_max;
-            graph.create(dl_bw);
-            let rows = graph.render_rows_colored(dl_bw, dl_grad);
+        if top_rows > 0 {
+            let mut graph = Graph::new(graph_width, top_rows, graph_sym, false, true, 0, 0);
+            graph.max_value = top_max;
+            graph.create(top_bw);
+            let rows = graph.render_rows_colored(top_bw, top_grad);
             for (i, row) in rows.iter().enumerate() {
                 buf.mv(x + 2, y + 2 + i).text(row);
             }
         }
     }
 
-    // Download speed label overlaid at top-right: "▼ 1.2M/s"
+    // Top speed label overlaid at top-right
     {
-        let dl = &net.stat.download;
-        let speed = tools::floating_humanizer(dl.speed, true, 0, false, true, false);
-        let dl_color = if !dl_grad.is_empty() {
-            let idx = if dl.top > 0 {
-                (dl.speed * 100 / dl.top.max(1)) as usize
+        let speed = tools::floating_humanizer(top_stat.speed, true, 0, false, true, base_10);
+        let top_color = if !top_grad.is_empty() {
+            let idx = if top_stat.top > 0 {
+                (top_stat.speed * 100 / top_stat.top.max(1)) as usize
             } else {
                 0
             };
-            &dl_grad[idx.min(100)]
+            &top_grad[idx.min(100)]
         } else {
             fg
         };
-        let label = format!("▼ {}", speed);
+        let label = format!("{} {}", top_arrow, speed);
         let lx = x + width.saturating_sub(label.len() + 2);
-        buf.mv(lx, y + 2).color(dl_color).text(&label);
+        buf.mv(lx, y + 2).color(top_color).text(&label);
     }
 
-    // Upload graph (inverted orientation, bottom half)
+    // Bottom graph (inverted orientation)
     {
-        let ul_bw = &net.bandwidth.upload;
-        if ul_rows > 0 {
-            let ul_start_y = y + 2 + dl_rows;
-            let mut graph = Graph::new(graph_width, ul_rows, graph_sym, true, true, 0, 0);
-            graph.max_value = ul_max;
-            graph.create(ul_bw);
-            let rows = graph.render_rows_colored(ul_bw, ul_grad);
+        if bot_rows > 0 {
+            let bot_start_y = y + 2 + top_rows;
+            let mut graph = Graph::new(graph_width, bot_rows, graph_sym, true, true, 0, 0);
+            graph.max_value = bot_max;
+            graph.create(bot_bw);
+            let rows = graph.render_rows_colored(bot_bw, bot_grad);
             for (i, row) in rows.iter().enumerate() {
-                buf.mv(x + 2, ul_start_y + i).text(row);
+                buf.mv(x + 2, bot_start_y + i).text(row);
             }
         }
     }
 
-    // Upload speed label overlaid at bottom-right: "▲ 0.5M/s"
+    // Bottom speed label overlaid at bottom-right
     {
-        let ul = &net.stat.upload;
-        let speed = tools::floating_humanizer(ul.speed, true, 0, false, true, false);
-        let ul_color = if !ul_grad.is_empty() {
-            let idx = if ul.top > 0 {
-                (ul.speed * 100 / ul.top.max(1)) as usize
+        let speed = tools::floating_humanizer(bot_stat.speed, true, 0, false, true, base_10);
+        let bot_color = if !bot_grad.is_empty() {
+            let idx = if bot_stat.top > 0 {
+                (bot_stat.speed * 100 / bot_stat.top.max(1)) as usize
             } else {
                 0
             };
-            &ul_grad[idx.min(100)]
+            &bot_grad[idx.min(100)]
         } else {
             fg
         };
-        let label = format!("▲ {}", speed);
+        let label = format!("{} {}", bot_arrow, speed);
         let lx = x + width.saturating_sub(label.len() + 2);
         let label_y = y + height - 1;
-        buf.mv(lx, label_y).color(ul_color).text(&label);
+        buf.mv(lx, label_y).color(bot_color).text(&label);
     }
 
     // Link speed inset on top right border
@@ -283,6 +312,8 @@ mod tests {
             max_download: 100,
             max_upload: 100,
             graph_symbol: GraphSymbol::Braille,
+            swap_dl_ul: false,
+            base_10: false,
         }
     }
 

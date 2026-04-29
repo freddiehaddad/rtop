@@ -17,11 +17,12 @@ pub fn mv(x: usize, y: usize) -> String {
 pub struct Terminal {
     pub width: u16,
     pub height: u16,
+    pub sync_enabled: bool,
 }
 
 impl Terminal {
     /// Initialize the terminal: raw mode, alternate screen, hide cursor.
-    pub fn init() -> io::Result<Self> {
+    pub fn init(sync_enabled: bool) -> io::Result<Self> {
         terminal::enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
@@ -29,7 +30,13 @@ impl Terminal {
         Ok(Self {
             width: w,
             height: h,
+            sync_enabled,
         })
+    }
+
+    /// Set whether terminal sync sequences are used.
+    pub fn set_sync(&mut self, enabled: bool) {
+        self.sync_enabled = enabled;
     }
 
     /// Restore terminal to normal state.
@@ -65,7 +72,11 @@ impl Terminal {
 
     /// Write content wrapped in terminal sync sequences and flush.
     pub fn write_synced(&self, content: &str) -> io::Result<()> {
-        self.write_raw(&format!("{}{}{}", SYNC_START, content, SYNC_END))
+        if self.sync_enabled {
+            self.write_raw(&format!("{}{}{}", SYNC_START, content, SYNC_END))
+        } else {
+            self.write_raw(content)
+        }
     }
 }
 

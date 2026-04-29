@@ -14,6 +14,7 @@ pub fn init(log_dir: &Path, level: &str) {
         "WARNING" | "WARN" => tracing::Level::WARN,
         "INFO" => tracing::Level::INFO,
         "DEBUG" => tracing::Level::DEBUG,
+        "TRACE" => tracing::Level::TRACE,
         _ => tracing::Level::WARN,
     };
 
@@ -50,6 +51,7 @@ pub fn level_from_str(s: &str) -> &'static str {
         "WARNING" | "WARN" => "WARN",
         "INFO" => "INFO",
         "DEBUG" => "DEBUG",
+        "TRACE" => "TRACE",
         "DISABLED" => "OFF",
         _ => "WARN",
     }

@@ -242,7 +242,7 @@ pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings<'_>
 pub(super) fn format_proc_memory(mem: u64, settings: &ProcBoxSettings<'_>) -> String {
     if settings.proc_mem_bytes {
         return if mem > 0 {
-            tools::floating_humanizer(mem, true, 0, false, false, false)
+            tools::floating_humanizer(mem, true, 0, false, false, settings.base_10)
         } else {
             "0B".into()
         };
@@ -415,6 +415,7 @@ mod tests {
             proc_cpu_graphs: false,
             graph_symbol: GraphSymbol::Braille,
             cpu_histories: empty_histories(),
+            base_10: false,
         }
     }
 

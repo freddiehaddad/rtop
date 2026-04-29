@@ -33,6 +33,7 @@ pub struct ProcBoxSettings<'a> {
     pub proc_cpu_graphs: bool,
     pub graph_symbol: GraphSymbol,
     pub cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
+    pub base_10: bool,
 }
 
 /// Draw the process list box into an ANSI string matching btop's layout.
@@ -479,6 +480,7 @@ mod tests {
             proc_cpu_graphs: false,
             graph_symbol: GraphSymbol::Braille,
             cpu_histories: empty_histories(),
+            base_10: false,
         }
     }
 

@@ -207,12 +207,19 @@ fn detail_fields<'a>(
         },
         DetailField {
             label: "IO Read",
-            value: tools::floating_humanizer(proc.io_read, true, 0, false, false, false),
+            value: tools::floating_humanizer(proc.io_read, true, 0, false, false, settings.base_10),
             color: fg,
         },
         DetailField {
             label: "IO Write",
-            value: tools::floating_humanizer(proc.io_write, true, 0, false, false, false),
+            value: tools::floating_humanizer(
+                proc.io_write,
+                true,
+                0,
+                false,
+                false,
+                settings.base_10,
+            ),
             color: fg,
         },
         DetailField {
@@ -373,6 +380,7 @@ mod tests {
             proc_cpu_graphs: false,
             graph_symbol: GraphSymbol::Braille,
             cpu_histories: empty_histories(),
+            base_10: false,
         }
     }
 

@@ -168,7 +168,8 @@ pub const GENERAL: &[OptDef] = &[
         desc: &[
             "Set loglevel for error.log",
             "",
-            "\"ERROR\", \"WARNING\", \"INFO\" and \"DEBUG\".",
+            "\"ERROR\", \"WARNING\", \"INFO\", \"DEBUG\"",
+            "and \"TRACE\".",
         ],
     },
     OptDef {

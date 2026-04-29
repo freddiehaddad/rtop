@@ -33,24 +33,29 @@ fn main() {
         return;
     }
 
-    // Init logging
-    let log_level = if cli.debug { "DEBUG" } else { "WARNING" };
+    // Load config (from CLI path or default location) BEFORE logging,
+    // so we can read config.log_level.
+    let mut config = config::Config::new();
+    let default_conf_path = tools::config_dir().join("rtop.toml");
+    let load_warnings = if let Some(ref path) = cli.config_file {
+        config.load(path)
+    } else if default_conf_path.exists() {
+        config.load(&default_conf_path)
+    } else {
+        Vec::new()
+    };
+
+    // Init logging — CLI --debug overrides config.log_level
+    let log_level = if cli.debug {
+        "DEBUG"
+    } else {
+        &config.log_level
+    };
     let log_dir = tools::data_dir();
     log::init(&log_dir, log_level);
 
-    // Load config (from CLI path or default location)
-    let mut config = config::Config::new();
-    let default_conf_path = tools::config_dir().join("rtop.toml");
-    if let Some(ref path) = cli.config_file {
-        let warnings = config.load(path);
-        for w in &warnings {
-            tracing::warn!("{}", w);
-        }
-    } else if default_conf_path.exists() {
-        let warnings = config.load(&default_conf_path);
-        for w in &warnings {
-            tracing::warn!("{}", w);
-        }
+    for w in &load_warnings {
+        tracing::warn!("{}", w);
     }
 
     // Apply CLI overrides
@@ -65,7 +70,7 @@ fn main() {
     }
 
     // Init terminal
-    let mut terminal = match term::Terminal::init() {
+    let mut terminal = match term::Terminal::init(config.terminal_sync) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("Failed to initialize terminal: {e}");

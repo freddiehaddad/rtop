@@ -12,6 +12,7 @@ use super::BoxArea;
 /// Extracted settings for the memory box, decoupled from Config.
 pub struct MemBoxSettings {
     pub show_swap: bool,
+    pub base_10: bool,
 }
 
 /// Draw the memory box into an ANSI string.
@@ -70,7 +71,7 @@ pub fn draw(
     let total_bytes = mem.stats.used + mem.stats.available;
 
     // Total memory inset on top border (like CPU frequency)
-    let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, false);
+    let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, settings.base_10);
     let inset = box_drawing::title_inset(&total_str, box_color, title_color, false);
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
@@ -110,7 +111,7 @@ pub fn draw(
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct as i64);
-    let used_str = tools::floating_humanizer(used, true, 0, false, false, false);
+    let used_str = tools::floating_humanizer(used, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -129,7 +130,7 @@ pub fn draw(
     let avail = mem.stats.available;
     let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let avail_color = gradient_color(avail_grad, avail_pct as i64);
-    let avail_str = tools::floating_humanizer(avail, true, 0, false, false, false);
+    let avail_str = tools::floating_humanizer(avail, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -149,7 +150,7 @@ pub fn draw(
     if cached > 0 && row < inner_h {
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct as i64);
-        let cached_str = tools::floating_humanizer(cached, true, 0, false, false, false);
+        let cached_str = tools::floating_humanizer(cached, true, 0, false, false, settings.base_10);
         render_row(
             &mut buf,
             "Cache ",
@@ -167,7 +168,7 @@ pub fn draw(
     let free = mem.stats.free;
     let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let free_color = gradient_color(free_grad, free_pct as i64);
-    let free_str = tools::floating_humanizer(free, true, 0, false, false, false);
+    let free_str = tools::floating_humanizer(free, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -191,7 +192,8 @@ pub fn draw(
         } else {
             0
         };
-        let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, false);
+        let swap_str =
+            tools::floating_humanizer(swap_used, true, 0, false, false, settings.base_10);
         if row < inner_h {
             render_row(
                 &mut buf,
@@ -273,7 +275,10 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings { show_swap: true },
+            &MemBoxSettings {
+                show_swap: true,
+                base_10: false,
+            },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -286,7 +291,10 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings { show_swap: true },
+            &MemBoxSettings {
+                show_swap: true,
+                base_10: false,
+            },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -299,7 +307,10 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings { show_swap: true },
+            &MemBoxSettings {
+                show_swap: true,
+                base_10: false,
+            },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -315,7 +326,10 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings { show_swap: false },
+            &MemBoxSettings {
+                show_swap: false,
+                base_10: false,
+            },
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);

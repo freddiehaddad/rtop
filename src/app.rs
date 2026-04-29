@@ -595,6 +595,7 @@ fn handle_input_key(
         th: size.height,
     };
     let result = dispatch_handler(key, &mut ctx);
+    terminal.set_sync(ctx.config.terminal_sync);
     execute_terminal_ops(terminal, ctx.config, ctx.theme, &result);
     if result.redraw_overlay {
         let out = handlers::redraw_after_overlay(&mut ctx);
@@ -732,6 +733,11 @@ pub(crate) fn render_all(
             single_graph: config.cpu_single_graph,
             update_ms,
             current_preset: config.current_preset,
+            invert_lower: config.cpu_invert_lower,
+            show_cpu_freq: config.show_cpu_freq,
+            show_uptime: config.show_uptime,
+            cpu_name: &snapshot.cpu.info.cpu_name,
+            custom_cpu_name: &config.custom_cpu_name,
         };
         output.push_str(&ui::cpu_box::draw(
             &snapshot.cpu.info,
@@ -746,9 +752,20 @@ pub(crate) fn render_all(
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < snapshot.gpu.gpus.len() {
                 let area = ui::BoxArea::from_dim(gpu_dim, rounded);
+                let custom_name = match gi {
+                    0 => &config.custom_gpu_name0,
+                    1 => &config.custom_gpu_name1,
+                    2 => &config.custom_gpu_name2,
+                    3 => &config.custom_gpu_name3,
+                    4 => &config.custom_gpu_name4,
+                    5 => &config.custom_gpu_name5,
+                    _ => "",
+                };
                 let gpu_settings = ui::gpu_box::GpuBoxSettings {
                     index: gi,
                     temp_scale: &config.temp_scale,
+                    custom_name,
+                    base_10: config.base_10_sizes,
                 };
                 output.push_str(&ui::gpu_box::draw(
                     &snapshot.gpu.gpus[gi],
@@ -771,6 +788,7 @@ pub(crate) fn render_all(
             theme,
             &ui::mem_box::MemBoxSettings {
                 show_swap: config.show_swap,
+                base_10: config.base_10_sizes,
             },
             &snapshot.mem.status,
         ));
@@ -785,6 +803,7 @@ pub(crate) fn render_all(
                 &config.graph_symbol_disk,
                 &config.graph_symbol,
             ),
+            base_10: config.base_10_sizes,
         };
         output.push_str(&ui::disk_box::draw(
             &snapshot.disk.info,
@@ -817,6 +836,8 @@ pub(crate) fn render_all(
                 &config.graph_symbol_net,
                 &config.graph_symbol,
             ),
+            swap_dl_ul: config.swap_upload_download,
+            base_10: config.base_10_sizes,
         };
         output.push_str(&ui::net_box::draw(
             net_info,
@@ -879,6 +900,7 @@ pub(crate) fn render_all(
                 &config.graph_symbol,
             ),
             cpu_histories: params.proc_cpu_histories,
+            base_10: config.base_10_sizes,
         };
         output.push_str(&ui::proc_box::draw(
             procs,

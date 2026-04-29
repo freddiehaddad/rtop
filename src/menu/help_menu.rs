@@ -26,7 +26,7 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "h / ? / F1",
+        key: "? / F1",
         desc: "Toggle help",
         section: "Global",
     },
@@ -46,7 +46,7 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "Ctrl-D",
+        key: "Ctrl-X",
         desc: "Delete current preset",
         section: "Global",
     },

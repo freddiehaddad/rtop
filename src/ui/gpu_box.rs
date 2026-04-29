@@ -13,11 +13,13 @@ use super::BoxArea;
 pub struct GpuBoxSettings<'a> {
     pub index: usize,
     pub temp_scale: &'a str,
+    pub custom_name: &'a str,
+    pub base_10: bool,
 }
 
 /// Format bytes into a short human-readable string (e.g., "10.8G").
-fn fmt_bytes(bytes: u64) -> String {
-    tools::floating_humanizer(bytes, true, 0, false, false, false)
+fn fmt_bytes(bytes: u64, base10: bool) -> String {
+    tools::floating_humanizer(bytes, true, 0, false, false, base10)
 }
 
 /// Format a clock speed for display (e.g., 2520 → "2.5GHz", 800 → "800MHz").
@@ -91,7 +93,11 @@ pub fn draw(
     }
 
     // GPU name on the top border (right-aligned inset)
-    let name_display = &gpu.name;
+    let name_display = if settings.custom_name.is_empty() {
+        &gpu.name
+    } else {
+        settings.custom_name
+    };
     let max_name_w = inner_w.saturating_sub(title.len() + 6);
     let name_trunc: String = name_display.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
@@ -184,8 +190,8 @@ pub fn draw(
 
     // Row 5: VRAM
     let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0) as i32;
-    let vram_used = fmt_bytes(gpu.mem_used);
-    let vram_total = fmt_bytes(gpu.mem_total);
+    let vram_used = fmt_bytes(gpu.mem_used, settings.base_10);
+    let vram_total = fmt_bytes(gpu.mem_total, settings.base_10);
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
             .color(title_color)
@@ -260,6 +266,8 @@ mod tests {
         GpuBoxSettings {
             index: 0,
             temp_scale: "celsius",
+            custom_name: "",
+            base_10: false,
         }
     }
 

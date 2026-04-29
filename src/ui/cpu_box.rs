@@ -22,6 +22,11 @@ pub struct CpuBoxSettings<'a> {
     pub single_graph: bool,
     pub update_ms: u64,
     pub current_preset: i64,
+    pub invert_lower: bool,
+    pub show_cpu_freq: bool,
+    pub show_uptime: bool,
+    pub cpu_name: &'a str,
+    pub custom_cpu_name: &'a str,
 }
 
 // Core panel column width thresholds (from btop's b_column_size algorithm).
@@ -196,7 +201,7 @@ pub fn draw(
             .text(symbols::DIV_DOWN);
 
         // CPU frequency title inset on the top border
-        if !cpu.cpu_hz.is_empty() {
+        if settings.show_cpu_freq && !cpu.cpu_hz.is_empty() {
             let hz_str = &cpu.cpu_hz;
             let hz_title = format!(" {} ", hz_str);
             let hz_vis_len = hz_title.len();
@@ -264,7 +269,15 @@ pub fn draw(
         && let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key)
     {
         let lower_start_y = y + 2 + divider_row + 1;
-        let mut graph = Graph::new(graph_width, lower_h, graph_sym, true, true, 100, 0);
+        let mut graph = Graph::new(
+            graph_width,
+            lower_h,
+            graph_sym,
+            settings.invert_lower,
+            true,
+            100,
+            0,
+        );
         graph.create(data);
         let rows = graph.render_rows_colored(data, cpu_gradient);
         for (i, row) in rows.iter().enumerate() {
@@ -294,11 +307,32 @@ pub fn draw(
     }
 
     // Uptime overlaid on lower-left of graph area
-    let uptime = tools::sec_to_dhms(cpu.uptime_seconds, false, true);
-    let up_str = format!("up {}", uptime);
-    let up_y = y + 2;
-    if !uptime.is_empty() {
-        buf.mv(x + 2, up_y).color(graph_text_color).text(&up_str);
+    if settings.show_uptime {
+        let uptime = tools::sec_to_dhms(cpu.uptime_seconds, false, true);
+        let up_str = format!("up {}", uptime);
+        let up_y = y + 2;
+        if !uptime.is_empty() {
+            buf.mv(x + 2, up_y).color(graph_text_color).text(&up_str);
+        }
+    }
+
+    // CPU name inset on the top border (right-aligned)
+    {
+        let name_display = if settings.custom_cpu_name.is_empty() {
+            settings.cpu_name
+        } else {
+            settings.custom_cpu_name
+        };
+        if !name_display.is_empty() {
+            let max_name_w = width.saturating_sub(12);
+            let name_trunc = tools::uresize(name_display, max_name_w, false);
+            if !name_trunc.is_empty() {
+                let inset = box_drawing::title_inset(&name_trunc, box_color, title_color, false);
+                let inset_x =
+                    box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
+                buf.mv(inset_x, y + 1).text(&inset);
+            }
+        }
     }
 
     // Bottom border keybind hints
@@ -582,6 +616,11 @@ mod tests {
             single_graph: false,
             update_ms: 2000,
             current_preset: 0,
+            invert_lower: true,
+            show_cpu_freq: true,
+            show_uptime: true,
+            cpu_name: "Test CPU",
+            custom_cpu_name: "",
         }
     }
 

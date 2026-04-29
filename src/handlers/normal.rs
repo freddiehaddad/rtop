@@ -41,7 +41,7 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
             ctx.overlay.set_menu_state(MenuState::Main);
             Some(HandleResult::raw(menu_out))
         }
-        Key::Char('h') | Key::Char('?') | Key::F(1) => {
+        Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.set_menu_state(MenuState::Help);
@@ -109,7 +109,7 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
             ctx.render.dirty |= Dirty::CPU_BOX;
             Some(HandleResult::none())
         }
-        Key::CtrlD => {
+        Key::CtrlX => {
             let cur = ctx.config.current_preset;
             if cur > 0 {
                 ctx.config.delete_preset(cur as usize);
@@ -149,35 +149,70 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
 // --- Process navigation ---
 
 fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
+    let vim = ctx.config.vim_keys;
     match *key {
-        Key::Up | Key::Char('k') if ctx.process.selected > 0 => {
+        Key::Up if ctx.process.selected > 0 => {
             ctx.process.selected -= 1;
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        Key::Down | Key::Char('j') => {
+        Key::Char('k') if vim && ctx.process.selected > 0 => {
+            ctx.process.selected -= 1;
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::Down => {
             let count = ctx.process.entries.len();
             if ctx.process.selected + 1 < count {
                 ctx.process.selected += 1;
                 ctx.render.dirty |= Dirty::PROC_BOX;
             }
         }
-        Key::PageUp => {
+        Key::Char('j') if vim => {
+            let count = ctx.process.entries.len();
+            if ctx.process.selected + 1 < count {
+                ctx.process.selected += 1;
+                ctx.render.dirty |= Dirty::PROC_BOX;
+            }
+        }
+        Key::PageUp | Key::CtrlB if !matches!(key, Key::CtrlB) || vim => {
             let page = ctx.th.saturating_sub(10);
             ctx.process.selected = ctx.process.selected.saturating_sub(page);
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        Key::PageDown => {
+        Key::PageDown | Key::CtrlF if !matches!(key, Key::CtrlF) || vim => {
             let page = ctx.th.saturating_sub(10);
             let count = ctx.process.entries.len();
             ctx.process.selected = (ctx.process.selected + page).min(count.saturating_sub(1));
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        Key::Home | Key::Char('g') => {
+        Key::CtrlD if vim => {
+            let page = ctx.th.saturating_sub(10);
+            let half = page / 2;
+            let count = ctx.process.entries.len();
+            ctx.process.selected = (ctx.process.selected + half).min(count.saturating_sub(1));
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::CtrlU if vim => {
+            let page = ctx.th.saturating_sub(10);
+            let half = page / 2;
+            ctx.process.selected = ctx.process.selected.saturating_sub(half);
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::Home => {
             ctx.process.selected = 0;
             ctx.process.start = 0;
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
-        Key::End | Key::Char('G') => {
+        Key::Char('g') if vim => {
+            ctx.process.selected = 0;
+            ctx.process.start = 0;
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::End => {
+            let count = ctx.process.entries.len();
+            ctx.process.selected = count.saturating_sub(1);
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::Char('G') if vim => {
             let count = ctx.process.entries.len();
             ctx.process.selected = count.saturating_sub(1);
             ctx.render.dirty |= Dirty::PROC_BOX;

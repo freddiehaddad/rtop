@@ -13,6 +13,7 @@ use super::BoxArea;
 /// Extracted settings for the disk box, decoupled from Config.
 pub struct DiskBoxSettings {
     pub graph_symbol: GraphSymbol,
+    pub base_10: bool,
 }
 
 /// Draw the disk box into an ANSI string.
@@ -78,8 +79,8 @@ pub fn draw(
         if row >= inner_h {
             break;
         }
-        let du = tools::floating_humanizer(disk.used, true, 0, false, false, false);
-        let dt = tools::floating_humanizer(disk.total, true, 0, false, false, false);
+        let du = tools::floating_humanizer(disk.used, true, 0, false, false, settings.base_10);
+        let dt = tools::floating_humanizer(disk.total, true, 0, false, false, settings.base_10);
         let value = format!("{}/{}", du, dt);
 
         // Label: "C: NTFS " — drive + fstype
@@ -142,12 +143,13 @@ fn draw_perf_row(
         return;
     }
 
+    let base_10 = params.settings.base_10;
     let fg = params.theme.color(tc::MAIN_FG);
     let title_color = params.theme.color(tc::TITLE);
     let read_speed =
-        tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, false);
+        tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, base_10);
     let write_speed =
-        tools::floating_humanizer(disk.write_bytes_per_sec, true, 0, false, true, false);
+        tools::floating_humanizer(disk.write_bytes_per_sec, true, 0, false, true, base_10);
     let read_label = format!("R {read_speed}");
     let write_label = format!("W {write_speed}");
     let busy = disk.busy_percent.clamp(0, 100);
@@ -317,6 +319,7 @@ mod tests {
     fn settings() -> DiskBoxSettings {
         DiskBoxSettings {
             graph_symbol: GraphSymbol::Braille,
+            base_10: false,
         }
     }
 

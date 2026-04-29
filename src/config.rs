@@ -20,7 +20,7 @@ fn is_valid_box_name(name: &str) -> bool {
 const GRAPH_SYMBOL_VALUES: &[&str] = &["default", "braille", "block"];
 const CPU_GRAPH_SOURCE_VALUES: &[&str] = &["Auto", "total", "user", "system"];
 const TEMP_SCALE_VALUES: &[&str] = &["celsius", "fahrenheit", "kelvin", "rankine"];
-const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG"];
+const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"];
 
 /// The kind of a config key.
 #[derive(Debug, Clone, Copy, PartialEq)]
