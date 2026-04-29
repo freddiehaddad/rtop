@@ -10,6 +10,19 @@ use crate::tools;
 
 use super::BoxArea;
 
+// --- Layout constants ---
+
+/// Right-aligned value column width for normal mode ("274G/1.6T" = up to 10 chars).
+const USAGE_VAL_W: usize = 10;
+/// Right-aligned value column for IO separate read/write rows (1 space + "9.9M/s").
+const IO_VAL_W: usize = 7;
+/// Right-aligned value column for IO combined rows (1 space + "R9.9M/s W9.9M/s").
+const IO_COMBINED_VAL_W: usize = 17;
+/// Minimum graph/meter width.
+const MIN_METER_W: usize = 5;
+/// Minimum graph width in IO mode.
+const MIN_IO_GRAPH_W: usize = 3;
+
 /// Extracted settings for the disk box, decoupled from Config.
 pub struct DiskBoxSettings {
     pub graph_symbol: GraphSymbol,
@@ -77,10 +90,6 @@ pub fn draw(
 
     let io_view = settings.io_mode || settings.disk_io_mode;
 
-    // Layout: " {label} {meter} {used/total} " — single row per disk
-    // Value column: "274G/1.6T" = up to 10 chars
-    let val_w = 10;
-
     for disk in &disks.disks {
         if row >= inner_h {
             break;
@@ -88,10 +97,18 @@ pub fn draw(
 
         if io_view {
             // I/O mode: show throughput graphs instead of usage meters
+            // Fixed value column: 1 space + max speed width (6 chars for shortened speeds)
+
             if settings.io_graph_combined {
+                // Combined value: "R9.9M/s W9.9M/s" = up to 16 chars + 1 space
+
                 // Combined read+write in a single graph row
                 let label = format!("{} IO ", disk.name);
                 let label_len = tools::ulen(&label, false);
+                let graph_w = inner_w
+                    .saturating_sub(label_len + IO_COMBINED_VAL_W)
+                    .max(MIN_IO_GRAPH_W);
+
                 let speed_r = tools::floating_humanizer(
                     disk.read_bytes_per_sec,
                     true,
@@ -109,8 +126,6 @@ pub fn draw(
                     settings.base_10,
                 );
                 let value = format!("R{} W{}", speed_r, speed_w);
-                let value_w = tools::ulen(&value, false);
-                let graph_w = inner_w.saturating_sub(label_len + value_w + 1).max(3);
 
                 // Merge read+write histories by summing
                 let combined: std::collections::VecDeque<i64> = {
@@ -139,14 +154,17 @@ pub fn draw(
                     .text(&label)
                     .text(&graph_row)
                     .color(fg)
-                    .text(" ")
-                    .text(&value);
+                    .text(&tools::rjust(&value, IO_COMBINED_VAL_W, false));
                 row += 1;
             } else {
                 // Separate read and write graph rows
-                // Read row
                 let label_r = format!("{} R ", disk.name);
                 let label_r_len = tools::ulen(&label_r, false);
+                let graph_w = inner_w
+                    .saturating_sub(label_r_len + IO_VAL_W)
+                    .max(MIN_IO_GRAPH_W);
+
+                // Read row
                 let speed_r = tools::floating_humanizer(
                     disk.read_bytes_per_sec,
                     true,
@@ -155,13 +173,11 @@ pub fn draw(
                     true,
                     settings.base_10,
                 );
-                let speed_r_w = tools::ulen(&speed_r, false);
-                let graph_rw = inner_w.saturating_sub(label_r_len + speed_r_w + 1).max(3);
 
                 let read_max =
-                    visible_graph_max(&disk.read_history, graph_rw, disk.read_bytes_per_sec);
+                    visible_graph_max(&disk.read_history, graph_w, disk.read_bytes_per_sec);
                 let mut rg =
-                    Graph::new(graph_rw, 1, settings.graph_symbol, false, true, read_max, 0);
+                    Graph::new(graph_w, 1, settings.graph_symbol, false, true, read_max, 0);
                 let rg_row = rg.render_row_colored(&disk.read_history, read_grad);
 
                 buf.mv(content_x, y + 2 + row)
@@ -169,8 +185,7 @@ pub fn draw(
                     .text(&label_r)
                     .text(&rg_row)
                     .color(fg)
-                    .text(" ")
-                    .text(&speed_r);
+                    .text(&tools::rjust(&speed_r, IO_VAL_W, false));
                 row += 1;
 
                 if row >= inner_h {
@@ -179,7 +194,6 @@ pub fn draw(
 
                 // Write row
                 let label_w = format!("{} W ", disk.name);
-                let label_w_len = tools::ulen(&label_w, false);
                 let speed_w = tools::floating_humanizer(
                     disk.write_bytes_per_sec,
                     true,
@@ -188,20 +202,11 @@ pub fn draw(
                     true,
                     settings.base_10,
                 );
-                let speed_w_vis = tools::ulen(&speed_w, false);
-                let graph_ww = inner_w.saturating_sub(label_w_len + speed_w_vis + 1).max(3);
 
                 let write_max =
-                    visible_graph_max(&disk.write_history, graph_ww, disk.write_bytes_per_sec);
-                let mut wg = Graph::new(
-                    graph_ww,
-                    1,
-                    settings.graph_symbol,
-                    false,
-                    true,
-                    write_max,
-                    0,
-                );
+                    visible_graph_max(&disk.write_history, graph_w, disk.write_bytes_per_sec);
+                let mut wg =
+                    Graph::new(graph_w, 1, settings.graph_symbol, false, true, write_max, 0);
                 let wg_row = wg.render_row_colored(&disk.write_history, write_grad);
 
                 buf.mv(content_x, y + 2 + row)
@@ -209,8 +214,7 @@ pub fn draw(
                     .text(&label_w)
                     .text(&wg_row)
                     .color(fg)
-                    .text(" ")
-                    .text(&speed_w);
+                    .text(&tools::rjust(&speed_w, IO_VAL_W, false));
                 row += 1;
             }
         } else {
@@ -226,7 +230,9 @@ pub fn draw(
                 format!("{} {} ", disk.name, disk.fstype)
             };
             let label_len = label.len();
-            let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
+            let meter_w = inner_w
+                .saturating_sub(label_len + USAGE_VAL_W)
+                .max(MIN_METER_W);
             let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
 
             buf.mv(content_x, y + 2 + row)
@@ -234,7 +240,7 @@ pub fn draw(
                 .text(&label)
                 .text(disk_meter.render(disk.used_percent))
                 .color(fg)
-                .text(&tools::rjust(&value, val_w, false));
+                .text(&tools::rjust(&value, USAGE_VAL_W, false));
             row += 1;
 
             if settings.show_io_stat && row < inner_h {

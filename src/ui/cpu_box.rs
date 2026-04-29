@@ -47,6 +47,10 @@ const CORE_COL_NARROW_TEMP: usize = 6;
 const CORE_PANEL_OVERHEAD: usize = 3;
 /// Box border overhead (top + bottom).
 const BOX_BORDER_ROWS: usize = 2;
+/// Reserved width for the "cpu" title + inset chars on the top border.
+const CPU_TITLE_RESERVED_W: usize = 12;
+/// Minimum x clearance past the title before placing a name inset.
+const MIN_NAME_INSET_CLEARANCE: usize = 6;
 
 /// Draw the CPU box into an ANSI string matching btop's layout.
 ///
@@ -348,7 +352,7 @@ pub fn draw(
             } else {
                 width
             };
-            let max_name_w = name_area.saturating_sub(12);
+            let max_name_w = name_area.saturating_sub(CPU_TITLE_RESERVED_W);
             let name_trunc = tools::uresize(name_display, max_name_w, false);
             if !name_trunc.is_empty() {
                 let vis_w = box_drawing::inset_width(&name_trunc);
@@ -358,7 +362,7 @@ pub fn draw(
                 } else {
                     box_drawing::right_inset_x(x, width, vis_w)
                 };
-                if inset_x > x + 6 {
+                if inset_x > x + MIN_NAME_INSET_CLEARANCE {
                     let inset =
                         box_drawing::title_inset(&name_trunc, box_color, title_color, false);
                     buf.mv(inset_x, y + 1).text(&inset);
