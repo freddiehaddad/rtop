@@ -85,8 +85,8 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
 
 /// A multi-row terminal graph that renders data as braille/block characters.
 ///
-/// Matches btop's Graph architecture: double-buffered, multi-row with vertical
-/// slicing so each row covers a portion of the 0-100% range.
+/// Multi-row graph renderer with vertical slicing so each row covers a
+/// portion of the 0-100% range.
 #[derive(Debug, Clone)]
 pub struct Graph {
     pub width: usize,
@@ -97,10 +97,8 @@ pub struct Graph {
     pub max_value: i64,
     offset: i64,
     last: i64,
-    /// Double-buffered graph content: each buffer is Vec<String> of `height` rows.
-    graphs: [Vec<String>; 2],
-    /// Which buffer is current (indexes into `graphs`).
-    current: bool,
+    /// Graph content: Vec<String> of `height` rows.
+    buf: Vec<String>,
 }
 
 impl Graph {
@@ -124,8 +122,7 @@ impl Graph {
             max_value: if max_value == 0 { 100 } else { max_value },
             offset,
             last: 0,
-            graphs: [vec![String::new(); h], vec![String::new(); h]],
-            current: true,
+            buf: vec![String::new(); h],
         }
     }
 
@@ -201,33 +198,27 @@ impl Graph {
         }
     }
 
-    /// Create the full graph content from data, populating both buffers.
-    /// This is the equivalent of btop's `_create` method.
+    /// Create the full graph content from data.
     pub fn create(&mut self, data: &VecDeque<i64>) {
         let len = data.len();
         let h = self.height;
 
-        // Initialize both buffers
-        for buf in &mut self.graphs {
-            *buf = vec![String::new(); h];
-        }
+        self.buf = vec![String::new(); h];
 
         if self.width == 0 {
             return;
         }
 
-        // If less data than width, pad left with cursor-right moves (like btop's Mv::r)
+        // If less data than width, pad left with cursor-right moves
         let pad_cols = self.width.saturating_sub(len);
         if pad_cols > 0 {
             let pad = format!("\x1b[{}C", pad_cols);
-            for row_str in self.graphs[self.current as usize].iter_mut() {
+            for row_str in self.buf.iter_mut() {
                 row_str.push_str(&pad);
             }
         }
 
         if len == 0 {
-            let other = !self.current;
-            self.graphs[other as usize] = self.graphs[self.current as usize].clone();
             return;
         }
 
@@ -259,24 +250,20 @@ impl Graph {
 
                 // btop line 436: single-height with both 0 → cursor right instead of space
                 if h == 1 && prev_level + curr_level == 0 {
-                    self.graphs[self.current as usize][row].push_str("\x1b[1C");
+                    self.buf[row].push_str("\x1b[1C");
                 } else if let Some(table) = self.braille_table() {
                     let idx = prev_level * 5 + curr_level;
                     let sym = table[idx.min(24)];
-                    self.graphs[self.current as usize][row].push_str(sym);
+                    self.buf[row].push_str(sym);
                 } else {
                     // Block: use current level only (no prev/curr pairing)
                     let sym = self.simple_char(curr_level);
-                    self.graphs[self.current as usize][row].push_str(sym);
+                    self.buf[row].push_str(sym);
                 }
             }
 
             self.last = curr;
         }
-
-        // Copy current buffer to the other for double buffering
-        let other = !self.current;
-        self.graphs[other as usize] = self.graphs[self.current as usize].clone();
     }
 
     /// Render the multi-row graph with per-row gradient colors for multi-height,
@@ -284,7 +271,7 @@ impl Graph {
     /// Returns Vec<String> where each element is one row with ANSI color codes.
     pub fn render_rows_colored(&self, data: &VecDeque<i64>, gradient: &[String]) -> Vec<String> {
         let h = self.height;
-        let buf = &self.graphs[self.current as usize];
+        let buf = &self.buf;
         let mut rows = Vec::with_capacity(h);
 
         if h == 1 {
