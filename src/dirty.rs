@@ -6,6 +6,11 @@ bitflags! {
     /// Each flag represents something that needs work on the current frame.
     /// The main loop checks which flags are set, performs only the required
     /// UI work (view-model rebuild, layout, per-box render), then clears them.
+    ///
+    /// Key invariant: changing process data (sort, filter, tree mode) requires
+    /// both `PROC_LIST` (rebuild the display list) and `PROC_BOX` (redraw).
+    /// Setting `PROC_BOX` alone only redraws with the existing display list
+    /// (e.g. selection movement).
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct Dirty: u32 {
         /// Recalculate box layout (on resize, box toggle, preset change).
