@@ -567,7 +567,12 @@ pub const DISK: &[OptDef] = &[
     },
     OptDef {
         key: ConfigKey::DiskIoMode,
-        desc: &["Shows disk IO activity instead of", "usage percentage."],
+        desc: &[
+            "Persistent disk IO mode.",
+            "",
+            "Show IO throughput graphs instead of",
+            "disk usage percentage meters.",
+        ],
     },
     OptDef {
         key: ConfigKey::DisksFilter,
