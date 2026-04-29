@@ -234,7 +234,7 @@ impl Default for Config {
             custom_cpu_name: String::new(),
             disks_filter: String::new(),
             io_graph_speeds: String::new(),
-            net_iface: String::new(),
+            net_iface: "Auto".to_string(),
             log_level: "WARNING".to_string(),
             proc_filter: String::new(),
             presets: "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default".to_string(),
@@ -1229,10 +1229,7 @@ impl ConfigKey {
         if let Some(values) = self.choice_values() {
             return values;
         }
-        match self {
-            Self::NetIface => &["Auto"],
-            _ => &[],
-        }
+        &[]
     }
 }
 

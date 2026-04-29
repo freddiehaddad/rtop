@@ -396,6 +396,7 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
         (current + 1) % nets.len()
     };
     ctx.network.selected_iface = nets[new_idx].name.clone();
+    ctx.config.net_iface = ctx.network.selected_iface.clone();
 }
 
 fn terminate_process(pid: u32) {

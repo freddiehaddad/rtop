@@ -365,17 +365,6 @@ pub const NET: &[OptDef] = &[
             "whichever currently has the highest scale.",
         ],
     },
-    OptDef {
-        key: ConfigKey::NetIface,
-        desc: &[
-            "Network Interface.",
-            "",
-            "Manually set the starting Network Interface.",
-            "",
-            "Will otherwise automatically choose the NIC",
-            "with the highest total download since boot.",
-        ],
-    },
 ];
 
 /// Options in the "proc" category.

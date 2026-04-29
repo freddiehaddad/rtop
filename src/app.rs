@@ -350,12 +350,28 @@ impl NetworkViewState {
         }
     }
 
-    fn reconcile(&mut self, snapshot: &runner::CollectionSnapshot, dirty: &mut Dirty) {
+    fn reconcile(
+        &mut self,
+        snapshot: &runner::CollectionSnapshot,
+        preferred: &str,
+        dirty: &mut Dirty,
+    ) {
         if snapshot.net.nets.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
                 *dirty |= Dirty::NET_BOX;
             }
+            return;
+        }
+
+        // If we have no selection yet, try the preferred interface from config
+        if self.selected_iface.is_empty()
+            && preferred != "Auto"
+            && !preferred.is_empty()
+            && snapshot.net.nets.iter().any(|n| n.name == preferred)
+        {
+            self.selected_iface = preferred.to_string();
+            *dirty |= Dirty::NET_BOX;
             return;
         }
 
@@ -432,7 +448,7 @@ fn pull_latest_snapshot(
     state.snapshot.current = Some(snapshot);
 
     apply_startup_snapshot_config(state, config);
-    reconcile_selected_iface(state);
+    reconcile_selected_iface(state, config);
     state.render.dirty |= Dirty::ALL_BOXES | Dirty::PROC_LIST;
 }
 
@@ -472,11 +488,13 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
     changed
 }
 
-fn reconcile_selected_iface(state: &mut AppState) {
+fn reconcile_selected_iface(state: &mut AppState, config: &config::Config) {
     let Some(snapshot) = state.snapshot.current.as_ref() else {
         return;
     };
-    state.network.reconcile(snapshot, &mut state.render.dirty);
+    state
+        .network
+        .reconcile(snapshot, &config.net_iface, &mut state.render.dirty);
 }
 
 fn is_too_small(size: TerminalSize) -> bool {
@@ -1200,7 +1218,7 @@ mod tests {
         ];
         state.snapshot.current = Some(Arc::new(runner.snapshot(1)));
 
-        reconcile_selected_iface(&mut state);
+        reconcile_selected_iface(&mut state, &config);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
         assert!(state.render.dirty.contains(Dirty::NET_BOX));
