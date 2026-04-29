@@ -23,40 +23,57 @@ rtop is a resource monitor that shows CPU, memory, disk, network, GPU, and proce
 The UI design is based on [btop](https://github.com/aristocratos/btop) by aristocratos, reimagined in Rust with Windows-native data collection and several enhancements:
 
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
-- **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+D`
+- **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
 - **GPU monitoring** via NVIDIA NVML — utilization, temperature, VRAM, power, clocks
-- **CPU temperature** via LibreHardwareMonitor HTTP API
+- **CPU temperature and power** via LibreHardwareMonitor HTTP API
 - **Per-box dirty rendering** — only redraws what changed, no full-screen flicker
-- **40 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
+- **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
+- **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
+- **Process following** — pin a process with `F` to auto-scroll across refreshes
+- **Clock display** — configurable clock in the CPU box
+- **Disk IO mode** — toggle between usage meters and throughput graphs
 
 ## Features
 
 | Widget | Data |
 |--------|------|
-| **CPU** | Per-core utilization, frequency, temperature, user/system graphs, load average |
+| **CPU** | Per-core utilization, frequency, temperature, power (watts), user/system graphs, load average, uptime, clock |
 | **Memory** | Used, available, cached, free, swap — with meter bars |
-| **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time |
-| **Network** | Download/upload graphs with auto-scaling, interface selector |
-| **GPU** | Utilization, temperature, VRAM, power draw (NVIDIA) |
-| **Process** | PID, name, command line, CPU%, memory, tree view, filter, sort, terminate |
+| **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time, IO mode |
+| **Network** | Download/upload graphs with auto-scaling, interface selector, speed totals |
+| **GPU** | Utilization, temperature, VRAM, power draw, clocks (NVIDIA) |
+| **Process** | PID, name, command line, CPU%, memory, tree view, filter, sort, follow, terminate |
 
 ### Keybinds
 
 | Key | Action |
 |-----|--------|
 | `m` / `Esc` | Toggle main menu |
-| `h` / `F1` | Help |
+| `?` / `F1` | Help |
 | `o` / `F2` | Options |
 | `1`–`6` | Toggle widgets (cpu/mem/net/proc/gpu/disk) |
 | `p` / `P` | Cycle presets forward/back |
 | `Ctrl+S` | Save current layout as preset |
+| `Ctrl+X` | Delete current preset |
+| `Ctrl+R` | Reload config from file |
 | `+` / `-` | Adjust update speed |
 | `f` / `/` | Filter processes |
-| `e` | Tree view |
+| `e` | Toggle tree view |
+| `r` | Toggle reverse sort |
+| `c` | Toggle per-core CPU |
+| `i` | Toggle disk IO mode |
+| `F` | Follow/unfollow process |
 | `t` | Terminate process |
+| `n` / `b` | Cycle network interfaces |
+| `a` | Toggle network auto scale |
+| `y` | Toggle network sync scale |
+| `z` | Reset network totals |
 | `q` | Quit |
 
-See the built-in help menu (`h`) for the complete list.
+When **vim keys** are enabled (options → general):
+`h`/`j`/`k`/`l` for directional control, `g`/`G` for top/bottom of list, `Ctrl+F`/`Ctrl+B` for page scrolling, `Ctrl+D`/`Ctrl+U` for half-page scrolling.
+
+See the built-in help menu (`?`) for the complete list.
 
 ---
 
@@ -91,9 +108,9 @@ cargo test
 
 ---
 
-## Optional: Temperature Monitoring
+## Optional: Temperature & Power Monitoring
 
-CPU and GPU temperatures require [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) running in the background with its HTTP server enabled.
+CPU temperature and power consumption (watts) require [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) running in the background with its HTTP server enabled.
 
 ### Install via winget
 
@@ -111,7 +128,7 @@ winget install LibreHardwareMonitor.LibreHardwareMonitor
 
 - In LibreHardwareMonitor: **Options → Start Minimized** and **Run On Windows Startup**
 
-Without LibreHardwareMonitor, rtop works normally — temperature fields are simply blank.
+Without LibreHardwareMonitor, rtop works normally — temperature and power fields are simply blank.
 
 ---
 
@@ -142,7 +159,7 @@ rtop --default-config
 
 ### Themes
 
-rtop ships with 40 built-in themes. Change the theme from the options menu (General → color_theme) or set it in `rtop.toml`:
+rtop ships with 41 built-in themes. Change the theme from the options menu (General → Color Theme) or set it in `rtop.toml`:
 
 ```
 color_theme = "dracula"
