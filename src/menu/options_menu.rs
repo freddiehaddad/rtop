@@ -164,26 +164,6 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::ShowBattery,
-        desc: &[
-            "Show battery stats.",
-            "(Only visible if cpu box is enabled!)",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::SelectedBattery,
-        desc: &[
-            "Select battery.",
-            "",
-            "Which battery to use if multiple are present.",
-            "\"Auto\" for auto detection.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowBatteryWatts,
-        desc: &["Show battery power.", "", "Show discharge/charging power."],
-    },
-    OptDef {
         key: ConfigKey::LogLevel,
         desc: &[
             "Set loglevel for error.log",
@@ -281,16 +261,6 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::CpuCoreMap,
-        desc: &[
-            "Custom mapping between core and coretemp.",
-            "",
-            "Format: \"X:Y\"",
-            "X=core with wrong temp.",
-            "Y=core with correct temp.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::TempScale,
         desc: &[
             "Which temperature scale to use.",
@@ -356,10 +326,6 @@ pub const MEM: &[OptDef] = &[
         desc: &["Show graphs for memory values.", "", "True or False."],
     },
     OptDef {
-        key: ConfigKey::ShowDisks,
-        desc: &["Split memory box to also show disks.", "", "True or False."],
-    },
-    OptDef {
         key: ConfigKey::ShowIoStat,
         desc: &[
             "Toggle IO activity graphs.",
@@ -401,33 +367,6 @@ pub const MEM: &[OptDef] = &[
             "If swap memory should be shown in memory box.",
             "",
             "True or False.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::SwapDisk,
-        desc: &[
-            "Show swap as a disk.",
-            "",
-            "Ignores show_swap value above.",
-            "Inserts itself after first disk.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::OnlyPhysical,
-        desc: &[
-            "Filter out non physical disks.",
-            "",
-            "Set this to False to include network disks,",
-            "RAM disks and similar.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::DiskFreePriv,
-        desc: &[
-            "Type of available disk space.",
-            "",
-            "Set to true to show how much disk space is",
-            "available for privileged users.",
         ],
     },
     OptDef {
@@ -603,15 +542,6 @@ pub const PROC: &[OptDef] = &[
         desc: &["Show cpu graph for each process.", "", "True or False"],
     },
     OptDef {
-        key: ConfigKey::ProcFilterKernel,
-        desc: &[
-            "Filter kernel processes from output.",
-            "",
-            "Set to True to filter out internal",
-            "processes started by the kernel.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ProcFollowDetailed,
         desc: &[
             "Follow selected process with detailed view",
@@ -686,22 +616,8 @@ pub const DISK: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::OnlyPhysical,
-        desc: &[
-            "Filter out non physical disks.",
-            "",
-            "Set this to False to include network disks,",
-            "RAM disks and similar.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::DiskIoMode,
-        desc: &[
-            "Show IO activity.",
-            "",
-            "Shows disk IO activity instead of",
-            "usage percentage.",
-        ],
+        desc: &["", "Shows disk IO activity instead of", "usage percentage."],
     },
 ];
 

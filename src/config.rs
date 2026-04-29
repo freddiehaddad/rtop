@@ -81,7 +81,7 @@ pub struct Config {
     pub proc_mem_bytes: bool,
     pub proc_cpu_graphs: bool,
     pub proc_left: bool,
-    pub proc_filter_kernel: bool,
+
     pub proc_follow_detailed: bool,
     pub proc_aggregate: bool,
     pub keep_dead_proc_usage: bool,
@@ -96,9 +96,7 @@ pub struct Config {
     pub mem_graphs: bool,
     pub mem_below_net: bool,
     pub show_swap: bool,
-    pub swap_disk: bool,
-    pub show_disks: bool,
-    pub only_physical: bool,
+
     pub show_io_stat: bool,
     pub io_mode: bool,
     pub io_graph_combined: bool,
@@ -106,13 +104,12 @@ pub struct Config {
     pub base_10_sizes: bool,
     pub net_auto: bool,
     pub net_sync: bool,
-    pub show_battery: bool,
-    pub show_battery_watts: bool,
+
     pub vim_keys: bool,
     pub background_update: bool,
     pub terminal_sync: bool,
     pub save_config_on_exit: bool,
-    pub disk_free_priv: bool,
+
     pub gpu_mirror_graph: bool,
     pub disk_io_mode: bool,
 
@@ -141,8 +138,7 @@ pub struct Config {
     pub cpu_graph_upper: String,
     pub cpu_graph_lower: String,
     pub cpu_sensor: String,
-    pub selected_battery: String,
-    pub cpu_core_map: String,
+
     pub temp_scale: String,
     pub clock_format: String,
     pub custom_cpu_name: String,
@@ -181,7 +177,7 @@ impl Default for Config {
             proc_mem_bytes: true,
             proc_cpu_graphs: true,
             proc_left: false,
-            proc_filter_kernel: false,
+
             proc_follow_detailed: true,
             proc_aggregate: false,
             keep_dead_proc_usage: false,
@@ -196,9 +192,7 @@ impl Default for Config {
             mem_graphs: true,
             mem_below_net: false,
             show_swap: true,
-            swap_disk: true,
-            show_disks: true,
-            only_physical: true,
+
             show_io_stat: true,
             io_mode: false,
             io_graph_combined: false,
@@ -206,13 +200,12 @@ impl Default for Config {
             base_10_sizes: false,
             net_auto: true,
             net_sync: false,
-            show_battery: true,
-            show_battery_watts: true,
+
             vim_keys: false,
             background_update: true,
             terminal_sync: true,
             save_config_on_exit: true,
-            disk_free_priv: false,
+
             gpu_mirror_graph: true,
             disk_io_mode: false,
 
@@ -241,8 +234,7 @@ impl Default for Config {
             cpu_graph_upper: "user".to_string(),
             cpu_graph_lower: "system".to_string(),
             cpu_sensor: "Auto".to_string(),
-            selected_battery: "Auto".to_string(),
-            cpu_core_map: String::new(),
+
             temp_scale: "celsius".to_string(),
             clock_format: "%X".to_string(),
             custom_cpu_name: String::new(),
@@ -664,7 +656,7 @@ pub enum ConfigKey {
     ProcMemBytes,
     ProcCpuGraphs,
     ProcLeft,
-    ProcFilterKernel,
+
     ProcFollowDetailed,
     ProcAggregate,
     KeepDeadProcUsage,
@@ -679,9 +671,7 @@ pub enum ConfigKey {
     MemGraphs,
     MemBelowNet,
     ShowSwap,
-    SwapDisk,
-    ShowDisks,
-    OnlyPhysical,
+
     ShowIoStat,
     IoMode,
     IoGraphCombined,
@@ -689,13 +679,12 @@ pub enum ConfigKey {
     Base10Sizes,
     NetAuto,
     NetSync,
-    ShowBattery,
-    ShowBatteryWatts,
+
     VimKeys,
     BackgroundUpdate,
     TerminalSync,
     SaveConfigOnExit,
-    DiskFreePriv,
+
     GpuMirrorGraph,
     DiskIoMode,
 
@@ -724,8 +713,7 @@ pub enum ConfigKey {
     CpuGraphUpper,
     CpuGraphLower,
     CpuSensor,
-    SelectedBattery,
-    CpuCoreMap,
+
     TempScale,
     ClockFormat,
     CustomCpuName,
@@ -757,7 +745,7 @@ impl ConfigKey {
             Self::ProcMemBytes => "proc_mem_bytes",
             Self::ProcCpuGraphs => "proc_cpu_graphs",
             Self::ProcLeft => "proc_left",
-            Self::ProcFilterKernel => "proc_filter_kernel",
+
             Self::ProcFollowDetailed => "proc_follow_detailed",
             Self::ProcAggregate => "proc_aggregate",
             Self::KeepDeadProcUsage => "keep_dead_proc_usage",
@@ -772,9 +760,7 @@ impl ConfigKey {
             Self::MemGraphs => "mem_graphs",
             Self::MemBelowNet => "mem_below_net",
             Self::ShowSwap => "show_swap",
-            Self::SwapDisk => "swap_disk",
-            Self::ShowDisks => "show_disks",
-            Self::OnlyPhysical => "only_physical",
+
             Self::ShowIoStat => "show_io_stat",
             Self::IoMode => "io_mode",
             Self::IoGraphCombined => "io_graph_combined",
@@ -782,13 +768,12 @@ impl ConfigKey {
             Self::Base10Sizes => "base_10_sizes",
             Self::NetAuto => "net_auto",
             Self::NetSync => "net_sync",
-            Self::ShowBattery => "show_battery",
-            Self::ShowBatteryWatts => "show_battery_watts",
+
             Self::VimKeys => "vim_keys",
             Self::BackgroundUpdate => "background_update",
             Self::TerminalSync => "terminal_sync",
             Self::SaveConfigOnExit => "save_config_on_exit",
-            Self::DiskFreePriv => "disk_free_priv",
+
             Self::GpuMirrorGraph => "gpu_mirror_graph",
             Self::DiskIoMode => "disk_io_mode",
 
@@ -815,8 +800,7 @@ impl ConfigKey {
             Self::CpuGraphUpper => "cpu_graph_upper",
             Self::CpuGraphLower => "cpu_graph_lower",
             Self::CpuSensor => "cpu_sensor",
-            Self::SelectedBattery => "selected_battery",
-            Self::CpuCoreMap => "cpu_core_map",
+
             Self::TempScale => "temp_scale",
             Self::ClockFormat => "clock_format",
             Self::CustomCpuName => "custom_cpu_name",
@@ -848,7 +832,6 @@ impl ConfigKey {
             | Self::ProcMemBytes
             | Self::ProcCpuGraphs
             | Self::ProcLeft
-            | Self::ProcFilterKernel
             | Self::ProcFollowDetailed
             | Self::ProcAggregate
             | Self::KeepDeadProcUsage
@@ -863,9 +846,6 @@ impl ConfigKey {
             | Self::MemGraphs
             | Self::MemBelowNet
             | Self::ShowSwap
-            | Self::SwapDisk
-            | Self::ShowDisks
-            | Self::OnlyPhysical
             | Self::ShowIoStat
             | Self::IoMode
             | Self::IoGraphCombined
@@ -873,13 +853,10 @@ impl ConfigKey {
             | Self::Base10Sizes
             | Self::NetAuto
             | Self::NetSync
-            | Self::ShowBattery
-            | Self::ShowBatteryWatts
             | Self::VimKeys
             | Self::BackgroundUpdate
             | Self::TerminalSync
             | Self::SaveConfigOnExit
-            | Self::DiskFreePriv
             | Self::GpuMirrorGraph
             | Self::DiskIoMode => KeyKind::Bool,
 
@@ -906,8 +883,6 @@ impl ConfigKey {
             | Self::CpuGraphUpper
             | Self::CpuGraphLower
             | Self::CpuSensor
-            | Self::SelectedBattery
-            | Self::CpuCoreMap
             | Self::TempScale
             | Self::ClockFormat
             | Self::CustomCpuName
@@ -940,7 +915,7 @@ impl ConfigKey {
             "proc_mem_bytes" => Some(Self::ProcMemBytes),
             "proc_cpu_graphs" => Some(Self::ProcCpuGraphs),
             "proc_left" => Some(Self::ProcLeft),
-            "proc_filter_kernel" => Some(Self::ProcFilterKernel),
+
             "proc_follow_detailed" => Some(Self::ProcFollowDetailed),
             "proc_aggregate" => Some(Self::ProcAggregate),
             "keep_dead_proc_usage" => Some(Self::KeepDeadProcUsage),
@@ -955,9 +930,7 @@ impl ConfigKey {
             "mem_graphs" => Some(Self::MemGraphs),
             "mem_below_net" => Some(Self::MemBelowNet),
             "show_swap" => Some(Self::ShowSwap),
-            "swap_disk" => Some(Self::SwapDisk),
-            "show_disks" => Some(Self::ShowDisks),
-            "only_physical" => Some(Self::OnlyPhysical),
+
             "show_io_stat" => Some(Self::ShowIoStat),
             "io_mode" => Some(Self::IoMode),
             "io_graph_combined" => Some(Self::IoGraphCombined),
@@ -965,13 +938,12 @@ impl ConfigKey {
             "base_10_sizes" => Some(Self::Base10Sizes),
             "net_auto" => Some(Self::NetAuto),
             "net_sync" => Some(Self::NetSync),
-            "show_battery" => Some(Self::ShowBattery),
-            "show_battery_watts" => Some(Self::ShowBatteryWatts),
+
             "vim_keys" => Some(Self::VimKeys),
             "background_update" => Some(Self::BackgroundUpdate),
             "terminal_sync" => Some(Self::TerminalSync),
             "save_config_on_exit" => Some(Self::SaveConfigOnExit),
-            "disk_free_priv" => Some(Self::DiskFreePriv),
+
             "gpu_mirror_graph" => Some(Self::GpuMirrorGraph),
             "disk_io_mode" => Some(Self::DiskIoMode),
 
@@ -998,8 +970,7 @@ impl ConfigKey {
             "cpu_graph_upper" => Some(Self::CpuGraphUpper),
             "cpu_graph_lower" => Some(Self::CpuGraphLower),
             "cpu_sensor" => Some(Self::CpuSensor),
-            "selected_battery" => Some(Self::SelectedBattery),
-            "cpu_core_map" => Some(Self::CpuCoreMap),
+
             "temp_scale" => Some(Self::TempScale),
             "clock_format" => Some(Self::ClockFormat),
             "custom_cpu_name" => Some(Self::CustomCpuName),
@@ -1034,7 +1005,7 @@ impl ConfigKey {
             Self::ProcMemBytes => bool_display(config.proc_mem_bytes),
             Self::ProcCpuGraphs => bool_display(config.proc_cpu_graphs),
             Self::ProcLeft => bool_display(config.proc_left),
-            Self::ProcFilterKernel => bool_display(config.proc_filter_kernel),
+
             Self::ProcFollowDetailed => bool_display(config.proc_follow_detailed),
             Self::ProcAggregate => bool_display(config.proc_aggregate),
             Self::KeepDeadProcUsage => bool_display(config.keep_dead_proc_usage),
@@ -1049,9 +1020,7 @@ impl ConfigKey {
             Self::MemGraphs => bool_display(config.mem_graphs),
             Self::MemBelowNet => bool_display(config.mem_below_net),
             Self::ShowSwap => bool_display(config.show_swap),
-            Self::SwapDisk => bool_display(config.swap_disk),
-            Self::ShowDisks => bool_display(config.show_disks),
-            Self::OnlyPhysical => bool_display(config.only_physical),
+
             Self::ShowIoStat => bool_display(config.show_io_stat),
             Self::IoMode => bool_display(config.io_mode),
             Self::IoGraphCombined => bool_display(config.io_graph_combined),
@@ -1059,13 +1028,12 @@ impl ConfigKey {
             Self::Base10Sizes => bool_display(config.base_10_sizes),
             Self::NetAuto => bool_display(config.net_auto),
             Self::NetSync => bool_display(config.net_sync),
-            Self::ShowBattery => bool_display(config.show_battery),
-            Self::ShowBatteryWatts => bool_display(config.show_battery_watts),
+
             Self::VimKeys => bool_display(config.vim_keys),
             Self::BackgroundUpdate => bool_display(config.background_update),
             Self::TerminalSync => bool_display(config.terminal_sync),
             Self::SaveConfigOnExit => bool_display(config.save_config_on_exit),
-            Self::DiskFreePriv => bool_display(config.disk_free_priv),
+
             Self::GpuMirrorGraph => bool_display(config.gpu_mirror_graph),
             Self::DiskIoMode => bool_display(config.disk_io_mode),
 
@@ -1094,8 +1062,7 @@ impl ConfigKey {
             Self::CpuGraphUpper => config.cpu_graph_upper.clone(),
             Self::CpuGraphLower => config.cpu_graph_lower.clone(),
             Self::CpuSensor => config.cpu_sensor.clone(),
-            Self::SelectedBattery => config.selected_battery.clone(),
-            Self::CpuCoreMap => config.cpu_core_map.clone(),
+
             Self::TempScale => config.temp_scale.clone(),
             Self::ClockFormat => config.clock_format.clone(),
             Self::CustomCpuName => config.custom_cpu_name.clone(),
@@ -1127,7 +1094,7 @@ impl ConfigKey {
             Self::ProcMemBytes => config.proc_mem_bytes = !config.proc_mem_bytes,
             Self::ProcCpuGraphs => config.proc_cpu_graphs = !config.proc_cpu_graphs,
             Self::ProcLeft => config.proc_left = !config.proc_left,
-            Self::ProcFilterKernel => config.proc_filter_kernel = !config.proc_filter_kernel,
+
             Self::ProcFollowDetailed => {
                 config.proc_follow_detailed = !config.proc_follow_detailed;
             }
@@ -1144,9 +1111,7 @@ impl ConfigKey {
             Self::MemGraphs => config.mem_graphs = !config.mem_graphs,
             Self::MemBelowNet => config.mem_below_net = !config.mem_below_net,
             Self::ShowSwap => config.show_swap = !config.show_swap,
-            Self::SwapDisk => config.swap_disk = !config.swap_disk,
-            Self::ShowDisks => config.show_disks = !config.show_disks,
-            Self::OnlyPhysical => config.only_physical = !config.only_physical,
+
             Self::ShowIoStat => config.show_io_stat = !config.show_io_stat,
             Self::IoMode => config.io_mode = !config.io_mode,
             Self::IoGraphCombined => config.io_graph_combined = !config.io_graph_combined,
@@ -1156,13 +1121,12 @@ impl ConfigKey {
             Self::Base10Sizes => config.base_10_sizes = !config.base_10_sizes,
             Self::NetAuto => config.net_auto = !config.net_auto,
             Self::NetSync => config.net_sync = !config.net_sync,
-            Self::ShowBattery => config.show_battery = !config.show_battery,
-            Self::ShowBatteryWatts => config.show_battery_watts = !config.show_battery_watts,
+
             Self::VimKeys => config.vim_keys = !config.vim_keys,
             Self::BackgroundUpdate => config.background_update = !config.background_update,
             Self::TerminalSync => config.terminal_sync = !config.terminal_sync,
             Self::SaveConfigOnExit => config.save_config_on_exit = !config.save_config_on_exit,
-            Self::DiskFreePriv => config.disk_free_priv = !config.disk_free_priv,
+
             Self::GpuMirrorGraph => config.gpu_mirror_graph = !config.gpu_mirror_graph,
             Self::DiskIoMode => config.disk_io_mode = !config.disk_io_mode,
             _ => panic!("toggle_bool called on non-bool key '{}'", self.name()),
@@ -1218,8 +1182,7 @@ impl ConfigKey {
             Self::CpuGraphUpper => &config.cpu_graph_upper,
             Self::CpuGraphLower => &config.cpu_graph_lower,
             Self::CpuSensor => &config.cpu_sensor,
-            Self::SelectedBattery => &config.selected_battery,
-            Self::CpuCoreMap => &config.cpu_core_map,
+
             Self::TempScale => &config.temp_scale,
             Self::ClockFormat => &config.clock_format,
             Self::CustomCpuName => &config.custom_cpu_name,
@@ -1255,8 +1218,7 @@ impl ConfigKey {
             Self::CpuGraphUpper => config.cpu_graph_upper = value.to_string(),
             Self::CpuGraphLower => config.cpu_graph_lower = value.to_string(),
             Self::CpuSensor => config.cpu_sensor = value.to_string(),
-            Self::SelectedBattery => config.selected_battery = value.to_string(),
-            Self::CpuCoreMap => config.cpu_core_map = value.to_string(),
+
             Self::TempScale => config.temp_scale = value.to_string(),
             Self::ClockFormat => config.clock_format = value.to_string(),
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
@@ -1302,7 +1264,7 @@ impl ConfigKey {
             return values;
         }
         match self {
-            Self::CpuSensor | Self::SelectedBattery | Self::NetIface => &["Auto"],
+            Self::CpuSensor | Self::NetIface => &["Auto"],
             _ => &[],
         }
     }
@@ -1587,7 +1549,6 @@ mod tests {
             ConfigKey::ColorTheme,
             ConfigKey::ProcSorting,
             ConfigKey::ThemeBackground,
-            ConfigKey::ShowBattery,
             ConfigKey::UpdateMs,
             ConfigKey::NetDownload,
         ];
