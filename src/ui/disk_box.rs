@@ -14,6 +14,7 @@ use super::BoxArea;
 pub struct DiskBoxSettings {
     pub graph_symbol: GraphSymbol,
     pub base_10: bool,
+    pub show_io_stat: bool,
 }
 
 /// Draw the disk box into an ANSI string.
@@ -101,7 +102,7 @@ pub fn draw(
             .text(&tools::rjust(&value, val_w, false));
         row += 1;
 
-        if row < inner_h {
+        if settings.show_io_stat && row < inner_h {
             let params = PerfRowParams {
                 content_x,
                 row_y: y + 2 + row,
@@ -320,6 +321,7 @@ mod tests {
         DiskBoxSettings {
             graph_symbol: GraphSymbol::Braille,
             base_10: false,
+            show_io_stat: true,
         }
     }
 

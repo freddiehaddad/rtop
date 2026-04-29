@@ -20,7 +20,9 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
 
     loop {
         let size = refresh_terminal(&mut state, terminal);
-        pull_latest_snapshot(&mut state, config, &worker);
+        if config.background_update || state.overlay.render_ui() {
+            pull_latest_snapshot(&mut state, config, &worker);
+        }
 
         if is_too_small(size) {
             if handle_small_terminal(&mut state, config, terminal, theme, size) == AppCommand::Quit
@@ -766,6 +768,7 @@ pub(crate) fn render_all(
                     temp_scale: &config.temp_scale,
                     custom_name,
                     base_10: config.base_10_sizes,
+                    gpu_mirror_graph: config.gpu_mirror_graph,
                 };
                 output.push_str(&ui::gpu_box::draw(
                     &snapshot.gpu.gpus[gi],
@@ -804,6 +807,7 @@ pub(crate) fn render_all(
                 &config.graph_symbol,
             ),
             base_10: config.base_10_sizes,
+            show_io_stat: config.show_io_stat,
         };
         output.push_str(&ui::disk_box::draw(
             &snapshot.disk.info,

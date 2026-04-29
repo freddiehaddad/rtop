@@ -275,8 +275,12 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
                 let current_detailed = ctx.config.detailed_pid;
                 if current_detailed == pid as i64 {
                     ctx.config.detailed_pid = 0;
+                    ctx.config.followed_pid = 0;
                 } else {
                     ctx.config.detailed_pid = pid as i64;
+                    if ctx.config.proc_follow_detailed {
+                        ctx.config.followed_pid = pid as i64;
+                    }
                 }
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
