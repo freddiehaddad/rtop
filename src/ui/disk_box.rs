@@ -15,6 +15,9 @@ pub struct DiskBoxSettings {
     pub graph_symbol: GraphSymbol,
     pub base_10: bool,
     pub show_io_stat: bool,
+    pub io_mode: bool,
+    pub disk_io_mode: bool,
+    pub io_graph_combined: bool,
 }
 
 /// Draw the disk box into an ANSI string.
@@ -72,6 +75,8 @@ pub fn draw(
 
     let mut row = 0;
 
+    let io_view = settings.io_mode || settings.disk_io_mode;
+
     // Layout: " {label} {meter} {used/total} " — single row per disk
     // Value column: "274G/1.6T" = up to 10 chars
     let val_w = 10;
@@ -80,41 +85,172 @@ pub fn draw(
         if row >= inner_h {
             break;
         }
-        let du = tools::floating_humanizer(disk.used, true, 0, false, false, settings.base_10);
-        let dt = tools::floating_humanizer(disk.total, true, 0, false, false, settings.base_10);
-        let value = format!("{}/{}", du, dt);
 
-        // Label: "C: NTFS " — drive + fstype
-        let label = if disk.fstype.is_empty() {
-            format!("{} ", disk.name)
+        if io_view {
+            // I/O mode: show throughput graphs instead of usage meters
+            if settings.io_graph_combined {
+                // Combined read+write in a single graph row
+                let label = format!("{} IO ", disk.name);
+                let label_len = tools::ulen(&label, false);
+                let speed_r = tools::floating_humanizer(
+                    disk.read_bytes_per_sec,
+                    true,
+                    0,
+                    false,
+                    true,
+                    settings.base_10,
+                );
+                let speed_w = tools::floating_humanizer(
+                    disk.write_bytes_per_sec,
+                    true,
+                    0,
+                    false,
+                    true,
+                    settings.base_10,
+                );
+                let value = format!("R{} W{}", speed_r, speed_w);
+                let value_w = tools::ulen(&value, false);
+                let graph_w = inner_w.saturating_sub(label_len + value_w + 1).max(3);
+
+                // Merge read+write histories by summing
+                let combined: std::collections::VecDeque<i64> = {
+                    let rlen = disk.read_history.len();
+                    let wlen = disk.write_history.len();
+                    let max_len = rlen.max(wlen);
+                    let mut combined = std::collections::VecDeque::with_capacity(max_len);
+                    for i in 0..max_len {
+                        let r = if i < rlen { disk.read_history[i] } else { 0 };
+                        let w = if i < wlen { disk.write_history[i] } else { 0 };
+                        combined.push_back(r + w);
+                    }
+                    combined
+                };
+
+                let max = visible_graph_max(
+                    &combined,
+                    graph_w,
+                    disk.read_bytes_per_sec + disk.write_bytes_per_sec,
+                );
+                let mut graph = Graph::new(graph_w, 1, settings.graph_symbol, false, true, max, 0);
+                let graph_row = graph.render_row_colored(&combined, read_grad);
+
+                buf.mv(content_x, y + 2 + row)
+                    .color(title_color)
+                    .text(&label)
+                    .text(&graph_row)
+                    .color(fg)
+                    .text(" ")
+                    .text(&value);
+                row += 1;
+            } else {
+                // Separate read and write graph rows
+                // Read row
+                let label_r = format!("{} R ", disk.name);
+                let label_r_len = tools::ulen(&label_r, false);
+                let speed_r = tools::floating_humanizer(
+                    disk.read_bytes_per_sec,
+                    true,
+                    0,
+                    false,
+                    true,
+                    settings.base_10,
+                );
+                let speed_r_w = tools::ulen(&speed_r, false);
+                let graph_rw = inner_w.saturating_sub(label_r_len + speed_r_w + 1).max(3);
+
+                let read_max =
+                    visible_graph_max(&disk.read_history, graph_rw, disk.read_bytes_per_sec);
+                let mut rg =
+                    Graph::new(graph_rw, 1, settings.graph_symbol, false, true, read_max, 0);
+                let rg_row = rg.render_row_colored(&disk.read_history, read_grad);
+
+                buf.mv(content_x, y + 2 + row)
+                    .color(title_color)
+                    .text(&label_r)
+                    .text(&rg_row)
+                    .color(fg)
+                    .text(" ")
+                    .text(&speed_r);
+                row += 1;
+
+                if row >= inner_h {
+                    continue;
+                }
+
+                // Write row
+                let label_w = format!("{} W ", disk.name);
+                let label_w_len = tools::ulen(&label_w, false);
+                let speed_w = tools::floating_humanizer(
+                    disk.write_bytes_per_sec,
+                    true,
+                    0,
+                    false,
+                    true,
+                    settings.base_10,
+                );
+                let speed_w_vis = tools::ulen(&speed_w, false);
+                let graph_ww = inner_w.saturating_sub(label_w_len + speed_w_vis + 1).max(3);
+
+                let write_max =
+                    visible_graph_max(&disk.write_history, graph_ww, disk.write_bytes_per_sec);
+                let mut wg = Graph::new(
+                    graph_ww,
+                    1,
+                    settings.graph_symbol,
+                    false,
+                    true,
+                    write_max,
+                    0,
+                );
+                let wg_row = wg.render_row_colored(&disk.write_history, write_grad);
+
+                buf.mv(content_x, y + 2 + row)
+                    .color(title_color)
+                    .text(&label_w)
+                    .text(&wg_row)
+                    .color(fg)
+                    .text(" ")
+                    .text(&speed_w);
+                row += 1;
+            }
         } else {
-            format!("{} {} ", disk.name, disk.fstype)
-        };
-        let label_len = label.len();
-        let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
-        let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
+            // Normal mode: usage meter
+            let du = tools::floating_humanizer(disk.used, true, 0, false, false, settings.base_10);
+            let dt = tools::floating_humanizer(disk.total, true, 0, false, false, settings.base_10);
+            let value = format!("{}/{}", du, dt);
 
-        buf.mv(content_x, y + 2 + row)
-            .color(title_color)
-            .text(&label)
-            .text(disk_meter.render(disk.used_percent))
-            .color(fg)
-            .text(&tools::rjust(&value, val_w, false));
-        row += 1;
-
-        if settings.show_io_stat && row < inner_h {
-            let params = PerfRowParams {
-                content_x,
-                row_y: y + 2 + row,
-                inner_w,
-                theme,
-                settings,
-                read_grad,
-                write_grad,
-                busy_grad,
+            // Label: "C: NTFS " — drive + fstype
+            let label = if disk.fstype.is_empty() {
+                format!("{} ", disk.name)
+            } else {
+                format!("{} {} ", disk.name, disk.fstype)
             };
-            draw_perf_row(&mut buf, disk, &params);
+            let label_len = label.len();
+            let meter_w = inner_w.saturating_sub(label_len + val_w).max(5);
+            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
+
+            buf.mv(content_x, y + 2 + row)
+                .color(title_color)
+                .text(&label)
+                .text(disk_meter.render(disk.used_percent))
+                .color(fg)
+                .text(&tools::rjust(&value, val_w, false));
             row += 1;
+
+            if settings.show_io_stat && row < inner_h {
+                let params = PerfRowParams {
+                    content_x,
+                    row_y: y + 2 + row,
+                    inner_w,
+                    theme,
+                    settings,
+                    read_grad,
+                    write_grad,
+                    busy_grad,
+                };
+                draw_perf_row(&mut buf, disk, &params);
+                row += 1;
+            }
         }
     }
 
@@ -322,6 +458,9 @@ mod tests {
             graph_symbol: GraphSymbol::Braille,
             base_10: false,
             show_io_stat: true,
+            io_mode: false,
+            disk_io_mode: false,
+            io_graph_combined: false,
         }
     }
 

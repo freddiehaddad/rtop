@@ -39,6 +39,8 @@ pub struct CpuInfo {
     pub uptime_seconds: u64,
     /// Temperature history: index 0 = package, 1+ = per-core.
     pub temp: Vec<VecDeque<i64>>,
+    /// CPU package power in watts (from LHM), if available.
+    pub cpu_watts: Option<f64>,
 }
 
 impl Default for CpuInfo {
@@ -52,6 +54,7 @@ impl Default for CpuInfo {
             core_count: 0,
             uptime_seconds: 0,
             temp: Vec::new(),
+            cpu_watts: None,
         }
     }
 }

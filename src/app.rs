@@ -847,6 +847,9 @@ pub(crate) fn render_all(
             show_uptime: config.show_uptime,
             cpu_name: &snapshot.cpu.info.cpu_name,
             custom_cpu_name: &config.custom_cpu_name,
+            show_cpu_watts: config.show_cpu_watts,
+            cpu_watts: snapshot.cpu.info.cpu_watts,
+            clock_format: &config.clock_format,
         };
         output.push_str(&ui::cpu_box::draw(
             &snapshot.cpu.info,
@@ -899,6 +902,11 @@ pub(crate) fn render_all(
             &ui::mem_box::MemBoxSettings {
                 show_swap: config.show_swap,
                 base_10: config.base_10_sizes,
+                mem_graphs: config.mem_graphs,
+                graph_symbol: crate::draw::graph::GraphSymbol::from_config(
+                    &config.graph_symbol_mem,
+                    &config.graph_symbol,
+                ),
             },
             &snapshot.mem.status,
         ));
@@ -915,6 +923,9 @@ pub(crate) fn render_all(
             ),
             base_10: config.base_10_sizes,
             show_io_stat: config.show_io_stat,
+            io_mode: config.io_mode,
+            disk_io_mode: config.disk_io_mode,
+            io_graph_combined: config.io_graph_combined,
         };
         output.push_str(&ui::disk_box::draw(
             &snapshot.disk.info,

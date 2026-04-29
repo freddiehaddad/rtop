@@ -27,6 +27,9 @@ pub struct CpuBoxSettings<'a> {
     pub show_uptime: bool,
     pub cpu_name: &'a str,
     pub custom_cpu_name: &'a str,
+    pub show_cpu_watts: bool,
+    pub cpu_watts: Option<f64>,
+    pub clock_format: &'a str,
 }
 
 // Core panel column width thresholds (from btop's b_column_size algorithm).
@@ -303,6 +306,8 @@ pub fn draw(
             temp_scale,
             graph_sym,
             theme,
+            settings.show_cpu_watts,
+            settings.cpu_watts,
         ));
     }
 
@@ -313,6 +318,19 @@ pub fn draw(
         let up_y = y + 2;
         if !uptime.is_empty() {
             buf.mv(x + 2, up_y).color(graph_text_color).text(&up_str);
+        }
+    }
+
+    // Clock overlaid on graph area (below uptime, or at uptime position if hidden)
+    {
+        let clock_str = tools::format_clock(settings.clock_format);
+        if !clock_str.is_empty() {
+            let clock_y = if settings.show_uptime { y + 3 } else { y + 2 };
+            if clock_y < y + height {
+                buf.mv(x + 2, clock_y)
+                    .color(graph_text_color)
+                    .text(&clock_str);
+            }
         }
     }
 
@@ -371,6 +389,7 @@ struct CorePanelArea {
 }
 
 /// Render the per-core panel (CPU meter, mini-graphs, percentages, temperatures, load avg).
+#[allow(clippy::too_many_arguments)]
 fn draw_core_panel(
     cpu: &CpuInfo,
     panel: &CorePanelArea,
@@ -379,6 +398,8 @@ fn draw_core_panel(
     temp_scale: &str,
     graph_sym: GraphSymbol,
     theme: &Theme,
+    show_cpu_watts: bool,
+    cpu_watts: Option<f64>,
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
@@ -527,10 +548,15 @@ fn draw_core_panel(
 
     // Load average on bottom row of core panel
     let lavg_y = panel.y + panel.height;
-    let lavg_str = format!(
+    let mut lavg_str = format!(
         "Load avg: {:.2} {:.2} {:.2}",
         cpu.load_avg[0], cpu.load_avg[1], cpu.load_avg[2]
     );
+    // Append CPU wattage if available
+    if show_cpu_watts && let Some(watts) = cpu_watts {
+        use std::fmt::Write;
+        write!(lavg_str, " {:.1}W", watts).ok();
+    }
     let lavg_vis_len = lavg_str.len();
     if lavg_vis_len <= panel_inner_w {
         let lavg_x = panel.x + 2 + (panel_inner_w.saturating_sub(lavg_vis_len)) / 2;
@@ -635,6 +661,9 @@ mod tests {
             show_uptime: true,
             cpu_name: "Test CPU",
             custom_cpu_name: "",
+            show_cpu_watts: false,
+            cpu_watts: None,
+            clock_format: "",
         }
     }
 

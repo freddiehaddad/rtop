@@ -244,7 +244,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         }
         Key::Char('i') => {
             ctx.config.io_mode = !ctx.config.io_mode;
-            ctx.render.dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::MEM_BOX | Dirty::PROC_BOX | Dirty::DISK_BOX;
         }
         Key::Left => {
             let current = ctx.config.proc_sorting.clone();

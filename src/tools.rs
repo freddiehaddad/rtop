@@ -236,6 +236,23 @@ pub fn celsius_to(celsius: i64, scale: &str) -> (i64, String) {
     }
 }
 
+/// Format the current time using a clock format string.
+///
+/// Supported specifiers: `%X` (expands to `%H:%M:%S`), `%H` (24-hour),
+/// `%M` (minute), `%S` (second). Returns empty string for empty format.
+pub fn format_clock(format: &str) -> String {
+    if format.is_empty() {
+        return String::new();
+    }
+    // SAFETY: GetLocalTime returns a SYSTEMTIME struct with the current local time.
+    let st = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    let expanded = format.replace("%X", "%H:%M:%S");
+    expanded
+        .replace("%H", &format!("{:02}", st.wHour))
+        .replace("%M", &format!("{:02}", st.wMinute))
+        .replace("%S", &format!("{:02}", st.wSecond))
+}
+
 /// Strip ANSI escape codes from a string.
 fn strip_ansi(s: &str) -> String {
     let mut result = String::with_capacity(s.len());

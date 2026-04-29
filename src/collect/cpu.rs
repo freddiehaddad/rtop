@@ -430,16 +430,19 @@ impl CpuCollector {
 
         let mut package_temp: Option<i64> = None;
         let mut core_temps: Vec<i64> = Vec::new();
+        let mut cpu_watts: Option<f64> = None;
 
-        // Walk the tree looking for "Temperatures" under CPU hardware nodes.
+        // Walk the tree looking for "Temperatures" and "Powers" under CPU hardware nodes.
         // Generic approach: identify package-level temp by known keywords,
         // treat everything else as per-core temps in discovery order.
         fn walk(
             node: &serde_json::Value,
             in_temps: bool,
+            in_powers: bool,
             in_cpu: bool,
             pkg: &mut Option<i64>,
             cores: &mut Vec<i64>,
+            watts: &mut Option<f64>,
         ) {
             let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
             let hw_id = node
@@ -460,6 +463,7 @@ impl CpuCollector {
                 || text.to_lowercase().contains("threadripper");
 
             let is_temps = text == "Temperatures";
+            let is_powers = text == "Powers";
 
             if in_temps
                 && is_cpu_hw
@@ -497,14 +501,46 @@ impl CpuCollector {
                 }
             }
 
+            // Extract CPU power (watts) from "Powers" section
+            if in_powers
+                && is_cpu_hw
+                && let Some(val_str) = node.get("Value").and_then(|v| v.as_str())
+                && (text == "CPU Package"
+                    || text == "Package"
+                    || text == "CPU PPT"
+                    || text.starts_with("CPU"))
+                && let Some(w) = parse_power_value(val_str)
+                && (watts.is_none() || text == "CPU Package")
+            {
+                *watts = Some(w);
+            }
+
             if let Some(children) = node.get("Children").and_then(|v| v.as_array()) {
                 for child in children {
-                    walk(child, is_temps && is_cpu_hw, is_cpu_hw, pkg, cores);
+                    walk(
+                        child,
+                        is_temps && is_cpu_hw,
+                        is_powers && is_cpu_hw,
+                        is_cpu_hw,
+                        pkg,
+                        cores,
+                        watts,
+                    );
                 }
             }
         }
 
-        walk(&json, false, false, &mut package_temp, &mut core_temps);
+        walk(
+            &json,
+            false,
+            false,
+            false,
+            &mut package_temp,
+            &mut core_temps,
+            &mut cpu_watts,
+        );
+
+        self.info.cpu_watts = cpu_watts;
 
         // Total entries: 1 (package) + per-core count
         let total = 1 + core_temps.len();
@@ -570,6 +606,12 @@ fn lhm_http_fetch() -> Option<serde_json::Value> {
 fn parse_temp_value(s: &str) -> Option<i64> {
     let num_part = s.split([' ', '\u{00b0}']).next()?;
     num_part.parse::<f64>().ok().map(|v| v as i64)
+}
+
+/// Parse a power value string like "65.2 W" → 65.2
+fn parse_power_value(s: &str) -> Option<f64> {
+    let num_part = s.split([' ', 'W']).next()?;
+    num_part.parse::<f64>().ok()
 }
 
 #[cfg(test)]
