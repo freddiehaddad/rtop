@@ -971,15 +971,11 @@ pub(crate) fn render_all(
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < gpu.gpus.len() {
                 let area = ui::BoxArea::from_dim(gpu_dim, rounded);
-                let custom_name = match gi {
-                    0 => &config.custom_gpu_name0,
-                    1 => &config.custom_gpu_name1,
-                    2 => &config.custom_gpu_name2,
-                    3 => &config.custom_gpu_name3,
-                    4 => &config.custom_gpu_name4,
-                    5 => &config.custom_gpu_name5,
-                    _ => "",
-                };
+                let custom_name = config
+                    .custom_gpu_names
+                    .get(gi)
+                    .map(String::as_str)
+                    .unwrap_or("");
                 let gpu_settings = ui::gpu_box::GpuBoxSettings {
                     index: gi,
                     temp_scale: &config.temp_scale,

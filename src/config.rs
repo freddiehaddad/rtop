@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Maximum number of GPUs supported.
+pub const MAX_GPUS: usize = 8;
+
 /// Static box names (non-GPU).
 const STATIC_BOX_NAMES: &[&str] = &["cpu", "mem", "net", "proc", "disk"];
 
@@ -148,12 +151,7 @@ pub struct Config {
     pub log_level: String,
     pub proc_filter: String,
     pub presets: String,
-    pub custom_gpu_name0: String,
-    pub custom_gpu_name1: String,
-    pub custom_gpu_name2: String,
-    pub custom_gpu_name3: String,
-    pub custom_gpu_name4: String,
-    pub custom_gpu_name5: String,
+    pub custom_gpu_names: [String; MAX_GPUS],
 
     // -- runtime-only (not serialized) --
     /// Internal-only: the startup layout snapshot (not persisted).
@@ -250,12 +248,7 @@ impl Default for Config {
             log_level: "WARNING".to_string(),
             proc_filter: String::new(),
             presets: "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default".to_string(),
-            custom_gpu_name0: String::new(),
-            custom_gpu_name1: String::new(),
-            custom_gpu_name2: String::new(),
-            custom_gpu_name3: String::new(),
-            custom_gpu_name4: String::new(),
-            custom_gpu_name5: String::new(),
+            custom_gpu_names: Default::default(),
 
             // runtime-only
             initial_shown_boxes: Vec::new(),
@@ -771,6 +764,8 @@ pub enum ConfigKey {
     CustomGpuName3,
     CustomGpuName4,
     CustomGpuName5,
+    CustomGpuName6,
+    CustomGpuName7,
 }
 
 impl ConfigKey {
@@ -851,6 +846,8 @@ impl ConfigKey {
             Self::CustomGpuName3 => "custom_gpu_name3",
             Self::CustomGpuName4 => "custom_gpu_name4",
             Self::CustomGpuName5 => "custom_gpu_name5",
+            Self::CustomGpuName6 => "custom_gpu_name6",
+            Self::CustomGpuName7 => "custom_gpu_name7",
         }
     }
 
@@ -925,7 +922,9 @@ impl ConfigKey {
             | Self::CustomGpuName2
             | Self::CustomGpuName3
             | Self::CustomGpuName4
-            | Self::CustomGpuName5 => KeyKind::String,
+            | Self::CustomGpuName5
+            | Self::CustomGpuName6
+            | Self::CustomGpuName7 => KeyKind::String,
         }
     }
 
@@ -1007,6 +1006,8 @@ impl ConfigKey {
             "custom_gpu_name3" => Some(Self::CustomGpuName3),
             "custom_gpu_name4" => Some(Self::CustomGpuName4),
             "custom_gpu_name5" => Some(Self::CustomGpuName5),
+            "custom_gpu_name6" => Some(Self::CustomGpuName6),
+            "custom_gpu_name7" => Some(Self::CustomGpuName7),
 
             _ => None,
         }
@@ -1086,12 +1087,14 @@ impl ConfigKey {
             Self::LogLevel => config.log_level.clone(),
             Self::ProcFilter => config.proc_filter.clone(),
             Self::Presets => config.presets.clone(),
-            Self::CustomGpuName0 => config.custom_gpu_name0.clone(),
-            Self::CustomGpuName1 => config.custom_gpu_name1.clone(),
-            Self::CustomGpuName2 => config.custom_gpu_name2.clone(),
-            Self::CustomGpuName3 => config.custom_gpu_name3.clone(),
-            Self::CustomGpuName4 => config.custom_gpu_name4.clone(),
-            Self::CustomGpuName5 => config.custom_gpu_name5.clone(),
+            Self::CustomGpuName0 => config.custom_gpu_names[0].clone(),
+            Self::CustomGpuName1 => config.custom_gpu_names[1].clone(),
+            Self::CustomGpuName2 => config.custom_gpu_names[2].clone(),
+            Self::CustomGpuName3 => config.custom_gpu_names[3].clone(),
+            Self::CustomGpuName4 => config.custom_gpu_names[4].clone(),
+            Self::CustomGpuName5 => config.custom_gpu_names[5].clone(),
+            Self::CustomGpuName6 => config.custom_gpu_names[6].clone(),
+            Self::CustomGpuName7 => config.custom_gpu_names[7].clone(),
         }
     }
 
@@ -1196,12 +1199,14 @@ impl ConfigKey {
             Self::LogLevel => &config.log_level,
             Self::ProcFilter => &config.proc_filter,
             Self::Presets => &config.presets,
-            Self::CustomGpuName0 => &config.custom_gpu_name0,
-            Self::CustomGpuName1 => &config.custom_gpu_name1,
-            Self::CustomGpuName2 => &config.custom_gpu_name2,
-            Self::CustomGpuName3 => &config.custom_gpu_name3,
-            Self::CustomGpuName4 => &config.custom_gpu_name4,
-            Self::CustomGpuName5 => &config.custom_gpu_name5,
+            Self::CustomGpuName0 => &config.custom_gpu_names[0],
+            Self::CustomGpuName1 => &config.custom_gpu_names[1],
+            Self::CustomGpuName2 => &config.custom_gpu_names[2],
+            Self::CustomGpuName3 => &config.custom_gpu_names[3],
+            Self::CustomGpuName4 => &config.custom_gpu_names[4],
+            Self::CustomGpuName5 => &config.custom_gpu_names[5],
+            Self::CustomGpuName6 => &config.custom_gpu_names[6],
+            Self::CustomGpuName7 => &config.custom_gpu_names[7],
             _ => panic!("get_string called on non-string key '{}'", self.name()),
         }
     }
@@ -1228,12 +1233,14 @@ impl ConfigKey {
             Self::LogLevel => config.log_level = value.to_string(),
             Self::ProcFilter => config.proc_filter = value.to_string(),
             Self::Presets => config.presets = value.to_string(),
-            Self::CustomGpuName0 => config.custom_gpu_name0 = value.to_string(),
-            Self::CustomGpuName1 => config.custom_gpu_name1 = value.to_string(),
-            Self::CustomGpuName2 => config.custom_gpu_name2 = value.to_string(),
-            Self::CustomGpuName3 => config.custom_gpu_name3 = value.to_string(),
-            Self::CustomGpuName4 => config.custom_gpu_name4 = value.to_string(),
-            Self::CustomGpuName5 => config.custom_gpu_name5 = value.to_string(),
+            Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
+            Self::CustomGpuName1 => config.custom_gpu_names[1] = value.to_string(),
+            Self::CustomGpuName2 => config.custom_gpu_names[2] = value.to_string(),
+            Self::CustomGpuName3 => config.custom_gpu_names[3] = value.to_string(),
+            Self::CustomGpuName4 => config.custom_gpu_names[4] = value.to_string(),
+            Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
+            Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
+            Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
             _ => panic!("set_string called on non-string key '{}'", self.name()),
         }
     }

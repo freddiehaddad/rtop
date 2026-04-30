@@ -596,6 +596,24 @@ pub const GPU: &[OptDef] = &[
         ],
     },
     OptDef {
+        key: ConfigKey::CustomGpuName6,
+        desc: &[
+            "Custom GPU name for GPU 6.",
+            "",
+            "Override the detected GPU name.",
+            "Empty string to disable.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::CustomGpuName7,
+        desc: &[
+            "Custom GPU name for GPU 7.",
+            "",
+            "Override the detected GPU name.",
+            "Empty string to disable.",
+        ],
+    },
+    OptDef {
         key: ConfigKey::GpuUpdateMs,
         desc: &[
             "GPU update interval (ms).",
