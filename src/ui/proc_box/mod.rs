@@ -146,7 +146,7 @@ fn draw_frame(
         fill: true,
         title: "proc",
         title2: "",
-        num: 4,
+        num: crate::ui::PROC_KEY,
         rounded: area.rounded,
         hi_color: colors.hi,
         title_color: colors.title_color,

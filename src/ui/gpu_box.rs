@@ -66,7 +66,7 @@ pub fn draw(
     let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
 
     let title = format!("gpu{}", settings.index);
-    let num = 5u8;
+    let num = super::GPU_KEY_BASE + settings.index as u8;
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,

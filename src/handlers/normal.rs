@@ -320,19 +320,26 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
 
 fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
     match *key {
-        Key::Char('1') => ctx.config.toggle_box("cpu"),
-        Key::Char('2') => ctx.config.toggle_box("mem"),
-        Key::Char('3') => ctx.config.toggle_box("net"),
-        Key::Char('4') => ctx.config.toggle_box("proc"),
-        Key::Char('5') => {
-            let gpu_count = ctx.live.gpu.as_ref().map_or(0, |g| g.gpus.len());
-            for i in 0..gpu_count {
+        Key::Char(c @ '1'..='9') => {
+            let digit = (c as u8) - b'0';
+            match digit {
+                crate::ui::CPU_KEY => ctx.config.toggle_box("cpu"),
+                crate::ui::MEM_KEY => ctx.config.toggle_box("mem"),
+                crate::ui::NET_KEY => ctx.config.toggle_box("net"),
+                crate::ui::PROC_KEY => ctx.config.toggle_box("proc"),
+                crate::ui::DISK_KEY => ctx.config.toggle_box("disk"),
+                d if d >= crate::ui::GPU_KEY_BASE => {
+                    let gpu_idx = (d - crate::ui::GPU_KEY_BASE) as usize;
+                    ctx.config.toggle_box(&format!("gpu{gpu_idx}"))
+                }
+                _ => return,
+            };
+        }
+        Key::Char('0') => {
+            for i in 4..crate::config::MAX_GPUS {
                 ctx.config.toggle_box(&format!("gpu{i}"));
             }
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-            return;
         }
-        Key::Char('6') => ctx.config.toggle_box("disk"),
         _ => return,
     };
     ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;

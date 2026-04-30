@@ -61,8 +61,18 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "1-6",
-        desc: "Toggle box (cpu/mem/net/proc/gpu/disk)",
+        key: "1-5",
+        desc: "Toggle box (cpu/mem/net/proc/disk)",
+        section: "Global",
+    },
+    Keybind {
+        key: "6-9",
+        desc: "Toggle GPU 0-3",
+        section: "Global",
+    },
+    Keybind {
+        key: "0",
+        desc: "Toggle GPU 4-7",
         section: "Global",
     },
     // Process

@@ -2,6 +2,19 @@ use crate::collect::CollectStatus;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 
+/// Toggle key digits shown as superscripts in box titles.
+///
+/// Each constant is the digit key that toggles the corresponding widget.
+/// Used by both the renderers (superscript label) and the input handler
+/// (keybind dispatch) to keep them in sync.
+pub const CPU_KEY: u8 = 1;
+pub const MEM_KEY: u8 = 2;
+pub const NET_KEY: u8 = 3;
+pub const PROC_KEY: u8 = 4;
+pub const DISK_KEY: u8 = 5;
+/// First GPU toggle key. GPU N uses `GPU_KEY_BASE + N`.
+pub const GPU_KEY_BASE: u8 = 6;
+
 /// Shared area description for UI box draw functions.
 pub struct BoxArea {
     pub x: usize,

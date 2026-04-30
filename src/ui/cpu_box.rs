@@ -215,7 +215,7 @@ pub fn draw(
         fill: true,
         title: "cpu",
         title2: "",
-        num: 1,
+        num: super::CPU_KEY,
         rounded,
         hi_color: hi,
         title_color,

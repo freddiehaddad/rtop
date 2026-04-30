@@ -80,7 +80,7 @@ pub fn draw(
         fill: true,
         title: "disks",
         title2: "",
-        num: 6,
+        num: super::DISK_KEY,
         rounded,
         hi_color: hi,
         title_color,

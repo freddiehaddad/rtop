@@ -72,7 +72,7 @@ pub fn draw(
         fill: true,
         title: "net",
         title2: "",
-        num: 3,
+        num: super::NET_KEY,
         rounded,
         hi_color: hi,
         title_color,

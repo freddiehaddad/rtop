@@ -53,7 +53,9 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `m` / `Esc` | Toggle main menu |
 | `?` / `F1` | Help |
 | `o` / `F2` | Options |
-| `1`–`6` | Toggle widgets (cpu/mem/net/proc/gpu/disk) |
+| `1`–`5` | Toggle widgets (cpu/mem/net/proc/disk) |
+| `6`–`9` | Toggle GPU 0–3 |
+| `0` | Toggle GPU 4–7 |
 | `p` / `P` | Cycle presets forward/back |
 | `Ctrl+S` | Save current layout as preset |
 | `Ctrl+X` | Delete current preset |

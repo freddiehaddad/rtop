@@ -60,7 +60,7 @@ pub fn draw(
         fill: true,
         title: "mem",
         title2: "",
-        num: 2,
+        num: super::MEM_KEY,
         rounded,
         hi_color: hi,
         title_color,
