@@ -78,9 +78,16 @@ pub(crate) struct LayoutHints {
 ///
 /// Publishers overwrite; consumers read the latest. Multiple publishes
 /// between reads naturally coalesce — only the most recent value is kept.
-#[derive(Clone)]
 pub(crate) struct LatestSlot<T> {
     inner: Arc<Mutex<Option<Arc<T>>>>,
+}
+
+impl<T> Clone for LatestSlot<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 impl<T> LatestSlot<T> {
@@ -193,6 +200,45 @@ fn run_net_loop(
 }
 
 // ---------------------------------------------------------------------------
+// Collector thread spawning helper
+// ---------------------------------------------------------------------------
+
+/// Spawn a collector thread with standard channel + slot wiring.
+///
+/// Creates the command channel, clones the slot and event sender,
+/// spawns the thread, and returns the command sender and join handle.
+/// The collector is constructed inside the thread via `collector_fn`
+/// so types that are not `Send` (e.g. GPU backends) work correctly.
+fn spawn_collector<C, S>(
+    collector_fn: impl FnOnce() -> C + Send + 'static,
+    update_ms: u64,
+    slot: &LatestSlot<S>,
+    event_tx: &Sender<AppEvent>,
+    wakeup: AppEvent,
+    snapshot_fn: impl Fn(&C) -> S + Send + 'static,
+) -> (Sender<CollectorCommand>, JoinHandle<()>)
+where
+    C: Collector,
+    S: Send + Sync + 'static,
+{
+    let (tx, rx) = mpsc::channel();
+    let slot = slot.clone();
+    let event_tx = event_tx.clone();
+    let handle = std::thread::spawn(move || {
+        run_collector_loop(
+            collector_fn(),
+            update_ms,
+            slot,
+            event_tx,
+            wakeup,
+            rx,
+            snapshot_fn,
+        );
+    });
+    (tx, handle)
+}
+
+// ---------------------------------------------------------------------------
 // CollectorManager — owns all collector threads
 // ---------------------------------------------------------------------------
 
@@ -233,65 +279,52 @@ impl CollectorManager {
         let mut joins = Vec::with_capacity(6);
 
         // CPU thread
-        let (cpu_tx, cpu_rx) = mpsc::channel();
-        {
-            let slot = cpu_slot.clone();
-            let tx = event_tx.clone();
-            joins.push(std::thread::spawn(move || {
+        let (cpu_tx, cpu_join) = spawn_collector(
+            || {
                 let mut cpu = CpuCollector::new();
                 cpu.init();
-                run_collector_loop(cpu, update_ms, slot, tx, AppEvent::CpuReady, cpu_rx, |c| {
-                    CpuSnapshot {
-                        info: c.info.clone(),
-                        status: c.status.clone(),
-                    }
-                });
-            }));
-        }
+                cpu
+            },
+            update_ms,
+            &cpu_slot,
+            &event_tx,
+            AppEvent::CpuReady,
+            |c| CpuSnapshot {
+                info: c.info.clone(),
+                status: c.status.clone(),
+            },
+        );
+        joins.push(cpu_join);
 
         // Memory thread
-        let (mem_tx, mem_rx) = mpsc::channel();
-        {
-            let slot = mem_slot.clone();
-            let tx = event_tx.clone();
-            joins.push(std::thread::spawn(move || {
-                run_collector_loop(
-                    MemCollector::new(),
-                    update_ms,
-                    slot,
-                    tx,
-                    AppEvent::MemReady,
-                    mem_rx,
-                    |c| MemSnapshot {
-                        info: c.info.clone(),
-                        status: c.status.clone(),
-                    },
-                );
-            }));
-        }
+        let (mem_tx, mem_join) = spawn_collector(
+            MemCollector::new,
+            update_ms,
+            &mem_slot,
+            &event_tx,
+            AppEvent::MemReady,
+            |c| MemSnapshot {
+                info: c.info.clone(),
+                status: c.status.clone(),
+            },
+        );
+        joins.push(mem_join);
 
         // Disk thread
-        let (disk_tx, disk_rx) = mpsc::channel();
-        {
-            let slot = disk_slot.clone();
-            let tx = event_tx.clone();
-            joins.push(std::thread::spawn(move || {
-                run_collector_loop(
-                    DiskCollector::new(),
-                    update_ms,
-                    slot,
-                    tx,
-                    AppEvent::DiskReady,
-                    disk_rx,
-                    |c| DiskSnapshot {
-                        info: c.info.clone(),
-                        status: c.status.clone(),
-                    },
-                );
-            }));
-        }
+        let (disk_tx, disk_join) = spawn_collector(
+            DiskCollector::new,
+            update_ms,
+            &disk_slot,
+            &event_tx,
+            AppEvent::DiskReady,
+            |c| DiskSnapshot {
+                info: c.info.clone(),
+                status: c.status.clone(),
+            },
+        );
+        joins.push(disk_join);
 
-        // Network thread (custom loop for ResetTotals)
+        // Network thread (custom loop — uses NetCommand for ResetTotals)
         let (net_tx, net_rx) = mpsc::channel();
         {
             let slot = net_slot.clone();
@@ -302,48 +335,36 @@ impl CollectorManager {
         }
 
         // GPU thread
-        let (gpu_tx, gpu_rx) = mpsc::channel();
-        {
-            let slot = gpu_slot.clone();
-            let tx = event_tx.clone();
-            joins.push(std::thread::spawn(move || {
-                run_collector_loop(
-                    GpuCollector::new(),
-                    update_ms,
-                    slot,
-                    tx,
-                    AppEvent::GpuReady,
-                    gpu_rx,
-                    |c| GpuSnapshot {
-                        gpus: c.gpus.clone(),
-                        status: c.status.clone(),
-                    },
-                );
-            }));
-        }
+        let (gpu_tx, gpu_join) = spawn_collector(
+            GpuCollector::new,
+            update_ms,
+            &gpu_slot,
+            &event_tx,
+            AppEvent::GpuReady,
+            |c| GpuSnapshot {
+                gpus: c.gpus.clone(),
+                status: c.status.clone(),
+            },
+        );
+        joins.push(gpu_join);
 
         // Process thread
-        let (proc_tx, proc_rx) = mpsc::channel();
-        {
-            let slot = proc_slot.clone();
-            let tx = event_tx;
-            joins.push(std::thread::spawn(move || {
+        let (proc_tx, proc_join) = spawn_collector(
+            move || {
                 let mut proc_collector = ProcCollector::new();
                 proc_collector.set_core_count(core_count);
-                run_collector_loop(
-                    proc_collector,
-                    update_ms,
-                    slot,
-                    tx,
-                    AppEvent::ProcReady,
-                    proc_rx,
-                    |c| ProcSnapshot {
-                        procs: c.procs.clone(),
-                        status: c.status.clone(),
-                    },
-                );
-            }));
-        }
+                proc_collector
+            },
+            update_ms,
+            &proc_slot,
+            &event_tx,
+            AppEvent::ProcReady,
+            |c| ProcSnapshot {
+                procs: c.procs.clone(),
+                status: c.status.clone(),
+            },
+        );
+        joins.push(proc_join);
 
         Self {
             cpu_tx,
