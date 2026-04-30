@@ -1,4 +1,5 @@
 mod amd;
+mod intel;
 mod nvidia;
 
 use crate::collect::{CollectStatus, Collector};
@@ -86,6 +87,18 @@ impl GpuCollector {
             gpus.extend(devices);
             backends.push(BackendSlice {
                 backend: Box::new(amd),
+                start,
+                count,
+            });
+        }
+
+        if let Some(mut intel) = intel::IntelBackend::load() {
+            let devices = intel.init_devices();
+            let start = gpus.len();
+            let count = devices.len();
+            gpus.extend(devices);
+            backends.push(BackendSlice {
+                backend: Box::new(intel),
                 start,
                 count,
             });
