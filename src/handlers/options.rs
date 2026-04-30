@@ -6,6 +6,8 @@ use crate::{
     menu, theme,
 };
 
+use super::normal::sync_all_intervals;
+
 /// Handle input while the options overlay is visible.
 pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     match *key {
@@ -244,9 +246,36 @@ fn apply_option_change(
         }
         menu::options_menu::OptKind::Int => {
             menu::options_menu::step_int(opt_key, ctx.config, dir);
-            if opt_key == ConfigKey::UpdateMs {
-                ctx.runtime.update_ms = ctx.config.update_ms as u64;
-                ctx.manager.set_update_ms(ctx.runtime.update_ms);
+            match opt_key {
+                ConfigKey::UpdateMs => {
+                    ctx.runtime.update_ms = ctx.config.update_ms as u64;
+                    sync_all_intervals(ctx);
+                }
+                ConfigKey::CpuUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
+                    ctx.manager.set_cpu_interval(ms);
+                }
+                ConfigKey::MemUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
+                    ctx.manager.set_mem_interval(ms);
+                }
+                ConfigKey::DiskUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
+                    ctx.manager.set_disk_interval(ms);
+                }
+                ConfigKey::NetUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
+                    ctx.manager.set_net_interval(ms);
+                }
+                ConfigKey::GpuUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
+                    ctx.manager.set_gpu_interval(ms);
+                }
+                ConfigKey::ProcUpdateMs => {
+                    let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
+                    ctx.manager.set_proc_interval(ms);
+                }
+                _ => {}
             }
         }
         menu::options_menu::OptKind::Browsable => {

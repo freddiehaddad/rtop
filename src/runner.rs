@@ -362,13 +362,33 @@ impl CollectorManager {
         }
     }
 
-    /// Update the collection interval for all collectors.
-    pub(crate) fn set_update_ms(&self, ms: u64) {
+    /// Update the collection interval for a single collector.
+    pub(crate) fn set_cpu_interval(&self, ms: u64) {
         let _ = self.cpu_tx.send(CollectorCommand::SetInterval(ms));
+    }
+
+    /// Update the collection interval for the memory collector.
+    pub(crate) fn set_mem_interval(&self, ms: u64) {
         let _ = self.mem_tx.send(CollectorCommand::SetInterval(ms));
+    }
+
+    /// Update the collection interval for the disk collector.
+    pub(crate) fn set_disk_interval(&self, ms: u64) {
         let _ = self.disk_tx.send(CollectorCommand::SetInterval(ms));
+    }
+
+    /// Update the collection interval for the network collector.
+    pub(crate) fn set_net_interval(&self, ms: u64) {
         let _ = self.net_tx.send(NetCommand::SetInterval(ms));
+    }
+
+    /// Update the collection interval for the GPU collector.
+    pub(crate) fn set_gpu_interval(&self, ms: u64) {
         let _ = self.gpu_tx.send(CollectorCommand::SetInterval(ms));
+    }
+
+    /// Update the collection interval for the process collector.
+    pub(crate) fn set_proc_interval(&self, ms: u64) {
         let _ = self.proc_tx.send(CollectorCommand::SetInterval(ms));
     }
 

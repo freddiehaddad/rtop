@@ -383,15 +383,35 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
     let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
     ctx.config.update_ms = new_ms;
     ctx.runtime.update_ms = ctx.config.update_ms as u64;
-    ctx.manager.set_update_ms(ctx.runtime.update_ms);
+    sync_all_intervals(ctx);
     ctx.render.dirty |= Dirty::CPU_BOX;
 }
 
 // --- Helpers ---
 
+/// Sync all collector intervals to their effective values.
+///
+/// Called when global `update_ms` changes — collectors using the default
+/// (per-widget interval == 0) get the new global value, while collectors
+/// with a custom per-widget interval keep their own.
+pub(super) fn sync_all_intervals(ctx: &mut InputContext) {
+    ctx.manager
+        .set_cpu_interval(ctx.config.effective_interval(ctx.config.cpu_update_ms));
+    ctx.manager
+        .set_mem_interval(ctx.config.effective_interval(ctx.config.mem_update_ms));
+    ctx.manager
+        .set_disk_interval(ctx.config.effective_interval(ctx.config.disk_update_ms));
+    ctx.manager
+        .set_net_interval(ctx.config.effective_interval(ctx.config.net_update_ms));
+    ctx.manager
+        .set_gpu_interval(ctx.config.effective_interval(ctx.config.gpu_update_ms));
+    ctx.manager
+        .set_proc_interval(ctx.config.effective_interval(ctx.config.proc_update_ms));
+}
+
 fn sync_update_ms(ctx: &mut InputContext) {
     ctx.runtime.update_ms = ctx.config.update_ms as u64;
-    ctx.manager.set_update_ms(ctx.runtime.update_ms);
+    sync_all_intervals(ctx);
 }
 
 fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {

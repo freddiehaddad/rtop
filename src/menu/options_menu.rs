@@ -310,6 +310,15 @@ pub const CPU: &[OptDef] = &[
             "Requires LibreHardwareMonitor.",
         ],
     },
+    OptDef {
+        key: ConfigKey::CpuUpdateMs,
+        desc: &[
+            "CPU update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
+        ],
+    },
 ];
 
 /// Options in the "mem" category.
@@ -329,6 +338,15 @@ pub const MEM: &[OptDef] = &[
             "Swap memory display.",
             "",
             "Show swap usage in the memory box.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::MemUpdateMs,
+        desc: &[
+            "Memory update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
         ],
     },
 ];
@@ -381,6 +399,15 @@ pub const NET: &[OptDef] = &[
             "",
             "Use the same scale for both upload",
             "and download graphs.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::NetUpdateMs,
+        desc: &[
+            "Network update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
         ],
     },
 ];
@@ -493,6 +520,15 @@ pub const PROC: &[OptDef] = &[
             "for inverse match.",
         ],
     },
+    OptDef {
+        key: ConfigKey::ProcUpdateMs,
+        desc: &[
+            "Process update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
+        ],
+    },
 ];
 
 /// Options in the "gpu" category.
@@ -557,6 +593,15 @@ pub const GPU: &[OptDef] = &[
             "",
             "Override the detected GPU name.",
             "Empty string to disable.",
+        ],
+    },
+    OptDef {
+        key: ConfigKey::GpuUpdateMs,
+        desc: &[
+            "GPU update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
         ],
     },
 ];
@@ -628,6 +673,15 @@ pub const DISK: &[OptDef] = &[
             "Separate with whitespace.",
         ],
     },
+    OptDef {
+        key: ConfigKey::DiskUpdateMs,
+        desc: &[
+            "Disk update interval (ms).",
+            "",
+            "0 = use global update_ms.",
+            "Range: 100 to 86400000.",
+        ],
+    },
 ];
 
 /// All categories in order.
@@ -666,7 +720,16 @@ pub fn cycle_browsable(key: ConfigKey, config: &mut Config, direction: i32) -> b
 
 /// Step an int option by `delta`.
 pub fn step_int(key: ConfigKey, config: &mut Config, delta: i64) {
-    let step = if key == ConfigKey::UpdateMs { 100 } else { 1 };
+    let step = match key {
+        ConfigKey::UpdateMs
+        | ConfigKey::CpuUpdateMs
+        | ConfigKey::MemUpdateMs
+        | ConfigKey::DiskUpdateMs
+        | ConfigKey::NetUpdateMs
+        | ConfigKey::GpuUpdateMs
+        | ConfigKey::ProcUpdateMs => 100,
+        _ => 1,
+    };
     let value = key.get_int(config) + delta * step;
     key.set_int(config, value);
     config.validate();

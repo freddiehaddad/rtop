@@ -111,6 +111,12 @@ pub struct Config {
 
     // -- ints --
     pub update_ms: i64,
+    pub cpu_update_ms: i64,
+    pub mem_update_ms: i64,
+    pub disk_update_ms: i64,
+    pub net_update_ms: i64,
+    pub gpu_update_ms: i64,
+    pub proc_update_ms: i64,
     pub net_download: i64,
     pub net_upload: i64,
     pub detailed_pid: i64,
@@ -201,6 +207,12 @@ impl Default for Config {
 
             // ints
             update_ms: 2000,
+            cpu_update_ms: 0,
+            mem_update_ms: 0,
+            disk_update_ms: 0,
+            net_update_ms: 0,
+            gpu_update_ms: 0,
+            proc_update_ms: 0,
             net_download: 100,
             net_upload: 100,
             detailed_pid: 0,
@@ -250,6 +262,18 @@ impl Config {
     /// Create a new Config with all default values.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Return the effective update interval for a per-widget field.
+    ///
+    /// If `widget_ms` is 0 (the default), returns the global `update_ms`.
+    /// Otherwise returns `widget_ms` clamped to [100, 86_400_000].
+    pub fn effective_interval(&self, widget_ms: i64) -> u64 {
+        if widget_ms > 0 {
+            (widget_ms.clamp(100, 86_400_000)) as u64
+        } else {
+            self.update_ms.max(100) as u64
+        }
     }
 
     /// Load config from a TOML file. Returns warnings for invalid values.
@@ -310,6 +334,48 @@ impl Config {
             100,
             86_400_000,
             "update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.cpu_update_ms,
+            0,
+            86_400_000,
+            "cpu_update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.mem_update_ms,
+            0,
+            86_400_000,
+            "mem_update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.disk_update_ms,
+            0,
+            86_400_000,
+            "disk_update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.net_update_ms,
+            0,
+            86_400_000,
+            "net_update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.gpu_update_ms,
+            0,
+            86_400_000,
+            "gpu_update_ms",
+            &mut warnings,
+        );
+        clamp_warn(
+            &mut self.proc_update_ms,
+            0,
+            86_400_000,
+            "proc_update_ms",
             &mut warnings,
         );
         clamp_warn(
@@ -666,6 +732,12 @@ pub enum ConfigKey {
 
     // -- int variants --
     UpdateMs,
+    CpuUpdateMs,
+    MemUpdateMs,
+    DiskUpdateMs,
+    NetUpdateMs,
+    GpuUpdateMs,
+    ProcUpdateMs,
     NetDownload,
     NetUpload,
 
@@ -741,6 +813,12 @@ impl ConfigKey {
             Self::DiskIoMode => "disk_io_mode",
 
             Self::UpdateMs => "update_ms",
+            Self::CpuUpdateMs => "cpu_update_ms",
+            Self::MemUpdateMs => "mem_update_ms",
+            Self::DiskUpdateMs => "disk_update_ms",
+            Self::NetUpdateMs => "net_update_ms",
+            Self::GpuUpdateMs => "gpu_update_ms",
+            Self::ProcUpdateMs => "proc_update_ms",
             Self::NetDownload => "net_download",
             Self::NetUpload => "net_upload",
 
@@ -810,7 +888,15 @@ impl ConfigKey {
             | Self::SaveConfigOnExit
             | Self::DiskIoMode => KeyKind::Bool,
 
-            Self::UpdateMs | Self::NetDownload | Self::NetUpload => KeyKind::Int,
+            Self::UpdateMs
+            | Self::CpuUpdateMs
+            | Self::MemUpdateMs
+            | Self::DiskUpdateMs
+            | Self::NetUpdateMs
+            | Self::GpuUpdateMs
+            | Self::ProcUpdateMs
+            | Self::NetDownload
+            | Self::NetUpload => KeyKind::Int,
 
             Self::ColorTheme
             | Self::ShownBoxes
@@ -883,6 +969,12 @@ impl ConfigKey {
             "disk_io_mode" => Some(Self::DiskIoMode),
 
             "update_ms" => Some(Self::UpdateMs),
+            "cpu_update_ms" => Some(Self::CpuUpdateMs),
+            "mem_update_ms" => Some(Self::MemUpdateMs),
+            "disk_update_ms" => Some(Self::DiskUpdateMs),
+            "net_update_ms" => Some(Self::NetUpdateMs),
+            "gpu_update_ms" => Some(Self::GpuUpdateMs),
+            "proc_update_ms" => Some(Self::ProcUpdateMs),
             "net_download" => Some(Self::NetDownload),
             "net_upload" => Some(Self::NetUpload),
 
@@ -961,6 +1053,12 @@ impl ConfigKey {
 
             // ints
             Self::UpdateMs => config.update_ms.to_string(),
+            Self::CpuUpdateMs => config.cpu_update_ms.to_string(),
+            Self::MemUpdateMs => config.mem_update_ms.to_string(),
+            Self::DiskUpdateMs => config.disk_update_ms.to_string(),
+            Self::NetUpdateMs => config.net_update_ms.to_string(),
+            Self::GpuUpdateMs => config.gpu_update_ms.to_string(),
+            Self::ProcUpdateMs => config.proc_update_ms.to_string(),
             Self::NetDownload => config.net_download.to_string(),
             Self::NetUpload => config.net_upload.to_string(),
 
@@ -1044,6 +1142,12 @@ impl ConfigKey {
     pub fn get_int(self, config: &Config) -> i64 {
         match self {
             Self::UpdateMs => config.update_ms,
+            Self::CpuUpdateMs => config.cpu_update_ms,
+            Self::MemUpdateMs => config.mem_update_ms,
+            Self::DiskUpdateMs => config.disk_update_ms,
+            Self::NetUpdateMs => config.net_update_ms,
+            Self::GpuUpdateMs => config.gpu_update_ms,
+            Self::ProcUpdateMs => config.proc_update_ms,
             Self::NetDownload => config.net_download,
             Self::NetUpload => config.net_upload,
             _ => panic!("get_int called on non-int key '{}'", self.name()),
@@ -1055,6 +1159,12 @@ impl ConfigKey {
     pub fn set_int(self, config: &mut Config, value: i64) {
         match self {
             Self::UpdateMs => config.update_ms = value,
+            Self::CpuUpdateMs => config.cpu_update_ms = value,
+            Self::MemUpdateMs => config.mem_update_ms = value,
+            Self::DiskUpdateMs => config.disk_update_ms = value,
+            Self::NetUpdateMs => config.net_update_ms = value,
+            Self::GpuUpdateMs => config.gpu_update_ms = value,
+            Self::ProcUpdateMs => config.proc_update_ms = value,
             Self::NetDownload => config.net_download = value,
             Self::NetUpload => config.net_upload = value,
             _ => panic!("set_int called on non-int key '{}'", self.name()),
