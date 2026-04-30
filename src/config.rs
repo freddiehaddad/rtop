@@ -79,10 +79,8 @@ pub struct Config {
     pub proc_gradient: bool,
     pub proc_per_core: bool,
     pub proc_mem_bytes: bool,
-    pub proc_cpu_graphs: bool,
     pub proc_left: bool,
 
-    pub proc_follow_detailed: bool,
     pub proc_aggregate: bool,
     pub keep_dead_proc_usage: bool,
     pub cpu_invert_lower: bool,
@@ -171,10 +169,8 @@ impl Default for Config {
             proc_gradient: true,
             proc_per_core: false,
             proc_mem_bytes: true,
-            proc_cpu_graphs: true,
             proc_left: false,
 
-            proc_follow_detailed: true,
             proc_aggregate: false,
             keep_dead_proc_usage: false,
             cpu_invert_lower: true,
@@ -638,10 +634,8 @@ pub enum ConfigKey {
     ProcGradient,
     ProcPerCore,
     ProcMemBytes,
-    ProcCpuGraphs,
     ProcLeft,
 
-    ProcFollowDetailed,
     ProcAggregate,
     KeepDeadProcUsage,
     CpuInvertLower,
@@ -716,10 +710,8 @@ impl ConfigKey {
             Self::ProcGradient => "proc_gradient",
             Self::ProcPerCore => "proc_per_core",
             Self::ProcMemBytes => "proc_mem_bytes",
-            Self::ProcCpuGraphs => "proc_cpu_graphs",
             Self::ProcLeft => "proc_left",
 
-            Self::ProcFollowDetailed => "proc_follow_detailed",
             Self::ProcAggregate => "proc_aggregate",
             Self::KeepDeadProcUsage => "keep_dead_proc_usage",
             Self::CpuInvertLower => "cpu_invert_lower",
@@ -792,9 +784,7 @@ impl ConfigKey {
             | Self::ProcGradient
             | Self::ProcPerCore
             | Self::ProcMemBytes
-            | Self::ProcCpuGraphs
             | Self::ProcLeft
-            | Self::ProcFollowDetailed
             | Self::ProcAggregate
             | Self::KeepDeadProcUsage
             | Self::CpuInvertLower
@@ -862,10 +852,8 @@ impl ConfigKey {
             "proc_gradient" => Some(Self::ProcGradient),
             "proc_per_core" => Some(Self::ProcPerCore),
             "proc_mem_bytes" => Some(Self::ProcMemBytes),
-            "proc_cpu_graphs" => Some(Self::ProcCpuGraphs),
             "proc_left" => Some(Self::ProcLeft),
 
-            "proc_follow_detailed" => Some(Self::ProcFollowDetailed),
             "proc_aggregate" => Some(Self::ProcAggregate),
             "keep_dead_proc_usage" => Some(Self::KeepDeadProcUsage),
             "cpu_invert_lower" => Some(Self::CpuInvertLower),
@@ -941,10 +929,8 @@ impl ConfigKey {
             Self::ProcGradient => bool_display(config.proc_gradient),
             Self::ProcPerCore => bool_display(config.proc_per_core),
             Self::ProcMemBytes => bool_display(config.proc_mem_bytes),
-            Self::ProcCpuGraphs => bool_display(config.proc_cpu_graphs),
             Self::ProcLeft => bool_display(config.proc_left),
 
-            Self::ProcFollowDetailed => bool_display(config.proc_follow_detailed),
             Self::ProcAggregate => bool_display(config.proc_aggregate),
             Self::KeepDeadProcUsage => bool_display(config.keep_dead_proc_usage),
             Self::CpuInvertLower => bool_display(config.cpu_invert_lower),
@@ -1019,12 +1005,8 @@ impl ConfigKey {
             Self::ProcGradient => config.proc_gradient = !config.proc_gradient,
             Self::ProcPerCore => config.proc_per_core = !config.proc_per_core,
             Self::ProcMemBytes => config.proc_mem_bytes = !config.proc_mem_bytes,
-            Self::ProcCpuGraphs => config.proc_cpu_graphs = !config.proc_cpu_graphs,
             Self::ProcLeft => config.proc_left = !config.proc_left,
 
-            Self::ProcFollowDetailed => {
-                config.proc_follow_detailed = !config.proc_follow_detailed;
-            }
             Self::ProcAggregate => config.proc_aggregate = !config.proc_aggregate,
             Self::KeepDeadProcUsage => config.keep_dead_proc_usage = !config.keep_dead_proc_usage,
             Self::CpuInvertLower => config.cpu_invert_lower = !config.cpu_invert_lower,

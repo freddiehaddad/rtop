@@ -30,7 +30,7 @@ pub(super) fn draw_detail_panel(
     y: usize,
     width: usize,
     rows: usize,
-    settings: &ProcBoxSettings<'_>,
+    settings: &ProcBoxSettings,
     theme: &Theme,
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
@@ -156,7 +156,7 @@ fn draw_detail_header(
 
 fn detail_fields<'a>(
     proc: &ProcInfo,
-    settings: &ProcBoxSettings<'_>,
+    settings: &ProcBoxSettings,
     fg: &'a str,
     hi: &'a str,
     proc_grad: &'a [String],
@@ -369,7 +369,7 @@ mod tests {
         HISTORIES.get_or_init(HashMap::new)
     }
 
-    fn make_settings() -> ProcBoxSettings<'static> {
+    fn make_settings() -> ProcBoxSettings {
         ProcBoxSettings {
             proc_per_core: true,
             core_count: 4,
@@ -377,9 +377,6 @@ mod tests {
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
             proc_gradient: true,
-            proc_cpu_graphs: false,
-            graph_symbol: GraphSymbol::Braille,
-            cpu_histories: empty_histories(),
             base_10: false,
         }
     }

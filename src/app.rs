@@ -6,12 +6,11 @@ use crate::{
     handlers::{InputContext, MenuState},
     input, runner, term, theme, theme_keys as tc, tools, ui,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 const SNAPSHOT_POLL_MS: u64 = 50;
-const PROC_CPU_HISTORY_LIMIT: usize = 300;
 
 /// Run the main event loop: collect data, render UI, and handle input.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
@@ -174,7 +173,6 @@ pub(crate) struct ProcessViewState {
     pub(crate) selected: usize,
     pub(crate) filter_text: String,
     pub(crate) entries: Vec<ProcDisplayEntry>,
-    pub(crate) cpu_histories: HashMap<u32, VecDeque<i64>>,
     /// Combined procs list (live + stale) that entries' `proc_index` refers to.
     /// Only populated when `keep_dead_proc_usage` adds stale entries.
     pub(crate) display_procs: Option<Vec<crate::domain::process::ProcInfo>>,
@@ -193,7 +191,6 @@ impl ProcessViewState {
             selected: 0,
             filter_text: String::new(),
             entries: Vec::new(),
-            cpu_histories: HashMap::new(),
             display_procs: None,
             stale_procs: HashMap::new(),
             prev_pids: HashSet::new(),
@@ -201,7 +198,7 @@ impl ProcessViewState {
         }
     }
 
-    fn update_cpu_histories(&mut self, snapshot: &runner::CollectionSnapshot, keep_dead: bool) {
+    fn update_stale_procs(&mut self, snapshot: &runner::CollectionSnapshot, keep_dead: bool) {
         let active_pids: HashSet<u32> = snapshot
             .proc_data
             .procs
@@ -214,39 +211,19 @@ impl ProcessViewState {
         self.stale_procs.clear();
         if keep_dead {
             for &pid in &self.prev_pids {
-                if !active_pids.contains(&pid) {
-                    // The cpu_histories map still has this PID since we haven't
-                    // pruned yet — but we need the ProcInfo. We stored it in
-                    // prev_proc_cache.
-                    if let Some(info) = self.prev_proc_cache.get(&pid) {
-                        self.stale_procs.insert(pid, info.clone());
-                    }
+                if !active_pids.contains(&pid)
+                    && let Some(info) = self.prev_proc_cache.get(&pid)
+                {
+                    self.stale_procs.insert(pid, info.clone());
                 }
             }
         }
 
         // Update prev_pids and prev_proc_cache for next cycle.
-        self.prev_pids = active_pids.clone();
+        self.prev_pids = active_pids;
         self.prev_proc_cache.clear();
         for proc in &snapshot.proc_data.procs {
             self.prev_proc_cache.insert(proc.pid, proc.clone());
-        }
-
-        self.cpu_histories
-            .retain(|pid, _| active_pids.contains(pid));
-
-        let max_cpu = 100.0 * snapshot.cpu.info.core_count.max(1) as f64;
-        for proc in &snapshot.proc_data.procs {
-            let cpu = if proc.cpu_p.is_finite() {
-                proc.cpu_p.clamp(0.0, max_cpu).round() as i64
-            } else {
-                0
-            };
-            let history = self.cpu_histories.entry(proc.pid).or_default();
-            history.push_back(cpu);
-            while history.len() > PROC_CPU_HISTORY_LIMIT {
-                history.pop_front();
-            }
         }
     }
 
@@ -277,21 +254,6 @@ impl ProcessViewState {
         let procs: &[crate::domain::process::ProcInfo] =
             self.display_procs.as_deref().unwrap_or(live_procs);
 
-        // Save PID of currently selected process before rebuilding.
-        // When prev entries referenced snapshot procs (no stale), look up
-        // in the *current* procs slice which may differ from the old one.
-        // Fall back to PID lookup across the new procs.
-        let prev_pid = self
-            .entries
-            .get(self.selected)
-            .and_then(|e| {
-                // Try old display_procs first, then live_procs.
-                procs
-                    .get(e.proc_index)
-                    .or_else(|| live_procs.get(e.proc_index))
-            })
-            .map(|p| p.pid);
-
         let sort_by = &config.proc_sorting;
         let reversed = config.proc_reversed;
         let filter = &config.proc_filter;
@@ -301,25 +263,19 @@ impl ProcessViewState {
             procs, sort_by, reversed, filter, tree_mode, aggregate,
         );
 
-        // Restore selection to the same PID after rebuild.
-        if let Some(pid) = prev_pid {
-            if let Some(new_idx) = self
-                .entries
-                .iter()
-                .position(|e| procs.get(e.proc_index).is_some_and(|p| p.pid == pid))
-            {
-                self.selected = new_idx;
-                config.selected_pid = pid as i64;
-            } else {
-                // Process died — clamp to valid range and clear selected_pid.
-                if !self.entries.is_empty() {
-                    self.selected = self.selected.min(self.entries.len() - 1);
-                } else {
-                    self.selected = 0;
-                }
-                config.selected_pid = 0;
-            }
+        // Keep selection on the same row index (btop behavior).
+        // Only track by PID when Follow mode is active.
+        if !self.entries.is_empty() {
+            self.selected = self.selected.min(self.entries.len() - 1);
+        } else {
+            self.selected = 0;
         }
+        // Update selected_pid to reflect whatever process is now on this row.
+        config.selected_pid = self
+            .entries
+            .get(self.selected)
+            .and_then(|e| procs.get(e.proc_index))
+            .map_or(0, |p| p.pid as i64);
 
         // Auto-scroll to followed process.
         let followed = config.followed_pid as u32;
@@ -444,7 +400,7 @@ fn pull_latest_snapshot(
     state.render.last_layout_hints = Some(new_hints);
     state
         .process
-        .update_cpu_histories(&snapshot, config.keep_dead_proc_usage);
+        .update_stale_procs(&snapshot, config.keep_dead_proc_usage);
     state.snapshot.current = Some(snapshot);
 
     apply_startup_snapshot_config(state, config);
@@ -664,7 +620,6 @@ fn render_dirty_frame(
         snapshot,
         proc_entries: &state.process.entries,
         proc_display_procs: state.process.display_procs.as_deref(),
-        proc_cpu_histories: &state.process.cpu_histories,
         selected_iface: &state.network.selected_iface,
         config,
         theme,
@@ -821,7 +776,6 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) snapshot: &'a runner::CollectionSnapshot,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
     pub(crate) proc_display_procs: Option<&'a [crate::domain::process::ProcInfo]>,
-    pub(crate) proc_cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
     pub(crate) selected_iface: &'a str,
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
@@ -1038,12 +992,6 @@ pub(crate) fn render_all(
             total_mem,
             proc_colors: config.proc_colors,
             proc_gradient: config.proc_gradient,
-            proc_cpu_graphs: config.proc_cpu_graphs,
-            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                &config.graph_symbol_proc,
-                &config.graph_symbol,
-            ),
-            cpu_histories: params.proc_cpu_histories,
             base_10: config.base_10_sizes,
         };
         output.push_str(&ui::proc_box::draw(
@@ -1080,64 +1028,7 @@ mod tests {
         assert!(state.render.cached_layout.is_none());
         assert!(state.snapshot.current.is_none());
         assert!(state.process.entries.is_empty());
-        assert!(state.process.cpu_histories.is_empty());
         assert!(state.network.selected_iface.is_empty());
-    }
-
-    #[test]
-    fn update_proc_cpu_histories_tracks_prunes_and_caps() {
-        let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
-        let mut runner = runner::Runner {
-            cpu: crate::collect::cpu::CpuCollector::default(),
-            disk: crate::collect::disk::DiskCollector::default(),
-            gpu: crate::collect::gpu::GpuCollector::default(),
-            mem: crate::collect::memory::MemCollector::default(),
-            net: crate::collect::network::NetCollector::default(),
-            proc_collector: crate::collect::process::ProcCollector::default(),
-        };
-        runner.cpu.info.core_count = 2;
-        runner.proc_collector.procs = vec![
-            crate::domain::process::ProcInfo {
-                pid: 1,
-                cpu_p: 50.0,
-                ..Default::default()
-            },
-            crate::domain::process::ProcInfo {
-                pid: 2,
-                cpu_p: f64::NAN,
-                ..Default::default()
-            },
-        ];
-
-        state
-            .process
-            .update_cpu_histories(&runner.snapshot(1), false);
-
-        assert_eq!(
-            state.process.cpu_histories.get(&1).unwrap().back().copied(),
-            Some(50)
-        );
-        assert_eq!(
-            state.process.cpu_histories.get(&2).unwrap().back().copied(),
-            Some(0)
-        );
-
-        runner.proc_collector.procs = vec![crate::domain::process::ProcInfo {
-            pid: 1,
-            cpu_p: 500.0,
-            ..Default::default()
-        }];
-        for seq in 2..(PROC_CPU_HISTORY_LIMIT + 4) as u64 {
-            state
-                .process
-                .update_cpu_histories(&runner.snapshot(seq), false);
-        }
-
-        assert!(!state.process.cpu_histories.contains_key(&2));
-        let history = state.process.cpu_histories.get(&1).unwrap();
-        assert_eq!(history.len(), PROC_CPU_HISTORY_LIMIT);
-        assert_eq!(history.back().copied(), Some(200));
     }
 
     #[test]

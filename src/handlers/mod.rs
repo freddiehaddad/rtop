@@ -152,7 +152,6 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             snapshot,
             proc_entries: &ctx.process.entries,
             proc_display_procs: ctx.process.display_procs.as_deref(),
-            proc_cpu_histories: &ctx.process.cpu_histories,
             selected_iface: ctx.network.selected_iface.as_str(),
             config: ctx.config,
             theme: ctx.theme,

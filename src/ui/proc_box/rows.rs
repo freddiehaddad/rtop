@@ -1,10 +1,8 @@
-use super::layout::{PROC_CPU_GRAPH_W, ProcBoxLayout, ProcColumns};
+use super::layout::{ProcBoxLayout, ProcColumns};
 use super::{ProcBoxSettings, ProcColors};
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::Graph;
 use crate::tools;
-use std::collections::VecDeque;
 
 pub(super) struct ProcessRowsParams<'a> {
     pub(super) procs: &'a [ProcInfo],
@@ -14,7 +12,7 @@ pub(super) struct ProcessRowsParams<'a> {
     pub(super) selected: usize,
     pub(super) followed_pid: u32,
     pub(super) tree_mode: bool,
-    pub(super) settings: &'a ProcBoxSettings<'a>,
+    pub(super) settings: &'a ProcBoxSettings,
     pub(super) colors: &'a ProcColors<'a>,
 }
 
@@ -27,7 +25,7 @@ struct ProcessRowParams<'a> {
     selected: usize,
     followed_pid: u32,
     tree_mode: bool,
-    settings: &'a ProcBoxSettings<'a>,
+    settings: &'a ProcBoxSettings,
     colors: &'a ProcColors<'a>,
 }
 
@@ -36,7 +34,6 @@ struct RowText<'a> {
     tree_prefix: &'a str,
     name: String,
     cmd: String,
-    graph: String,
     cpu: String,
     mem: String,
     prefix_w: usize,
@@ -99,16 +96,6 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let pid_str = format!("{:<pid_w$}", params.proc.pid, pid_w = columns.pid_w);
     let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = columns.cpu_w);
     let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = columns.mem_w);
-    let graph_str = if columns.show_cpu_graphs {
-        proc_cpu_graph(
-            params.proc.pid,
-            params.settings,
-            params.colors.proc_grad,
-            params.colors.fg,
-        )
-    } else {
-        String::new()
-    };
     let cmd_display = command_display(params.proc, columns);
     let name_padded = tools::ljust(&display_name, name_avail, false);
 
@@ -123,7 +110,6 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 tree_prefix,
                 name: name_padded,
                 cmd: cmd_display,
-                graph: graph_str,
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
@@ -139,7 +125,6 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 tree_prefix,
                 name: name_padded,
                 cmd: cmd_display,
-                graph: graph_str,
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
@@ -155,7 +140,6 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 tree_prefix,
                 name: name_padded,
                 cmd: cmd_display,
-                graph: graph_str,
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
@@ -171,13 +155,7 @@ fn command_display(proc: &ProcInfo, columns: &ProcColumns) -> String {
         return String::new();
     }
 
-    let raw = if proc.cmd.len() > proc.name.len() {
-        proc.cmd[proc.name.len()..].trim()
-    } else if proc.cmd != proc.name {
-        &proc.cmd
-    } else {
-        ""
-    };
+    let raw = if proc.cmd != proc.name { &proc.cmd } else { "" };
     tools::uresize(raw, columns.cmd_w, false)
 }
 
@@ -188,7 +166,7 @@ fn draw_selected_process_row(
 ) {
     let columns = &params.layout.columns;
     let bg_esc = &params.colors.sel_bg_esc;
-    buf.mv(params.layout.x + 2, params.row_y)
+    buf.mv(params.layout.x + 3, params.row_y)
         .text(bg_esc)
         .color(params.colors.sel_fg);
     buf.text(&row.pid).text(" ");
@@ -201,12 +179,6 @@ fn draw_selected_process_row(
         buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
         buf.text(" ");
     }
-    if columns.show_cpu_graphs {
-        buf.text(&row.graph)
-            .text(bg_esc)
-            .color(params.colors.sel_fg)
-            .text(" ");
-    }
     buf.text(&row.cpu).text(" ").text(&row.mem);
     buf.reset();
 }
@@ -218,7 +190,7 @@ fn draw_followed_process_row(
 ) {
     let columns = &params.layout.columns;
     let bg_esc = &params.colors.followed_bg_esc;
-    buf.mv(params.layout.x + 2, params.row_y)
+    buf.mv(params.layout.x + 3, params.row_y)
         .text(bg_esc)
         .color(params.colors.followed_fg);
     buf.text(&row.pid).text(" ");
@@ -231,12 +203,6 @@ fn draw_followed_process_row(
         buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
         buf.text(" ");
     }
-    if columns.show_cpu_graphs {
-        buf.text(&row.graph)
-            .text(bg_esc)
-            .color(params.colors.followed_fg)
-            .text(" ");
-    }
     buf.text(&row.cpu).text(" ").text(&row.mem);
     buf.reset();
 }
@@ -248,7 +214,7 @@ fn draw_unselected_process_row(
     proc_color: &str,
 ) {
     let columns = &params.layout.columns;
-    buf.mv(params.layout.x + 2, params.row_y).color(proc_color);
+    buf.mv(params.layout.x + 3, params.row_y).color(proc_color);
     buf.text(&row.pid).text(" ");
     if !row.tree_prefix.is_empty() {
         buf.color(params.colors.tree_fg)
@@ -261,9 +227,6 @@ fn draw_unselected_process_row(
         buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
         buf.text(" ");
     }
-    if columns.show_cpu_graphs {
-        buf.text(&row.graph).color(proc_color).text(" ");
-    }
     buf.text(&row.cpu).text(" ").text(&row.mem);
 }
 
@@ -274,7 +237,7 @@ fn draw_process_name_padding(buf: &mut AnsiBuffer, row: &RowText<'_>, name_w: us
     }
 }
 
-pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings<'_>) -> f64 {
+pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings) -> f64 {
     if !cpu_per_core.is_finite() {
         return 0.0;
     }
@@ -292,7 +255,7 @@ pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcBoxSettings<'_>
     value.clamp(0.0, max_value)
 }
 
-pub(super) fn format_proc_memory(mem: u64, settings: &ProcBoxSettings<'_>) -> String {
+pub(super) fn format_proc_memory(mem: u64, settings: &ProcBoxSettings) -> String {
     if settings.proc_mem_bytes {
         return if mem > 0 {
             tools::floating_humanizer(mem, true, 0, false, false, settings.base_10)
@@ -314,7 +277,7 @@ fn process_row_color<'a>(
     row_index: usize,
     selected: usize,
     visible_rows: usize,
-    settings: &ProcBoxSettings<'_>,
+    settings: &ProcBoxSettings,
     proc_grad: &'a [String],
     fg: &'a str,
 ) -> &'a str {
@@ -338,99 +301,10 @@ fn process_row_color<'a>(
     proc_grad[idx].as_str()
 }
 
-fn proc_cpu_graph(
-    pid: u32,
-    settings: &ProcBoxSettings<'_>,
-    proc_grad: &[String],
-    fg: &str,
-) -> String {
-    let data: VecDeque<i64> = settings
-        .cpu_histories
-        .get(&pid)
-        .filter(|history| !history.is_empty())
-        .map(|history| {
-            history
-                .iter()
-                .map(|value| {
-                    display_proc_cpu(*value as f64, settings)
-                        .round()
-                        .clamp(0.0, 100.0) as i64
-                })
-                .collect()
-        })
-        .unwrap_or_else(|| VecDeque::from(vec![0; PROC_CPU_GRAPH_W]));
-
-    let fallback_gradient;
-    let gradient = if settings.proc_colors && !proc_grad.is_empty() {
-        proc_grad
-    } else {
-        fallback_gradient = vec![fg.to_string(); 101];
-        &fallback_gradient
-    };
-
-    let mut graph = Graph::new(
-        PROC_CPU_GRAPH_W,
-        1,
-        settings.graph_symbol,
-        false,
-        true,
-        100,
-        0,
-    );
-    expand_cursor_right_padding(&graph.render_row_colored(&data, gradient))
-}
-
-fn expand_cursor_right_padding(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let bytes = input.as_bytes();
-    let mut i = 0;
-
-    while i < bytes.len() {
-        if bytes[i] == b'\x1b' && bytes.get(i + 1) == Some(&b'[') {
-            let digits_start = i + 2;
-            let mut cursor = digits_start;
-            while cursor < bytes.len() && bytes[cursor].is_ascii_digit() {
-                cursor += 1;
-            }
-
-            if cursor > digits_start
-                && bytes.get(cursor) == Some(&b'C')
-                && let Ok(count) = input[digits_start..cursor].parse::<usize>()
-            {
-                out.push_str(&" ".repeat(count));
-                i = cursor + 1;
-                continue;
-            }
-
-            let mut end = i + 2;
-            while end < bytes.len() {
-                end += 1;
-                if bytes[end - 1].is_ascii_alphabetic() {
-                    break;
-                }
-            }
-            out.push_str(&input[i..end]);
-            i = end;
-            continue;
-        }
-
-        let Some(ch) = input[i..].chars().next() else {
-            break;
-        };
-        out.push(ch);
-        i += ch.len_utf8();
-    }
-
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::graph::GraphSymbol;
     use crate::theme::Theme;
-    use crate::theme_keys as tc;
-    use std::collections::HashMap;
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -451,13 +325,7 @@ mod tests {
         result
     }
 
-    fn empty_histories() -> &'static HashMap<u32, VecDeque<i64>> {
-        static HISTORIES: std::sync::OnceLock<HashMap<u32, VecDeque<i64>>> =
-            std::sync::OnceLock::new();
-        HISTORIES.get_or_init(HashMap::new)
-    }
-
-    fn make_settings() -> ProcBoxSettings<'static> {
+    fn make_settings() -> ProcBoxSettings {
         ProcBoxSettings {
             proc_per_core: true,
             core_count: 4,
@@ -465,19 +333,7 @@ mod tests {
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
             proc_gradient: true,
-            proc_cpu_graphs: false,
-            graph_symbol: GraphSymbol::Braille,
-            cpu_histories: empty_histories(),
             base_10: false,
-        }
-    }
-
-    fn make_settings_with_histories<'a>(
-        histories: &'a HashMap<u32, VecDeque<i64>>,
-    ) -> ProcBoxSettings<'a> {
-        ProcBoxSettings {
-            cpu_histories: histories,
-            ..make_settings()
         }
     }
 
@@ -535,50 +391,5 @@ mod tests {
             process_row_color(50.0, 5, 0, 10, &no_gradient, &gradient, "fg"),
             "50"
         );
-    }
-
-    #[test]
-    fn proc_cpu_graph_expands_cursor_padding_to_spaces() {
-        let mut histories = HashMap::new();
-        histories.insert(100, VecDeque::from(vec![0, 0, 0, 0, 0]));
-        let settings = ProcBoxSettings {
-            proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Block,
-            ..make_settings_with_histories(&histories)
-        };
-
-        let graph = proc_cpu_graph(
-            100,
-            &settings,
-            Theme::default().gradient(tc::GRAD_PROCESS),
-            "fg",
-        );
-
-        assert!(
-            !graph.contains("\x1b[1C"),
-            "graph padding should paint row background instead of moving the cursor"
-        );
-        assert_eq!(tools::ulen(&strip_ansi(&graph), false), PROC_CPU_GRAPH_W);
-        assert_ne!(strip_ansi(&graph), " ".repeat(PROC_CPU_GRAPH_W));
-    }
-
-    #[test]
-    fn proc_cpu_graph_renders_baseline_without_history() {
-        let histories = HashMap::new();
-        let settings = ProcBoxSettings {
-            proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Block,
-            ..make_settings_with_histories(&histories)
-        };
-
-        let graph = proc_cpu_graph(
-            100,
-            &settings,
-            Theme::default().gradient(tc::GRAD_PROCESS),
-            "fg",
-        );
-
-        assert_eq!(tools::ulen(&strip_ansi(&graph), false), PROC_CPU_GRAPH_W);
-        assert_ne!(strip_ansi(&graph), " ".repeat(PROC_CPU_GRAPH_W));
     }
 }

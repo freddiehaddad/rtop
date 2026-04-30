@@ -485,24 +485,6 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::ProcCpuGraphs,
-        desc: &[
-            "Per-process CPU graphs.",
-            "",
-            "Show a mini CPU graph next to",
-            "each process in the list.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcFollowDetailed,
-        desc: &[
-            "Follow detailed process.",
-            "",
-            "Auto-scroll to keep the detailed",
-            "process visible in the list.",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ProcFilter,
         desc: &[
             "Process filter.",

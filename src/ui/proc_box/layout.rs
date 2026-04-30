@@ -1,20 +1,18 @@
-use super::ProcBoxSettings;
 use crate::ui::{BoxArea, ProcView};
 
 // Process list column widths.
 const COL_PID: usize = 7;
-const COL_CPU: usize = 7;
-const COL_MEM: usize = 7;
+const COL_CPU: usize = 6;
+const COL_MEM: usize = 6;
 /// Minimum inner width to show the Command column.
 const CMD_COL_THRESHOLD: usize = 55;
 /// Inner width above which the Program column expands.
 const WIDE_PROG_THRESHOLD: usize = 70;
 const PROG_WIDE: usize = 16;
 const PROG_NARROW: usize = 8;
-/// Number of spacing characters between columns.
+/// Number of 1-space gaps between columns (PID, Name, [Cmd], Cpu, Mem).
 const COL_SPACING: usize = 4;
 const COL_SPACING_NO_CMD: usize = 3;
-pub(super) const PROC_CPU_GRAPH_W: usize = 5;
 /// Max height for the process detail panel (fields like User, Status, etc.).
 const MAX_DETAIL_ROWS: usize = 8;
 /// Height overhead when the detail panel is active: header + divider + detail
@@ -33,28 +31,17 @@ pub(super) struct ProcColumns {
     pub(super) pid_w: usize,
     pub(super) name_w: usize,
     pub(super) cmd_w: usize,
-    pub(super) graph_w: usize,
     pub(super) cpu_w: usize,
     pub(super) mem_w: usize,
     pub(super) has_cmd_col: bool,
-    pub(super) show_cpu_graphs: bool,
 }
 
 impl ProcColumns {
-    pub(super) fn calculate(
-        inner_w: usize,
-        tree_mode: bool,
-        settings: &ProcBoxSettings<'_>,
-    ) -> Self {
+    pub(super) fn calculate(inner_w: usize, tree_mode: bool) -> Self {
         let pid_w = COL_PID;
         let cpu_w = COL_CPU;
         let mem_w = COL_MEM;
         let has_cmd_col = inner_w > CMD_COL_THRESHOLD;
-        let show_cpu_graphs = settings.proc_cpu_graphs
-            && has_cmd_col
-            && inner_w > CMD_COL_THRESHOLD + PROC_CPU_GRAPH_W;
-        let graph_w = if show_cpu_graphs { PROC_CPU_GRAPH_W } else { 0 };
-        let graph_spacing = usize::from(show_cpu_graphs);
         let (name_w, cmd_w) = if has_cmd_col {
             let prog = if tree_mode {
                 if inner_w > WIDE_PROG_THRESHOLD {
@@ -67,21 +54,15 @@ impl ProcColumns {
             } else {
                 PROG_NARROW
             };
-            let cmd = inner_w.saturating_sub(
-                pid_w + prog + graph_w + cpu_w + mem_w + COL_SPACING + graph_spacing,
-            );
+            let cmd = inner_w.saturating_sub(pid_w + prog + cpu_w + mem_w + COL_SPACING);
             (prog, cmd)
         } else {
             let prog = if tree_mode {
                 inner_w
-                    .saturating_sub(
-                        pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
-                    )
+                    .saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
                     .max(PROG_NARROW + 8)
             } else {
-                inner_w.saturating_sub(
-                    pid_w + graph_w + cpu_w + mem_w + COL_SPACING_NO_CMD + graph_spacing,
-                )
+                inner_w.saturating_sub(pid_w + cpu_w + mem_w + COL_SPACING_NO_CMD)
             };
             (prog, 0)
         };
@@ -90,11 +71,9 @@ impl ProcColumns {
             pid_w,
             name_w,
             cmd_w,
-            graph_w,
             cpu_w,
             mem_w,
             has_cmd_col,
-            show_cpu_graphs,
         }
     }
 }
@@ -116,18 +95,14 @@ pub(super) struct ProcBoxLayout {
 }
 
 impl ProcBoxLayout {
-    pub(super) fn calculate(
-        area: &BoxArea,
-        view: &ProcView,
-        settings: &ProcBoxSettings<'_>,
-    ) -> Self {
+    pub(super) fn calculate(area: &BoxArea, view: &ProcView) -> Self {
         let inner_w = area.width.saturating_sub(4);
         let detail_rows = if view.detailed_pid > 0 {
             MAX_DETAIL_ROWS.min(area.height.saturating_sub(DETAIL_OVERHEAD))
         } else {
             0
         };
-        let columns = ProcColumns::calculate(inner_w, view.tree_mode, settings);
+        let columns = ProcColumns::calculate(inner_w, view.tree_mode);
 
         Self {
             x: area.x,

@@ -8,10 +8,8 @@ use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::GraphSymbol;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
-use std::collections::{HashMap, VecDeque};
 
 use self::borders::{BottomBorderParams, draw_bottom_border, draw_top_border};
 use self::detail::{draw_detail_panel, find_detailed_proc};
@@ -23,16 +21,13 @@ use super::{BoxArea, ProcView};
 pub(crate) use layout::visible_row_count;
 
 /// Process box display settings derived from the current config and snapshot.
-pub struct ProcBoxSettings<'a> {
+pub struct ProcBoxSettings {
     pub proc_per_core: bool,
     pub core_count: usize,
     pub proc_mem_bytes: bool,
     pub total_mem: u64,
     pub proc_colors: bool,
     pub proc_gradient: bool,
-    pub proc_cpu_graphs: bool,
-    pub graph_symbol: GraphSymbol,
-    pub cpu_histories: &'a HashMap<u32, VecDeque<i64>>,
     pub base_10: bool,
 }
 
@@ -51,12 +46,12 @@ pub fn draw(
     entries: &[ProcDisplayEntry],
     area: &BoxArea,
     theme: &Theme,
-    settings: &ProcBoxSettings<'_>,
+    settings: &ProcBoxSettings,
     view: &ProcView,
     status: &CollectStatus,
 ) -> String {
     let colors = ProcColors::from_theme(theme);
-    let layout = ProcBoxLayout::calculate(area, view, settings);
+    let layout = ProcBoxLayout::calculate(area, view);
     let mut buf = AnsiBuffer::new();
 
     draw_frame(&mut buf, area, &colors, status);
@@ -132,7 +127,7 @@ struct DetailSectionParams<'a> {
     entries: &'a [ProcDisplayEntry],
     layout: &'a ProcBoxLayout,
     detailed_pid: u32,
-    settings: &'a ProcBoxSettings<'a>,
+    settings: &'a ProcBoxSettings,
     theme: &'a Theme,
 }
 
@@ -190,7 +185,7 @@ fn draw_header(
     buf: &mut AnsiBuffer,
     layout: &ProcBoxLayout,
     view: &ProcView,
-    settings: &ProcBoxSettings<'_>,
+    settings: &ProcBoxSettings,
     colors: &ProcColors<'_>,
 ) {
     let sort = SortState::new(view);
@@ -216,7 +211,7 @@ fn draw_header(
         mem_header_label(settings).into()
     };
 
-    let mut col_x = layout.x + 2;
+    let mut col_x = layout.x + 3;
 
     let pid_str = format!("{:<pid_w$}", pid_label, pid_w = columns.pid_w);
     let pid_color = if sort.is_sort("pid") {
@@ -258,10 +253,6 @@ fn draw_header(
         col_x += columns.cmd_w + 1;
     }
 
-    if columns.show_cpu_graphs {
-        col_x += columns.graph_w + 1;
-    }
-
     let cpu_str = format!("{:>cpu_w$}", cpu_label, cpu_w = columns.cpu_w);
     let cpu_color = if sort.is_sort("cpu") {
         colors.hi
@@ -285,7 +276,7 @@ fn draw_header(
         .reset();
 }
 
-fn mem_header_label(settings: &ProcBoxSettings<'_>) -> &'static str {
+fn mem_header_label(settings: &ProcBoxSettings) -> &'static str {
     if settings.proc_mem_bytes {
         "Mem"
     } else {
@@ -470,13 +461,7 @@ mod tests {
         }
     }
 
-    fn empty_histories() -> &'static HashMap<u32, VecDeque<i64>> {
-        static HISTORIES: std::sync::OnceLock<HashMap<u32, VecDeque<i64>>> =
-            std::sync::OnceLock::new();
-        HISTORIES.get_or_init(HashMap::new)
-    }
-
-    fn make_settings() -> ProcBoxSettings<'static> {
+    fn make_settings() -> ProcBoxSettings {
         ProcBoxSettings {
             proc_per_core: true,
             core_count: 4,
@@ -484,19 +469,7 @@ mod tests {
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
             proc_gradient: true,
-            proc_cpu_graphs: false,
-            graph_symbol: GraphSymbol::Braille,
-            cpu_histories: empty_histories(),
             base_10: false,
-        }
-    }
-
-    fn make_settings_with_histories<'a>(
-        histories: &'a HashMap<u32, VecDeque<i64>>,
-    ) -> ProcBoxSettings<'a> {
-        ProcBoxSettings {
-            cpu_histories: histories,
-            ..make_settings()
         }
     }
 
@@ -623,33 +596,6 @@ mod tests {
     }
 
     #[test]
-    fn selected_row_with_cpu_graph_restores_selection_background() {
-        let theme = Theme::default();
-        let selected_bg = theme.background(tc::SELECTED_BG);
-        let mut histories = HashMap::new();
-        histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
-        let settings = ProcBoxSettings {
-            proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Block,
-            ..make_settings_with_histories(&histories)
-        };
-        let output = draw(
-            &make_procs(),
-            &make_entries(),
-            &make_area(),
-            &theme,
-            &settings,
-            &make_view(),
-            &CollectStatus::Ok,
-        );
-
-        assert!(
-            output.matches(&selected_bg).count() >= 2,
-            "selected row should restore its background after the CPU graph"
-        );
-    }
-
-    #[test]
     fn process_rows_fill_last_line_above_bottom_border() {
         let procs = make_numbered_procs(4);
         let entries = make_entries_for(&procs);
@@ -673,7 +619,7 @@ mod tests {
         let plain = strip_ansi(&output);
 
         assert!(
-            output.contains("\x1b[8;3H"),
+            output.contains("\x1b[8;4H"),
             "fourth process row should be drawn on the last usable row"
         );
         assert!(plain.contains("proc3.exe"));
@@ -802,43 +748,5 @@ mod tests {
 
         assert!(colored.contains(&cpu_color));
         assert!(!plain.contains(&cpu_color));
-    }
-
-    #[test]
-    fn proc_cpu_graphs_setting_gates_mini_graph_output() {
-        let mut histories = HashMap::new();
-        histories.insert(100, VecDeque::from(vec![100, 100, 100, 100, 100]));
-        let graph_settings = ProcBoxSettings {
-            proc_cpu_graphs: true,
-            graph_symbol: GraphSymbol::Block,
-            ..make_settings_with_histories(&histories)
-        };
-        let no_graph_settings = ProcBoxSettings {
-            proc_cpu_graphs: false,
-            graph_symbol: GraphSymbol::Block,
-            ..make_settings_with_histories(&histories)
-        };
-
-        let graph_output = draw(
-            &make_procs(),
-            &make_entries(),
-            &make_area(),
-            &Theme::default(),
-            &graph_settings,
-            &make_view(),
-            &CollectStatus::Ok,
-        );
-        let no_graph_output = draw(
-            &make_procs(),
-            &make_entries(),
-            &make_area(),
-            &Theme::default(),
-            &no_graph_settings,
-            &make_view(),
-            &CollectStatus::Ok,
-        );
-
-        assert!(strip_ansi(&graph_output).contains("█████"));
-        assert!(!strip_ansi(&no_graph_output).contains("█████"));
     }
 }

@@ -150,6 +150,26 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
 
 fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
     let vim = ctx.config.vim_keys;
+
+    // Any navigation key cancels Follow mode (btop behavior).
+    let is_nav = matches!(
+        key,
+        Key::Up
+            | Key::Down
+            | Key::PageUp
+            | Key::PageDown
+            | Key::Home
+            | Key::End
+            | Key::Char('j' | 'k')
+            | Key::CtrlB
+            | Key::CtrlF
+            | Key::CtrlD
+            | Key::CtrlU
+    );
+    if is_nav && ctx.config.followed_pid > 0 {
+        ctx.config.followed_pid = 0;
+    }
+
     match *key {
         Key::Up if ctx.process.selected > 0 => {
             ctx.process.selected -= 1;
