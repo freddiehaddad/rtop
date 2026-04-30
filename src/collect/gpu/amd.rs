@@ -1,0 +1,348 @@
+use crate::collect::win::{OwnedLibrary, percent_u64};
+use crate::domain::gpu::GpuInfo;
+use std::ffi::c_void;
+
+use super::{GpuBackend, clamp_percent, power_percent, push_history};
+
+const ADL_OK: i32 = 0;
+const ADL_MAX_PATH: usize = 256;
+
+// ---------------------------------------------------------------------------
+// ADL structure definitions (repr(C) matching ADL SDK headers)
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+struct AdapterInfo {
+    i_size: i32,
+    i_adapter_index: i32,
+    str_udid: [u8; ADL_MAX_PATH],
+    i_bus_number: i32,
+    i_device_number: i32,
+    i_function_number: i32,
+    i_vendor_id: i32,
+    str_adapter_name: [u8; ADL_MAX_PATH],
+    str_display_name: [u8; ADL_MAX_PATH],
+    i_present: i32,
+    i_exist: i32,
+    str_driver_path: [u8; ADL_MAX_PATH],
+    str_driver_path_ext: [u8; ADL_MAX_PATH],
+    str_pnp_string: [u8; ADL_MAX_PATH],
+    i_os_display_index: i32,
+}
+
+impl AdapterInfo {
+    /// Create a zeroed AdapterInfo for FFI use.
+    fn zeroed() -> Self {
+        // SAFETY: AdapterInfo is repr(C) with only integer and byte-array fields.
+        // All-zeros is a valid representation.
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct AdlOdnPerformanceStatus {
+    i_core_clock: i32,
+    i_memory_clock: i32,
+    i_vddc: i32,
+    i_activity_percent: i32,
+    i_current_performance_level: i32,
+    i_current_bus_speed: i32,
+    i_current_bus_lanes: i32,
+    i_max_levels_core_clock: i32,
+    i_max_levels_memory_clock: i32,
+    i_current_core_performance_level: i32,
+    i_current_memory_performance_level: i32,
+}
+
+#[repr(C)]
+#[derive(Default)]
+struct AdlOdnCapabilitiesX2 {
+    i_flags: i32,
+    i_maximum_number_of_performance_levels: i32,
+    _padding: [i32; 14],
+    i_max_power_limit: i32,
+    i_min_power_limit: i32,
+}
+
+#[repr(C)]
+struct AdlMemoryInfoX4 {
+    i_memory_size: i64,
+    str_memory_type: [u8; ADL_MAX_PATH],
+    i_memory_bandwidth: i64,
+    i_hyperlink_memory_size: i64,
+    i_invisible_memory_size: i64,
+    i_visible_memory_size: i64,
+    i_vram_vendor_rev_id: i64,
+}
+
+impl AdlMemoryInfoX4 {
+    fn zeroed() -> Self {
+        // SAFETY: repr(C) with only integer and byte-array fields.
+        unsafe { std::mem::zeroed() }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ADL function pointer types
+// ---------------------------------------------------------------------------
+
+/// ADL memory allocation callback. ADL requires the caller to provide malloc.
+type AdlMallocCallback = unsafe extern "C" fn(i32) -> *mut c_void;
+
+type Adl2MainControlCreate = unsafe extern "C" fn(AdlMallocCallback, i32, *mut *mut c_void) -> i32;
+type Adl2MainControlDestroy = unsafe extern "C" fn(*mut c_void) -> i32;
+type Adl2AdapterNumberOfAdaptersGet = unsafe extern "C" fn(*mut c_void, *mut i32) -> i32;
+type Adl2AdapterAdapterInfoGet = unsafe extern "C" fn(*mut c_void, *mut AdapterInfo, i32) -> i32;
+type Adl2AdapterActiveGet = unsafe extern "C" fn(*mut c_void, i32, *mut i32) -> i32;
+type Adl2OdnPerformanceStatusGet =
+    unsafe extern "C" fn(*mut c_void, i32, *mut AdlOdnPerformanceStatus) -> i32;
+type Adl2OdnCapabilitiesX2Get =
+    unsafe extern "C" fn(*mut c_void, i32, *mut AdlOdnCapabilitiesX2) -> i32;
+type Adl2OdnTemperatureGet = unsafe extern "C" fn(*mut c_void, i32, i32, *mut i32) -> i32;
+type Adl2AdapterMemoryInfoX4Get =
+    unsafe extern "C" fn(*mut c_void, i32, *mut AdlMemoryInfoX4) -> i32;
+
+struct AdlFunctions {
+    _library: OwnedLibrary,
+    main_control_create: Adl2MainControlCreate,
+    main_control_destroy: Adl2MainControlDestroy,
+    adapter_number_of_adapters_get: Adl2AdapterNumberOfAdaptersGet,
+    adapter_adapter_info_get: Adl2AdapterAdapterInfoGet,
+    adapter_active_get: Adl2AdapterActiveGet,
+    odn_performance_status_get: Adl2OdnPerformanceStatusGet,
+    odn_capabilities_x2_get: Adl2OdnCapabilitiesX2Get,
+    odn_temperature_get: Adl2OdnTemperatureGet,
+    adapter_memory_info_x4_get: Adl2AdapterMemoryInfoX4Get,
+}
+
+/// ADL malloc callback — allocates memory using the global allocator.
+unsafe extern "C" fn adl_malloc(size: i32) -> *mut c_void {
+    let layout = std::alloc::Layout::from_size_align(size as usize, 8).unwrap();
+    // SAFETY: layout has non-zero size (ADL only calls this with positive sizes).
+    unsafe { std::alloc::alloc(layout) as *mut c_void }
+}
+
+impl AdlFunctions {
+    fn load() -> Option<Self> {
+        use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
+        use windows::core::PCSTR;
+
+        let dll_name: Vec<u16> = "atiadlxx.dll\0".encode_utf16().collect();
+        // SAFETY: LoadLibraryW receives a valid null-terminated UTF-16 DLL name.
+        let library = OwnedLibrary::new(
+            unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())) }.ok()?,
+        )?;
+        let handle = library.get();
+
+        macro_rules! load_fn {
+            ($name:literal, $ty:ty) => {{
+                // SAFETY: handle is a loaded atiadlxx.dll module; symbol name
+                // is a static null-terminated string.
+                let proc = unsafe { GetProcAddress(handle, PCSTR(concat!($name, "\0").as_ptr())) }?;
+                // SAFETY: GetProcAddress returned a non-null address matching
+                // the documented ADL function signature.
+                unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, $ty>(proc) }
+            }};
+        }
+
+        Some(Self {
+            _library: library,
+            main_control_create: load_fn!("ADL2_Main_Control_Create", Adl2MainControlCreate),
+            main_control_destroy: load_fn!("ADL2_Main_Control_Destroy", Adl2MainControlDestroy),
+            adapter_number_of_adapters_get: load_fn!(
+                "ADL2_Adapter_NumberOfAdapters_Get",
+                Adl2AdapterNumberOfAdaptersGet
+            ),
+            adapter_adapter_info_get: load_fn!(
+                "ADL2_Adapter_AdapterInfo_Get",
+                Adl2AdapterAdapterInfoGet
+            ),
+            adapter_active_get: load_fn!("ADL2_Adapter_Active_Get", Adl2AdapterActiveGet),
+            odn_performance_status_get: load_fn!(
+                "ADL2_OverdriveN_PerformanceStatus_Get",
+                Adl2OdnPerformanceStatusGet
+            ),
+            odn_capabilities_x2_get: load_fn!(
+                "ADL2_OverdriveN_CapabilitiesX2_Get",
+                Adl2OdnCapabilitiesX2Get
+            ),
+            odn_temperature_get: load_fn!("ADL2_OverdriveN_Temperature_Get", Adl2OdnTemperatureGet),
+            adapter_memory_info_x4_get: load_fn!(
+                "ADL2_Adapter_MemoryInfoX4_Get",
+                Adl2AdapterMemoryInfoX4Get
+            ),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AMD backend
+// ---------------------------------------------------------------------------
+
+pub(super) struct AmdBackend {
+    adl: AdlFunctions,
+    context: *mut c_void,
+    /// Adapter indices for active AMD GPUs.
+    adapter_indices: Vec<i32>,
+}
+
+impl AmdBackend {
+    pub(super) fn load() -> Option<Self> {
+        let adl = AdlFunctions::load()?;
+
+        let mut context: *mut c_void = std::ptr::null_mut();
+        // SAFETY: adl.main_control_create was loaded from atiadlxx.dll.
+        // adl_malloc is a valid callback; 1 = enumerate connected adapters only.
+        let ret = unsafe { (adl.main_control_create)(adl_malloc, 1, &mut context) };
+        if ret != ADL_OK {
+            tracing::warn!("ADL2_Main_Control_Create failed with error {ret}");
+            return None;
+        }
+
+        Some(Self {
+            adl,
+            context,
+            adapter_indices: Vec::new(),
+        })
+    }
+}
+
+/// Extract a C string from a fixed-size byte buffer.
+fn string_from_buf(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).trim().to_string()
+}
+
+impl GpuBackend for AmdBackend {
+    fn init_devices(&mut self) -> Vec<GpuInfo> {
+        let mut num_adapters: i32 = 0;
+        // SAFETY: context is valid; num_adapters is a valid pointer.
+        let ret =
+            unsafe { (self.adl.adapter_number_of_adapters_get)(self.context, &mut num_adapters) };
+        if ret != ADL_OK || num_adapters <= 0 {
+            return Vec::new();
+        }
+
+        let count = num_adapters as usize;
+        let mut adapter_infos: Vec<AdapterInfo> =
+            (0..count).map(|_| AdapterInfo::zeroed()).collect();
+        let buf_size = (count * std::mem::size_of::<AdapterInfo>()) as i32;
+        // SAFETY: adapter_infos is a valid buffer of count AdapterInfo structs.
+        let ret = unsafe {
+            (self.adl.adapter_adapter_info_get)(self.context, adapter_infos.as_mut_ptr(), buf_size)
+        };
+        if ret != ADL_OK {
+            return Vec::new();
+        }
+
+        let mut gpus = Vec::new();
+        let mut seen_bus = std::collections::HashSet::new();
+
+        for info in &adapter_infos {
+            // Skip inactive adapters
+            let mut active: i32 = 0;
+            // SAFETY: context is valid; adapter index from ADL; active is valid pointer.
+            let ret = unsafe {
+                (self.adl.adapter_active_get)(self.context, info.i_adapter_index, &mut active)
+            };
+            if ret != ADL_OK || active == 0 {
+                continue;
+            }
+
+            // Deduplicate by PCI bus number (ADL reports multiple entries per GPU)
+            if !seen_bus.insert(info.i_bus_number) {
+                continue;
+            }
+
+            let idx = info.i_adapter_index;
+            self.adapter_indices.push(idx);
+
+            let mut gpu = GpuInfo {
+                name: string_from_buf(&info.str_adapter_name),
+                ..GpuInfo::default()
+            };
+
+            // Query max clock and power limit via OverdriveN capabilities
+            let mut caps = AdlOdnCapabilitiesX2::default();
+            // SAFETY: context and idx are valid; caps is a valid pointer.
+            let ret = unsafe { (self.adl.odn_capabilities_x2_get)(self.context, idx, &mut caps) };
+            if ret == ADL_OK {
+                gpu.gpu_max_clock_speed = caps._padding[0].max(0) as u32;
+                if caps.i_max_power_limit > 0 {
+                    gpu.pwr_max_usage = caps.i_max_power_limit as i64 * 1000;
+                }
+            }
+
+            // Query total VRAM
+            let mut mem = AdlMemoryInfoX4::zeroed();
+            // SAFETY: context and idx are valid; mem is a valid pointer.
+            let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
+            if ret == ADL_OK && mem.i_memory_size > 0 {
+                gpu.mem_total = (mem.i_memory_size * 1024 * 1024) as u64;
+            }
+
+            gpus.push(gpu);
+        }
+
+        gpus
+    }
+
+    fn collect(&mut self, gpus: &mut [GpuInfo]) {
+        for (gpu, &idx) in gpus.iter_mut().zip(self.adapter_indices.iter()) {
+            // Performance status (utilization, clocks, power)
+            let mut perf = AdlOdnPerformanceStatus::default();
+            // SAFETY: context and idx are valid; perf is a valid pointer.
+            let ret =
+                unsafe { (self.adl.odn_performance_status_get)(self.context, idx, &mut perf) };
+            if ret == ADL_OK {
+                push_history(
+                    &mut gpu.gpu_percent.utilization,
+                    clamp_percent(perf.i_activity_percent.max(0) as u32),
+                );
+                gpu.gpu_clock_speed = perf.i_core_clock.max(0) as u32;
+
+                // ADL reports power in watts; convert to milliwatts for GpuInfo
+                if perf.i_current_core_performance_level > 0 {
+                    let power_mw = perf.i_current_core_performance_level as u64;
+                    gpu.pwr_usage = power_mw as i64;
+                    let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
+                    push_history(&mut gpu.gpu_percent.power, pwr_pct);
+                }
+            }
+
+            // Temperature (returned in millidegrees Celsius)
+            let mut temp_mc: i32 = 0;
+            // SAFETY: context and idx are valid; 1 = GPU sensor; temp_mc is valid.
+            let ret = unsafe { (self.adl.odn_temperature_get)(self.context, idx, 1, &mut temp_mc) };
+            if ret == ADL_OK {
+                push_history(&mut gpu.temp, (temp_mc / 1000) as i64);
+            }
+
+            // VRAM usage — re-query total and compute used
+            let mut mem = AdlMemoryInfoX4::zeroed();
+            // SAFETY: context and idx are valid; mem is a valid pointer.
+            let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
+            if ret == ADL_OK && mem.i_memory_size > 0 {
+                let total = (mem.i_memory_size * 1024 * 1024) as u64;
+                gpu.mem_total = total;
+                // Visible memory approximates available; used = total - visible
+                let visible = (mem.i_visible_memory_size * 1024 * 1024) as u64;
+                gpu.mem_used = total.saturating_sub(visible);
+                let vram_pct = percent_u64(gpu.mem_used, total).min(100);
+                push_history(&mut gpu.gpu_percent.vram, vram_pct);
+                push_history(&mut gpu.mem_utilization_percent, vram_pct);
+            }
+        }
+    }
+
+    fn shutdown(&mut self) {
+        if !self.context.is_null() {
+            // SAFETY: context was created by ADL2_Main_Control_Create.
+            unsafe {
+                let _ = (self.adl.main_control_destroy)(self.context);
+            }
+            self.context = std::ptr::null_mut();
+        }
+    }
+}

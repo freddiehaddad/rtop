@@ -1,3 +1,4 @@
+mod amd;
 mod nvidia;
 
 use crate::collect::{CollectStatus, Collector};
@@ -78,7 +79,19 @@ impl GpuCollector {
             });
         }
 
-        // Future: AMD and Intel backends added here.
+        if let Some(mut amd) = amd::AmdBackend::load() {
+            let devices = amd.init_devices();
+            let start = gpus.len();
+            let count = devices.len();
+            gpus.extend(devices);
+            backends.push(BackendSlice {
+                backend: Box::new(amd),
+                start,
+                count,
+            });
+        }
+
+        // Future: Intel backend added here.
 
         Self {
             backends,
