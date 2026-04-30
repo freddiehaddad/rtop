@@ -655,8 +655,11 @@ fn render_too_small(size: TerminalSize, theme: &theme::Theme) -> String {
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
     format!(
-        "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
-        theme.color(tc::HI_FG)
+        "{}\x1b[{msg_y};{msg_x}H{}{}{msg}{}",
+        term::CLEAR_SCREEN,
+        term::BOLD,
+        theme.color(tc::HI_FG),
+        term::RESET,
     )
 }
 
@@ -681,8 +684,11 @@ fn render_waiting_for_snapshot(size: TerminalSize, theme: &theme::Theme) -> Stri
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
     format!(
-        "\x1b[2J\x1b[{msg_y};{msg_x}H\x1b[1m{}{msg}\x1b[0m",
-        theme.color(tc::HI_FG)
+        "{}\x1b[{msg_y};{msg_x}H{}{}{msg}{}",
+        term::CLEAR_SCREEN,
+        term::BOLD,
+        theme.color(tc::HI_FG),
+        term::RESET,
     )
 }
 
@@ -775,7 +781,7 @@ fn render_dirty_frame(
     let mut output = String::new();
 
     if state.render.dirty.contains(Dirty::LAYOUT) {
-        output.push_str("\x1b[2J");
+        output.push_str(term::CLEAR_SCREEN);
     }
 
     let params = RenderParams {

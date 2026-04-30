@@ -835,7 +835,7 @@ pub fn draw(
     let sel_bg = theme.color(tc::SELECTED_BG);
     let sel_fg = theme.color(tc::SELECTED_FG);
     let opts_c = theme.color(tc::OPTIONS_BOX);
-    let reset = "\x1b[0m";
+    let reset = term::RESET;
 
     let mut out = String::with_capacity(4096);
 
@@ -889,11 +889,24 @@ pub fn draw(
     for (i, &name) in CAT_NAMES.iter().enumerate() {
         if i == cat {
             out.push_str(&format!(
-                "\x1b[1m{}[{}{}{}]{}",
-                hi, title_c, name, hi, reset
+                "{}{}[{}{}{}]{}",
+                term::BOLD,
+                hi,
+                title_c,
+                name,
+                hi,
+                reset
             ));
         } else {
-            out.push_str(&format!("\x1b[1m{}{}{}{}{}", hi, i, title_c, name, reset));
+            out.push_str(&format!(
+                "{}{}{}{}{}{}",
+                term::BOLD,
+                hi,
+                i,
+                title_c,
+                name,
+                reset
+            ));
         }
         let spacing = 8_usize.saturating_sub(name.len() + 1);
         out.push_str(&format!("\x1b[{}C", spacing));
@@ -943,9 +956,9 @@ pub fn draw(
             "{}{}{}{}",
             term::mv(x + 2, cy_start + c * 2),
             if is_selected {
-                format!("{}{}\x1b[1m", sel_bg, sel_fg)
+                format!("{}{}{}", sel_bg, sel_fg, term::BOLD)
             } else {
-                format!("{}\x1b[1m", title_c)
+                format!("{}{}", title_c, term::BOLD)
             },
             name_str,
             reset,
@@ -967,29 +980,31 @@ pub fn draw(
             match kind {
                 OptKind::Bool | OptKind::Browsable | OptKind::Int => {
                     out.push_str(&format!(
-                        "\x1b[1m{}{}{}{}{}{}{}",
+                        "{}{}{}{}{}{}{}",
+                        term::BOLD,
                         term::mv(x + 2, val_row),
                         hi,
                         symbols::LEFT_ARROW,
                         term::mv(x + 29, val_row),
                         hi,
                         symbols::RIGHT_ARROW,
-                        reset,
                     ));
+                    out.push_str(reset);
                 }
                 OptKind::StringVal => {
                     out.push_str(&format!(
-                        "\x1b[1m{}{}{}{}",
+                        "{}{}{}{}",
+                        term::BOLD,
                         term::mv(x + 29, val_row),
                         hi,
                         symbols::ENTER,
-                        reset,
                     ));
+                    out.push_str(reset);
                 }
             }
 
             // Description in right panel
-            out.push_str(&format!("{}{}\x1b[1m", reset, title_c));
+            out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
             for (di, desc_line) in opt.desc.iter().enumerate() {
                 let desc_row = y + 8 + 1 + di; // start at the row after the divider
                 if desc_row >= y + 6 + height {
@@ -997,7 +1012,7 @@ pub fn draw(
                 }
                 // First description line is title-colored, rest are main_fg
                 if di == 1 {
-                    out.push_str(&format!("{}\x1b[22m", fg));
+                    out.push_str(&format!("{}{}", fg, term::BOLD_OFF));
                 }
                 out.push_str(&format!("{}{}", term::mv(x + 33, desc_row + 1), desc_line,));
             }

@@ -239,7 +239,7 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
         row += 1;
     }
 
-    out.push_str("\x1b[0m");
+    out.push_str(term::RESET);
     out
 }
 

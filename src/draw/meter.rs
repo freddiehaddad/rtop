@@ -40,7 +40,7 @@ impl Meter {
                 }
             }
 
-            s.push_str("\x1b[0m");
+            s.push_str(crate::term::RESET);
             cache.push(s);
         }
         Self { cache }

@@ -1,4 +1,5 @@
 use crate::draw::buffer::AnsiBuffer;
+use crate::term;
 
 /// Box-drawing characters.
 pub mod symbols {
@@ -162,10 +163,8 @@ pub fn create_box(cfg: &BoxConfig) -> String {
             cfg.title_color
         };
         buf.mv(x + 3, y + 1).text(title_syms::TITLE_LEFT);
-        buf.text(&format!(
-            "\x1b[1m{}{}{}{}\x1b[22m",
-            hi, numbering, tc, title,
-        ));
+        buf.text(&format!("{}{}{}{}{}", term::BOLD, hi, numbering, tc, title,));
+        buf.text(term::BOLD_OFF);
         buf.color(color).text(title_syms::TITLE_RIGHT);
     }
 

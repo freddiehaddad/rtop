@@ -80,6 +80,6 @@ pub fn draw_with_selection(
         }
     }
 
-    out.push_str("\x1b[0m");
+    out.push_str(term::RESET);
     out
 }

@@ -1,3 +1,5 @@
+use crate::term;
+
 /// A buffer for building ANSI terminal output with fluent positioning and color API.
 ///
 /// Encapsulates cursor positioning and color escape codes so callers
@@ -34,13 +36,13 @@ impl AnsiBuffer {
 
     /// Reset all formatting.
     pub fn reset(&mut self) -> &mut Self {
-        self.buf.push_str("\x1b[0m");
+        self.buf.push_str(term::RESET);
         self
     }
 
     /// Consume the buffer and return the built string.
     pub fn finish(mut self) -> String {
-        self.buf.push_str("\x1b[0m");
+        self.buf.push_str(term::RESET);
         self.buf
     }
 

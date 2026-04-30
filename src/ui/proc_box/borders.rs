@@ -1,5 +1,6 @@
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
+use crate::term;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 
@@ -85,7 +86,11 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
     buf.mv(p.x + 3, p.bottom_y).text(&bottom_hints);
 
     // Filter label
-    let cursor = if p.filtering { "\x1b[4m \x1b[24m" } else { "" };
+    let cursor = if p.filtering {
+        format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF)
+    } else {
+        String::new()
+    };
     let filter_label = if !p.filter.is_empty() || p.filtering {
         let filter_text = format!("filter: {}{}{}", fg, p.filter, cursor);
         box_drawing::keybind_inset(&filter_text, box_color, hi, title_color, true)

@@ -55,7 +55,7 @@ pub fn generate(y: usize, x: usize, theme: &Theme) -> String {
             line
         ));
     }
-    out.push_str("\x1b[0m");
+    out.push_str(term::RESET);
     out
 }
 

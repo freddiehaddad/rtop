@@ -8,7 +8,7 @@ use crate::{
     app::{LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
     config,
     dirty::Dirty,
-    runner, theme,
+    runner, term, theme,
 };
 
 /// The current menu overlay state.
@@ -166,7 +166,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             core_count: ctx.live.core_count,
             total_mem: ctx.live.total_mem,
         };
-        out.push_str("\x1b[2J");
+        out.push_str(term::CLEAR_SCREEN);
         out.push_str(&render_all(
             &params,
             &mut ctx.process.selected,

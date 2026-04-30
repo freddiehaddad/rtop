@@ -304,7 +304,7 @@ impl Graph {
                 }
                 row_str.push_str(elem);
             }
-            row_str.push_str("\x1b[0m");
+            row_str.push_str(crate::term::RESET);
             rows.push(row_str);
         } else {
             // Multi-height: each row gets a single gradient color based on vertical position
@@ -323,7 +323,7 @@ impl Graph {
                 if let Some(r) = buf.get(row) {
                     row_str.push_str(r);
                 }
-                row_str.push_str("\x1b[0m");
+                row_str.push_str(crate::term::RESET);
                 rows.push(row_str);
             }
         }
