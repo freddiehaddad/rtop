@@ -593,18 +593,13 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
         return false;
     }
 
-    let shown = config.shown_boxes.clone();
-    let mut boxes: Vec<String> = shown.split_whitespace().map(String::from).collect();
     let mut changed = false;
     for i in 0..gpu_count {
         let name = format!("gpu{i}");
-        if !boxes.iter().any(|b| b == &name) {
-            boxes.push(name);
+        if !config.shown_boxes.iter().any(|b| b == &name) {
+            config.shown_boxes.push(name);
             changed = true;
         }
-    }
-    if changed {
-        config.shown_boxes = boxes.join(" ");
     }
     changed
 }
@@ -700,11 +695,6 @@ fn calculate_layout(
     live: &LiveData,
     size: TerminalSize,
 ) -> draw::layout::Layout {
-    let shown: Vec<String> = config
-        .shown_boxes
-        .split_whitespace()
-        .map(String::from)
-        .collect();
     let cpu = live.cpu.as_ref();
     let has_temp = config.check_temp && cpu.is_some_and(|c| !c.info.temp.is_empty());
     let has_watts = config.show_cpu_watts && cpu.is_some_and(|c| c.info.cpu_watts.is_some());
@@ -714,7 +704,7 @@ fn calculate_layout(
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        shown_boxes: &shown,
+        shown_boxes: &config.shown_boxes,
         cpu_bottom: config.cpu_bottom,
         mem_below_net: config.mem_below_net,
         proc_left: config.proc_left,
@@ -1200,19 +1190,22 @@ mod tests {
     #[test]
     fn auto_add_gpu_boxes_adds_missing_boxes() {
         let mut config = config::Config::new();
-        config.shown_boxes = "cpu mem proc".to_string();
+        config.shown_boxes = vec!["cpu".into(), "mem".into(), "proc".into()];
 
         assert!(auto_add_gpu_boxes(&mut config, 2));
-        assert_eq!(&config.shown_boxes, "cpu mem proc gpu0 gpu1");
+        assert_eq!(
+            config.shown_boxes,
+            vec!["cpu", "mem", "proc", "gpu0", "gpu1"]
+        );
     }
 
     #[test]
     fn auto_add_gpu_boxes_ignores_existing_boxes() {
         let mut config = config::Config::new();
-        config.shown_boxes = "cpu mem proc gpu0".to_string();
+        config.shown_boxes = vec!["cpu".into(), "mem".into(), "proc".into(), "gpu0".into()];
 
         assert!(!auto_add_gpu_boxes(&mut config, 1));
-        assert_eq!(&config.shown_boxes, "cpu mem proc gpu0");
+        assert_eq!(config.shown_boxes, vec!["cpu", "mem", "proc", "gpu0"]);
     }
 
     #[test]

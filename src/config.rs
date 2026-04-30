@@ -128,7 +128,7 @@ pub struct Config {
 
     // -- strings --
     pub color_theme: String,
-    pub shown_boxes: String,
+    pub shown_boxes: Vec<String>,
     pub graph_symbol: String,
     pub graph_symbol_cpu: String,
     pub graph_symbol_gpu: String,
@@ -158,7 +158,7 @@ pub struct Config {
     // -- runtime-only (not serialized) --
     /// Internal-only: the startup layout snapshot (not persisted).
     #[serde(skip)]
-    pub initial_shown_boxes: String,
+    pub initial_shown_boxes: Vec<String>,
     #[serde(skip)]
     conf_file: Option<PathBuf>,
 }
@@ -224,7 +224,13 @@ impl Default for Config {
 
             // strings
             color_theme: "Default".to_string(),
-            shown_boxes: "cpu mem net proc disk".to_string(),
+            shown_boxes: vec![
+                "cpu".into(),
+                "mem".into(),
+                "net".into(),
+                "proc".into(),
+                "disk".into(),
+            ],
             graph_symbol: "braille".to_string(),
             graph_symbol_cpu: "default".to_string(),
             graph_symbol_gpu: "default".to_string(),
@@ -252,7 +258,7 @@ impl Default for Config {
             custom_gpu_name5: String::new(),
 
             // runtime-only
-            initial_shown_boxes: String::new(),
+            initial_shown_boxes: Vec::new(),
             conf_file: None,
         }
     }
@@ -522,19 +528,18 @@ impl Config {
         );
 
         // Validate shown_boxes: remove invalid box names
-        let boxes: Vec<&str> = self.shown_boxes.split_whitespace().collect();
-        let invalid: Vec<&str> = boxes
+        let invalid: Vec<String> = self
+            .shown_boxes
             .iter()
             .filter(|b| !is_valid_box_name(b))
-            .copied()
+            .cloned()
             .collect();
         if !invalid.is_empty() {
             warnings.push(format!(
                 "Invalid box name(s) in 'shown_boxes': {}",
                 invalid.join(", ")
             ));
-            let valid: Vec<&str> = boxes.into_iter().filter(|b| is_valid_box_name(b)).collect();
-            self.shown_boxes = valid.join(" ");
+            self.shown_boxes.retain(|b| is_valid_box_name(b));
         }
 
         warnings
@@ -567,11 +572,12 @@ impl Config {
         } else {
             &self.initial_shown_boxes
         };
-        let preset0_parts: Vec<String> = source
-            .split_whitespace()
+        let preset0 = source
+            .iter()
             .map(|b| format!("{b}:0:default"))
-            .collect();
-        let mut list = vec![preset0_parts.join(",")];
+            .collect::<Vec<_>>()
+            .join(",");
+        let mut list = vec![preset0];
 
         if !self.presets.is_empty() {
             for preset in self.presets.split_whitespace() {
@@ -585,22 +591,24 @@ impl Config {
 
     /// Save the current layout as a new preset and return its index.
     pub fn save_preset(&mut self) -> usize {
-        let shown = self.shown_boxes.clone();
         let cpu_bottom = if self.cpu_bottom { "1" } else { "0" };
         let mem_below_net = if self.mem_below_net { "1" } else { "0" };
         let proc_left = if self.proc_left { "1" } else { "0" };
 
-        let mut parts = Vec::new();
-        for box_name in shown.split_whitespace() {
-            let pos = match box_name {
-                "cpu" => cpu_bottom,
-                "mem" => mem_below_net,
-                "proc" => proc_left,
-                _ => "0",
-            };
-            parts.push(format!("{box_name}:{pos}:default"));
-        }
-        let new_preset = parts.join(",");
+        let new_preset = self
+            .shown_boxes
+            .iter()
+            .map(|box_name| {
+                let pos = match box_name.as_str() {
+                    "cpu" => cpu_bottom,
+                    "mem" => mem_below_net,
+                    "proc" => proc_left,
+                    _ => "0",
+                };
+                format!("{box_name}:{pos}:default")
+            })
+            .collect::<Vec<_>>()
+            .join(",");
 
         let updated = if self.presets.is_empty() {
             new_preset
@@ -650,7 +658,6 @@ impl Config {
             }
             let box_name = vals[0];
             let position = vals[1];
-            let _graph_sym = vals[2];
 
             boxes.push(box_name.to_string());
 
@@ -661,7 +668,7 @@ impl Config {
                 _ => {}
             }
         }
-        self.shown_boxes = boxes.join(" ");
+        self.shown_boxes = boxes;
     }
 
     /// Toggle a box's visibility in shown_boxes.
@@ -670,16 +677,12 @@ impl Config {
             return false;
         }
 
-        let current = self.shown_boxes.clone();
-        let mut boxes: Vec<&str> = current.split_whitespace().collect();
-
-        if let Some(pos) = boxes.iter().position(|b| *b == box_name) {
-            boxes.remove(pos);
+        if let Some(pos) = self.shown_boxes.iter().position(|b| b == box_name) {
+            self.shown_boxes.remove(pos);
         } else {
-            boxes.push(box_name);
+            self.shown_boxes.push(box_name.to_string());
         }
 
-        self.shown_boxes = boxes.join(" ");
         true
     }
 }
@@ -1064,7 +1067,7 @@ impl ConfigKey {
 
             // strings
             Self::ColorTheme => config.color_theme.clone(),
-            Self::ShownBoxes => config.shown_boxes.clone(),
+            Self::ShownBoxes => config.shown_boxes.join(" "),
             Self::GraphSymbol => config.graph_symbol.clone(),
             Self::GraphSymbolCpu => config.graph_symbol_cpu.clone(),
             Self::GraphSymbolGpu => config.graph_symbol_gpu.clone(),
@@ -1175,7 +1178,6 @@ impl ConfigKey {
     pub fn get_string(self, config: &Config) -> &str {
         match self {
             Self::ColorTheme => &config.color_theme,
-            Self::ShownBoxes => &config.shown_boxes,
             Self::GraphSymbol => &config.graph_symbol,
             Self::GraphSymbolCpu => &config.graph_symbol_cpu,
             Self::GraphSymbolGpu => &config.graph_symbol_gpu,
@@ -1208,7 +1210,6 @@ impl ConfigKey {
     pub fn set_string(self, config: &mut Config, value: &str) {
         match self {
             Self::ColorTheme => config.color_theme = value.to_string(),
-            Self::ShownBoxes => config.shown_boxes = value.to_string(),
             Self::GraphSymbol => config.graph_symbol = value.to_string(),
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.to_string(),
             Self::GraphSymbolGpu => config.graph_symbol_gpu = value.to_string(),
@@ -1363,7 +1364,7 @@ mod tests {
         let tmp = std::env::temp_dir().join("rtop_test_bad_string_values.toml");
         fs::write(
             &tmp,
-            "color_theme = \"foo\"\ngraph_symbol = \"ascii\"\nshown_boxes = \"cpu nope\"\n",
+            "color_theme = \"foo\"\ngraph_symbol = \"ascii\"\nshown_boxes = [\"cpu\", \"nope\"]\n",
         )
         .unwrap();
         let warnings = config.load(&tmp);
@@ -1386,7 +1387,7 @@ mod tests {
         assert_eq!(config.color_theme, "Default");
         assert_eq!(config.graph_symbol, "braille");
         // After removing invalid "nope", only "cpu" remains
-        assert_eq!(config.shown_boxes, "cpu");
+        assert_eq!(config.shown_boxes, vec!["cpu"]);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1415,7 +1416,10 @@ mod tests {
         assert!(!config.vim_keys);
         assert_eq!(config.update_ms, 2000);
         assert_eq!(config.color_theme, "Default");
-        assert_eq!(config.shown_boxes, "cpu mem net proc disk");
+        assert_eq!(
+            config.shown_boxes,
+            vec!["cpu", "mem", "net", "proc", "disk"]
+        );
         assert_eq!(config.graph_symbol, "braille");
         assert_eq!(config.proc_sorting, "cpu lazy");
         assert_eq!(config.current_preset, 0);
@@ -1435,17 +1439,17 @@ mod tests {
     #[test]
     fn toggle_box_adds_when_missing() {
         let mut config = Config::new();
-        config.shown_boxes = "cpu mem".to_string();
+        config.shown_boxes = vec!["cpu".into(), "mem".into()];
         assert!(config.toggle_box("net"));
-        assert!(config.shown_boxes.contains("net"));
+        assert!(config.shown_boxes.contains(&"net".to_string()));
     }
 
     #[test]
     fn toggle_box_removes_when_present() {
         let mut config = Config::new();
-        config.shown_boxes = "cpu mem net".to_string();
+        config.shown_boxes = vec!["cpu".into(), "mem".into(), "net".into()];
         assert!(config.toggle_box("net"));
-        assert!(!config.shown_boxes.contains("net"));
+        assert!(!config.shown_boxes.contains(&"net".to_string()));
     }
 
     #[test]
@@ -1484,7 +1488,7 @@ mod tests {
     fn apply_preset_sets_shown_boxes() {
         let mut config = Config::new();
         config.apply_preset("cpu:0:default,proc:1:default");
-        assert_eq!(config.shown_boxes, "cpu proc");
+        assert_eq!(config.shown_boxes, vec!["cpu", "proc"]);
         assert!(config.proc_left);
     }
 
@@ -1506,7 +1510,7 @@ mod tests {
     fn save_preset_appends_and_sets_current() {
         let mut config = Config::new();
         config.presets = String::new();
-        config.shown_boxes = "cpu proc".to_string();
+        config.shown_boxes = vec!["cpu".into(), "proc".into()];
         config.proc_left = true;
         let idx = config.save_preset();
         assert!(idx > 0);
@@ -1556,8 +1560,8 @@ mod tests {
     #[test]
     fn initial_shown_boxes_is_internal() {
         let mut config = Config::new();
-        config.initial_shown_boxes = "cpu mem".to_string();
-        assert_eq!(config.initial_shown_boxes, "cpu mem");
+        config.initial_shown_boxes = vec!["cpu".into(), "mem".into()];
+        assert_eq!(config.initial_shown_boxes, vec!["cpu", "mem"]);
         // Should not appear in TOML output
         let output = toml::to_string_pretty(&config).unwrap();
         assert!(!output.contains("initial_shown_boxes"));
