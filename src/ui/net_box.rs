@@ -152,10 +152,8 @@ pub fn draw(
     // Top graph (normal orientation)
     {
         if top_rows > 0 {
-            let mut graph = Graph::new(graph_width, top_rows, graph_sym, false, 0, 0);
-            graph.max_value = top_max;
-            graph.create(top_bw);
-            let rows = graph.render_rows_colored(top_bw, top_grad);
+            let mut graph = Graph::new(graph_width, top_rows, graph_sym, false, top_max, 0);
+            let rows = graph.render_rows(top_bw, top_grad);
             for (i, row) in rows.iter().enumerate() {
                 buf.mv(x + 2, y + 2 + i).text(row);
             }
@@ -184,10 +182,8 @@ pub fn draw(
     {
         if bot_rows > 0 {
             let bot_start_y = y + 2 + top_rows;
-            let mut graph = Graph::new(graph_width, bot_rows, graph_sym, true, 0, 0);
-            graph.max_value = bot_max;
-            graph.create(bot_bw);
-            let rows = graph.render_rows_colored(bot_bw, bot_grad);
+            let mut graph = Graph::new(graph_width, bot_rows, graph_sym, true, bot_max, 0);
+            let rows = graph.render_rows(bot_bw, bot_grad);
             for (i, row) in rows.iter().enumerate() {
                 buf.mv(x + 2, bot_start_y + i).text(row);
             }

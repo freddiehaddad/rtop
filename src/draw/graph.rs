@@ -89,11 +89,11 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
 /// portion of the 0-100% range.
 #[derive(Debug, Clone)]
 pub struct Graph {
-    pub width: usize,
-    pub height: usize,
+    width: usize,
+    height: usize,
     symbol: GraphSymbol,
     invert: bool,
-    pub max_value: i64,
+    max_value: i64,
     offset: i64,
     last: i64,
     /// Graph content: Vec<String> of `height` rows.
@@ -196,7 +196,7 @@ impl Graph {
     }
 
     /// Create the full graph content from data.
-    pub fn create(&mut self, data: &VecDeque<i64>) {
+    fn create(&mut self, data: &VecDeque<i64>) {
         let len = data.len();
         let h = self.height;
 
@@ -259,10 +259,19 @@ impl Graph {
         }
     }
 
-    /// Render the multi-row graph with per-row gradient colors for multi-height,
-    /// or per-column gradient colors for single-height.
-    /// Returns Vec<String> where each element is one row with ANSI color codes.
-    pub fn render_rows_colored(&self, data: &VecDeque<i64>, gradient: &[String]) -> Vec<String> {
+    /// Render the multi-row graph with gradient coloring.
+    ///
+    /// Populates graph content from `data` and applies per-row gradient
+    /// colors (multi-height) or per-column gradient colors (single-height).
+    /// Returns `Vec<String>` where each element is one row with ANSI color
+    /// codes.
+    pub fn render_rows(&mut self, data: &VecDeque<i64>, gradient: &[String]) -> Vec<String> {
+        self.create(data);
+        self.color_rows(data, gradient)
+    }
+
+    /// Apply gradient coloring to the populated `buf` rows.
+    fn color_rows(&self, data: &VecDeque<i64>, gradient: &[String]) -> Vec<String> {
         let h = self.height;
         let buf = &self.buf;
         let mut rows = Vec::with_capacity(h);
@@ -331,12 +340,13 @@ impl Graph {
         rows
     }
 
-    /// Render a row with gradient colors applied per column.
-    /// For backward compatibility with single-height graphs.
-    pub fn render_row_colored(&mut self, data: &VecDeque<i64>, gradient: &[String]) -> String {
+    /// Render a single-height graph row with gradient coloring.
+    pub fn render_row(&mut self, data: &VecDeque<i64>, gradient: &[String]) -> String {
         self.create(data);
-        let rows = self.render_rows_colored(data, gradient);
-        rows.into_iter().next().unwrap_or_default()
+        self.color_rows(data, gradient)
+            .into_iter()
+            .next()
+            .unwrap_or_default()
     }
 }
 
@@ -345,14 +355,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_rows_colored_returns_correct_count() {
+    fn render_rows_returns_correct_count() {
         let mut graph = Graph::new(10, 4, GraphSymbol::Braille, false, 100, 0);
         let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
-        graph.create(&data);
         let gradient: Vec<String> = (0..=100)
             .map(|_| "\x1b[38;2;128;128;128m".to_string())
             .collect();
-        let rows = graph.render_rows_colored(&data, &gradient);
+        let rows = graph.render_rows(&data, &gradient);
         assert_eq!(rows.len(), 4);
     }
 }
