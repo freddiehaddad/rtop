@@ -121,6 +121,11 @@ pub const KEYBINDS: &[Keybind] = &[
         desc: "Show process details",
         section: "Process",
     },
+    Keybind {
+        key: "F",
+        desc: "Follow/unfollow process",
+        section: "Process",
+    },
     // Network
     Keybind {
         key: "n",

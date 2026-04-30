@@ -27,6 +27,8 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **GPU monitoring** via NVIDIA NVML — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via LibreHardwareMonitor HTTP API
 - **Per-box dirty rendering** — only redraws what changed, no full-screen flicker
+- **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
+- **Per-widget update intervals** — each collector can run at its own speed
 - **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
 - **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
 - **Process following** — pin a process with `F` to auto-scroll across refreshes
@@ -62,6 +64,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `r` | Toggle reverse sort |
 | `c` | Toggle per-core CPU |
 | `i` | Toggle disk IO mode |
+| `Enter` | Show/hide process details |
 | `F` | Follow/unfollow process |
 | `t` | Terminate process |
 | `n` / `b` | Cycle network interfaces |
@@ -134,7 +137,7 @@ Without LibreHardwareMonitor, rtop works normally — temperature and power fiel
 
 ## Optional: GPU Monitoring
 
-NVIDIA GPU monitoring requires the NVIDIA driver to be installed (which provides `nvml.dll`). No additional software is needed. rtop detects NVIDIA GPUs automatically at runtime.
+NVIDIA GPU monitoring requires the NVIDIA driver to be installed (which provides `nvml.dll`). No additional software is needed. rtop detects up to 8 NVIDIA GPUs automatically at runtime.
 
 AMD and Intel GPU monitoring is not currently supported.
 
@@ -161,9 +164,32 @@ rtop --default-config
 
 rtop ships with 41 built-in themes. Change the theme from the options menu (General → Color Theme) or set it in `rtop.toml`:
 
-```
+```toml
 color_theme = "dracula"
 ```
+
+### Per-Widget Update Intervals
+
+By default all widgets share the global `update_ms` interval (default 2000ms). Each widget can override this with its own interval:
+
+```toml
+update_ms = 2000
+cpu_update_ms = 1000    # CPU updates every 1s
+proc_update_ms = 5000   # Processes update every 5s
+mem_update_ms = 0        # 0 = use global (2000ms)
+```
+
+Set per-widget intervals via the options menu (each category tab has an update interval option) or in `rtop.toml`.
+
+### Visible Boxes
+
+Control which widgets are shown via the `shown_boxes` config:
+
+```toml
+shown_boxes = ["cpu", "mem", "net", "proc", "disk"]
+```
+
+Toggle widgets at runtime with the `1`–`6` keys.
 
 ---
 
