@@ -260,6 +260,60 @@ impl OverlayState {
     }
 }
 
+/// Tracks recently-dead processes for one additional display cycle.
+///
+/// When `keep_dead_proc_usage` is enabled, processes that disappear
+/// between collection cycles are preserved with their last-known
+/// CPU/memory values so they don't flicker out of the display.
+struct StaleProcessTracker {
+    /// Recently-dead process entries (PID → last known data).
+    stale: HashMap<u32, crate::domain::process::ProcInfo>,
+    /// PIDs from the previous collection cycle.
+    prev_pids: HashSet<u32>,
+    /// ProcInfo cache from the previous cycle for stale lookup.
+    prev_cache: HashMap<u32, crate::domain::process::ProcInfo>,
+}
+
+impl StaleProcessTracker {
+    fn new() -> Self {
+        Self {
+            stale: HashMap::new(),
+            prev_pids: HashSet::new(),
+            prev_cache: HashMap::new(),
+        }
+    }
+
+    /// Update stale tracking with the current live process list.
+    ///
+    /// Detects PIDs that were in the previous cycle but are now gone,
+    /// and preserves their last-known data for one display cycle.
+    fn update(&mut self, live_procs: &[crate::domain::process::ProcInfo], keep_dead: bool) {
+        let active_pids: HashSet<u32> = live_procs.iter().map(|p| p.pid).collect();
+
+        self.stale.clear();
+        if keep_dead {
+            for &pid in &self.prev_pids {
+                if !active_pids.contains(&pid)
+                    && let Some(info) = self.prev_cache.get(&pid)
+                {
+                    self.stale.insert(pid, info.clone());
+                }
+            }
+        }
+
+        self.prev_pids = active_pids;
+        self.prev_cache.clear();
+        for proc in live_procs {
+            self.prev_cache.insert(proc.pid, proc.clone());
+        }
+    }
+
+    /// Returns the stale process entries from the previous cycle.
+    fn stale_procs(&self) -> &HashMap<u32, crate::domain::process::ProcInfo> {
+        &self.stale
+    }
+}
+
 pub(crate) struct ProcessViewState {
     pub(crate) start: usize,
     pub(crate) selected: usize,
@@ -268,12 +322,7 @@ pub(crate) struct ProcessViewState {
     /// Combined procs list (live + stale) that entries' `proc_index` refers to.
     /// Only populated when `keep_dead_proc_usage` adds stale entries.
     pub(crate) display_procs: Option<Vec<crate::domain::process::ProcInfo>>,
-    /// Recently-dead process entries kept for one additional display cycle.
-    stale_procs: HashMap<u32, crate::domain::process::ProcInfo>,
-    /// PIDs from the previous snapshot, used to detect newly-dead processes.
-    prev_pids: HashSet<u32>,
-    /// ProcInfo cache from the previous snapshot for stale-process lookup.
-    prev_proc_cache: HashMap<u32, crate::domain::process::ProcInfo>,
+    stale_tracker: StaleProcessTracker,
 }
 
 impl ProcessViewState {
@@ -284,34 +333,12 @@ impl ProcessViewState {
             filter_text: String::new(),
             entries: Vec::new(),
             display_procs: None,
-            stale_procs: HashMap::new(),
-            prev_pids: HashSet::new(),
-            prev_proc_cache: HashMap::new(),
+            stale_tracker: StaleProcessTracker::new(),
         }
     }
 
     fn update_stale_procs(&mut self, procs: &[crate::domain::process::ProcInfo], keep_dead: bool) {
-        let active_pids: HashSet<u32> = procs.iter().map(|proc| proc.pid).collect();
-
-        // Detect recently-dead PIDs and preserve their last-known data
-        // for one additional display cycle.
-        self.stale_procs.clear();
-        if keep_dead {
-            for &pid in &self.prev_pids {
-                if !active_pids.contains(&pid)
-                    && let Some(info) = self.prev_proc_cache.get(&pid)
-                {
-                    self.stale_procs.insert(pid, info.clone());
-                }
-            }
-        }
-
-        // Update prev_pids and prev_proc_cache for next cycle.
-        self.prev_pids = active_pids;
-        self.prev_proc_cache.clear();
-        for proc in procs {
-            self.prev_proc_cache.insert(proc.pid, proc.clone());
-        }
+        self.stale_tracker.update(procs, keep_dead);
     }
 
     fn rebuild_entries(
@@ -326,12 +353,13 @@ impl ProcessViewState {
         };
 
         // Build combined procs list with stale entries if keep_dead_proc_usage.
-        let has_stale = config.keep_dead_proc_usage && !self.stale_procs.is_empty();
+        let stale = self.stale_tracker.stale_procs();
+        let has_stale = config.keep_dead_proc_usage && !stale.is_empty();
         if has_stale {
             let combined: Vec<crate::domain::process::ProcInfo> = live_procs
                 .iter()
                 .cloned()
-                .chain(self.stale_procs.values().cloned())
+                .chain(stale.values().cloned())
                 .collect();
             self.display_procs = Some(combined);
         } else {
@@ -1272,5 +1300,56 @@ mod tests {
             draw::layout::MIN_TERM_WIDTH,
             draw::layout::MIN_TERM_HEIGHT
         )));
+    }
+
+    fn make_proc(pid: u32) -> crate::domain::process::ProcInfo {
+        crate::domain::process::ProcInfo {
+            pid,
+            name: format!("proc{pid}"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn stale_tracker_no_stale_on_first_update() {
+        let mut tracker = StaleProcessTracker::new();
+        tracker.update(&[make_proc(1), make_proc(2)], true);
+        assert!(tracker.stale_procs().is_empty());
+    }
+
+    #[test]
+    fn stale_tracker_detects_dead_process() {
+        let mut tracker = StaleProcessTracker::new();
+        tracker.update(&[make_proc(1), make_proc(2)], true);
+        tracker.update(&[make_proc(1)], true);
+        assert_eq!(tracker.stale_procs().len(), 1);
+        assert!(tracker.stale_procs().contains_key(&2));
+    }
+
+    #[test]
+    fn stale_tracker_one_cycle_retention() {
+        let mut tracker = StaleProcessTracker::new();
+        tracker.update(&[make_proc(1), make_proc(2)], true);
+        tracker.update(&[make_proc(1)], true);
+        assert!(tracker.stale_procs().contains_key(&2));
+        // Third cycle: pid 2 is no longer in prev_pids, so it drops out.
+        tracker.update(&[make_proc(1)], true);
+        assert!(tracker.stale_procs().is_empty());
+    }
+
+    #[test]
+    fn stale_tracker_keep_dead_false_clears_stale() {
+        let mut tracker = StaleProcessTracker::new();
+        tracker.update(&[make_proc(1), make_proc(2)], true);
+        tracker.update(&[make_proc(1)], false);
+        assert!(tracker.stale_procs().is_empty());
+    }
+
+    #[test]
+    fn stale_tracker_all_processes_die() {
+        let mut tracker = StaleProcessTracker::new();
+        tracker.update(&[make_proc(1), make_proc(2)], true);
+        tracker.update(&[], true);
+        assert_eq!(tracker.stale_procs().len(), 2);
     }
 }
