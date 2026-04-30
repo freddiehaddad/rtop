@@ -2,53 +2,97 @@ use crate::domain::process::ProcDisplayEntry;
 use crate::{
     config,
     dirty::Dirty,
-    draw, handlers,
+    draw,
+    event::AppEvent,
+    handlers,
     handlers::{InputContext, MenuState},
     input, runner, term, theme, theme_keys as tc, tools, ui,
 };
+use crossterm::event::Event;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-const SNAPSHOT_POLL_MS: u64 = 50;
-
 /// Run the main event loop: collect data, render UI, and handle input.
+///
+/// Events arrive from three sources through a single channel:
+/// - Input thread: key presses and terminal resize
+/// - Collection worker: snapshot-ready notifications
+///
+/// The loop blocks on `rx.recv()` (zero CPU when idle), drains all
+/// queued events, then renders any dirty boxes in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
-    let mut worker = runner::CollectionWorker::start(config.update_ms as u64);
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let mut worker = runner::CollectionWorker::start(config.update_ms as u64, event_tx.clone());
+    spawn_input_thread(event_tx);
     let mut state = AppState::new(config, Instant::now());
 
-    loop {
-        let size = refresh_terminal(&mut state, terminal);
-        if config.background_update || state.overlay.render_ui() {
+    while let Ok(first) = event_rx.recv() {
+        // Drain all queued events to batch work before rendering.
+        let mut has_resize = matches!(first, AppEvent::Resize);
+        let mut has_snapshot = matches!(first, AppEvent::SnapshotReady);
+        let mut keys: Vec<input::Key> = Vec::new();
+        if let AppEvent::Key(k) = first {
+            keys.push(k);
+        }
+        for event in std::iter::from_fn(|| event_rx.try_recv().ok()) {
+            match event {
+                AppEvent::Resize => has_resize = true,
+                AppEvent::SnapshotReady => has_snapshot = true,
+                AppEvent::Key(k) => keys.push(k),
+            }
+        }
+
+        // Process resize before keys — keys may draw overlays that need current dimensions.
+        if has_resize {
+            terminal.refresh();
+            state.render.mark_resize();
+        }
+        let size = terminal_size(terminal);
+
+        // Pull latest snapshot if new data arrived and the UI should consume it.
+        if has_snapshot && (config.background_update || state.overlay.render_ui()) {
             pull_latest_snapshot(&mut state, config, &worker);
         }
 
+        // Handle too-small terminal: render message, only accept quit.
         if is_too_small(size) {
-            if handle_small_terminal(&mut state, config, terminal, theme, size) == AppCommand::Quit
-            {
+            render_if_dirty_small(&mut state, config, terminal, theme, size);
+            if keys.contains(&input::Key::Char('q')) {
                 break;
             }
             continue;
         }
 
+        // Handle waiting for first snapshot: render message, only accept quit.
         if state.snapshot.current.is_none() {
-            if handle_waiting_for_snapshot(&mut state, config, terminal, theme, size)
+            render_if_dirty_waiting(&mut state, config, terminal, theme, size);
+            if keys.contains(&input::Key::Char('q')) {
+                break;
+            }
+            continue;
+        }
+
+        // Process key events.
+        for key in &keys {
+            if handle_input_key(key, &mut state, config, terminal, theme, &worker, size)
                 == AppCommand::Quit
             {
-                break;
+                worker.shutdown();
+                save_config_on_exit(config);
+                return;
             }
-            continue;
         }
 
+        // If an overlay just closed and we skipped a snapshot, catch up now.
+        if state.overlay.render_ui() && has_snapshot && !config.background_update {
+            pull_latest_snapshot(&mut state, config, &worker);
+        }
+
+        // Render dirty boxes.
         if state.overlay.render_ui() && !state.render.dirty.is_empty() {
             execute_dirty_work(&mut state, config, size);
             write_dirty_frame(&mut state, config, terminal, theme);
-        }
-
-        if poll_and_handle_input(&mut state, config, terminal, theme, &worker, size)
-            == AppCommand::Quit
-        {
-            break;
         }
     }
 
@@ -77,10 +121,6 @@ impl AppState {
             network: NetworkViewState::new(),
             startup: StartupState::new(),
         }
-    }
-
-    fn poll_timeout_ms(&self) -> u64 {
-        SNAPSHOT_POLL_MS
     }
 }
 
@@ -368,10 +408,32 @@ enum AppCommand {
     Quit,
 }
 
-fn refresh_terminal(state: &mut AppState, terminal: &mut term::Terminal) -> TerminalSize {
-    if terminal.refresh() {
-        state.render.mark_resize();
-    }
+/// Spawn a thread that blocks on `crossterm::event::read()` and forwards
+/// key presses and resize events through the event channel.
+///
+/// The thread is not joined — it exits when `tx` is dropped (all senders
+/// gone) or when the process exits.
+fn spawn_input_thread(tx: std::sync::mpsc::Sender<AppEvent>) {
+    std::thread::spawn(move || {
+        loop {
+            match crossterm::event::read() {
+                Ok(Event::Key(key)) => {
+                    if let Some(k) = input::translate_key(key)
+                        && tx.send(AppEvent::Key(k)).is_err()
+                    {
+                        break;
+                    }
+                }
+                Ok(Event::Resize(_, _)) if tx.send(AppEvent::Resize).is_err() => {
+                    break;
+                }
+                _ => {}
+            }
+        }
+    });
+}
+
+fn terminal_size(terminal: &term::Terminal) -> TerminalSize {
     let (width, height) = terminal.size();
     TerminalSize {
         width: width as usize,
@@ -472,26 +534,19 @@ fn render_too_small(size: TerminalSize, theme: &theme::Theme) -> String {
     )
 }
 
-fn handle_small_terminal(
+/// Render the "too small" message if dirty flags indicate it's needed.
+fn render_if_dirty_small(
     state: &mut AppState,
     config: &config::Config,
     terminal: &mut term::Terminal,
     theme: &theme::Theme,
     size: TerminalSize,
-) -> AppCommand {
+) {
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
     {
         let output = style_terminal_output(&render_too_small(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
         state.render.clear_dirty();
-    }
-
-    if input::poll(state.poll_timeout_ms())
-        && input::get().is_some_and(|key| key == input::Key::Char('q'))
-    {
-        AppCommand::Quit
-    } else {
-        AppCommand::Continue
     }
 }
 
@@ -505,27 +560,20 @@ fn render_waiting_for_snapshot(size: TerminalSize, theme: &theme::Theme) -> Stri
     )
 }
 
-fn handle_waiting_for_snapshot(
+/// Render the "Collecting data..." message if dirty flags indicate it's needed.
+fn render_if_dirty_waiting(
     state: &mut AppState,
     config: &config::Config,
     terminal: &mut term::Terminal,
     theme: &theme::Theme,
     size: TerminalSize,
-) -> AppCommand {
+) {
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
     {
         let output =
             style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
         let _ = terminal.write_synced(&output);
         state.render.clear_dirty();
-    }
-
-    if input::poll(state.poll_timeout_ms())
-        && input::get().is_some_and(|key| key == input::Key::Char('q'))
-    {
-        AppCommand::Quit
-    } else {
-        AppCommand::Continue
     }
 }
 
@@ -635,25 +683,6 @@ fn render_dirty_frame(
     output
 }
 
-fn poll_and_handle_input(
-    state: &mut AppState,
-    config: &mut config::Config,
-    terminal: &mut term::Terminal,
-    theme: &mut theme::Theme,
-    worker: &runner::CollectionWorker,
-    size: TerminalSize,
-) -> AppCommand {
-    if !input::poll(state.poll_timeout_ms()) {
-        return AppCommand::Continue;
-    }
-
-    let Some(key) = input::get() else {
-        return AppCommand::Continue;
-    };
-
-    handle_input_key(&key, state, config, terminal, theme, worker, size)
-}
-
 fn handle_input_key(
     key: &input::Key,
     state: &mut AppState,
@@ -663,11 +692,6 @@ fn handle_input_key(
     worker: &runner::CollectionWorker,
     size: TerminalSize,
 ) -> AppCommand {
-    if *key == input::Key::Resize {
-        state.render.mark_resize();
-        return AppCommand::Continue;
-    }
-
     let mut ctx = InputContext {
         config,
         theme,
@@ -1050,14 +1074,6 @@ mod tests {
 
         state.overlay.menu_state = MenuState::Options;
         assert!(!state.overlay.render_ui());
-    }
-
-    #[test]
-    fn poll_timeout_uses_snapshot_poll_interval() {
-        let config = config::Config::new();
-        let state = AppState::new(&config, Instant::now());
-
-        assert_eq!(state.poll_timeout_ms(), SNAPSHOT_POLL_MS);
     }
 
     #[test]

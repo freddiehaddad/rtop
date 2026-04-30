@@ -304,26 +304,6 @@ fn process_row_color<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::Theme;
-
-    fn strip_ansi(s: &str) -> String {
-        let mut result = String::with_capacity(s.len());
-        let mut in_escape = false;
-        for ch in s.chars() {
-            if in_escape {
-                if ch.is_ascii_alphabetic() || ch == 'm' {
-                    in_escape = false;
-                }
-                continue;
-            }
-            if ch == '\x1b' {
-                in_escape = true;
-                continue;
-            }
-            result.push(ch);
-        }
-        result
-    }
 
     fn make_settings() -> ProcBoxSettings {
         ProcBoxSettings {

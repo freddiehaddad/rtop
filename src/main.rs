@@ -6,6 +6,7 @@ mod config;
 mod dirty;
 mod domain;
 mod draw;
+mod event;
 mod handlers;
 mod input;
 mod log;

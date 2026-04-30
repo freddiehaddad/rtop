@@ -291,8 +291,6 @@ fn detail_ljust(value: &str, width: usize) -> String {
 mod tests {
     use super::*;
     use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
-    use crate::draw::graph::GraphSymbol;
-    use std::collections::HashMap;
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -361,12 +359,6 @@ mod tests {
                 io_write: 0,
             },
         ]
-    }
-
-    fn empty_histories() -> &'static HashMap<u32, std::collections::VecDeque<i64>> {
-        static HISTORIES: std::sync::OnceLock<HashMap<u32, std::collections::VecDeque<i64>>> =
-            std::sync::OnceLock::new();
-        HISTORIES.get_or_init(HashMap::new)
     }
 
     fn make_settings() -> ProcBoxSettings {

@@ -759,12 +759,14 @@ mod tests {
     }
 
     fn make_cpu_info() -> CpuInfo {
-        let mut cpu = CpuInfo::default();
-        cpu.cpu_name = "Test CPU".into();
-        cpu.cpu_hz = "3.50 GHz".into();
-        cpu.core_count = 4;
-        cpu.uptime_seconds = 86400;
-        cpu.load_avg = [0.84, 0.38, 0.40];
+        let mut cpu = CpuInfo {
+            cpu_name: "Test CPU".into(),
+            cpu_hz: "3.50 GHz".into(),
+            core_count: 4,
+            uptime_seconds: 86400,
+            load_avg: [0.84, 0.38, 0.40],
+            ..CpuInfo::default()
+        };
         cpu.cpu_percent.total = VecDeque::from([50]);
         cpu.cpu_percent.user = VecDeque::from([30]);
         cpu.cpu_percent.system = VecDeque::from([20]);

@@ -1,5 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use std::time::Duration;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 /// Typed input key, replacing stringly-typed dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,25 +28,10 @@ pub enum Key {
     CtrlB,
     CtrlU,
     CtrlX,
-    Resize,
-}
-
-/// Poll for input with a timeout in milliseconds. Returns true if input is available.
-pub fn poll(timeout_ms: u64) -> bool {
-    event::poll(Duration::from_millis(timeout_ms)).unwrap_or(false)
-}
-
-/// Read and translate one input event to a typed key.
-pub fn get() -> Option<Key> {
-    match event::read() {
-        Ok(Event::Key(key)) => translate_key(key),
-        Ok(Event::Resize(_, _)) => Some(Key::Resize),
-        _ => None,
-    }
 }
 
 /// Translate a crossterm KeyEvent to a typed Key.
-fn translate_key(key: KeyEvent) -> Option<Key> {
+pub(crate) fn translate_key(key: KeyEvent) -> Option<Key> {
     if key.kind != KeyEventKind::Press {
         return None;
     }

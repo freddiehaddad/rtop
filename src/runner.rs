@@ -10,6 +10,7 @@ use crate::domain::{
     cpu::CpuInfo, disk::DiskData, gpu::GpuInfo, memory::MemInfo, network::NetInfo,
     process::ProcInfo,
 };
+use crate::event::AppEvent;
 use std::sync::{
     Arc, Mutex,
     mpsc::{self, Receiver, Sender},
@@ -207,11 +208,12 @@ enum WorkerCommand {
 }
 
 impl CollectionWorker {
-    pub(crate) fn start(update_ms: u64) -> Self {
+    pub(crate) fn start(update_ms: u64, event_tx: Sender<AppEvent>) -> Self {
         let latest = LatestSnapshot::new();
         let worker_latest = latest.clone();
         let (tx, rx) = mpsc::channel();
-        let join = thread::spawn(move || run_collection_worker(update_ms, worker_latest, rx));
+        let join =
+            thread::spawn(move || run_collection_worker(update_ms, worker_latest, rx, event_tx));
 
         Self {
             latest,
@@ -250,11 +252,12 @@ fn run_collection_worker(
     initial_update_ms: u64,
     latest: LatestSnapshot,
     rx: Receiver<WorkerCommand>,
+    event_tx: Sender<AppEvent>,
 ) {
     let mut runner = Runner::new();
     let mut update_ms = initial_update_ms.max(100);
     let mut seq = 0;
-    collect_and_publish(&mut runner, &latest, &mut seq);
+    collect_and_publish(&mut runner, &latest, &mut seq, &event_tx);
     let mut next_collect = Instant::now() + Duration::from_millis(update_ms);
 
     loop {
@@ -266,12 +269,12 @@ fn run_collection_worker(
             }
             Ok(WorkerCommand::ResetNetTotals { iface }) => {
                 if runner.net.reset_totals(&iface) {
-                    publish_snapshot(&runner, &latest, &mut seq);
+                    publish_snapshot(&runner, &latest, &mut seq, &event_tx);
                 }
             }
             Ok(WorkerCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
-                collect_and_publish(&mut runner, &latest, &mut seq);
+                collect_and_publish(&mut runner, &latest, &mut seq, &event_tx);
                 next_collect = Instant::now() + Duration::from_millis(update_ms);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -279,14 +282,25 @@ fn run_collection_worker(
     }
 }
 
-fn collect_and_publish(runner: &mut Runner, latest: &LatestSnapshot, seq: &mut u64) {
+fn collect_and_publish(
+    runner: &mut Runner,
+    latest: &LatestSnapshot,
+    seq: &mut u64,
+    event_tx: &Sender<AppEvent>,
+) {
     runner.collect_all();
-    publish_snapshot(runner, latest, seq);
+    publish_snapshot(runner, latest, seq, event_tx);
 }
 
-fn publish_snapshot(runner: &Runner, latest: &LatestSnapshot, seq: &mut u64) {
+fn publish_snapshot(
+    runner: &Runner,
+    latest: &LatestSnapshot,
+    seq: &mut u64,
+    event_tx: &Sender<AppEvent>,
+) {
     *seq = seq.saturating_add(1);
     latest.publish(runner.snapshot(*seq));
+    let _ = event_tx.send(AppEvent::SnapshotReady);
 }
 
 #[cfg(test)]

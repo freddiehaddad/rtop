@@ -252,7 +252,7 @@ mod tests {
                 cached: 2 * GIB,
                 free: 6 * GIB,
                 swap_total: 4 * GIB,
-                swap_used: 1 * GIB,
+                swap_used: GIB,
                 swap_free: 3 * GIB,
             },
             percent: MemPercent::default(),
