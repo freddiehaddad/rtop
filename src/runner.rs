@@ -15,109 +15,12 @@ use std::sync::{
     Arc, Mutex,
     mpsc::{self, Receiver, Sender},
 };
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-/// Coordinates all data collectors.
-pub struct Runner {
-    pub cpu: CpuCollector,
-    pub disk: DiskCollector,
-    pub gpu: GpuCollector,
-    pub mem: MemCollector,
-    pub net: NetCollector,
-    pub proc_collector: ProcCollector,
-}
-
-impl Runner {
-    /// Create a new runner with default collectors.
-    pub fn new() -> Self {
-        let mut cpu = CpuCollector::new();
-        cpu.init();
-        Self {
-            cpu,
-            disk: DiskCollector::new(),
-            gpu: GpuCollector::new(),
-            mem: MemCollector::new(),
-            net: NetCollector::new(),
-            proc_collector: ProcCollector::new(),
-        }
-    }
-
-    /// Run one collection cycle for all collectors.
-    pub fn collect_all(&mut self) {
-        self.cpu.collect();
-        self.disk.collect();
-        self.gpu.collect();
-        self.mem.collect();
-        self.net.collect();
-        self.proc_collector.set_core_count(self.cpu.info.core_count);
-        self.proc_collector.collect();
-    }
-
-    /// Clone the current public collector data into an immutable render snapshot.
-    pub(crate) fn snapshot(&self, seq: u64) -> CollectionSnapshot {
-        CollectionSnapshot::from_runner(self, seq)
-    }
-}
-
-impl Default for Runner {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Immutable point-in-time data used by the UI renderer.
-#[derive(Debug, Clone)]
-pub(crate) struct CollectionSnapshot {
-    pub(crate) seq: u64,
-    pub(crate) cpu: CpuSnapshot,
-    pub(crate) disk: DiskSnapshot,
-    pub(crate) gpu: GpuSnapshot,
-    pub(crate) mem: MemSnapshot,
-    pub(crate) net: NetSnapshot,
-    pub(crate) proc_data: ProcSnapshot,
-}
-
-impl CollectionSnapshot {
-    fn from_runner(runner: &Runner, seq: u64) -> Self {
-        Self {
-            seq,
-            cpu: CpuSnapshot {
-                info: runner.cpu.info.clone(),
-                status: runner.cpu.status.clone(),
-            },
-            disk: DiskSnapshot {
-                info: runner.disk.info.clone(),
-                status: runner.disk.status.clone(),
-            },
-            gpu: GpuSnapshot {
-                gpus: runner.gpu.gpus.clone(),
-                status: runner.gpu.status.clone(),
-            },
-            mem: MemSnapshot {
-                info: runner.mem.info.clone(),
-                status: runner.mem.status.clone(),
-            },
-            net: NetSnapshot {
-                nets: runner.net.nets.clone(),
-                status: runner.net.status.clone(),
-            },
-            proc_data: ProcSnapshot {
-                procs: runner.proc_collector.procs.clone(),
-                status: runner.proc_collector.status.clone(),
-            },
-        }
-    }
-
-    pub(crate) fn layout_hints(&self) -> LayoutHints {
-        LayoutHints {
-            core_count: self.cpu.info.core_count,
-            gpu_count: self.gpu.gpus.len(),
-            disk_count: self.disk.info.disks.len(),
-            has_swap: self.mem.info.stats.swap_total > 0,
-        }
-    }
-}
+// ---------------------------------------------------------------------------
+// Per-subsystem snapshot types
+// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
 pub(crate) struct CpuSnapshot {
@@ -155,6 +58,10 @@ pub(crate) struct ProcSnapshot {
     pub(crate) status: CollectStatus,
 }
 
+// ---------------------------------------------------------------------------
+// Layout hints (derived from hardware constants across subsystems)
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct LayoutHints {
     pub(crate) core_count: usize,
@@ -163,213 +70,383 @@ pub(crate) struct LayoutHints {
     pub(crate) has_swap: bool,
 }
 
-/// Shared latest-snapshot store used to hand immutable frames to the UI.
-#[derive(Clone, Default)]
-pub(crate) struct LatestSnapshot {
-    inner: Arc<Mutex<Option<Arc<CollectionSnapshot>>>>,
+// ---------------------------------------------------------------------------
+// LatestSlot<T> — generic per-subsystem shared slot with coalescing
+// ---------------------------------------------------------------------------
+
+/// Thread-safe slot that always holds the latest value.
+///
+/// Publishers overwrite; consumers read the latest. Multiple publishes
+/// between reads naturally coalesce — only the most recent value is kept.
+#[derive(Clone)]
+pub(crate) struct LatestSlot<T> {
+    inner: Arc<Mutex<Option<Arc<T>>>>,
 }
 
-impl LatestSnapshot {
+impl<T> LatestSlot<T> {
     pub(crate) fn new() -> Self {
-        Self::default()
+        Self {
+            inner: Arc::new(Mutex::new(None)),
+        }
     }
 
-    pub(crate) fn publish(&self, snapshot: CollectionSnapshot) -> Arc<CollectionSnapshot> {
-        let snapshot = Arc::new(snapshot);
-        let mut latest = self.inner.lock().expect("latest snapshot mutex poisoned");
-        *latest = Some(Arc::clone(&snapshot));
-        snapshot
+    /// Store new data, replacing any previous value.
+    pub(crate) fn publish(&self, data: T) {
+        let mut slot = self.inner.lock().expect("slot mutex poisoned");
+        *slot = Some(Arc::new(data));
     }
 
-    pub(crate) fn latest(&self) -> Option<Arc<CollectionSnapshot>> {
-        self.inner
-            .lock()
-            .expect("latest snapshot mutex poisoned")
-            .clone()
-    }
-
-    pub(crate) fn latest_if_new(&self, last_seen_seq: u64) -> Option<Arc<CollectionSnapshot>> {
-        self.latest()
-            .filter(|snapshot| snapshot.seq > last_seen_seq)
+    /// Read the latest value, if any.
+    pub(crate) fn latest(&self) -> Option<Arc<T>> {
+        self.inner.lock().expect("slot mutex poisoned").clone()
     }
 }
 
-/// Background owner for all collectors.
-pub(crate) struct CollectionWorker {
-    latest: LatestSnapshot,
-    tx: Sender<WorkerCommand>,
-    join: Option<JoinHandle<()>>,
-}
+// ---------------------------------------------------------------------------
+// Collector commands
+// ---------------------------------------------------------------------------
 
-enum WorkerCommand {
-    SetUpdateMs(u64),
-    ResetNetTotals { iface: String },
+/// Commands sent to a collector thread.
+pub(crate) enum CollectorCommand {
+    /// Change the collection interval.
+    SetInterval(u64),
+    /// Graceful shutdown.
     Shutdown,
 }
 
-impl CollectionWorker {
-    pub(crate) fn start(update_ms: u64, event_tx: Sender<AppEvent>) -> Self {
-        let latest = LatestSnapshot::new();
-        let worker_latest = latest.clone();
-        let (tx, rx) = mpsc::channel();
-        let join =
-            thread::spawn(move || run_collection_worker(update_ms, worker_latest, rx, event_tx));
-
-        Self {
-            latest,
-            tx,
-            join: Some(join),
-        }
-    }
-
-    pub(crate) fn latest_if_new(&self, last_seen_seq: u64) -> Option<Arc<CollectionSnapshot>> {
-        self.latest.latest_if_new(last_seen_seq)
-    }
-
-    pub(crate) fn set_update_ms(&self, update_ms: u64) {
-        let _ = self.tx.send(WorkerCommand::SetUpdateMs(update_ms));
-    }
-
-    pub(crate) fn reset_net_totals(&self, iface: String) {
-        let _ = self.tx.send(WorkerCommand::ResetNetTotals { iface });
-    }
-
-    pub(crate) fn shutdown(&mut self) {
-        if let Some(join) = self.join.take() {
-            let _ = self.tx.send(WorkerCommand::Shutdown);
-            let _ = join.join();
-        }
-    }
+/// Commands sent to the network collector thread.
+pub(crate) enum NetCommand {
+    /// Change the collection interval.
+    SetInterval(u64),
+    /// Reset cumulative network totals for an interface.
+    ResetTotals(String),
+    /// Graceful shutdown.
+    Shutdown,
 }
 
-impl Drop for CollectionWorker {
-    fn drop(&mut self) {
-        self.shutdown();
-    }
-}
+// ---------------------------------------------------------------------------
+// Generic collector thread loop
+// ---------------------------------------------------------------------------
 
-fn run_collection_worker(
-    initial_update_ms: u64,
-    latest: LatestSnapshot,
-    rx: Receiver<WorkerCommand>,
+/// Run a collector in a loop: collect → publish → sleep → repeat.
+///
+/// Used for CPU, memory, disk, GPU, and process collectors.
+fn run_collector_loop<C, S>(
+    mut collector: C,
+    initial_interval_ms: u64,
+    slot: LatestSlot<S>,
     event_tx: Sender<AppEvent>,
-) {
-    let mut runner = Runner::new();
-    let mut update_ms = initial_update_ms.max(100);
-    let mut seq = 0;
-    collect_and_publish(&mut runner, &latest, &mut seq, &event_tx);
-    let mut next_collect = Instant::now() + Duration::from_millis(update_ms);
-
+    wakeup: AppEvent,
+    cmd_rx: Receiver<CollectorCommand>,
+    snapshot_fn: impl Fn(&C) -> S,
+) where
+    C: Collector,
+{
+    let mut interval_ms = initial_interval_ms.max(100);
     loop {
-        let timeout = next_collect.saturating_duration_since(Instant::now());
-        match rx.recv_timeout(timeout) {
-            Ok(WorkerCommand::SetUpdateMs(ms)) => {
-                update_ms = ms.max(100);
-                next_collect = Instant::now() + Duration::from_millis(update_ms);
-            }
-            Ok(WorkerCommand::ResetNetTotals { iface }) => {
-                if runner.net.reset_totals(&iface) {
-                    publish_snapshot(&runner, &latest, &mut seq, &event_tx);
-                }
-            }
-            Ok(WorkerCommand::Shutdown) => break,
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                collect_and_publish(&mut runner, &latest, &mut seq, &event_tx);
-                next_collect = Instant::now() + Duration::from_millis(update_ms);
-            }
+        collector.collect();
+        slot.publish(snapshot_fn(&collector));
+        let _ = event_tx.send(wakeup);
+
+        match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
+            Ok(CollectorCommand::SetInterval(ms)) => interval_ms = ms.max(100),
+            Ok(CollectorCommand::Shutdown) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 }
 
-fn collect_and_publish(
-    runner: &mut Runner,
-    latest: &LatestSnapshot,
-    seq: &mut u64,
-    event_tx: &Sender<AppEvent>,
+/// Run the network collector with support for `ResetTotals` commands.
+fn run_net_loop(
+    mut collector: NetCollector,
+    initial_interval_ms: u64,
+    slot: LatestSlot<NetSnapshot>,
+    event_tx: Sender<AppEvent>,
+    cmd_rx: Receiver<NetCommand>,
 ) {
-    runner.collect_all();
-    publish_snapshot(runner, latest, seq, event_tx);
+    let mut interval_ms = initial_interval_ms.max(100);
+    let publish = |c: &NetCollector| {
+        slot.publish(NetSnapshot {
+            nets: c.nets.clone(),
+            status: c.status.clone(),
+        });
+        let _ = event_tx.send(AppEvent::NetReady);
+    };
+
+    loop {
+        collector.collect();
+        publish(&collector);
+
+        match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
+            Ok(NetCommand::SetInterval(ms)) => interval_ms = ms.max(100),
+            Ok(NetCommand::ResetTotals(iface)) => {
+                if collector.reset_totals(&iface) {
+                    publish(&collector);
+                }
+            }
+            Ok(NetCommand::Shutdown) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
 }
 
-fn publish_snapshot(
-    runner: &Runner,
-    latest: &LatestSnapshot,
-    seq: &mut u64,
-    event_tx: &Sender<AppEvent>,
-) {
-    *seq = seq.saturating_add(1);
-    latest.publish(runner.snapshot(*seq));
-    let _ = event_tx.send(AppEvent::SnapshotReady);
+// ---------------------------------------------------------------------------
+// CollectorManager — owns all collector threads
+// ---------------------------------------------------------------------------
+
+/// Manages per-collector threads with independent timers.
+///
+/// Each collector runs on its own thread with a `LatestSlot<T>` for
+/// coalescing and publishes wakeup events through the shared channel.
+pub(crate) struct CollectorManager {
+    cpu_tx: Sender<CollectorCommand>,
+    mem_tx: Sender<CollectorCommand>,
+    disk_tx: Sender<CollectorCommand>,
+    net_tx: Sender<NetCommand>,
+    gpu_tx: Sender<CollectorCommand>,
+    proc_tx: Sender<CollectorCommand>,
+
+    pub(crate) cpu_slot: LatestSlot<CpuSnapshot>,
+    pub(crate) mem_slot: LatestSlot<MemSnapshot>,
+    pub(crate) disk_slot: LatestSlot<DiskSnapshot>,
+    pub(crate) net_slot: LatestSlot<NetSnapshot>,
+    pub(crate) gpu_slot: LatestSlot<GpuSnapshot>,
+    pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
+
+    joins: Vec<JoinHandle<()>>,
 }
+
+impl CollectorManager {
+    /// Start all collector threads with the given initial interval.
+    pub(crate) fn start(update_ms: u64, event_tx: Sender<AppEvent>) -> Self {
+        let core_count = crate::collect::cpu::get_core_count();
+
+        let cpu_slot = LatestSlot::new();
+        let mem_slot = LatestSlot::new();
+        let disk_slot = LatestSlot::new();
+        let net_slot = LatestSlot::new();
+        let gpu_slot = LatestSlot::new();
+        let proc_slot = LatestSlot::new();
+
+        let mut joins = Vec::with_capacity(6);
+
+        // CPU thread
+        let (cpu_tx, cpu_rx) = mpsc::channel();
+        {
+            let slot = cpu_slot.clone();
+            let tx = event_tx.clone();
+            joins.push(std::thread::spawn(move || {
+                let mut cpu = CpuCollector::new();
+                cpu.init();
+                run_collector_loop(cpu, update_ms, slot, tx, AppEvent::CpuReady, cpu_rx, |c| {
+                    CpuSnapshot {
+                        info: c.info.clone(),
+                        status: c.status.clone(),
+                    }
+                });
+            }));
+        }
+
+        // Memory thread
+        let (mem_tx, mem_rx) = mpsc::channel();
+        {
+            let slot = mem_slot.clone();
+            let tx = event_tx.clone();
+            joins.push(std::thread::spawn(move || {
+                run_collector_loop(
+                    MemCollector::new(),
+                    update_ms,
+                    slot,
+                    tx,
+                    AppEvent::MemReady,
+                    mem_rx,
+                    |c| MemSnapshot {
+                        info: c.info.clone(),
+                        status: c.status.clone(),
+                    },
+                );
+            }));
+        }
+
+        // Disk thread
+        let (disk_tx, disk_rx) = mpsc::channel();
+        {
+            let slot = disk_slot.clone();
+            let tx = event_tx.clone();
+            joins.push(std::thread::spawn(move || {
+                run_collector_loop(
+                    DiskCollector::new(),
+                    update_ms,
+                    slot,
+                    tx,
+                    AppEvent::DiskReady,
+                    disk_rx,
+                    |c| DiskSnapshot {
+                        info: c.info.clone(),
+                        status: c.status.clone(),
+                    },
+                );
+            }));
+        }
+
+        // Network thread (custom loop for ResetTotals)
+        let (net_tx, net_rx) = mpsc::channel();
+        {
+            let slot = net_slot.clone();
+            let tx = event_tx.clone();
+            joins.push(std::thread::spawn(move || {
+                run_net_loop(NetCollector::new(), update_ms, slot, tx, net_rx);
+            }));
+        }
+
+        // GPU thread
+        let (gpu_tx, gpu_rx) = mpsc::channel();
+        {
+            let slot = gpu_slot.clone();
+            let tx = event_tx.clone();
+            joins.push(std::thread::spawn(move || {
+                run_collector_loop(
+                    GpuCollector::new(),
+                    update_ms,
+                    slot,
+                    tx,
+                    AppEvent::GpuReady,
+                    gpu_rx,
+                    |c| GpuSnapshot {
+                        gpus: c.gpus.clone(),
+                        status: c.status.clone(),
+                    },
+                );
+            }));
+        }
+
+        // Process thread
+        let (proc_tx, proc_rx) = mpsc::channel();
+        {
+            let slot = proc_slot.clone();
+            let tx = event_tx;
+            joins.push(std::thread::spawn(move || {
+                let mut proc_collector = ProcCollector::new();
+                proc_collector.set_core_count(core_count);
+                run_collector_loop(
+                    proc_collector,
+                    update_ms,
+                    slot,
+                    tx,
+                    AppEvent::ProcReady,
+                    proc_rx,
+                    |c| ProcSnapshot {
+                        procs: c.procs.clone(),
+                        status: c.status.clone(),
+                    },
+                );
+            }));
+        }
+
+        Self {
+            cpu_tx,
+            mem_tx,
+            disk_tx,
+            net_tx,
+            gpu_tx,
+            proc_tx,
+            cpu_slot,
+            mem_slot,
+            disk_slot,
+            net_slot,
+            gpu_slot,
+            proc_slot,
+            joins,
+        }
+    }
+
+    /// Update the collection interval for all collectors.
+    pub(crate) fn set_update_ms(&self, ms: u64) {
+        let _ = self.cpu_tx.send(CollectorCommand::SetInterval(ms));
+        let _ = self.mem_tx.send(CollectorCommand::SetInterval(ms));
+        let _ = self.disk_tx.send(CollectorCommand::SetInterval(ms));
+        let _ = self.net_tx.send(NetCommand::SetInterval(ms));
+        let _ = self.gpu_tx.send(CollectorCommand::SetInterval(ms));
+        let _ = self.proc_tx.send(CollectorCommand::SetInterval(ms));
+    }
+
+    /// Reset cumulative network totals for an interface.
+    pub(crate) fn reset_net_totals(&self, iface: String) {
+        let _ = self.net_tx.send(NetCommand::ResetTotals(iface));
+    }
+
+    /// Shut down all collector threads and wait for them to finish.
+    pub(crate) fn shutdown(&mut self) {
+        let _ = self.cpu_tx.send(CollectorCommand::Shutdown);
+        let _ = self.mem_tx.send(CollectorCommand::Shutdown);
+        let _ = self.disk_tx.send(CollectorCommand::Shutdown);
+        let _ = self.net_tx.send(NetCommand::Shutdown);
+        let _ = self.gpu_tx.send(CollectorCommand::Shutdown);
+        let _ = self.proc_tx.send(CollectorCommand::Shutdown);
+        for join in self.joins.drain(..) {
+            let _ = join.join();
+        }
+    }
+}
+
+impl Drop for CollectorManager {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn runner_with_sample_data() -> Runner {
-        let mut runner = Runner {
-            cpu: CpuCollector::default(),
-            disk: DiskCollector::default(),
-            gpu: GpuCollector::default(),
-            mem: MemCollector::default(),
-            net: NetCollector::default(),
-            proc_collector: ProcCollector::default(),
+    #[test]
+    fn latest_slot_publishes_and_reads() {
+        let slot = LatestSlot::new();
+        assert!(slot.latest().is_none());
+
+        slot.publish(42_u32);
+        let val = slot.latest().expect("should have value");
+        assert_eq!(*val, 42);
+    }
+
+    #[test]
+    fn latest_slot_overwrites_previous() {
+        let slot = LatestSlot::new();
+        slot.publish(1_u32);
+        slot.publish(2_u32);
+        assert_eq!(*slot.latest().unwrap(), 2);
+    }
+
+    #[test]
+    fn latest_slot_clone_shares_state() {
+        let slot = LatestSlot::new();
+        let clone = slot.clone();
+        slot.publish(99_u32);
+        assert_eq!(*clone.latest().unwrap(), 99);
+    }
+
+    #[test]
+    fn cpu_snapshot_clones_data() {
+        let snap = CpuSnapshot {
+            info: CpuInfo::default(),
+            status: CollectStatus::Ok,
         };
-        runner.cpu.info.core_count = 8;
-        runner.mem.info.stats.swap_total = 1024;
-        runner.net.nets.push(NetInfo {
-            name: "Ethernet".into(),
-            ..NetInfo::default()
-        });
-        runner.proc_collector.procs.push(ProcInfo {
-            pid: 42,
-            name: "sample.exe".into(),
-            ..ProcInfo::default()
-        });
-        runner
+        assert_eq!(snap.info.core_count, 0);
+        assert_eq!(snap.status, CollectStatus::Ok);
     }
 
     #[test]
-    fn snapshot_clones_public_runner_data() {
-        let runner = runner_with_sample_data();
-        let snapshot = runner.snapshot(7);
-
-        assert_eq!(snapshot.seq, 7);
-        assert_eq!(snapshot.cpu.info.core_count, 8);
-        assert_eq!(snapshot.net.nets.len(), 1);
-        assert_eq!(snapshot.net.nets[0].name, "Ethernet");
-        assert_eq!(snapshot.proc_data.procs[0].pid, 42);
-    }
-
-    #[test]
-    fn snapshot_layout_hints_reflect_collected_data() {
-        let runner = runner_with_sample_data();
-        let hints = runner.snapshot(1).layout_hints();
-
-        assert_eq!(hints.core_count, 8);
-        assert!(hints.has_swap);
-    }
-
-    #[test]
-    fn latest_snapshot_publishes_and_clones_arc() {
-        let store = LatestSnapshot::new();
-        let snapshot = runner_with_sample_data().snapshot(1);
-
-        let published = store.publish(snapshot);
-        let latest = store.latest().expect("snapshot should be available");
-
-        assert!(Arc::ptr_eq(&published, &latest));
-        assert_eq!(latest.seq, 1);
-    }
-
-    #[test]
-    fn latest_if_new_returns_only_newer_sequences() {
-        let store = LatestSnapshot::new();
-        store.publish(runner_with_sample_data().snapshot(3));
-
-        assert!(store.latest_if_new(2).is_some());
-        assert!(store.latest_if_new(3).is_none());
-        assert!(store.latest_if_new(4).is_none());
+    fn layout_hints_default() {
+        let hints = LayoutHints::default();
+        assert_eq!(hints.core_count, 0);
+        assert_eq!(hints.gpu_count, 0);
+        assert_eq!(hints.disk_count, 0);
+        assert!(!hints.has_swap);
     }
 }

@@ -5,7 +5,7 @@ pub(crate) mod normal;
 pub(crate) mod options;
 
 use crate::{
-    app::{NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
+    app::{LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
     config,
     dirty::Dirty,
     runner, theme,
@@ -111,8 +111,8 @@ impl HandleResult {
 pub(crate) struct InputContext<'a> {
     pub(crate) config: &'a mut config::Config,
     pub(crate) theme: &'a mut theme::Theme,
-    pub(crate) snapshot: Option<&'a runner::CollectionSnapshot>,
-    pub(crate) worker: &'a runner::CollectionWorker,
+    pub(crate) live: &'a LiveData,
+    pub(crate) manager: &'a runner::CollectorManager,
     pub(crate) runtime: &'a mut RuntimeState,
     pub(crate) render: &'a mut RenderState,
     pub(crate) overlay: &'a mut OverlayState,
@@ -128,7 +128,7 @@ impl InputContext<'_> {
             .process
             .display_procs
             .as_deref()
-            .or_else(|| self.snapshot.map(|s| s.proc_data.procs.as_slice()))?;
+            .or_else(|| self.live.proc_data.as_ref().map(|s| s.procs.as_slice()))?;
         self.process
             .entries
             .get(self.process.selected)
@@ -145,11 +145,16 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
     use crate::app::{RenderParams, render_all};
 
     let mut out = String::new();
-    if let (Some(layout), Some(snapshot)) = (ctx.render.cached_layout.as_ref(), ctx.snapshot) {
+    if let Some(layout) = ctx.render.cached_layout.as_ref() {
         let params = RenderParams {
             dirty: Dirty::ALL_BOXES,
             layout,
-            snapshot,
+            cpu: ctx.live.cpu.as_deref(),
+            mem: ctx.live.mem.as_deref(),
+            disk: ctx.live.disk.as_deref(),
+            net: ctx.live.net.as_deref(),
+            gpu: ctx.live.gpu.as_deref(),
+            proc_data: ctx.live.proc_data.as_deref(),
             proc_entries: &ctx.process.entries,
             proc_display_procs: ctx.process.display_procs.as_deref(),
             selected_iface: ctx.network.selected_iface.as_str(),
@@ -158,6 +163,8 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             rounded: ctx.runtime.rounded,
             update_ms: ctx.runtime.update_ms,
             is_filtering: false,
+            core_count: ctx.live.core_count,
+            total_mem: ctx.live.total_mem,
         };
         out.push_str("\x1b[2J");
         out.push_str(&render_all(

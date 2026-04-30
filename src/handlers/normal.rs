@@ -325,7 +325,7 @@ fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
         Key::Char('3') => ctx.config.toggle_box("net"),
         Key::Char('4') => ctx.config.toggle_box("proc"),
         Key::Char('5') => {
-            let gpu_count = ctx.snapshot.map_or(0, |s| s.gpu.gpus.len());
+            let gpu_count = ctx.live.gpu.as_ref().map_or(0, |g| g.gpus.len());
             for i in 0..gpu_count {
                 ctx.config.toggle_box(&format!("gpu{i}"));
             }
@@ -342,11 +342,11 @@ fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
 
 fn handle_network(key: &Key, ctx: &mut InputContext) {
     match *key {
-        Key::Char('b') if ctx.snapshot.is_some_and(|s| !s.net.nets.is_empty()) => {
+        Key::Char('b') if ctx.live.net.as_ref().is_some_and(|n| !n.nets.is_empty()) => {
             cycle_net_iface(ctx, -1);
             ctx.render.dirty |= Dirty::NET_BOX;
         }
-        Key::Char('n') if ctx.snapshot.is_some_and(|s| !s.net.nets.is_empty()) => {
+        Key::Char('n') if ctx.live.net.as_ref().is_some_and(|n| !n.nets.is_empty()) => {
             cycle_net_iface(ctx, 1);
             ctx.render.dirty |= Dirty::NET_BOX;
         }
@@ -359,7 +359,7 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('z') if !ctx.network.selected_iface.is_empty() => {
-            ctx.worker
+            ctx.manager
                 .reset_net_totals(ctx.network.selected_iface.clone());
             ctx.render.dirty |= Dirty::NET_BOX;
         }
@@ -383,7 +383,7 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
     let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
     ctx.config.update_ms = new_ms;
     ctx.runtime.update_ms = ctx.config.update_ms as u64;
-    ctx.worker.set_update_ms(ctx.runtime.update_ms);
+    ctx.manager.set_update_ms(ctx.runtime.update_ms);
     ctx.render.dirty |= Dirty::CPU_BOX;
 }
 
@@ -391,14 +391,14 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
 
 fn sync_update_ms(ctx: &mut InputContext) {
     ctx.runtime.update_ms = ctx.config.update_ms as u64;
-    ctx.worker.set_update_ms(ctx.runtime.update_ms);
+    ctx.manager.set_update_ms(ctx.runtime.update_ms);
 }
 
 fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
-    let Some(snapshot) = ctx.snapshot else {
+    let Some(net_snap) = ctx.live.net.as_ref() else {
         return;
     };
-    let nets = &snapshot.net.nets;
+    let nets = &net_snap.nets;
     if nets.is_empty() {
         return;
     }

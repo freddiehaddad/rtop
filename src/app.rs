@@ -17,20 +17,25 @@ use std::time::Instant;
 ///
 /// Events arrive from three sources through a single channel:
 /// - Input thread: key presses and terminal resize
-/// - Collection worker: snapshot-ready notifications
+/// - Collector threads: per-subsystem ready notifications
 ///
 /// The loop blocks on `rx.recv()` (zero CPU when idle), drains all
 /// queued events, then renders any dirty boxes in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    let mut worker = runner::CollectionWorker::start(config.update_ms as u64, event_tx.clone());
+    let mut manager = runner::CollectorManager::start(config.update_ms as u64, event_tx.clone());
     spawn_input_thread(event_tx);
     let mut state = AppState::new(config, Instant::now());
 
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);
-        let mut has_snapshot = matches!(first, AppEvent::SnapshotReady);
+        let mut has_cpu = matches!(first, AppEvent::CpuReady);
+        let mut has_mem = matches!(first, AppEvent::MemReady);
+        let mut has_disk = matches!(first, AppEvent::DiskReady);
+        let mut has_net = matches!(first, AppEvent::NetReady);
+        let mut has_gpu = matches!(first, AppEvent::GpuReady);
+        let mut has_proc = matches!(first, AppEvent::ProcReady);
         let mut keys: Vec<input::Key> = Vec::new();
         if let AppEvent::Key(k) = first {
             keys.push(k);
@@ -38,7 +43,12 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         for event in std::iter::from_fn(|| event_rx.try_recv().ok()) {
             match event {
                 AppEvent::Resize => has_resize = true,
-                AppEvent::SnapshotReady => has_snapshot = true,
+                AppEvent::CpuReady => has_cpu = true,
+                AppEvent::MemReady => has_mem = true,
+                AppEvent::DiskReady => has_disk = true,
+                AppEvent::NetReady => has_net = true,
+                AppEvent::GpuReady => has_gpu = true,
+                AppEvent::ProcReady => has_proc = true,
                 AppEvent::Key(k) => keys.push(k),
             }
         }
@@ -50,10 +60,17 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         }
         let size = terminal_size(terminal);
 
-        // Pull latest snapshot if new data arrived and the UI should consume it.
-        if has_snapshot && (config.background_update || state.overlay.render_ui()) {
-            pull_latest_snapshot(&mut state, config, &worker);
-        }
+        // Always consume slot data into LiveData regardless of overlay state.
+        let render_ui = config.background_update || state.overlay.render_ui();
+        let ready = SubsystemReady {
+            cpu: has_cpu,
+            mem: has_mem,
+            disk: has_disk,
+            net: has_net,
+            gpu: has_gpu,
+            proc_data: has_proc,
+        };
+        pull_subsystem_data(&mut state, config, &manager, render_ui, &ready);
 
         // Handle too-small terminal: render message, only accept quit.
         if is_too_small(size) {
@@ -64,8 +81,8 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             continue;
         }
 
-        // Handle waiting for first snapshot: render message, only accept quit.
-        if state.snapshot.current.is_none() {
+        // Handle waiting for first data: render message, only accept quit.
+        if !state.live.is_ready() {
             render_if_dirty_waiting(&mut state, config, terminal, theme, size);
             if keys.contains(&input::Key::Char('q')) {
                 break;
@@ -75,18 +92,13 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
 
         // Process key events.
         for key in &keys {
-            if handle_input_key(key, &mut state, config, terminal, theme, &worker, size)
+            if handle_input_key(key, &mut state, config, terminal, theme, &manager, size)
                 == AppCommand::Quit
             {
-                worker.shutdown();
+                manager.shutdown();
                 save_config_on_exit(config);
                 return;
             }
-        }
-
-        // If an overlay just closed and we skipped a snapshot, catch up now.
-        if state.overlay.render_ui() && has_snapshot && !config.background_update {
-            pull_latest_snapshot(&mut state, config, &worker);
         }
 
         // Render dirty boxes.
@@ -96,14 +108,14 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         }
     }
 
-    worker.shutdown();
+    manager.shutdown();
     save_config_on_exit(config);
 }
 
 struct AppState {
     runtime: RuntimeState,
     render: RenderState,
-    snapshot: SnapshotState,
+    live: LiveData,
     overlay: OverlayState,
     process: ProcessViewState,
     network: NetworkViewState,
@@ -115,7 +127,7 @@ impl AppState {
         Self {
             runtime: RuntimeState::new(config),
             render: RenderState::new(),
-            snapshot: SnapshotState::new(),
+            live: LiveData::new(),
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
@@ -162,13 +174,53 @@ impl RenderState {
     }
 }
 
-struct SnapshotState {
-    current: Option<Arc<runner::CollectionSnapshot>>,
+pub(crate) struct LiveData {
+    pub(crate) cpu: Option<Arc<runner::CpuSnapshot>>,
+    pub(crate) mem: Option<Arc<runner::MemSnapshot>>,
+    pub(crate) disk: Option<Arc<runner::DiskSnapshot>>,
+    pub(crate) net: Option<Arc<runner::NetSnapshot>>,
+    pub(crate) gpu: Option<Arc<runner::GpuSnapshot>>,
+    pub(crate) proc_data: Option<Arc<runner::ProcSnapshot>>,
+    /// Cached core count for proc box (stable hardware constant).
+    pub(crate) core_count: usize,
+    /// Cached total physical memory for proc box (stable hardware constant).
+    pub(crate) total_mem: u64,
 }
 
-impl SnapshotState {
+impl LiveData {
     fn new() -> Self {
-        Self { current: None }
+        Self {
+            cpu: None,
+            mem: None,
+            disk: None,
+            net: None,
+            gpu: None,
+            proc_data: None,
+            core_count: 0,
+            total_mem: 0,
+        }
+    }
+
+    /// True when all subsystems have provided at least one data point.
+    fn is_ready(&self) -> bool {
+        self.cpu.is_some()
+            && self.mem.is_some()
+            && self.disk.is_some()
+            && self.net.is_some()
+            && self.gpu.is_some()
+            && self.proc_data.is_some()
+    }
+
+    fn layout_hints(&self) -> runner::LayoutHints {
+        runner::LayoutHints {
+            core_count: self.core_count,
+            gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
+            disk_count: self.disk.as_ref().map_or(0, |d| d.info.disks.len()),
+            has_swap: self
+                .mem
+                .as_ref()
+                .is_some_and(|m| m.info.stats.swap_total > 0),
+        }
     }
 }
 
@@ -238,13 +290,8 @@ impl ProcessViewState {
         }
     }
 
-    fn update_stale_procs(&mut self, snapshot: &runner::CollectionSnapshot, keep_dead: bool) {
-        let active_pids: HashSet<u32> = snapshot
-            .proc_data
-            .procs
-            .iter()
-            .map(|proc| proc.pid)
-            .collect();
+    fn update_stale_procs(&mut self, procs: &[crate::domain::process::ProcInfo], keep_dead: bool) {
+        let active_pids: HashSet<u32> = procs.iter().map(|proc| proc.pid).collect();
 
         // Detect recently-dead PIDs and preserve their last-known data
         // for one additional display cycle.
@@ -262,24 +309,23 @@ impl ProcessViewState {
         // Update prev_pids and prev_proc_cache for next cycle.
         self.prev_pids = active_pids;
         self.prev_proc_cache.clear();
-        for proc in &snapshot.proc_data.procs {
+        for proc in procs {
             self.prev_proc_cache.insert(proc.pid, proc.clone());
         }
     }
 
     fn rebuild_entries(
         &mut self,
-        snapshot: Option<&runner::CollectionSnapshot>,
+        procs: Option<&[crate::domain::process::ProcInfo]>,
         config: &mut config::Config,
     ) {
-        let Some(snapshot) = snapshot else {
+        let Some(live_procs) = procs else {
             self.entries.clear();
             self.display_procs = None;
             return;
         };
 
         // Build combined procs list with stale entries if keep_dead_proc_usage.
-        let live_procs = &snapshot.proc_data.procs;
         let has_stale = config.keep_dead_proc_usage && !self.stale_procs.is_empty();
         if has_stale {
             let combined: Vec<crate::domain::process::ProcInfo> = live_procs
@@ -348,11 +394,11 @@ impl NetworkViewState {
 
     fn reconcile(
         &mut self,
-        snapshot: &runner::CollectionSnapshot,
+        nets: &[crate::domain::network::NetInfo],
         preferred: &str,
         dirty: &mut Dirty,
     ) {
-        if snapshot.net.nets.is_empty() {
+        if nets.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
                 *dirty |= Dirty::NET_BOX;
@@ -364,21 +410,15 @@ impl NetworkViewState {
         if self.selected_iface.is_empty()
             && preferred != "Auto"
             && !preferred.is_empty()
-            && snapshot.net.nets.iter().any(|n| n.name == preferred)
+            && nets.iter().any(|n| n.name == preferred)
         {
             self.selected_iface = preferred.to_string();
             *dirty |= Dirty::NET_BOX;
             return;
         }
 
-        if self.selected_iface.is_empty()
-            || !snapshot
-                .net
-                .nets
-                .iter()
-                .any(|n| n.name == self.selected_iface)
-        {
-            self.selected_iface = snapshot.net.nets[0].name.clone();
+        if self.selected_iface.is_empty() || !nets.iter().any(|n| n.name == self.selected_iface) {
+            self.selected_iface = nets[0].name.clone();
             *dirty |= Dirty::NET_BOX;
         }
     }
@@ -441,17 +481,84 @@ fn terminal_size(terminal: &term::Terminal) -> TerminalSize {
     }
 }
 
-fn pull_latest_snapshot(
+/// Tracks which per-subsystem ready events were received in this drain cycle.
+struct SubsystemReady {
+    cpu: bool,
+    mem: bool,
+    disk: bool,
+    net: bool,
+    gpu: bool,
+    proc_data: bool,
+}
+
+fn pull_subsystem_data(
     state: &mut AppState,
     config: &mut config::Config,
-    worker: &runner::CollectionWorker,
+    manager: &runner::CollectorManager,
+    render_ui: bool,
+    ready: &SubsystemReady,
 ) {
-    let last_seen = state.snapshot.current.as_ref().map_or(0, |s| s.seq);
-    let Some(snapshot) = worker.latest_if_new(last_seen) else {
-        return;
-    };
+    // Always consume slot data into LiveData.
+    if ready.cpu
+        && let Some(snap) = manager.cpu_slot.latest()
+    {
+        state.live.core_count = snap.info.core_count;
+        state.live.cpu = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::CPU_BOX;
+        }
+    }
+    if ready.mem
+        && let Some(snap) = manager.mem_slot.latest()
+    {
+        state.live.total_mem = snap
+            .info
+            .stats
+            .used
+            .saturating_add(snap.info.stats.available);
+        state.live.mem = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::MEM_BOX;
+        }
+    }
+    if ready.disk
+        && let Some(snap) = manager.disk_slot.latest()
+    {
+        state.live.disk = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::DISK_BOX;
+        }
+    }
+    if ready.net
+        && let Some(snap) = manager.net_slot.latest()
+    {
+        state.live.net = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::NET_BOX;
+        }
+    }
+    if ready.gpu
+        && let Some(snap) = manager.gpu_slot.latest()
+    {
+        state.live.gpu = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::GPU_BOX;
+        }
+    }
+    if ready.proc_data
+        && let Some(snap) = manager.proc_slot.latest()
+    {
+        state
+            .process
+            .update_stale_procs(&snap.procs, config.keep_dead_proc_usage);
+        state.live.proc_data = Some(snap);
+        if render_ui {
+            state.render.dirty |= Dirty::PROC_BOX | Dirty::PROC_LIST;
+        }
+    }
 
-    let new_hints = snapshot.layout_hints();
+    // Check layout hints for changes.
+    let new_hints = state.live.layout_hints();
     if state
         .render
         .last_layout_hints
@@ -460,25 +567,21 @@ fn pull_latest_snapshot(
         state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
     state.render.last_layout_hints = Some(new_hints);
-    state
-        .process
-        .update_stale_procs(&snapshot, config.keep_dead_proc_usage);
-    state.snapshot.current = Some(snapshot);
 
     apply_startup_snapshot_config(state, config);
     reconcile_selected_iface(state, config);
-    state.render.dirty |= Dirty::ALL_BOXES | Dirty::PROC_LIST;
 }
 
 fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Config) {
     if state.startup.boxes_initialized {
         return;
     }
-    let Some(snapshot) = state.snapshot.current.as_ref() else {
+    let gpu_count = state.live.gpu.as_ref().map_or(0, |g| g.gpus.len());
+    if gpu_count == 0 {
         return;
-    };
+    }
 
-    if auto_add_gpu_boxes(config, snapshot.gpu.gpus.len()) {
+    if auto_add_gpu_boxes(config, gpu_count) {
         state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
     config.initial_shown_boxes = config.shown_boxes.clone();
@@ -507,12 +610,12 @@ fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
 }
 
 fn reconcile_selected_iface(state: &mut AppState, config: &config::Config) {
-    let Some(snapshot) = state.snapshot.current.as_ref() else {
+    let Some(net) = state.live.net.as_ref() else {
         return;
     };
     state
         .network
-        .reconcile(snapshot, &config.net_iface, &mut state.render.dirty);
+        .reconcile(&net.nets, &config.net_iface, &mut state.render.dirty);
 }
 
 fn is_too_small(size: TerminalSize) -> bool {
@@ -583,23 +686,18 @@ fn execute_dirty_work(state: &mut AppState, config: &mut config::Config, size: T
     }
 
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.cached_layout.is_none() {
-        state.render.cached_layout = state
-            .snapshot
-            .current
-            .as_ref()
-            .map(|snapshot| calculate_layout(config, snapshot, size));
+        state.render.cached_layout = Some(calculate_layout(config, &state.live, size));
     }
 }
 
 fn rebuild_proc_list(state: &mut AppState, config: &mut config::Config) {
-    state
-        .process
-        .rebuild_entries(state.snapshot.current.as_deref(), config);
+    let procs = state.live.proc_data.as_ref().map(|s| s.procs.as_slice());
+    state.process.rebuild_entries(procs, config);
 }
 
 fn calculate_layout(
     config: &config::Config,
-    snapshot: &runner::CollectionSnapshot,
+    live: &LiveData,
     size: TerminalSize,
 ) -> draw::layout::Layout {
     let shown: Vec<String> = config
@@ -607,8 +705,9 @@ fn calculate_layout(
         .split_whitespace()
         .map(String::from)
         .collect();
-    let has_temp = config.check_temp && !snapshot.cpu.info.temp.is_empty();
-    let has_watts = config.show_cpu_watts && snapshot.cpu.info.cpu_watts.is_some();
+    let cpu = live.cpu.as_ref();
+    let has_temp = config.check_temp && cpu.is_some_and(|c| !c.info.temp.is_empty());
+    let has_watts = config.show_cpu_watts && cpu.is_some_and(|c| c.info.cpu_watts.is_some());
     let stats_rows = ui::cpu_box::stats_row_count(has_temp, has_watts);
     let cpu_panel_overhead = stats_rows + 2; // stats + load detail row + section divider
 
@@ -619,10 +718,14 @@ fn calculate_layout(
         cpu_bottom: config.cpu_bottom,
         mem_below_net: config.mem_below_net,
         proc_left: config.proc_left,
-        core_count: snapshot.cpu.info.core_count,
-        gpu_count: snapshot.gpu.gpus.len(),
-        disk_count: snapshot.disk.info.disks.len(),
-        has_swap: config.show_swap && snapshot.mem.info.stats.swap_total > 0,
+        core_count: live.core_count,
+        gpu_count: live.gpu.as_ref().map_or(0, |g| g.gpus.len()),
+        disk_count: live.disk.as_ref().map_or(0, |d| d.info.disks.len()),
+        has_swap: config.show_swap
+            && live
+                .mem
+                .as_ref()
+                .is_some_and(|m| m.info.stats.swap_total > 0),
         cpu_panel_overhead,
     })
 }
@@ -651,11 +754,6 @@ fn render_dirty_frame(
         .cached_layout
         .as_ref()
         .expect("layout must be initialized before rendering");
-    let snapshot = state
-        .snapshot
-        .current
-        .as_ref()
-        .expect("snapshot must be initialized before rendering");
     let mut output = String::new();
 
     if state.render.dirty.contains(Dirty::LAYOUT) {
@@ -665,7 +763,12 @@ fn render_dirty_frame(
     let params = RenderParams {
         dirty: state.render.dirty,
         layout,
-        snapshot,
+        cpu: state.live.cpu.as_deref(),
+        mem: state.live.mem.as_deref(),
+        disk: state.live.disk.as_deref(),
+        net: state.live.net.as_deref(),
+        gpu: state.live.gpu.as_deref(),
+        proc_data: state.live.proc_data.as_deref(),
         proc_entries: &state.process.entries,
         proc_display_procs: state.process.display_procs.as_deref(),
         selected_iface: &state.network.selected_iface,
@@ -674,6 +777,8 @@ fn render_dirty_frame(
         rounded: state.runtime.rounded,
         update_ms: state.runtime.update_ms,
         is_filtering: state.overlay.menu_state == MenuState::Filter,
+        core_count: state.live.core_count,
+        total_mem: state.live.total_mem,
     };
     output.push_str(&render_all(
         &params,
@@ -689,14 +794,14 @@ fn handle_input_key(
     config: &mut config::Config,
     terminal: &mut term::Terminal,
     theme: &mut theme::Theme,
-    worker: &runner::CollectionWorker,
+    manager: &runner::CollectorManager,
     size: TerminalSize,
 ) -> AppCommand {
     let mut ctx = InputContext {
         config,
         theme,
-        worker,
-        snapshot: state.snapshot.current.as_deref(),
+        manager,
+        live: &state.live,
         runtime: &mut state.runtime,
         render: &mut state.render,
         overlay: &mut state.overlay,
@@ -797,7 +902,12 @@ fn clamp_proc_selection(
 pub(crate) struct RenderParams<'a> {
     pub(crate) dirty: Dirty,
     pub(crate) layout: &'a draw::layout::Layout,
-    pub(crate) snapshot: &'a runner::CollectionSnapshot,
+    pub(crate) cpu: Option<&'a runner::CpuSnapshot>,
+    pub(crate) mem: Option<&'a runner::MemSnapshot>,
+    pub(crate) disk: Option<&'a runner::DiskSnapshot>,
+    pub(crate) net: Option<&'a runner::NetSnapshot>,
+    pub(crate) gpu: Option<&'a runner::GpuSnapshot>,
+    pub(crate) proc_data: Option<&'a runner::ProcSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
     pub(crate) proc_display_procs: Option<&'a [crate::domain::process::ProcInfo]>,
     pub(crate) selected_iface: &'a str,
@@ -806,6 +916,8 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) rounded: bool,
     pub(crate) update_ms: u64,
     pub(crate) is_filtering: bool,
+    pub(crate) core_count: usize,
+    pub(crate) total_mem: u64,
 }
 
 /// Render UI boxes into an ANSI output string.
@@ -819,7 +931,6 @@ pub(crate) fn render_all(
 ) -> String {
     let dirty = params.dirty;
     let layout = params.layout;
-    let snapshot = params.snapshot;
     let config = params.config;
     let theme = params.theme;
     let rounded = params.rounded;
@@ -829,6 +940,7 @@ pub(crate) fn render_all(
 
     if dirty.intersects(Dirty::CPU_BOX)
         && let Some(ref cpu_dim) = layout.cpu
+        && let Some(cpu) = params.cpu
     {
         let area = ui::BoxArea::from_dim(cpu_dim, rounded);
         let cpu_settings = ui::cpu_box::CpuBoxSettings {
@@ -847,25 +959,27 @@ pub(crate) fn render_all(
             invert_lower: config.cpu_invert_lower,
             show_cpu_freq: config.show_cpu_freq,
             show_uptime: config.show_uptime,
-            cpu_name: &snapshot.cpu.info.cpu_name,
+            cpu_name: &cpu.info.cpu_name,
             custom_cpu_name: &config.custom_cpu_name,
             show_cpu_watts: config.show_cpu_watts,
-            cpu_watts: snapshot.cpu.info.cpu_watts,
-            cpu_max_watts: snapshot.cpu.info.cpu_max_watts,
+            cpu_watts: cpu.info.cpu_watts,
+            cpu_max_watts: cpu.info.cpu_max_watts,
             clock_format: &config.clock_format,
         };
         output.push_str(&ui::cpu_box::draw(
-            &snapshot.cpu.info,
+            &cpu.info,
             &area,
             theme,
             &cpu_settings,
-            &snapshot.cpu.status,
+            &cpu.status,
         ));
     }
 
-    if dirty.intersects(Dirty::GPU_BOX) {
+    if dirty.intersects(Dirty::GPU_BOX)
+        && let Some(gpu) = params.gpu
+    {
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
-            if gi < snapshot.gpu.gpus.len() {
+            if gi < gpu.gpus.len() {
                 let area = ui::BoxArea::from_dim(gpu_dim, rounded);
                 let custom_name = match gi {
                     0 => &config.custom_gpu_name0,
@@ -883,11 +997,11 @@ pub(crate) fn render_all(
                     base_10: config.base_10_sizes,
                 };
                 output.push_str(&ui::gpu_box::draw(
-                    &snapshot.gpu.gpus[gi],
+                    &gpu.gpus[gi],
                     &area,
                     theme,
                     &gpu_settings,
-                    &snapshot.gpu.status,
+                    &gpu.status,
                 ));
             }
         }
@@ -895,22 +1009,24 @@ pub(crate) fn render_all(
 
     if dirty.intersects(Dirty::MEM_BOX)
         && let Some(ref mem_dim) = layout.mem
+        && let Some(mem) = params.mem
     {
         let area = ui::BoxArea::from_dim(mem_dim, rounded);
         output.push_str(&ui::mem_box::draw(
-            &snapshot.mem.info,
+            &mem.info,
             &area,
             theme,
             &ui::mem_box::MemBoxSettings {
                 show_swap: config.show_swap,
                 base_10: config.base_10_sizes,
             },
-            &snapshot.mem.status,
+            &mem.status,
         ));
     }
 
     if dirty.intersects(Dirty::DISK_BOX)
         && let Some(ref disk_dim) = layout.disk
+        && let Some(disk) = params.disk
     {
         let area = ui::BoxArea::from_dim(disk_dim, rounded);
         let disk_settings = ui::disk_box::DiskBoxSettings {
@@ -925,21 +1041,21 @@ pub(crate) fn render_all(
             io_graph_combined: config.io_graph_combined,
         };
         output.push_str(&ui::disk_box::draw(
-            &snapshot.disk.info,
+            &disk.info,
             &area,
             theme,
             &disk_settings,
-            &snapshot.disk.status,
+            &disk.status,
         ));
     }
 
     if dirty.intersects(Dirty::NET_BOX)
         && let Some(ref net_dim) = layout.net
+        && let Some(net) = params.net
     {
         let iface = params.selected_iface;
         let default_net = crate::domain::network::NetInfo::default();
-        let net_info = snapshot
-            .net
+        let net_info = net
             .nets
             .iter()
             .find(|n| n.name == iface)
@@ -963,16 +1079,15 @@ pub(crate) fn render_all(
             &area,
             theme,
             &net_settings,
-            &snapshot.net.status,
+            &net.status,
         ));
     }
 
     if dirty.intersects(Dirty::PROC_BOX)
         && let Some(ref proc_dim) = layout.proc_box
+        && let Some(proc_snap) = params.proc_data
     {
-        let procs = params
-            .proc_display_procs
-            .unwrap_or(&snapshot.proc_data.procs);
+        let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
         let entries = params.proc_entries;
         let detailed_pid = config.detailed_pid as u32;
         let detail_rows = if detailed_pid > 0 {
@@ -1003,17 +1118,11 @@ pub(crate) fn render_all(
             filter: pf,
             filtering: is_filtering,
         };
-        let total_mem = snapshot
-            .mem
-            .info
-            .stats
-            .used
-            .saturating_add(snapshot.mem.info.stats.available);
         let proc_settings = ui::proc_box::ProcBoxSettings {
             proc_per_core: config.proc_per_core,
-            core_count: snapshot.cpu.info.core_count,
+            core_count: params.core_count,
             proc_mem_bytes: config.proc_mem_bytes,
-            total_mem,
+            total_mem: params.total_mem,
             proc_colors: config.proc_colors,
             proc_gradient: config.proc_gradient,
             base_10: config.base_10_sizes,
@@ -1025,7 +1134,7 @@ pub(crate) fn render_all(
             theme,
             &proc_settings,
             &view,
-            &snapshot.proc_data.status,
+            &proc_snap.status,
         ));
     }
 
@@ -1050,7 +1159,7 @@ mod tests {
         assert!(state.overlay.menu_state == MenuState::None);
         assert_eq!(state.render.dirty, Dirty::FULL);
         assert!(state.render.cached_layout.is_none());
-        assert!(state.snapshot.current.is_none());
+        assert!(!state.live.is_ready());
         assert!(state.process.entries.is_empty());
         assert!(state.network.selected_iface.is_empty());
     }
@@ -1111,25 +1220,19 @@ mod tests {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
         state.render.clear_dirty();
-        let mut runner = runner::Runner {
-            cpu: crate::collect::cpu::CpuCollector::default(),
-            disk: crate::collect::disk::DiskCollector::default(),
-            gpu: crate::collect::gpu::GpuCollector::default(),
-            mem: crate::collect::memory::MemCollector::default(),
-            net: crate::collect::network::NetCollector::default(),
-            proc_collector: crate::collect::process::ProcCollector::default(),
-        };
-        runner.net.nets = vec![
-            crate::domain::network::NetInfo {
-                name: "Ethernet".into(),
-                ..Default::default()
-            },
-            crate::domain::network::NetInfo {
-                name: "Wi-Fi".into(),
-                ..Default::default()
-            },
-        ];
-        state.snapshot.current = Some(Arc::new(runner.snapshot(1)));
+        state.live.net = Some(Arc::new(runner::NetSnapshot {
+            nets: vec![
+                crate::domain::network::NetInfo {
+                    name: "Ethernet".into(),
+                    ..Default::default()
+                },
+                crate::domain::network::NetInfo {
+                    name: "Wi-Fi".into(),
+                    ..Default::default()
+                },
+            ],
+            status: crate::collect::CollectStatus::Ok,
+        }));
 
         reconcile_selected_iface(&mut state, &config);
 

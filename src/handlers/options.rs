@@ -246,7 +246,7 @@ fn apply_option_change(
             menu::options_menu::step_int(opt_key, ctx.config, dir);
             if opt_key == ConfigKey::UpdateMs {
                 ctx.runtime.update_ms = ctx.config.update_ms as u64;
-                ctx.worker.set_update_ms(ctx.runtime.update_ms);
+                ctx.manager.set_update_ms(ctx.runtime.update_ms);
             }
         }
         menu::options_menu::OptKind::Browsable => {

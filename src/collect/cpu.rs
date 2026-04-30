@@ -683,7 +683,7 @@ fn get_cpu_name() -> String {
     "Unknown CPU".to_string()
 }
 
-fn get_core_count() -> usize {
+pub(crate) fn get_core_count() -> usize {
     use windows::Win32::System::SystemInformation::*;
 
     let mut info = SYSTEM_INFO::default();
