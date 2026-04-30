@@ -296,10 +296,9 @@ fn draw_perf_row(
     let read_label = format!("R {read_speed}");
     let write_label = format!("W {write_speed}");
     let busy = disk.busy_percent.clamp(0, 100);
-    let busy_label = format!("B {busy}%");
-    let busy_w = tools::ulen(&busy_label, false).min(width);
+    let busy_w: usize = 6; // "B" + 5-char right-justified value
     let busy_x = x + width.saturating_sub(busy_w);
-    let left_w = width.saturating_sub(busy_w + 1);
+    let left_w = width.saturating_sub(busy_w);
 
     let read_w = tools::ulen(&read_label, false);
     let write_w = tools::ulen(&write_label, false);
@@ -370,7 +369,7 @@ fn draw_perf_row(
         .color(title_color)
         .text("B")
         .color(busy_color)
-        .text(&format!(" {busy}%"));
+        .text(&format!("{:>5}", format!("{busy}%")));
 }
 
 fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, current: u64) -> i64 {
@@ -526,6 +525,9 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(plain.contains("R "), "output should contain read label");
         assert!(plain.contains("W "), "output should contain write label");
-        assert!(plain.contains("B 12%"), "output should contain busy label");
+        assert!(
+            plain.contains("B") && plain.contains("12%"),
+            "output should contain busy label"
+        );
     }
 }
