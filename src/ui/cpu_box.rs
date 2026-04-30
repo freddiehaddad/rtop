@@ -312,7 +312,7 @@ pub fn draw(
         && graph_width > 0
         && let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key)
     {
-        let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, true, 100, 0);
+        let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, 100, 0);
         graph.create(data);
         let rows = graph.render_rows_colored(data, cpu_gradient);
         for (i, row) in rows.iter().enumerate() {
@@ -347,7 +347,6 @@ pub fn draw(
             lower_h,
             graph_sym,
             settings.invert_lower,
-            true,
             100,
             0,
         );
@@ -675,7 +674,7 @@ fn draw_core_panel(
         buf.mv(row_x, row_y).color(fg).text(&label);
 
         if grid.graph_w >= CORE_GRAPH_MIN {
-            let mut mini = Graph::new(grid.graph_w, 1, params.graph_sym, false, false, 100, 0);
+            let mut mini = Graph::new(grid.graph_w, 1, params.graph_sym, false, 100, 0);
             let mini_str = mini.render_row_colored(core_data, cpu_gradient);
             buf.text(&mini_str);
         }

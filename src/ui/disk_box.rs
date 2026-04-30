@@ -148,7 +148,7 @@ pub fn draw(
                     graph_w,
                     disk.read_bytes_per_sec + disk.write_bytes_per_sec,
                 );
-                let mut graph = Graph::new(graph_w, 1, settings.graph_symbol, false, true, max, 0);
+                let mut graph = Graph::new(graph_w, 1, settings.graph_symbol, false, max, 0);
                 let graph_row = graph.render_row_colored(&combined, read_grad);
 
                 buf.mv(content_x, y + 2 + row)
@@ -178,8 +178,7 @@ pub fn draw(
 
                 let read_max =
                     visible_graph_max(&disk.read_history, graph_w, disk.read_bytes_per_sec);
-                let mut rg =
-                    Graph::new(graph_w, 1, settings.graph_symbol, false, true, read_max, 0);
+                let mut rg = Graph::new(graph_w, 1, settings.graph_symbol, false, read_max, 0);
                 let rg_row = rg.render_row_colored(&disk.read_history, read_grad);
 
                 buf.mv(content_x, y + 2 + row)
@@ -207,8 +206,7 @@ pub fn draw(
 
                 let write_max =
                     visible_graph_max(&disk.write_history, graph_w, disk.write_bytes_per_sec);
-                let mut wg =
-                    Graph::new(graph_w, 1, settings.graph_symbol, false, true, write_max, 0);
+                let mut wg = Graph::new(graph_w, 1, settings.graph_symbol, false, write_max, 0);
                 let wg_row = wg.render_row_colored(&disk.write_history, write_grad);
 
                 buf.mv(content_x, y + 2 + row)
@@ -326,7 +324,6 @@ fn draw_perf_row(
             1,
             params.settings.graph_symbol,
             false,
-            true,
             visible_graph_max(&disk.read_history, read_graph_w, disk.read_bytes_per_sec),
             0,
         );
@@ -353,7 +350,6 @@ fn draw_perf_row(
             1,
             params.settings.graph_symbol,
             false,
-            true,
             visible_graph_max(
                 &disk.write_history,
                 available_write_graph_w,

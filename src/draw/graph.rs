@@ -93,7 +93,6 @@ pub struct Graph {
     pub height: usize,
     symbol: GraphSymbol,
     invert: bool,
-    no_zero: bool,
     pub max_value: i64,
     offset: i64,
     last: i64,
@@ -108,7 +107,6 @@ impl Graph {
         height: usize,
         symbol: GraphSymbol,
         invert: bool,
-        no_zero: bool,
         max_value: i64,
         offset: i64,
     ) -> Self {
@@ -118,7 +116,6 @@ impl Graph {
             height: h,
             symbol,
             invert,
-            no_zero,
             max_value: if max_value == 0 { 100 } else { max_value },
             offset,
             last: 0,
@@ -235,11 +232,10 @@ impl Graph {
                 let mut prev_level = self.value_to_level(prev, row);
                 let mut curr_level = self.value_to_level(curr, row);
 
-                // btop line 425: no_zero clamps the baseline row's minimum to 1
-                // For non-inverted: baseline is row h-1 (bottom)
-                // For inverted: baseline is row 0 (top, since horizon is flipped)
+                // Baseline row always shows at least level 1 so idle
+                // graphs display a visible reference line.
                 let is_baseline = if self.invert { row == 0 } else { row == h - 1 };
-                if self.no_zero && is_baseline {
+                if is_baseline {
                     if prev_level == 0 {
                         prev_level = 1;
                     }
@@ -248,10 +244,7 @@ impl Graph {
                     }
                 }
 
-                // btop line 436: single-height with both 0 → cursor right instead of space
-                if h == 1 && prev_level + curr_level == 0 {
-                    self.buf[row].push_str("\x1b[1C");
-                } else if let Some(table) = self.braille_table() {
+                if let Some(table) = self.braille_table() {
                     let idx = prev_level * 5 + curr_level;
                     let sym = table[idx.min(24)];
                     self.buf[row].push_str(sym);
@@ -353,7 +346,7 @@ mod tests {
 
     #[test]
     fn render_rows_colored_returns_correct_count() {
-        let mut graph = Graph::new(10, 4, GraphSymbol::Braille, false, false, 100, 0);
+        let mut graph = Graph::new(10, 4, GraphSymbol::Braille, false, 100, 0);
         let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
         graph.create(&data);
         let gradient: Vec<String> = (0..=100)
