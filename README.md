@@ -24,7 +24,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
 - **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
-- **GPU monitoring** via NVIDIA NVML — utilization, temperature, VRAM, power, clocks
+- **GPU monitoring** — NVIDIA (NVML), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via LibreHardwareMonitor HTTP API
 - **Per-box dirty rendering** — only redraws what changed, no full-screen flicker
 - **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
@@ -43,7 +43,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | **Memory** | Used, available, cached, free, swap — with meter bars |
 | **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time, IO mode |
 | **Network** | Download/upload graphs with auto-scaling, interface selector, speed totals |
-| **GPU** | Utilization, temperature, VRAM, power draw, clocks (NVIDIA) |
+| **GPU** | Utilization, temperature, VRAM, power draw, clocks (NVIDIA, AMD, Intel) |
 | **Process** | PID, name, command line, CPU%, memory, tree view, filter, sort, follow, terminate |
 
 ### Keybinds
@@ -137,11 +137,17 @@ Without LibreHardwareMonitor, rtop works normally — temperature and power fiel
 
 ---
 
-## Optional: GPU Monitoring
+## GPU Monitoring
 
-NVIDIA GPU monitoring requires the NVIDIA driver to be installed (which provides `nvml.dll`). No additional software is needed. rtop detects up to 8 NVIDIA GPUs automatically at runtime.
+rtop detects GPUs from all three major vendors automatically at runtime. No additional software is needed beyond the vendor's graphics driver.
 
-AMD and Intel GPU monitoring is not currently supported.
+| Vendor | Library | Metrics |
+|--------|---------|---------|
+| **NVIDIA** | `nvml.dll` (driver) | Utilization, temperature, VRAM, power, clocks |
+| **AMD** | `atiadlxx.dll` (driver) | Utilization, temperature, VRAM, power, clocks |
+| **Intel** | `ControlLib.dll` / `igcl.dll` (driver) | Utilization, temperature, VRAM, clocks |
+
+Up to 8 GPUs are supported. Mixed GPU systems (e.g., Intel iGPU + NVIDIA dGPU) show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
 
 ---
 
