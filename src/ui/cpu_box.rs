@@ -33,8 +33,6 @@ pub struct CpuBoxSettings<'a> {
     pub clock_format: &'a str,
 }
 
-/// Box border overhead (top + bottom).
-const BOX_BORDER_ROWS: usize = 2;
 /// Label width for stats meter rows (matches GPU box).
 const STATS_LABEL_W: usize = 6;
 /// Right-aligned value column width for stats meter rows (matches GPU box).
@@ -65,8 +63,8 @@ pub fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
 /// Grid layout for the per-core display area.
 ///
 /// Computes rows, columns, and per-column widths from core count and
-/// available panel width. Used by both `compute_height()` and
-/// `draw_core_panel()` as the single source of truth.
+/// available panel width. Uses `core_grid_shape()` as the single source
+/// of truth for grid dimensions.
 pub struct CoreGridLayout {
     /// Number of rows per column.
     pub rows: usize,
@@ -83,13 +81,26 @@ pub struct CoreGridLayout {
     pub show_temp: bool,
 }
 
+/// Core grid shape: (rows_per_column, columns) for a given core count.
+///
+/// Shared by the layout engine (for height sizing) and the core panel
+/// renderer (for drawing). This is the single source of truth.
+pub(crate) fn core_grid_shape(core_count: usize) -> (usize, usize) {
+    match core_count {
+        0 => (0, 0),
+        1..=8 => (core_count, 1),
+        9..=12 => (2, core_count.div_ceil(2)),
+        _ => (CORES_PER_COL, core_count.div_ceil(CORES_PER_COL)),
+    }
+}
+
 impl CoreGridLayout {
     /// Compute the grid layout from core count and available width.
     ///
     /// `panel_inner_w` is the usable content width (already excludes
     /// the divider and 1-space padding on each side).
     pub fn new(core_count: usize, panel_inner_w: usize, show_coretemp: bool) -> Self {
-        let (rows, cols) = Self::grid_shape(core_count);
+        let (rows, cols) = core_grid_shape(core_count);
         let label_w = Self::label_width(core_count);
         let temp_w: usize = if show_coretemp { CORE_TEMP_W } else { 0 };
 
@@ -108,16 +119,6 @@ impl CoreGridLayout {
             label_w,
             graph_w,
             show_temp: show_coretemp,
-        }
-    }
-
-    /// Determine grid shape: (rows_per_column, columns).
-    fn grid_shape(core_count: usize) -> (usize, usize) {
-        match core_count {
-            0 => (0, 0),
-            1..=8 => (core_count, 1),
-            9..=12 => (2, core_count.div_ceil(2)),
-            _ => (CORES_PER_COL, core_count.div_ceil(CORES_PER_COL)),
         }
     }
 
@@ -155,15 +156,6 @@ impl CoreGridLayout {
         }
         self.cols * self.col_w + self.cols.saturating_sub(1) * CORE_COL_GAP
     }
-}
-
-/// Compute the exact box height needed for the CPU widget.
-pub fn compute_height(core_count: usize, panel_overhead: usize, max_height: usize) -> usize {
-    if core_count == 0 {
-        return (panel_overhead + BOX_BORDER_ROWS).min(max_height);
-    }
-    let (rows, _) = CoreGridLayout::grid_shape(core_count);
-    (rows + panel_overhead + BOX_BORDER_ROWS).min(max_height)
 }
 
 /// Draw the CPU box into an ANSI string.

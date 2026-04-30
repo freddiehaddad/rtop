@@ -97,11 +97,11 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // GPU boxes — each takes MIN_GPU_HEIGHT, placed in the left column
     let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
 
-    // CPU box height computed by the renderer's sizing logic
+    // CPU box height: core grid rows + panel overhead + 2 border rows.
     let cpu_height = if has_cpu {
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
-        crate::ui::cpu_box::compute_height(core_count, cfg.cpu_panel_overhead, max_h)
-            .clamp(MIN_CPU_HEIGHT, max_h)
+        let (core_rows, _) = crate::ui::cpu_box::core_grid_shape(core_count);
+        (core_rows + cfg.cpu_panel_overhead + 2).clamp(MIN_CPU_HEIGHT, max_h)
     } else {
         0
     };
