@@ -204,6 +204,15 @@ pub(super) struct IntelBackend {
     igcl: IgclFunctions,
     api_handle: CtlApiHandle,
     devices: Vec<IntelDevice>,
+    logged: IntelLoggedFailures,
+}
+
+#[derive(Default)]
+struct IntelLoggedFailures {
+    temperature: bool,
+    memory: bool,
+    engine: bool,
+    frequency: bool,
 }
 
 impl IntelBackend {
@@ -232,6 +241,7 @@ impl IntelBackend {
             igcl,
             api_handle,
             devices: Vec::new(),
+            logged: IntelLoggedFailures::default(),
         })
     }
 }
@@ -369,6 +379,9 @@ impl GpuBackend for IntelBackend {
                 let ret = unsafe { (self.igcl.temp_get_state)(temp_h, &mut state) };
                 if ret == CTL_RESULT_SUCCESS {
                     push_history(&mut gpu.temp, state.temperature as i64);
+                } else if !self.logged.temperature {
+                    tracing::debug!("IGCL temperature failed with error {ret:#x}");
+                    self.logged.temperature = true;
                 }
             }
 
@@ -384,6 +397,9 @@ impl GpuBackend for IntelBackend {
                         crate::collect::win::percent_u64(gpu.mem_used, state.size).min(100);
                     push_history(&mut gpu.gpu_percent.vram, vram_pct);
                     push_history(&mut gpu.mem_utilization_percent, vram_pct);
+                } else if ret != CTL_RESULT_SUCCESS && !self.logged.memory {
+                    tracing::debug!("IGCL memory failed with error {ret:#x}");
+                    self.logged.memory = true;
                 }
             }
 
@@ -401,6 +417,9 @@ impl GpuBackend for IntelBackend {
                     }
                     dev.prev_active = activity.active_time;
                     dev.prev_timestamp = activity.timestamp;
+                } else if ret != CTL_RESULT_SUCCESS && !self.logged.engine {
+                    tracing::debug!("IGCL engine activity failed with error {ret:#x}");
+                    self.logged.engine = true;
                 }
             }
 
@@ -411,6 +430,9 @@ impl GpuBackend for IntelBackend {
                 let ret = unsafe { (self.igcl.freq_get_state)(freq_h, &mut state) };
                 if ret == CTL_RESULT_SUCCESS && state.actual_frequency > 0.0 {
                     gpu.gpu_clock_speed = state.actual_frequency as u32;
+                } else if ret != CTL_RESULT_SUCCESS && !self.logged.frequency {
+                    tracing::debug!("IGCL frequency failed with error {ret:#x}");
+                    self.logged.frequency = true;
                 }
             }
         }

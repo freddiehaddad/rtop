@@ -111,6 +111,17 @@ impl NvmlFunctions {
 pub(super) struct NvidiaBackend {
     nvml: NvmlFunctions,
     devices: Vec<NvmlDevice>,
+    /// Tracks which metrics have already logged a failure (log once, not every cycle).
+    logged: LoggedFailures,
+}
+
+#[derive(Default)]
+struct LoggedFailures {
+    utilization: bool,
+    temperature: bool,
+    memory: bool,
+    power: bool,
+    clock: bool,
 }
 
 impl NvidiaBackend {
@@ -128,6 +139,7 @@ impl NvidiaBackend {
         Some(Self {
             nvml,
             devices: Vec::new(),
+            logged: LoggedFailures::default(),
         })
     }
 }
@@ -203,6 +215,9 @@ impl GpuBackend for NvidiaBackend {
             let ret = unsafe { (self.nvml.device_get_utilization_rates)(device, &mut util) };
             if ret == NVML_SUCCESS {
                 push_history(&mut gpu.gpu_percent.utilization, clamp_percent(util.gpu));
+            } else if !self.logged.utilization {
+                tracing::debug!("NVML utilization failed with error {ret}");
+                self.logged.utilization = true;
             }
 
             // Temperature
@@ -213,6 +228,9 @@ impl GpuBackend for NvidiaBackend {
             };
             if ret == NVML_SUCCESS {
                 push_history(&mut gpu.temp, temp as i64);
+            } else if !self.logged.temperature {
+                tracing::debug!("NVML temperature failed with error {ret}");
+                self.logged.temperature = true;
             }
 
             // Memory
@@ -229,6 +247,9 @@ impl GpuBackend for NvidiaBackend {
                 let vram_pct = percent_u64(gpu.mem_used, mem.total).min(100);
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
+            } else if !self.logged.memory {
+                tracing::debug!("NVML memory failed with error {ret}");
+                self.logged.memory = true;
             }
 
             // Power (milliwatts)
@@ -239,6 +260,9 @@ impl GpuBackend for NvidiaBackend {
                 gpu.pwr_usage = power_mw as i64;
                 let pwr_pct = power_percent(power_mw as u64, gpu.pwr_max_usage as u64);
                 push_history(&mut gpu.gpu_percent.power, pwr_pct);
+            } else if !self.logged.power {
+                tracing::debug!("NVML power failed with error {ret}");
+                self.logged.power = true;
             }
 
             // Clock speed
@@ -249,6 +273,9 @@ impl GpuBackend for NvidiaBackend {
             };
             if ret == NVML_SUCCESS {
                 gpu.gpu_clock_speed = clock;
+            } else if !self.logged.clock {
+                tracing::debug!("NVML clock failed with error {ret}");
+                self.logged.clock = true;
             }
         }
     }

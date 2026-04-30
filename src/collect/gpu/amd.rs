@@ -183,8 +183,15 @@ impl AdlFunctions {
 pub(super) struct AmdBackend {
     adl: AdlFunctions,
     context: *mut c_void,
-    /// Adapter indices for active AMD GPUs.
     adapter_indices: Vec<i32>,
+    logged: AmdLoggedFailures,
+}
+
+#[derive(Default)]
+struct AmdLoggedFailures {
+    performance: bool,
+    temperature: bool,
+    memory: bool,
 }
 
 impl AmdBackend {
@@ -204,6 +211,7 @@ impl AmdBackend {
             adl,
             context,
             adapter_indices: Vec::new(),
+            logged: AmdLoggedFailures::default(),
         })
     }
 }
@@ -302,13 +310,15 @@ impl GpuBackend for AmdBackend {
                 );
                 gpu.gpu_clock_speed = perf.i_core_clock.max(0) as u32;
 
-                // ADL reports power in watts; convert to milliwatts for GpuInfo
                 if perf.i_current_core_performance_level > 0 {
                     let power_mw = perf.i_current_core_performance_level as u64;
                     gpu.pwr_usage = power_mw as i64;
                     let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
                 }
+            } else if !self.logged.performance {
+                tracing::debug!("ADL performance status failed with error {ret}");
+                self.logged.performance = true;
             }
 
             // Temperature (returned in millidegrees Celsius)
@@ -317,21 +327,26 @@ impl GpuBackend for AmdBackend {
             let ret = unsafe { (self.adl.odn_temperature_get)(self.context, idx, 1, &mut temp_mc) };
             if ret == ADL_OK {
                 push_history(&mut gpu.temp, (temp_mc / 1000) as i64);
+            } else if !self.logged.temperature {
+                tracing::debug!("ADL temperature failed with error {ret}");
+                self.logged.temperature = true;
             }
 
-            // VRAM usage — re-query total and compute used
+            // VRAM usage
             let mut mem = AdlMemoryInfoX4::zeroed();
             // SAFETY: context and idx are valid; mem is a valid pointer.
             let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
             if ret == ADL_OK && mem.i_memory_size > 0 {
                 let total = (mem.i_memory_size * 1024 * 1024) as u64;
                 gpu.mem_total = total;
-                // Visible memory approximates available; used = total - visible
                 let visible = (mem.i_visible_memory_size * 1024 * 1024) as u64;
                 gpu.mem_used = total.saturating_sub(visible);
                 let vram_pct = percent_u64(gpu.mem_used, total).min(100);
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
+            } else if ret != ADL_OK && !self.logged.memory {
+                tracing::debug!("ADL memory info failed with error {ret}");
+                self.logged.memory = true;
             }
         }
     }

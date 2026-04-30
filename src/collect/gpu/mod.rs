@@ -104,8 +104,6 @@ impl GpuCollector {
             });
         }
 
-        // Future: Intel backend added here.
-
         Self {
             backends,
             gpus,
