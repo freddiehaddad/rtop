@@ -317,6 +317,9 @@ impl StaleProcessTracker {
 pub(crate) struct ProcessViewState {
     pub(crate) start: usize,
     pub(crate) selected: usize,
+    pub(crate) detailed_pid: u32,
+    pub(crate) selected_pid: u32,
+    pub(crate) followed_pid: u32,
     pub(crate) filter_text: String,
     pub(crate) entries: Vec<ProcDisplayEntry>,
     /// Combined procs list (live + stale) that entries' `proc_index` refers to.
@@ -330,6 +333,9 @@ impl ProcessViewState {
         Self {
             start: 0,
             selected: 0,
+            detailed_pid: 0,
+            selected_pid: 0,
+            followed_pid: 0,
             filter_text: String::new(),
             entries: Vec::new(),
             display_procs: None,
@@ -344,7 +350,7 @@ impl ProcessViewState {
     fn rebuild_entries(
         &mut self,
         procs: Option<&[crate::domain::process::ProcInfo]>,
-        config: &mut config::Config,
+        config: &config::Config,
     ) {
         let Some(live_procs) = procs else {
             self.entries.clear();
@@ -385,14 +391,14 @@ impl ProcessViewState {
             self.selected = 0;
         }
         // Update selected_pid to reflect whatever process is now on this row.
-        config.selected_pid = self
+        self.selected_pid = self
             .entries
             .get(self.selected)
             .and_then(|e| procs.get(e.proc_index))
-            .map_or(0, |p| p.pid as i64);
+            .map_or(0, |p| p.pid);
 
         // Auto-scroll to followed process.
-        let followed = config.followed_pid as u32;
+        let followed = self.followed_pid;
         if followed > 0 {
             if let Some(idx) = self
                 .entries
@@ -400,10 +406,10 @@ impl ProcessViewState {
                 .position(|e| procs.get(e.proc_index).is_some_and(|p| p.pid == followed))
             {
                 self.selected = idx;
-                config.selected_pid = followed as i64;
+                self.selected_pid = followed;
             } else {
                 // Followed process died — unfollow.
-                config.followed_pid = 0;
+                self.followed_pid = 0;
             }
         }
     }
@@ -719,7 +725,7 @@ fn execute_dirty_work(state: &mut AppState, config: &mut config::Config, size: T
     }
 }
 
-fn rebuild_proc_list(state: &mut AppState, config: &mut config::Config) {
+fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
     let procs = state.live.proc_data.as_ref().map(|s| s.procs.as_slice());
     state.process.rebuild_entries(procs, config);
 }
@@ -803,6 +809,8 @@ fn render_dirty_frame(
         is_filtering: state.overlay.menu_state == MenuState::Filter,
         core_count: state.live.core_count,
         total_mem: state.live.total_mem,
+        detailed_pid: state.process.detailed_pid,
+        followed_pid: state.process.followed_pid,
     };
     output.push_str(&render_all(
         &params,
@@ -942,6 +950,8 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) is_filtering: bool,
     pub(crate) core_count: usize,
     pub(crate) total_mem: u64,
+    pub(crate) detailed_pid: u32,
+    pub(crate) followed_pid: u32,
 }
 
 /// Render UI boxes into an ANSI output string.
@@ -1109,7 +1119,7 @@ pub(crate) fn render_all(
     {
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
         let entries = params.proc_entries;
-        let detailed_pid = config.detailed_pid as u32;
+        let detailed_pid = params.detailed_pid;
         let detail_rows = if detailed_pid > 0 {
             8_usize.min(proc_dim.height.saturating_sub(6))
         } else {
@@ -1134,7 +1144,7 @@ pub(crate) fn render_all(
             sort_reversed: reversed,
             tree_mode,
             detailed_pid,
-            followed_pid: config.followed_pid as u32,
+            followed_pid: params.followed_pid,
             filter: pf,
             filtering: is_filtering,
         };

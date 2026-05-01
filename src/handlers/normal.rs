@@ -166,8 +166,8 @@ fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
             | Key::CtrlD
             | Key::CtrlU
     );
-    if is_nav && ctx.config.followed_pid > 0 {
-        ctx.config.followed_pid = 0;
+    if is_nav && ctx.process.followed_pid > 0 {
+        ctx.process.followed_pid = 0;
     }
 
     match *key {
@@ -292,22 +292,22 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         }
         Key::Char('F') if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
-                if ctx.config.followed_pid == pid as i64 {
-                    ctx.config.followed_pid = 0;
+                if ctx.process.followed_pid == pid {
+                    ctx.process.followed_pid = 0;
                 } else {
-                    ctx.config.followed_pid = pid as i64;
+                    ctx.process.followed_pid = pid;
                 }
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
         Key::Enter if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
-                let current_detailed = ctx.config.detailed_pid;
-                if current_detailed == pid as i64 {
-                    ctx.config.detailed_pid = 0;
-                    ctx.config.followed_pid = 0;
+                let current_detailed = ctx.process.detailed_pid;
+                if current_detailed == pid {
+                    ctx.process.detailed_pid = 0;
+                    ctx.process.followed_pid = 0;
                 } else {
-                    ctx.config.detailed_pid = pid as i64;
+                    ctx.process.detailed_pid = pid;
                 }
             }
             ctx.render.dirty |= Dirty::PROC_BOX;

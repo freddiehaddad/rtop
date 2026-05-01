@@ -165,6 +165,8 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             is_filtering: false,
             core_count: ctx.live.core_count,
             total_mem: ctx.live.total_mem,
+            detailed_pid: ctx.process.detailed_pid,
+            followed_pid: ctx.process.followed_pid,
         };
         out.push_str(term::CLEAR_SCREEN);
         out.push_str(&render_all(

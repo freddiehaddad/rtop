@@ -122,11 +122,7 @@ pub struct Config {
     pub proc_update_ms: i64,
     pub net_download: i64,
     pub net_upload: i64,
-    pub detailed_pid: i64,
-    pub selected_pid: i64,
-    pub followed_pid: i64,
-    pub proc_start: i64,
-    pub proc_selected: i64,
+
     pub current_preset: i64,
 
     // -- strings --
@@ -213,11 +209,7 @@ impl Default for Config {
             proc_update_ms: 0,
             net_download: 100,
             net_upload: 100,
-            detailed_pid: 0,
-            selected_pid: 0,
-            followed_pid: 0,
-            proc_start: 0,
-            proc_selected: 0,
+
             current_preset: 0,
 
             // strings
@@ -391,41 +383,7 @@ impl Config {
             "net_upload",
             &mut warnings,
         );
-        clamp_warn(
-            &mut self.detailed_pid,
-            i64::MIN,
-            i64::MAX,
-            "detailed_pid",
-            &mut warnings,
-        );
-        clamp_warn(
-            &mut self.selected_pid,
-            0,
-            i64::MAX,
-            "selected_pid",
-            &mut warnings,
-        );
-        clamp_warn(
-            &mut self.followed_pid,
-            0,
-            i64::MAX,
-            "followed_pid",
-            &mut warnings,
-        );
-        clamp_warn(
-            &mut self.proc_start,
-            0,
-            i64::MAX,
-            "proc_start",
-            &mut warnings,
-        );
-        clamp_warn(
-            &mut self.proc_selected,
-            0,
-            i64::MAX,
-            "proc_selected",
-            &mut warnings,
-        );
+
         clamp_warn(
             &mut self.current_preset,
             0,
