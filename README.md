@@ -18,7 +18,7 @@ Written in Rust. Fast. Beautiful. Zero dependencies at runtime.
 
 ## What is rtop?
 
-rtop is a resource monitor that shows CPU, memory, disk, network, GPU, and process information in a single terminal window. It's built from the ground up for **Windows** using native Win32 APIs — no WSL, no Linux compatibility layer, no MSYS.
+rtop is a resource monitor that shows CPU, memory, disk, network, GPU, and process information in a single terminal window. It's built from the ground up for **Windows** using native Win32 APIs.
 
 The UI design is based on [btop](https://github.com/aristocratos/btop) by aristocratos, reimagined in Rust with Windows-native data collection and several enhancements:
 
@@ -26,7 +26,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
 - **GPU monitoring** — NVIDIA (NVML), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via LibreHardwareMonitor HTTP API
-- **Per-box dirty rendering** — only redraws what changed, no full-screen flicker
+- **Per-box dirty rendering** — only redraws what changed
 - **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
 - **Per-widget update intervals** — each collector can run at its own speed
 - **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
