@@ -3,11 +3,12 @@ main_bg = "#ffffff"
 main_fg = "#303030"
 title = "#101010"
 hi_fg = "#284d75"
-selected_bg = "#15283d"
-selected_fg = "#ffffff"
 graph_text = "#dddddd"
 meter_bg = "#dddddd"
-proc_tree_fg = "#dddddd"
+selected_bg = "#15283d"
+selected_fg = "#ffffff"
+followed_bg = "#8d82de"
+followed_fg = "#ffffff"
 cpu_box = "#1a361e"
 mem_box = "#3d3c14"
 net_box = "#1a1742"
@@ -16,14 +17,8 @@ gpu_box = "#14303d"
 disk_box = "#351a42"
 help_box = "#14303d"
 options_box = "#3d3c14"
+proc_tree_fg = "#dddddd"
 proc_follow_bg = "#8d82de"
-followed_bg = "#8d82de"
-followed_fg = "#ffffff"
-
-[gradients.temp]
-start = "#184567"
-mid = "#122c87"
-end = "#9e0061"
 
 [gradients.cpu_upper]
 start = "#0b8e44"
@@ -35,25 +30,25 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#b0d090"
-mid = "#70ba26"
-end = "#496600"
-
-[gradients.cached]
-start = "#26c5ff"
-mid = "#74e6fc"
-end = "#0b1a29"
+[gradients.used]
+start = "#ff4769"
+mid = "#d9626d"
+end = "#3b1f1c"
 
 [gradients.available]
 start = "#ffb814"
 mid = "#ffd77a"
 end = "#292107"
 
-[gradients.used]
-start = "#ff4769"
-mid = "#d9626d"
-end = "#3b1f1c"
+[gradients.cached]
+start = "#26c5ff"
+mid = "#74e6fc"
+end = "#0b1a29"
+
+[gradients.free]
+start = "#b0d090"
+mid = "#70ba26"
+end = "#496600"
 
 [gradients.download]
 start = "#8d82de"
@@ -64,26 +59,6 @@ end = "#130f29"
 start = "#f590f9"
 mid = "#722e76"
 end = "#2b062d"
-
-[gradients.disk_read]
-start = "#8d82de"
-mid = "#413786"
-end = "#130f29"
-
-[gradients.disk_write]
-start = "#f590f9"
-mid = "#722e76"
-end = "#2b062d"
-
-[gradients.disk_busy]
-start = "#ff4769"
-mid = "#d9626d"
-end = "#3b1f1c"
-
-[gradients.process]
-start = "#0b8e44"
-mid = "#a49104"
-end = "#8d0202"
 
 [gradients.gpu]
 start = "#0b8e44"
@@ -104,4 +79,29 @@ end = "#d46a00"
 start = "#4a0e6b"
 mid = "#6b1e9a"
 end = "#8e32c4"
+
+[gradients.disk_read]
+start = "#8d82de"
+mid = "#413786"
+end = "#130f29"
+
+[gradients.disk_write]
+start = "#f590f9"
+mid = "#722e76"
+end = "#2b062d"
+
+[gradients.disk_busy]
+start = "#ff4769"
+mid = "#d9626d"
+end = "#3b1f1c"
+
+[gradients.temp]
+start = "#184567"
+mid = "#122c87"
+end = "#9e0061"
+
+[gradients.process]
+start = "#0b8e44"
+mid = "#a49104"
+end = "#8d0202"
 

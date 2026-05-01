@@ -3,11 +3,12 @@ main_bg = "#100F0F"
 main_fg = "#CECDC3"
 title = "#FFFCF0"
 hi_fg = "#DA702C"
-selected_bg = "#403E3C"
-selected_fg = "#FFFCF0"
 graph_text = "#878580"
 meter_bg = "#343331"
-proc_tree_fg = "#575653"
+selected_bg = "#403E3C"
+selected_fg = "#FFFCF0"
+followed_bg = "#4385BE"
+followed_fg = "#FFFCF0"
 cpu_box = "#4385BE"
 mem_box = "#879A39"
 net_box = "#CE5D97"
@@ -16,14 +17,8 @@ gpu_box = "#DA702C"
 disk_box = "#8B7EC8"
 help_box = "#4385BE"
 options_box = "#DA702C"
+proc_tree_fg = "#575653"
 proc_follow_bg = "#4385BE"
-followed_bg = "#4385BE"
-followed_fg = "#FFFCF0"
-
-[gradients.temp]
-start = "#4385BE"
-mid = "#8B7EC8"
-end = "#D14D41"
 
 [gradients.cpu_upper]
 start = "#3AA99F"
@@ -35,25 +30,25 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#343331"
-mid = "#575653"
-end = "#879A39"
-
-[gradients.cached]
-start = "#205EA6"
-mid = "#4385BE"
-end = "#3AA99F"
+[gradients.used]
+start = "#879A39"
+mid = "#DA702C"
+end = "#D14D41"
 
 [gradients.available]
 start = "#AD8301"
 mid = "#D0A215"
 end = "#DA702C"
 
-[gradients.used]
-start = "#879A39"
-mid = "#DA702C"
-end = "#D14D41"
+[gradients.cached]
+start = "#205EA6"
+mid = "#4385BE"
+end = "#3AA99F"
+
+[gradients.free]
+start = "#343331"
+mid = "#575653"
+end = "#879A39"
 
 [gradients.download]
 start = "#205EA6"
@@ -64,26 +59,6 @@ end = "#3AA99F"
 start = "#A02F6F"
 mid = "#CE5D97"
 end = "#8B7EC8"
-
-[gradients.disk_read]
-start = "#205EA6"
-mid = "#4385BE"
-end = "#3AA99F"
-
-[gradients.disk_write]
-start = "#A02F6F"
-mid = "#CE5D97"
-end = "#8B7EC8"
-
-[gradients.disk_busy]
-start = "#879A39"
-mid = "#DA702C"
-end = "#D14D41"
-
-[gradients.process]
-start = "#879A39"
-mid = "#D0A215"
-end = "#D14D41"
 
 [gradients.gpu]
 start = "#3AA99F"
@@ -103,5 +78,30 @@ end = "#D14D41"
 [gradients.gpu_vram]
 start = "#8B7EC8"
 mid = "#CE5D97"
+end = "#D14D41"
+
+[gradients.disk_read]
+start = "#205EA6"
+mid = "#4385BE"
+end = "#3AA99F"
+
+[gradients.disk_write]
+start = "#A02F6F"
+mid = "#CE5D97"
+end = "#8B7EC8"
+
+[gradients.disk_busy]
+start = "#879A39"
+mid = "#DA702C"
+end = "#D14D41"
+
+[gradients.temp]
+start = "#4385BE"
+mid = "#8B7EC8"
+end = "#D14D41"
+
+[gradients.process]
+start = "#879A39"
+mid = "#D0A215"
 end = "#D14D41"
 

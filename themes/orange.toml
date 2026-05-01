@@ -3,11 +3,12 @@ main_bg = "#000000"
 main_fg = "#ffa500"
 title = "#ffa500"
 hi_fg = "#ffcc66"
-selected_bg = "#ffa500"
-selected_fg = "#000000"
 graph_text = "#4d3200"
 meter_bg = "#4d3200"
-proc_tree_fg = "#4d3200"
+selected_bg = "#ffa500"
+selected_fg = "#000000"
+followed_bg = "#ffa500"
+followed_fg = "#000000"
 cpu_box = "#ffa500"
 mem_box = "#ffa500"
 net_box = "#ffa500"
@@ -16,14 +17,8 @@ gpu_box = "#ffa500"
 disk_box = "#ffa500"
 help_box = "#ffa500"
 options_box = "#ffa500"
+proc_tree_fg = "#4d3200"
 proc_follow_bg = "#ffa500"
-followed_bg = "#ffa500"
-followed_fg = "#000000"
-
-[gradients.temp]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
 
 [gradients.cpu_upper]
 start = "#996300"
@@ -35,12 +30,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
-
-[gradients.cached]
+[gradients.used]
 start = "#996300"
 mid = "#cc8400"
 end = "#ffa500"
@@ -50,7 +40,12 @@ start = "#996300"
 mid = "#cc8400"
 end = "#ffa500"
 
-[gradients.used]
+[gradients.cached]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
+
+[gradients.free]
 start = "#996300"
 mid = "#cc8400"
 end = "#ffa500"
@@ -61,26 +56,6 @@ mid = "#cc8400"
 end = "#ffa500"
 
 [gradients.upload]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
-
-[gradients.disk_read]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
-
-[gradients.disk_write]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
-
-[gradients.disk_busy]
-start = "#996300"
-mid = "#cc8400"
-end = "#ffa500"
-
-[gradients.process]
 start = "#996300"
 mid = "#cc8400"
 end = "#ffa500"
@@ -104,4 +79,29 @@ end = "#ff8000"
 start = "#7a5000"
 mid = "#b37400"
 end = "#e69500"
+
+[gradients.disk_read]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
+
+[gradients.disk_write]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
+
+[gradients.disk_busy]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
+
+[gradients.temp]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
+
+[gradients.process]
+start = "#996300"
+mid = "#cc8400"
+end = "#ffa500"
 

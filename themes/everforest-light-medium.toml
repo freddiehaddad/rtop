@@ -3,11 +3,12 @@ main_bg = "#fdf6e3"
 main_fg = "#5c6a72"
 title = "#5c6a72"
 hi_fg = "#df69ba"
-selected_bg = "#4F585E"
-selected_fg = "#dfa000"
 graph_text = "#5c6a72"
 meter_bg = "#9DA9A0"
-proc_tree_fg = "#9DA9A0"
+selected_bg = "#4F585E"
+selected_fg = "#dfa000"
+followed_bg = "#8da101"
+followed_fg = "#dfa000"
 cpu_box = "#4F585E"
 mem_box = "#4F585E"
 net_box = "#4F585E"
@@ -16,14 +17,8 @@ gpu_box = "#4F585E"
 disk_box = "#4F585E"
 help_box = "#4F585E"
 options_box = "#4F585E"
+proc_tree_fg = "#9DA9A0"
 proc_follow_bg = "#8da101"
-followed_bg = "#8da101"
-followed_fg = "#dfa000"
-
-[gradients.temp]
-start = "#8da101"
-mid = "#dfa000"
-end = "#f85552"
 
 [gradients.cpu_upper]
 start = "#8da101"
@@ -35,7 +30,12 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
+[gradients.used]
+start = "#8da101"
+mid = "#dfa000"
+end = "#f85552"
+
+[gradients.available]
 start = "#f85552"
 mid = "#dfa000"
 end = "#8da101"
@@ -45,15 +45,10 @@ start = "#3994c5"
 mid = "#35a77c"
 end = "#8da101"
 
-[gradients.available]
+[gradients.free]
 start = "#f85552"
 mid = "#dfa000"
 end = "#8da101"
-
-[gradients.used]
-start = "#8da101"
-mid = "#dfa000"
-end = "#f85552"
 
 [gradients.download]
 start = "#8da101"
@@ -64,26 +59,6 @@ end = "#3994c5"
 start = "#dfa000"
 mid = "#e66868"
 end = "#df69ba"
-
-[gradients.disk_read]
-start = "#8da101"
-mid = "#35a77c"
-end = "#3994c5"
-
-[gradients.disk_write]
-start = "#dfa000"
-mid = "#e66868"
-end = "#df69ba"
-
-[gradients.disk_busy]
-start = "#8da101"
-mid = "#dfa000"
-end = "#f85552"
-
-[gradients.process]
-start = "#8da101"
-mid = "#df69ba"
-end = "#f85552"
 
 [gradients.gpu]
 start = "#8da101"
@@ -104,4 +79,29 @@ end = "#f85552"
 start = "#b57286"
 mid = "#d3869b"
 end = "#d699b6"
+
+[gradients.disk_read]
+start = "#8da101"
+mid = "#35a77c"
+end = "#3994c5"
+
+[gradients.disk_write]
+start = "#dfa000"
+mid = "#e66868"
+end = "#df69ba"
+
+[gradients.disk_busy]
+start = "#8da101"
+mid = "#dfa000"
+end = "#f85552"
+
+[gradients.temp]
+start = "#8da101"
+mid = "#dfa000"
+end = "#f85552"
+
+[gradients.process]
+start = "#8da101"
+mid = "#df69ba"
+end = "#f85552"
 

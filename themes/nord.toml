@@ -3,11 +3,12 @@ main_bg = "#2E3440"
 main_fg = "#D8DEE9"
 title = "#8FBCBB"
 hi_fg = "#5E81AC"
-selected_bg = "#4C566A"
-selected_fg = "#ECEFF4"
 graph_text = "#4C566A"
 meter_bg = "#4C566A"
-proc_tree_fg = "#4C566A"
+selected_bg = "#4C566A"
+selected_fg = "#ECEFF4"
+followed_bg = "#81A1C1"
+followed_fg = "#ECEFF4"
 cpu_box = "#4C566A"
 mem_box = "#4C566A"
 net_box = "#4C566A"
@@ -16,14 +17,8 @@ gpu_box = "#4C566A"
 disk_box = "#4C566A"
 help_box = "#4C566A"
 options_box = "#4C566A"
+proc_tree_fg = "#4C566A"
 proc_follow_bg = "#81A1C1"
-followed_bg = "#81A1C1"
-followed_fg = "#ECEFF4"
-
-[gradients.temp]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
 
 [gradients.cpu_upper]
 start = "#81A1C1"
@@ -35,12 +30,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
-
-[gradients.cached]
+[gradients.used]
 start = "#81A1C1"
 mid = "#88C0D0"
 end = "#ECEFF4"
@@ -50,7 +40,12 @@ start = "#81A1C1"
 mid = "#88C0D0"
 end = "#ECEFF4"
 
-[gradients.used]
+[gradients.cached]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
+
+[gradients.free]
 start = "#81A1C1"
 mid = "#88C0D0"
 end = "#ECEFF4"
@@ -61,26 +56,6 @@ mid = "#88C0D0"
 end = "#ECEFF4"
 
 [gradients.upload]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
-
-[gradients.disk_read]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
-
-[gradients.disk_write]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
-
-[gradients.disk_busy]
-start = "#81A1C1"
-mid = "#88C0D0"
-end = "#ECEFF4"
-
-[gradients.process]
 start = "#81A1C1"
 mid = "#88C0D0"
 end = "#ECEFF4"
@@ -104,4 +79,29 @@ end = "#EBCB8B"
 start = "#B48EAD"
 mid = "#A3BE8C"
 end = "#88C0D0"
+
+[gradients.disk_read]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
+
+[gradients.disk_write]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
+
+[gradients.disk_busy]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
+
+[gradients.temp]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
+
+[gradients.process]
+start = "#81A1C1"
+mid = "#88C0D0"
+end = "#ECEFF4"
 

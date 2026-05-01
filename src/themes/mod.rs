@@ -159,11 +159,12 @@ main_bg = "#282a36"
 main_fg = "#f8f8f2"
 title = "#f8f8f2"
 hi_fg = "#6272a4"
-selected_bg = "#ff79c6"
-selected_fg = "#f8f8f2"
 graph_text = "#f8f8f2"
 meter_bg = "#44475a"
-proc_tree_fg = "#44475a"
+selected_bg = "#ff79c6"
+selected_fg = "#f8f8f2"
+followed_bg = "#bd93f9"
+followed_fg = "#f8f8f2"
 cpu_box = "#bd93f9"
 mem_box = "#50fa7b"
 net_box = "#ff5555"
@@ -172,9 +173,8 @@ gpu_box = "#f1fa8c"
 disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
+proc_tree_fg = "#44475a"
 proc_follow_bg = "#bd93f9"
-followed_bg = "#bd93f9"
-followed_fg = "#f8f8f2"
 
 [gradients.cpu_upper]
 start = "#bd93f9"
@@ -186,30 +186,25 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.temp]
-start = "#bd93f9"
-mid = "#ff79c6"
-end = "#ff33a8"
-
-[gradients.free]
-start = "#ffa6d9"
-mid = "#ff79c6"
-end = "#ff33a8"
-
-[gradients.cached]
-start = "#b1f0fd"
-mid = "#8be9fd"
-end = "#26d7fd"
+[gradients.used]
+start = "#96faaf"
+mid = "#50fa7b"
+end = "#0dfa49"
 
 [gradients.available]
 start = "#ffd4a6"
 mid = "#ffb86c"
 end = "#ff9c33"
 
-[gradients.used]
-start = "#96faaf"
-mid = "#50fa7b"
-end = "#0dfa49"
+[gradients.cached]
+start = "#b1f0fd"
+mid = "#8be9fd"
+end = "#26d7fd"
+
+[gradients.free]
+start = "#ffa6d9"
+mid = "#ff79c6"
+end = "#ff33a8"
 
 [gradients.download]
 start = "#bd93f9"
@@ -220,11 +215,6 @@ end = "#8be9fd"
 start = "#8c42ab"
 mid = "#ff79c6"
 end = "#ff33a8"
-
-[gradients.process]
-start = "#50fa7b"
-mid = "#59b690"
-end = "#6272a4"
 
 [gradients.gpu]
 start = "#bd93f9"
@@ -260,6 +250,16 @@ end = "#ff33a8"
 start = "#96faaf"
 mid = "#50fa7b"
 end = "#0dfa49"
+
+[gradients.temp]
+start = "#bd93f9"
+mid = "#ff79c6"
+end = "#ff33a8"
+
+[gradients.process]
+start = "#50fa7b"
+mid = "#59b690"
+end = "#6272a4"
 "##;
         let palette: ThemePalette = toml::from_str(toml_str).unwrap();
         assert_eq!(palette.colors.main_bg, Some(Rgb(0x28, 0x2a, 0x36)));
@@ -275,11 +275,12 @@ end = "#0dfa49"
 main_fg = "#f8f8f2"
 title = "#f8f8f2"
 hi_fg = "#6272a4"
-selected_bg = "#ff79c6"
-selected_fg = "#f8f8f2"
 graph_text = "#f8f8f2"
 meter_bg = "#44475a"
-proc_tree_fg = "#44475a"
+selected_bg = "#ff79c6"
+selected_fg = "#f8f8f2"
+followed_bg = "#bd93f9"
+followed_fg = "#f8f8f2"
 cpu_box = "#bd93f9"
 mem_box = "#50fa7b"
 net_box = "#ff5555"
@@ -288,9 +289,8 @@ gpu_box = "#f1fa8c"
 disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
+proc_tree_fg = "#44475a"
 proc_follow_bg = "#bd93f9"
-followed_bg = "#bd93f9"
-followed_fg = "#f8f8f2"
 
 [gradients.cpu_upper]
 start = "#000000"
@@ -302,15 +302,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.temp]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.free]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.cached]
+[gradients.used]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
@@ -318,7 +310,11 @@ end = "#ffffff"
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
-[gradients.used]
+[gradients.cached]
+start = "#000000"
+mid = "#808080"
+end = "#ffffff"
+[gradients.free]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
@@ -327,10 +323,6 @@ start = "#000000"
 mid = "#808080"
 end = "#ffffff"
 [gradients.upload]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.process]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
@@ -359,6 +351,14 @@ start = "#000000"
 mid = "#808080"
 end = "#ffffff"
 [gradients.disk_busy]
+start = "#000000"
+mid = "#808080"
+end = "#ffffff"
+[gradients.temp]
+start = "#000000"
+mid = "#808080"
+end = "#ffffff"
+[gradients.process]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"

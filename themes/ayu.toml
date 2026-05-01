@@ -3,11 +3,12 @@ main_bg = "#0B0E14"
 main_fg = "#BFBDB6"
 title = "#BFBDB6"
 hi_fg = "#E6B450"
-selected_bg = "#E6B450"
-selected_fg = "#f8f8f2"
 graph_text = "#BFBDB6"
 meter_bg = "#565B66"
-proc_tree_fg = "#565B66"
+selected_bg = "#E6B450"
+selected_fg = "#f8f8f2"
+followed_bg = "#F28779"
+followed_fg = "#f8f8f2"
 cpu_box = "#DFBFFF"
 mem_box = "#95E6CB"
 net_box = "#F28779"
@@ -16,14 +17,8 @@ gpu_box = "#73C2E6"
 disk_box = "#E6A0CB"
 help_box = "#73B8E6"
 options_box = "#E6B873"
+proc_tree_fg = "#565B66"
 proc_follow_bg = "#F28779"
-followed_bg = "#F28779"
-followed_fg = "#f8f8f2"
-
-[gradients.temp]
-start = "#DFBFFF"
-mid = "#D2A6FF"
-end = "#A37ACC"
 
 [gradients.cpu_upper]
 start = "#DFBFFF"
@@ -35,12 +30,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#95E6CB"
-mid = "#95E6CB"
-end = "#4CBF99"
-
-[gradients.cached]
+[gradients.used]
 start = "#95E6CB"
 mid = "#95E6CB"
 end = "#4CBF99"
@@ -50,7 +40,12 @@ start = "#95E6CB"
 mid = "#95E6CB"
 end = "#4CBF99"
 
-[gradients.used]
+[gradients.cached]
+start = "#95E6CB"
+mid = "#95E6CB"
+end = "#4CBF99"
+
+[gradients.free]
 start = "#95E6CB"
 mid = "#95E6CB"
 end = "#4CBF99"
@@ -64,26 +59,6 @@ end = "#F07171"
 start = "#73D0FF"
 mid = "#59C2FF"
 end = "#399EE6"
-
-[gradients.disk_read]
-start = "#F28779"
-mid = "#F07178"
-end = "#F07171"
-
-[gradients.disk_write]
-start = "#73D0FF"
-mid = "#59C2FF"
-end = "#399EE6"
-
-[gradients.disk_busy]
-start = "#95E6CB"
-mid = "#95E6CB"
-end = "#4CBF99"
-
-[gradients.process]
-start = "#FFCC66"
-mid = "#E6B450"
-end = "#FFAA33"
 
 [gradients.gpu]
 start = "#DFBFFF"
@@ -104,4 +79,29 @@ end = "#E6730D"
 start = "#BAE67A"
 mid = "#A8D54E"
 end = "#8CC730"
+
+[gradients.disk_read]
+start = "#F28779"
+mid = "#F07178"
+end = "#F07171"
+
+[gradients.disk_write]
+start = "#73D0FF"
+mid = "#59C2FF"
+end = "#399EE6"
+
+[gradients.disk_busy]
+start = "#95E6CB"
+mid = "#95E6CB"
+end = "#4CBF99"
+
+[gradients.temp]
+start = "#DFBFFF"
+mid = "#D2A6FF"
+end = "#A37ACC"
+
+[gradients.process]
+start = "#FFCC66"
+mid = "#E6B450"
+end = "#FFAA33"
 

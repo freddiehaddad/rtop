@@ -3,11 +3,12 @@ main_bg = "#1d1d1d"
 main_fg = "#deddda"
 title = "#deddda"
 hi_fg = "#62a0ea"
-selected_bg = "#1c71d8"
-selected_fg = "#ffffff"
 graph_text = "#77767b"
 meter_bg = "#77767b"
-proc_tree_fg = "#77767b"
+selected_bg = "#1c71d8"
+selected_fg = "#ffffff"
+followed_bg = "#62a0ea"
+followed_fg = "#ffffff"
 cpu_box = "#77767b"
 mem_box = "#77767b"
 net_box = "#77767b"
@@ -16,14 +17,8 @@ gpu_box = "#77767b"
 disk_box = "#77767b"
 help_box = "#77767b"
 options_box = "#77767b"
+proc_tree_fg = "#77767b"
 proc_follow_bg = "#62a0ea"
-followed_bg = "#62a0ea"
-followed_fg = "#ffffff"
-
-[gradients.temp]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#e01b24"
 
 [gradients.cpu_upper]
 start = "#62a0ea"
@@ -35,12 +30,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#c01b24"
-
-[gradients.cached]
+[gradients.used]
 start = "#62a0ea"
 mid = "#1c71d8"
 end = "#c01b24"
@@ -50,7 +40,12 @@ start = "#62a0ea"
 mid = "#1c71d8"
 end = "#c01b24"
 
-[gradients.used]
+[gradients.cached]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#c01b24"
+
+[gradients.free]
 start = "#62a0ea"
 mid = "#1c71d8"
 end = "#c01b24"
@@ -64,26 +59,6 @@ end = "#c01b24"
 start = "#62a0ea"
 mid = "#1c71d8"
 end = "#c01b24"
-
-[gradients.disk_read]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#c01b24"
-
-[gradients.disk_write]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#c01b24"
-
-[gradients.disk_busy]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#c01b24"
-
-[gradients.process]
-start = "#62a0ea"
-mid = "#1c71d8"
-end = "#e01b24"
 
 [gradients.gpu]
 start = "#62a0ea"
@@ -104,4 +79,29 @@ end = "#e01b24"
 start = "#7e57c2"
 mid = "#9575cd"
 end = "#b39ddb"
+
+[gradients.disk_read]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#c01b24"
+
+[gradients.disk_write]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#c01b24"
+
+[gradients.disk_busy]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#c01b24"
+
+[gradients.temp]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#e01b24"
+
+[gradients.process]
+start = "#62a0ea"
+mid = "#1c71d8"
+end = "#e01b24"
 

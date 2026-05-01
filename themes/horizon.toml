@@ -3,11 +3,12 @@ main_bg = "#1C1E26"
 main_fg = "#f8f8f2"
 title = "#f8f8f2"
 hi_fg = "#B877DB"
-selected_bg = "#282b37"
-selected_fg = "#f8f8f2"
 graph_text = "#f8f8f2"
 meter_bg = "#272e33"
-proc_tree_fg = "#272e33"
+selected_bg = "#282b37"
+selected_fg = "#f8f8f2"
+followed_bg = "#27D796"
+followed_fg = "#f8f8f2"
 cpu_box = "#B877DB"
 mem_box = "#27D796"
 net_box = "#E95678"
@@ -16,14 +17,8 @@ gpu_box = "#E5C07B"
 disk_box = "#6C6F93"
 help_box = "#26BBD9"
 options_box = "#E5C07B"
+proc_tree_fg = "#272e33"
 proc_follow_bg = "#27D796"
-followed_bg = "#27D796"
-followed_fg = "#f8f8f2"
-
-[gradients.temp]
-start = "#27D796"
-mid = "#FAC29A"
-end = "#E95678"
 
 [gradients.cpu_upper]
 start = "#27D796"
@@ -35,12 +30,7 @@ start = "#4897d4"
 mid = "#5474e8"
 end = "#ff40b6"
 
-[gradients.free]
-start = "#E95678"
-mid = "#FAC29A"
-end = "#27D796"
-
-[gradients.cached]
+[gradients.used]
 start = "#27D796"
 mid = "#FAC29A"
 end = "#E95678"
@@ -50,10 +40,15 @@ start = "#27D796"
 mid = "#FAC29A"
 end = "#E95678"
 
-[gradients.used]
+[gradients.cached]
 start = "#27D796"
 mid = "#FAC29A"
 end = "#E95678"
+
+[gradients.free]
+start = "#E95678"
+mid = "#FAC29A"
+end = "#27D796"
 
 [gradients.download]
 start = "#27D796"
@@ -61,26 +56,6 @@ mid = "#FAC29A"
 end = "#E95678"
 
 [gradients.upload]
-start = "#27D796"
-mid = "#FAC29A"
-end = "#E95678"
-
-[gradients.disk_read]
-start = "#27D796"
-mid = "#FAC29A"
-end = "#E95678"
-
-[gradients.disk_write]
-start = "#27D796"
-mid = "#FAC29A"
-end = "#E95678"
-
-[gradients.disk_busy]
-start = "#27D796"
-mid = "#FAC29A"
-end = "#E95678"
-
-[gradients.process]
 start = "#27D796"
 mid = "#FAC29A"
 end = "#E95678"
@@ -104,4 +79,29 @@ end = "#E95678"
 start = "#B877DB"
 mid = "#9B6BCD"
 end = "#7C5FBF"
+
+[gradients.disk_read]
+start = "#27D796"
+mid = "#FAC29A"
+end = "#E95678"
+
+[gradients.disk_write]
+start = "#27D796"
+mid = "#FAC29A"
+end = "#E95678"
+
+[gradients.disk_busy]
+start = "#27D796"
+mid = "#FAC29A"
+end = "#E95678"
+
+[gradients.temp]
+start = "#27D796"
+mid = "#FAC29A"
+end = "#E95678"
+
+[gradients.process]
+start = "#27D796"
+mid = "#FAC29A"
+end = "#E95678"
 
