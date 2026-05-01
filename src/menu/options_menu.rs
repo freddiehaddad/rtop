@@ -982,7 +982,7 @@ pub fn draw(
                     out.push_str(&format!(
                         "{}{}{}{}{}{}{}",
                         term::BOLD,
-                        term::mv(x + 2, val_row),
+                        term::mv(x + 3, val_row),
                         hi,
                         symbols::LEFT_ARROW,
                         term::mv(x + 29, val_row),
