@@ -37,12 +37,20 @@ pub struct NetBoxSettings<'a> {
 /// Draw the network box into an ANSI string matching btop's layout.
 ///
 /// Layout:
-/// ╭─ net ─────────────────────────────────╮
-/// │⣿⣷⣤⣠⣀⡀⢠⣿⣷⣤⣠⣀⡀⢠⣿⣷⣤⣠⣀⡀    ▼ 1.2M/s │
-/// │⣿⣷⣤⣠⣀⡀⢠⣿⣷⣤⣠⣀⡀⢠⣿⣷⣤⣠⣀⡀            │
-/// │⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿            │
-/// │⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿⡇⣇⣧⣷⣿    ▲ 0.5M/s │
-/// ╰── < Ethernet > ─── b ◀ ── n ▶ ───────╯
+/// ╭─┐³net┌───────────────────────────────────────────────────────────┐1 Gbps┌─╮
+/// │              ⢸⡇                        ⢸⡇                        0.0B/s ▼ │
+/// │              ⢸⣿⣿⡇                      ⢸⡇                                 │
+/// │              ⢸⣿⣿⣇⡀                     ⢸⡇                                 │
+/// │             ⢸⣿⣿⣿⣿⡇                     ⢸⡇                                 │
+/// │             ⢸⣿⣿⣿⣿⡇                    ⢠⣼⡇                                 │
+/// │⣀⣀⣠⣄⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣿⣿⣿⣿⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣿⣿⣿⣿⣇⣠⣄⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│
+/// │⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠋⠉⠉⢹⣿⣿⡏⠉⠙⠋⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⠹⠏⢹⣿⡏⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉│
+/// │             ⢸⣿⣿⡇                      ⢸⣿⡇                                 │
+/// │             ⢸⣿⣿⡇                      ⢸⣿⡇                                 │
+/// │             ⢸⡏⠉⠁                      ⠈⢹⡇                                 │
+/// │             ⢸⡇                         ⢸⡇                                 │
+/// │                                        ⢸⡇                        0.0B/s ▲ │
+/// ╰─┘sync└┘auto└┘zero└┘←b Ethernet n→└────────────────────────────────────────╯
 pub fn draw(
     net: &NetInfo,
     area: &BoxArea,
@@ -173,8 +181,9 @@ pub fn draw(
         } else {
             fg
         };
-        let label = format!("{} {}", top_arrow, speed);
-        let lx = x + width.saturating_sub(label.len() + 2);
+        let label = format!("{} {}", speed, top_arrow);
+        let label_vis = tools::ulen(&label, false);
+        let lx = x + width.saturating_sub(label_vis + 1);
         buf.mv(lx, y + 2).color(top_color).text(&label);
     }
 
@@ -203,8 +212,9 @@ pub fn draw(
         } else {
             fg
         };
-        let label = format!("{} {}", bot_arrow, speed);
-        let lx = x + width.saturating_sub(label.len() + 2);
+        let label = format!("{} {}", speed, bot_arrow);
+        let label_vis = tools::ulen(&label, false);
+        let lx = x + width.saturating_sub(label_vis + 1);
         let label_y = y + height - 1;
         buf.mv(lx, label_y).color(bot_color).text(&label);
     }

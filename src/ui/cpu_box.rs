@@ -160,14 +160,23 @@ impl CoreGridLayout {
 
 /// Draw the CPU box into an ANSI string.
 ///
-/// Layout (redesigned):
-/// ╭─ up 1d ── 12:45 ─ cpu ─── i9-14900KF ┬─ 5.05 GHz ─╮
-/// │ <upper graph>             ▼user 7%    │CPU   ■■░░  7%│
-/// │ <upper graph>                         │Temp  ■■░░ 36°C│
-/// │ <lower graph inv>                     │Load  ■░░░ 0.84│
-/// │ <lower graph inv>     ▲system 3%      ├─┐Cores─ld..┌─┤
-/// │                                       │C0  ⣿⣷ 1%    │
-/// ╰───────────────────────────────────────┴──────────────╯
+/// Layout:
+/// ╭─┐¹cpu┌────────────────────────┬──────────────────┐Intel(R) Core(TM) i9-14900KF┌─╮
+/// │                       user 2% │ CPU   ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        4% │
+/// │                               │ Temp  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      40°C │
+/// │                               │ Watts ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  31W/400W │
+/// │                               │ Load  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      0.06 │
+/// │                               │          1m: 0.06  5m: 0.06  15m: 0.06          │
+/// │                               ├─┐Cores┌──────────────────────────────┐4.77 GHz┌─┤
+/// │⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│ C00 ⣀⣀⣀⣀⣀⣀⣀⣀   3%  32°C C08 ⣀⣀⣀⣀⣀⣀⣀⣀  10%  37°C │
+/// │⠉⠉⠉⠙⠋⠉⠉⠙⠋⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉│ C01 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C09 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
+/// │                               │ C02 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  34°C C10 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
+/// │                               │ C03 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  34°C C11 ⣀⣀⣀⣀⣀⣀⣀⣀  12%  37°C │
+/// │                               │ C04 ⣀⣀⣀⣀⣀⣀⣀⣀   2%  33°C C12 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  35°C │
+/// │                               │ C05 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C C13 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
+/// │                               │ C06 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C14 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
+/// │                     system 2% │ C07 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  33°C C15 ⣀⣀⣀⣀⣀⣀⣀⣀   5%  35°C │
+/// ╰─┘menu└┘preset *0└┘─ 2000ms +└─┴─────────────────────────┘up 13d21:05└┘18:01:00└─╯
 pub fn draw(
     cpu: &CpuInfo,
     area: &BoxArea,
@@ -312,14 +321,14 @@ pub fn draw(
         }
     }
 
-    // Upper graph overlay label: ▼{key} {pct}%
+    // Upper graph overlay label
     if upper_h > 0 && graph_width > 0 {
         let upper_pct = get_cpu_series(&cpu.cpu_percent, upper_key)
             .and_then(|d| d.back().copied())
             .unwrap_or(0);
-        let label = format!("▼{} {}%", upper_key, upper_pct);
+        let label = format!("{} {}%", upper_key, upper_pct);
         let label_vis = tools::ulen(&label, false);
-        let lx = x + 2 + graph_width.saturating_sub(label_vis);
+        let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let upper_color = if !cpu_upper_gradient.is_empty() {
             &cpu_upper_gradient[upper_pct.clamp(0, 100) as usize]
         } else {
@@ -347,11 +356,11 @@ pub fn draw(
             buf.mv(x + 2, lower_start_y + i).text(row);
         }
 
-        // Lower graph overlay label: ▲{key} {pct}%
+        // Lower graph overlay label
         let lower_pct = data.back().copied().unwrap_or(0);
-        let label = format!("▲{} {}%", lower_key, lower_pct);
+        let label = format!("{} {}%", lower_key, lower_pct);
         let label_vis = tools::ulen(&label, false);
-        let lx = x + 2 + graph_width.saturating_sub(label_vis);
+        let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let label_y = lower_start_y + lower_h - 1;
         let lower_color = if !cpu_lower_gradient.is_empty() {
             &cpu_lower_gradient[lower_pct.clamp(0, 100) as usize]
@@ -890,12 +899,12 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains('▼'),
-            "should contain upper graph overlay label '▼'"
+            plain.contains("user") && plain.contains('%'),
+            "should contain upper graph overlay label"
         );
         assert!(
-            plain.contains('▲'),
-            "should contain lower graph overlay label '▲'"
+            plain.contains("system") && plain.contains('%'),
+            "should contain lower graph overlay label"
         );
     }
 
