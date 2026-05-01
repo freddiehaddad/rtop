@@ -123,7 +123,12 @@ pub const KEYBINDS: &[Keybind] = &[
     },
     Keybind {
         key: "t",
-        desc: "Terminate process",
+        desc: "Terminate process (graceful)",
+        section: "Process",
+    },
+    Keybind {
+        key: "T",
+        desc: "Kill process (force)",
         section: "Process",
     },
     Keybind {

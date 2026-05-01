@@ -67,6 +67,8 @@ pub(super) struct BottomBorderParams<'a> {
     pub(super) followed_pid: u32,
     pub(super) visible: usize,
     pub(super) total: usize,
+    pub(super) armed_name: &'a str,
+    pub(super) armed_force: bool,
 }
 
 /// Render the bottom border with select, info, terminate, and filter labels.
@@ -77,30 +79,41 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
     let title_color = theme.color(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
-    let select_text = format!("↑{} select {}↓", title_color, hi);
-    let select_inset = box_drawing::title_inset(&select_text, box_color, hi, true);
-    let info_text = format!("info {}↵", hi);
-    let info_inset = box_drawing::title_inset(&info_text, box_color, title_color, true);
-    let term_inset = box_drawing::keybind_inset("terminate", box_color, hi, title_color, true);
-    let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
-    buf.mv(p.x + 3, p.bottom_y).text(&bottom_hints);
-
-    // Filter label
-    let cursor = if p.filtering {
-        format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF)
+    if !p.armed_name.is_empty() {
+        let (action, confirm_key) = if p.armed_force {
+            ("KILL", "T")
+        } else {
+            ("terminate", "t")
+        };
+        let prompt = format!("press {} to {} {}", confirm_key, action, p.armed_name);
+        let prompt_inset = box_drawing::title_inset(&prompt, box_color, title_color, true);
+        buf.mv(p.x + 3, p.bottom_y).text(&prompt_inset);
     } else {
-        String::new()
-    };
-    let filter_label = if !p.filter.is_empty() || p.filtering {
-        let filter_text = format!("filter: {}{}{}", fg, p.filter, cursor);
-        box_drawing::keybind_inset(&filter_text, box_color, hi, title_color, true)
-    } else {
-        box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
-    };
-    buf.text(&filter_label);
+        let select_text = format!("↑{} select {}↓", title_color, hi);
+        let select_inset = box_drawing::title_inset(&select_text, box_color, hi, true);
+        let info_text = format!("info {}↵", hi);
+        let info_inset = box_drawing::title_inset(&info_text, box_color, title_color, true);
+        let term_inset = box_drawing::keybind_inset("terminate", box_color, hi, title_color, true);
+        let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
+        buf.mv(p.x + 3, p.bottom_y).text(&bottom_hints);
 
-    // Following label
-    if p.followed_pid > 0 {
+        // Filter label (hidden when armed to make room for confirmation prompt)
+        let cursor = if p.filtering {
+            format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF)
+        } else {
+            String::new()
+        };
+        let filter_label = if !p.filter.is_empty() || p.filtering {
+            let filter_text = format!("filter: {}{}{}", fg, p.filter, cursor);
+            box_drawing::keybind_inset(&filter_text, box_color, hi, title_color, true)
+        } else {
+            box_drawing::keybind_inset("filter", box_color, hi, title_color, true)
+        };
+        buf.text(&filter_label);
+    }
+
+    // Following label (hidden when armed — prompt replaces entire line)
+    if p.armed_name.is_empty() && p.followed_pid > 0 {
         let follow_bg = theme.color(tc::PROC_FOLLOW_BG);
         let follow_text = format!("{}following", follow_bg);
         let follow_inset = box_drawing::title_inset(&follow_text, box_color, title_color, true);

@@ -328,6 +328,8 @@ fn draw_proc_borders(
             followed_pid: view.followed_pid,
             visible,
             total: entry_count,
+            armed_name: view.armed_name,
+            armed_force: view.armed_force,
         },
         theme,
     ));
@@ -458,6 +460,8 @@ mod tests {
             followed_pid: 0,
             filter: "",
             filtering: false,
+            armed_name: "",
+            armed_force: false,
         }
     }
 

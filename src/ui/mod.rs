@@ -76,6 +76,8 @@ pub struct ProcView<'a> {
     pub followed_pid: u32,
     pub filter: &'a str,
     pub filtering: bool,
+    pub armed_name: &'a str,
+    pub armed_force: bool,
 }
 
 pub mod cpu_box;

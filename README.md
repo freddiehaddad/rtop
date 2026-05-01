@@ -68,7 +68,8 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `i` | Toggle disk IO mode |
 | `Enter` | Show/hide process details |
 | `F` | Follow/unfollow process |
-| `t` | Terminate process |
+| `t` | Terminate process (graceful, double-tap) |
+| `T` | Kill process (force, double-tap) |
 | `n` / `b` | Cycle network interfaces |
 | `a` | Toggle network auto scale |
 | `y` | Toggle network sync scale |

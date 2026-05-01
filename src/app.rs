@@ -325,6 +325,9 @@ pub(crate) struct ProcessViewState {
     /// Combined procs list (live + stale) that entries' `proc_index` refers to.
     /// Only populated when `keep_dead_proc_usage` adds stale entries.
     pub(crate) display_procs: Option<Vec<crate::domain::process::ProcInfo>>,
+    /// Armed terminate state: (pid, process_name, force_kill).
+    /// Set on first `t`/`T`, cleared on second press or any other key.
+    pub(crate) armed_terminate: Option<(u32, String, bool)>,
     stale_tracker: StaleProcessTracker,
 }
 
@@ -339,6 +342,7 @@ impl ProcessViewState {
             filter_text: String::new(),
             entries: Vec::new(),
             display_procs: None,
+            armed_terminate: None,
             stale_tracker: StaleProcessTracker::new(),
         }
     }
@@ -811,6 +815,11 @@ fn render_dirty_frame(
         total_mem: state.live.total_mem,
         detailed_pid: state.process.detailed_pid,
         followed_pid: state.process.followed_pid,
+        armed_terminate: state
+            .process
+            .armed_terminate
+            .as_ref()
+            .map(|(_, name, force)| (name.as_str(), *force)),
     };
     output.push_str(&render_all(
         &params,
@@ -952,6 +961,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) total_mem: u64,
     pub(crate) detailed_pid: u32,
     pub(crate) followed_pid: u32,
+    pub(crate) armed_terminate: Option<(&'a str, bool)>,
 }
 
 /// Render UI boxes into an ANSI output string.
@@ -1147,6 +1157,12 @@ pub(crate) fn render_all(
             followed_pid: params.followed_pid,
             filter: pf,
             filtering: is_filtering,
+            armed_name: params
+                .armed_terminate
+                .as_ref()
+                .map(|(n, _)| *n)
+                .unwrap_or(""),
+            armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
         };
         let proc_settings = ui::proc_box::ProcBoxSettings {
             proc_per_core: config.proc_per_core,

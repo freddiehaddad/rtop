@@ -135,6 +135,19 @@ impl InputContext<'_> {
             .and_then(|entry| procs.get(entry.proc_index))
             .map(|proc| proc.pid)
     }
+
+    pub(crate) fn selected_proc_info(&self) -> Option<(u32, &str)> {
+        let procs: &[crate::domain::process::ProcInfo] = self
+            .process
+            .display_procs
+            .as_deref()
+            .or_else(|| self.live.proc_data.as_ref().map(|s| s.procs.as_slice()))?;
+        self.process
+            .entries
+            .get(self.process.selected)
+            .and_then(|entry| procs.get(entry.proc_index))
+            .map(|proc| (proc.pid, proc.name.as_str()))
+    }
 }
 
 /// Redraw the underlying UI after closing a menu overlay.
@@ -167,6 +180,11 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             total_mem: ctx.live.total_mem,
             detailed_pid: ctx.process.detailed_pid,
             followed_pid: ctx.process.followed_pid,
+            armed_terminate: ctx
+                .process
+                .armed_terminate
+                .as_ref()
+                .map(|(_, name, force)| (name.as_str(), *force)),
         };
         out.push_str(term::CLEAR_SCREEN);
         out.push_str(&render_all(

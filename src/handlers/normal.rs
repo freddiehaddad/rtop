@@ -8,6 +8,14 @@ use crate::{
 
 /// Handle input in normal (no-menu) mode.
 pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
+    // When a terminate confirmation is pending, only t/T can confirm.
+    // Any other key disarms and is consumed (no further action).
+    if ctx.process.armed_terminate.is_some() && !matches!(key, Key::Char('t') | Key::Char('T')) {
+        ctx.process.armed_terminate = None;
+        ctx.render.dirty |= Dirty::PROC_BOX;
+        return HandleResult::none();
+    }
+
     if let Some(result) = handle_quit_and_menus(key, ctx) {
         return result;
     }
@@ -284,9 +292,21 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             ctx.config.proc_sorting = SORT_OPTIONS[new_idx].to_string();
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
-        Key::Char('t') if ctx.process.selected < ctx.process.entries.len() => {
-            if let Some(pid) = ctx.selected_proc_pid() {
-                terminate_process(pid);
+        Key::Char('t') => {
+            if let Some((armed_pid, _, false)) = ctx.process.armed_terminate {
+                graceful_terminate(armed_pid);
+                ctx.process.armed_terminate = None;
+            } else if let Some((pid, name)) = ctx.selected_proc_info() {
+                ctx.process.armed_terminate = Some((pid, name.to_string(), false));
+            }
+            ctx.render.dirty |= Dirty::PROC_BOX;
+        }
+        Key::Char('T') => {
+            if let Some((armed_pid, _, true)) = ctx.process.armed_terminate {
+                terminate_process(armed_pid);
+                ctx.process.armed_terminate = None;
+            } else if let Some((pid, name)) = ctx.selected_proc_info() {
+                ctx.process.armed_terminate = Some((pid, name.to_string(), true));
             }
             ctx.render.dirty |= Dirty::PROC_BOX;
         }
@@ -441,6 +461,47 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
     };
     ctx.network.selected_iface = nets[new_idx].name.clone();
     ctx.config.net_iface = ctx.network.selected_iface.clone();
+}
+
+/// Attempt graceful termination by sending WM_CLOSE to the process's
+/// visible windows. If the process has no windows, does nothing — the
+/// user can escalate to force kill with `T`.
+fn graceful_terminate(pid: u32) {
+    use windows::Win32::Foundation::*;
+    use windows::Win32::UI::WindowsAndMessaging::*;
+
+    struct CallbackData {
+        target_pid: u32,
+        found: bool,
+    }
+
+    unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
+        let data = unsafe { &mut *(lparam.0 as *mut CallbackData) };
+        let mut window_pid: u32 = 0;
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut window_pid)) };
+        if window_pid == data.target_pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            let _ = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            data.found = true;
+        }
+        TRUE
+    }
+
+    let mut data = CallbackData {
+        target_pid: pid,
+        found: false,
+    };
+
+    // SAFETY: enum_callback receives a valid pointer to stack-allocated data.
+    // EnumWindows iterates all top-level windows; we filter by PID.
+    unsafe {
+        let _ = EnumWindows(Some(enum_callback), LPARAM(&mut data as *mut _ as isize));
+    }
+
+    if !data.found {
+        tracing::debug!(
+            "graceful terminate skipped for pid {pid}: no visible window to send WM_CLOSE (use T to force kill)"
+        );
+    }
 }
 
 fn terminate_process(pid: u32) {
