@@ -197,7 +197,7 @@ Control which widgets are shown via the `shown_boxes` config:
 shown_boxes = ["cpu", "mem", "net", "proc", "disk"]
 ```
 
-Toggle widgets at runtime with the `1`–`6` keys.
+Toggle widgets at runtime with the `1`–`9` and `0` keys.
 
 ---
 
