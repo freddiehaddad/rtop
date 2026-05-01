@@ -201,9 +201,9 @@ fn draw_header(
         "Program".into()
     };
     let cpu_label = if sort.is_sort("cpu") {
-        format!("Cpu%{}", sort.arrow)
+        format!("CPU%{}", sort.arrow)
     } else {
-        "Cpu%".into()
+        "CPU%".into()
     };
     let mem_label = if sort.is_sort("mem") {
         format!("{}{}", mem_header_label(settings), sort.arrow)
