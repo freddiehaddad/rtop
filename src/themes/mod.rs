@@ -79,10 +79,8 @@ pub struct PaletteColors {
     pub hi_fg: Rgb,
     pub selected_bg: Rgb,
     pub selected_fg: Rgb,
-    pub inactive_fg: Rgb,
     pub graph_text: Rgb,
     pub meter_bg: Rgb,
-    pub proc_misc: Rgb,
     pub proc_tree_fg: Rgb,
     pub cpu_box: Rgb,
     pub mem_box: Rgb,
@@ -92,11 +90,7 @@ pub struct PaletteColors {
     pub disk_box: Rgb,
     pub help_box: Rgb,
     pub options_box: Rgb,
-    pub div_line: Rgb,
-    pub proc_pause_bg: Rgb,
     pub proc_follow_bg: Rgb,
-    pub proc_banner_bg: Rgb,
-    pub proc_banner_fg: Rgb,
     pub followed_bg: Rgb,
     pub followed_fg: Rgb,
 }
@@ -166,10 +160,8 @@ title = "#f8f8f2"
 hi_fg = "#6272a4"
 selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
-inactive_fg = "#44475a"
 graph_text = "#f8f8f2"
 meter_bg = "#44475a"
-proc_misc = "#bd93f9"
 proc_tree_fg = "#44475a"
 cpu_box = "#bd93f9"
 mem_box = "#50fa7b"
@@ -179,11 +171,7 @@ gpu_box = "#f1fa8c"
 disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
-div_line = "#44475a"
-proc_pause_bg = "#0dfa49"
 proc_follow_bg = "#bd93f9"
-proc_banner_bg = "#ff79c6"
-proc_banner_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
 
@@ -283,10 +271,8 @@ title = "#f8f8f2"
 hi_fg = "#6272a4"
 selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
-inactive_fg = "#44475a"
 graph_text = "#f8f8f2"
 meter_bg = "#44475a"
-proc_misc = "#bd93f9"
 proc_tree_fg = "#44475a"
 cpu_box = "#bd93f9"
 mem_box = "#50fa7b"
@@ -296,11 +282,7 @@ gpu_box = "#f1fa8c"
 disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
-div_line = "#44475a"
-proc_pause_bg = "#0dfa49"
 proc_follow_bg = "#bd93f9"
-proc_banner_bg = "#ff79c6"
-proc_banner_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
 

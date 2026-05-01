@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 26;
+pub const COLOR_COUNT: usize = 20;
 pub const GRADIENT_COUNT: usize = 16;
 
 struct BundledTheme {
@@ -269,26 +269,20 @@ impl Theme {
             Some(c.hi_fg),          // 3
             Some(c.selected_bg),    // 4
             Some(c.selected_fg),    // 5
-            Some(c.inactive_fg),    // 6
-            Some(c.graph_text),     // 7
-            Some(c.meter_bg),       // 8
-            Some(c.proc_misc),      // 9
-            Some(c.proc_tree_fg),   // 10
-            Some(c.cpu_box),        // 11
-            Some(c.mem_box),        // 12
-            Some(c.net_box),        // 13
-            Some(c.proc_box),       // 14
-            Some(c.gpu_box),        // 15
-            Some(c.disk_box),       // 16
-            Some(c.help_box),       // 17
-            Some(c.options_box),    // 18
-            Some(c.div_line),       // 19
-            Some(c.proc_pause_bg),  // 20
-            Some(c.proc_follow_bg), // 21
-            Some(c.proc_banner_bg), // 22
-            Some(c.proc_banner_fg), // 23
-            Some(c.followed_bg),    // 24
-            Some(c.followed_fg),    // 25
+            Some(c.graph_text),     // 6
+            Some(c.meter_bg),       // 7
+            Some(c.proc_tree_fg),   // 8
+            Some(c.cpu_box),        // 9
+            Some(c.mem_box),        // 10
+            Some(c.net_box),        // 11
+            Some(c.proc_box),       // 12
+            Some(c.gpu_box),        // 13
+            Some(c.disk_box),       // 14
+            Some(c.help_box),       // 15
+            Some(c.options_box),    // 16
+            Some(c.proc_follow_bg), // 17
+            Some(c.followed_bg),    // 18
+            Some(c.followed_fg),    // 19
         ];
 
         let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| match rgb_opts[i] {
