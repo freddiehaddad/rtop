@@ -98,7 +98,8 @@ pub struct PaletteColors {
 /// Gradient definitions for a theme.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaletteGradients {
-    pub cpu: GradientDef,
+    pub cpu_upper: GradientDef,
+    pub cpu_lower: GradientDef,
     pub temp: GradientDef,
     pub free: GradientDef,
     pub cached: GradientDef,
@@ -175,10 +176,15 @@ proc_follow_bg = "#bd93f9"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
 
-[gradients.cpu]
+[gradients.cpu_upper]
 start = "#bd93f9"
 mid = "#8be9fd"
 end = "#50fa7b"
+
+[gradients.cpu_lower]
+start = "#4897d4"
+mid = "#5474e8"
+end = "#ff40b6"
 
 [gradients.temp]
 start = "#bd93f9"
@@ -258,8 +264,8 @@ end = "#0dfa49"
         let palette: ThemePalette = toml::from_str(toml_str).unwrap();
         assert_eq!(palette.colors.main_bg, Some(Rgb(0x28, 0x2a, 0x36)));
         assert_eq!(palette.colors.hi_fg, Rgb(0x62, 0x72, 0xa4));
-        assert_eq!(palette.gradients.cpu.start, Rgb(0xbd, 0x93, 0xf9));
-        assert_eq!(palette.gradients.cpu.end, Rgb(0x50, 0xfa, 0x7b));
+        assert_eq!(palette.gradients.cpu_upper.start, Rgb(0xbd, 0x93, 0xf9));
+        assert_eq!(palette.gradients.cpu_upper.end, Rgb(0x50, 0xfa, 0x7b));
     }
 
     #[test]
@@ -286,10 +292,16 @@ proc_follow_bg = "#bd93f9"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
 
-[gradients.cpu]
+[gradients.cpu_upper]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
+
+[gradients.cpu_lower]
+start = "#4897d4"
+mid = "#5474e8"
+end = "#ff40b6"
+
 [gradients.temp]
 start = "#000000"
 mid = "#808080"
@@ -362,10 +374,16 @@ end = "#ffffff"
 main_fg = "#f8f8f2"
 # title is missing — should fail
 
-[gradients.cpu]
+[gradients.cpu_upper]
 start = "#000000"
 mid = "#808080"
 end = "#ffffff"
+
+[gradients.cpu_lower]
+start = "#4897d4"
+mid = "#5474e8"
+end = "#ff40b6"
+
 "##;
         let result = toml::from_str::<ThemePalette>(toml_str);
         assert!(result.is_err());

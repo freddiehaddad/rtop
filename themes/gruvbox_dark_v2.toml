@@ -25,10 +25,15 @@ start = "#98971A"
 mid = "#b25d1b"
 end = "#CC241D"
 
-[gradients.cpu]
+[gradients.cpu_upper]
 start = "#8EC07C"
 mid = "#D79921"
 end = "#CC241D"
+
+[gradients.cpu_lower]
+start = "#4897d4"
+mid = "#5474e8"
+end = "#ff40b6"
 
 [gradients.free]
 start = "#CC241D"

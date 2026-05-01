@@ -2,7 +2,7 @@ use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
 pub const COLOR_COUNT: usize = 20;
-pub const GRADIENT_COUNT: usize = 16;
+pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
     name: &'static str,
@@ -292,22 +292,23 @@ impl Theme {
 
         let g = &palette.gradients;
         let gradient_defs: [&GradientDef; GRADIENT_COUNT] = [
-            &g.cpu,        // 0
-            &g.temp,       // 1
-            &g.free,       // 2
-            &g.cached,     // 3
-            &g.available,  // 4
-            &g.used,       // 5
-            &g.download,   // 6
-            &g.upload,     // 7
-            &g.process,    // 8
-            &g.gpu,        // 9
-            &g.gpu_clock,  // 10
-            &g.gpu_power,  // 11
-            &g.gpu_vram,   // 12
-            &g.disk_read,  // 13
-            &g.disk_write, // 14
-            &g.disk_busy,  // 15
+            &g.cpu_upper,  // 0  GRAD_CPU_UPPER
+            &g.cpu_lower,  // 1  GRAD_CPU_LOWER
+            &g.used,       // 2  GRAD_USED
+            &g.available,  // 3  GRAD_AVAILABLE
+            &g.cached,     // 4  GRAD_CACHED
+            &g.free,       // 5  GRAD_FREE
+            &g.download,   // 6  GRAD_DOWNLOAD
+            &g.upload,     // 7  GRAD_UPLOAD
+            &g.gpu,        // 8  GRAD_GPU
+            &g.gpu_clock,  // 9  GRAD_GPU_CLOCK
+            &g.gpu_power,  // 10 GRAD_GPU_POWER
+            &g.gpu_vram,   // 11 GRAD_GPU_VRAM
+            &g.disk_read,  // 12 GRAD_DISK_READ
+            &g.disk_write, // 13 GRAD_DISK_WRITE
+            &g.disk_busy,  // 14 GRAD_DISK_BUSY
+            &g.temp,       // 15 GRAD_TEMP
+            &g.process,    // 16 GRAD_PROCESS
         ];
 
         let gradients: [Vec<String>; GRADIENT_COUNT] = std::array::from_fn(|i| {
@@ -479,7 +480,7 @@ mod tests {
     #[test]
     fn default_theme_has_all_gradients() {
         let theme = Theme::new();
-        assert_eq!(theme.gradient(tc::GRAD_CPU).len(), 101);
+        assert_eq!(theme.gradient(tc::GRAD_CPU_UPPER).len(), 101);
         assert_eq!(theme.gradient(tc::GRAD_TEMP).len(), 101);
         assert_eq!(theme.gradient(tc::GRAD_DISK_BUSY).len(), 101);
     }

@@ -183,7 +183,8 @@ pub fn draw(
     let box_color = theme.color(tc::CPU_BOX);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
-    let cpu_gradient = theme.gradient(tc::GRAD_CPU);
+    let cpu_upper_gradient = theme.gradient(tc::GRAD_CPU_UPPER);
+    let cpu_lower_gradient = theme.gradient(tc::GRAD_CPU_LOWER);
     let graph_text_color = theme.color(tc::GRAPH_TEXT);
     let graph_sym = settings.graph_symbol;
     let upper_key = match settings.upper_source {
@@ -305,7 +306,7 @@ pub fn draw(
         && let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key)
     {
         let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, 100, 0);
-        let rows = graph.render_rows(data, cpu_gradient);
+        let rows = graph.render_rows(data, cpu_upper_gradient);
         for (i, row) in rows.iter().enumerate() {
             buf.mv(x + 2, y + 2 + i).text(row);
         }
@@ -319,8 +320,8 @@ pub fn draw(
         let label = format!("▼{} {}%", upper_key, upper_pct);
         let label_vis = tools::ulen(&label, false);
         let lx = x + 2 + graph_width.saturating_sub(label_vis);
-        let upper_color = if !cpu_gradient.is_empty() {
-            &cpu_gradient[upper_pct.clamp(0, 100) as usize]
+        let upper_color = if !cpu_upper_gradient.is_empty() {
+            &cpu_upper_gradient[upper_pct.clamp(0, 100) as usize]
         } else {
             graph_text_color
         };
@@ -341,7 +342,7 @@ pub fn draw(
             100,
             0,
         );
-        let rows = graph.render_rows(data, cpu_gradient);
+        let rows = graph.render_rows(data, cpu_lower_gradient);
         for (i, row) in rows.iter().enumerate() {
             buf.mv(x + 2, lower_start_y + i).text(row);
         }
@@ -352,8 +353,8 @@ pub fn draw(
         let label_vis = tools::ulen(&label, false);
         let lx = x + 2 + graph_width.saturating_sub(label_vis);
         let label_y = lower_start_y + lower_h - 1;
-        let lower_color = if !cpu_gradient.is_empty() {
-            &cpu_gradient[lower_pct.clamp(0, 100) as usize]
+        let lower_color = if !cpu_lower_gradient.is_empty() {
+            &cpu_lower_gradient[lower_pct.clamp(0, 100) as usize]
         } else {
             graph_text_color
         };
@@ -468,7 +469,7 @@ fn draw_core_panel(
     let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let box_color = theme.color(tc::CPU_BOX);
-    let cpu_gradient = theme.gradient(tc::GRAD_CPU);
+    let cpu_gradient = theme.gradient(tc::GRAD_CPU_UPPER);
     let temp_gradient = theme.gradient(tc::GRAD_TEMP);
     let mut buf = AnsiBuffer::new();
 
