@@ -1,3 +1,4 @@
+use crate::collect::cpu_thermal::ThermalCollector;
 use crate::domain::cpu::CpuInfo;
 use std::collections::VecDeque;
 
@@ -23,13 +24,6 @@ struct ProcessorPerfInfo {
     interrupt_count: u32,
 }
 
-/// How we collect temperature data.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TempSource {
-    None,
-    LhmHttp,
-}
-
 struct CpuPdhCounters {
     query: PdhQuery,
     freq: PdhCounter,
@@ -48,7 +42,7 @@ pub struct CpuCollector {
     // Persistent PDH query for CPU frequency (needs two collections for rate counters)
     pdh_counters: Option<CpuPdhCounters>,
     pdh_has_first_sample: bool,
-    temp_source: TempSource,
+    thermal: ThermalCollector,
 }
 
 impl Default for CpuCollector {
@@ -72,7 +66,7 @@ impl CpuCollector {
             initialized: false,
             pdh_counters: None,
             pdh_has_first_sample: false,
-            temp_source: TempSource::None,
+            thermal: ThermalCollector::default(),
         }
     }
 
@@ -86,10 +80,8 @@ impl CpuCollector {
         self.prev_user = vec![0; self.info.core_count + 1];
         self.initialized = true;
 
-        // Detect temperature source: try LHM HTTP first
-        if lhm_http_probe() {
-            self.temp_source = TempSource::LhmHttp;
-        }
+        // Detect CPU vendor and load PawnIO module for temperature/power.
+        self.thermal = ThermalCollector::detect(self.info.core_count);
     }
 
     fn collect_impl(&mut self) {
@@ -417,151 +409,25 @@ impl CpuCollector {
     }
 
     fn collect_temperatures(&mut self) {
-        if self.temp_source != TempSource::LhmHttp {
+        if !self.thermal.is_active() {
             return;
         }
 
-        let Some(json) = lhm_http_fetch() else {
-            tracing::warn!("CPU: LHM HTTP fetch failed, no temperature data");
-            self.status
-                .downgrade(super::CollectStatus::Degraded("no temp data"));
-            return;
-        };
+        let sample = self.thermal.sample();
 
-        struct LhmCpuData {
-            package_temp: Option<i64>,
-            core_temps: Vec<i64>,
-            watts: Option<f64>,
-            max_watts: Option<f64>,
-        }
+        self.info.cpu_watts = sample.watts;
+        self.info.cpu_max_watts = sample.max_watts;
 
-        let mut data = LhmCpuData {
-            package_temp: None,
-            core_temps: Vec::new(),
-            watts: None,
-            max_watts: None,
-        };
-
-        // Walk the tree looking for "Temperatures" and "Powers" under CPU hardware nodes.
-        // Generic approach: identify package-level temp by known keywords,
-        // treat everything else as per-core temps in discovery order.
-        fn walk(
-            node: &serde_json::Value,
-            in_temps: bool,
-            in_powers: bool,
-            in_cpu: bool,
-            out: &mut LhmCpuData,
-        ) {
-            let text = node.get("Text").and_then(|v| v.as_str()).unwrap_or("");
-            let hw_id = node
-                .get("HardwareId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
-            // Detect CPU hardware nodes by HardwareId or name
-            let is_cpu_hw = in_cpu
-                || hw_id.contains("cpu")
-                || hw_id.contains("intelcpu")
-                || hw_id.contains("amdcpu")
-                || text.to_lowercase().contains("cpu")
-                || text.to_lowercase().contains("core i")
-                || text.to_lowercase().contains("core ultra")
-                || text.to_lowercase().contains("ryzen")
-                || text.to_lowercase().contains("xeon")
-                || text.to_lowercase().contains("threadripper");
-
-            let is_temps = text == "Temperatures";
-            let is_powers = text == "Powers";
-
-            if in_temps
-                && is_cpu_hw
-                && let Some(val_str) = node.get("Value").and_then(|v| v.as_str())
-                && let Some(temp) = parse_temp_value(val_str)
-            {
-                // Skip non-temperature entries
-                if text.contains("Distance") || text.contains("TjMax") {
-                    // Skip distance-to-max entries
-                }
-                // Package/aggregate temps
-                else if text == "CPU Package"
-                    || text == "CPU"
-                    || text == "Core Max"
-                    || text == "Core Average"
-                    || text == "Tctl"
-                    || text == "Tdie"
-                    || text == "CPU (Tctl)"
-                    || text == "CPU (Tdie)"
-                {
-                    if out.package_temp.is_none()
-                        || text == "CPU Package"
-                        || (text == "Tdie" && out.package_temp.is_none())
-                    {
-                        out.package_temp = Some(temp);
-                    }
-                }
-                // Everything else under CPU temps = per-core
-                else if !text.contains("System")
-                    && !text.contains("VRM")
-                    && !text.contains("PCH")
-                    && !text.contains("Socket")
-                    && !text.contains("PCIe")
-                    && !text.contains("M2")
-                {
-                    out.core_temps.push(temp);
-                }
-            }
-
-            // Extract CPU power (watts) from "Powers" section
-            if in_powers
-                && is_cpu_hw
-                && let Some(val_str) = node.get("Value").and_then(|v| v.as_str())
-                && (text == "CPU Package"
-                    || text == "Package"
-                    || text == "CPU PPT"
-                    || text.starts_with("CPU"))
-                && let Some(w) = parse_power_value(val_str)
-                && (out.watts.is_none() || text == "CPU Package")
-            {
-                out.watts = Some(w);
-                if let Some(max_str) = node.get("Max").and_then(|v| v.as_str())
-                    && let Some(mw) = parse_power_value(max_str)
-                {
-                    out.max_watts = Some(mw);
-                }
-            }
-
-            if let Some(children) = node.get("Children").and_then(|v| v.as_array()) {
-                for child in children {
-                    walk(
-                        child,
-                        is_temps && is_cpu_hw,
-                        is_powers && is_cpu_hw,
-                        is_cpu_hw,
-                        out,
-                    );
-                }
-            }
-        }
-
-        walk(&json, false, false, false, &mut data);
-
-        self.info.cpu_watts = data.watts;
-        self.info.cpu_max_watts = data.max_watts;
-
-        // Total entries: 1 (package) + per-core count
-        let total = 1 + data.core_temps.len();
-
-        // Ensure self.info.temp has enough VecDeques
+        // Storage layout: index 0 = package, index 1+ = per-core.
+        let total = 1 + sample.core_temps.len();
         while self.info.temp.len() < total {
             self.info.temp.push(VecDeque::new());
         }
 
-        // Index 0 = package temp
-        let pkg = data.package_temp.unwrap_or(0);
+        let pkg = sample.package_temp.unwrap_or(0);
         push_history(&mut self.info.temp[0], pkg);
 
-        // Index 1+ = per-core temps in discovery order
-        for (slot, &temp) in data.core_temps.iter().enumerate() {
+        for (slot, &temp) in sample.core_temps.iter().enumerate() {
             push_history(&mut self.info.temp[slot + 1], temp);
         }
     }
@@ -571,74 +437,6 @@ impl Collector for CpuCollector {
     fn collect(&mut self) {
         self.collect_impl();
     }
-}
-
-/// Probe whether LHM HTTP API is reachable.
-fn lhm_http_probe() -> bool {
-    lhm_http_fetch().is_some()
-}
-
-/// Fetch and parse JSON from LHM HTTP API. Returns None on any failure.
-fn lhm_http_fetch() -> Option<serde_json::Value> {
-    use std::io::{Read, Write};
-    use std::net::TcpStream;
-    use std::time::Duration;
-
-    let mut stream =
-        TcpStream::connect_timeout(&"127.0.0.1:8085".parse().ok()?, Duration::from_secs(2)).ok()?;
-    stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
-    stream
-        .set_write_timeout(Some(Duration::from_secs(2)))
-        .ok()?;
-
-    let request = "GET /data.json HTTP/1.1\r\nHost: localhost:8085\r\nConnection: close\r\n\r\n";
-    stream.write_all(request.as_bytes()).ok()?;
-
-    let mut response = Vec::new();
-    stream.read_to_end(&mut response).ok()?;
-
-    let text = String::from_utf8_lossy(&response);
-    // Find the start of the JSON body (after the blank line separating headers)
-    let body_start = text
-        .find("\r\n\r\n")
-        .map(|i| i + 4)
-        .or_else(|| text.find("\n\n").map(|i| i + 2))?;
-    let body = &text[body_start..];
-
-    serde_json::from_str(body).ok()
-}
-
-/// Parse a temperature value string like "65.0 °C" → 65
-fn parse_temp_value(s: &str) -> Option<i64> {
-    let num_part = s.split([' ', '\u{00b0}']).next()?;
-    num_part.parse::<f64>().ok().map(|v| v as i64)
-}
-
-/// Parse a power value string like "65.2 W" → 65.2
-fn parse_power_value(s: &str) -> Option<f64> {
-    let num_part = s.split([' ', 'W']).next()?;
-    num_part.parse::<f64>().ok()
-}
-
-#[cfg(test)]
-/// Parse core temperature sensor names to a zero-indexed core number.
-fn parse_core_index(text: &str, p_core_count: usize) -> Option<usize> {
-    if let Some(rest) = text.strip_prefix("CPU Core #") {
-        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
-    }
-    if let Some(rest) = text.strip_prefix("P-Core #") {
-        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
-    }
-    if let Some(rest) = text.strip_prefix("E-Core #") {
-        return rest
-            .parse::<usize>()
-            .ok()
-            .map(|n| p_core_count + n.saturating_sub(1));
-    }
-    if let Some(rest) = text.strip_prefix("Core #") {
-        return rest.parse::<usize>().ok().map(|n| n.saturating_sub(1));
-    }
-    None
 }
 
 fn get_cpu_name() -> String {
@@ -802,43 +600,5 @@ mod tests {
         collector.init();
         assert!(collector.info.core_count > 0);
         assert!(!collector.info.cpu_name.is_empty());
-    }
-
-    #[test]
-    fn parse_temp_value_normal() {
-        assert_eq!(parse_temp_value("65.0 °C"), Some(65));
-        assert_eq!(parse_temp_value("100.5 °C"), Some(100));
-        assert_eq!(parse_temp_value("0.0 °C"), Some(0));
-    }
-
-    #[test]
-    fn parse_temp_value_no_space() {
-        assert_eq!(parse_temp_value("65.0°C"), Some(65));
-    }
-
-    #[test]
-    fn parse_temp_value_invalid() {
-        assert_eq!(parse_temp_value(""), None);
-        assert_eq!(parse_temp_value("N/A"), None);
-    }
-
-    #[test]
-    fn parse_core_index_valid() {
-        assert_eq!(parse_core_index("CPU Core #1", 0), Some(0));
-        assert_eq!(parse_core_index("CPU Core #8", 0), Some(7));
-        assert_eq!(parse_core_index("CPU Core #16", 0), Some(15));
-        assert_eq!(parse_core_index("P-Core #1", 0), Some(0));
-        assert_eq!(parse_core_index("P-Core #8", 0), Some(7));
-        assert_eq!(parse_core_index("E-Core #1", 8), Some(8));
-        assert_eq!(parse_core_index("E-Core #16", 8), Some(23));
-        assert_eq!(parse_core_index("Core #1", 0), Some(0));
-    }
-
-    #[test]
-    fn parse_core_index_non_core() {
-        assert_eq!(parse_core_index("CPU Package", 0), None);
-        assert_eq!(parse_core_index("GPU Core", 0), None);
-        assert_eq!(parse_core_index("", 0), None);
-        assert_eq!(parse_core_index("P-Core #1 Distance to TjMax", 0), None);
     }
 }

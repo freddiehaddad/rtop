@@ -25,7 +25,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
 - **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
 - **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
-- **CPU temperature and power** via LibreHardwareMonitor HTTP API
+- **CPU temperature and power** via PawnIO kernel driver
 - **Per-box dirty rendering** — only redraws what changed
 - **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
 - **Per-widget update intervals** — each collector can run at its own speed
@@ -116,25 +116,19 @@ cargo test
 
 ## Optional: Temperature & Power Monitoring
 
-CPU temperature and power consumption (watts) require [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) running in the background with its HTTP server enabled.
+CPU temperature and power readings require [PawnIO](https://pawnio.eu) — a signed kernel driver that gives rtop direct access to CPU MSRs and AMD SMN registers without running a separate background application.
 
 ### Install via winget
 
 ```powershell
-winget install LibreHardwareMonitor.LibreHardwareMonitor
+winget install namazso.PawnIO
 ```
 
-### Enable the HTTP API
+### Run rtop as Administrator
 
-1. Open LibreHardwareMonitor
-2. Go to **Options → Remote Web Server → Run**
-3. The default port is `8085` — rtop reads from `http://localhost:8085`
+Reading CPU MSRs requires kernel access, so rtop must be launched as Administrator (right-click → "Run as administrator"). Without elevation, rtop runs normally — temperature and power fields are simply blank.
 
-### Start on boot (optional)
-
-- In LibreHardwareMonitor: **Options → Start Minimized** and **Run On Windows Startup**
-
-Without LibreHardwareMonitor, rtop works normally — temperature and power fields are simply blank.
+rtop embeds the signed `IntelMSR` and `AMDFamily17` PawnIO modules from [PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) (LGPL-2.1-or-later). At startup it detects the CPU vendor (Intel or AMD Family 17h+ / Zen and newer) and loads the matching module.
 
 ---
 
@@ -225,7 +219,7 @@ Options:
 - [btop](https://github.com/aristocratos/btop) by aristocratos — the original system monitor that inspired rtop's UI design
 - [crossterm](https://github.com/crossterm-rs/crossterm) — terminal I/O
 - [windows-rs](https://github.com/microsoft/windows-rs) — Windows API bindings
-- [LibreHardwareMonitor](https://github.com/LibreHardwareMonitor/LibreHardwareMonitor) — hardware sensor access
+- [PawnIO](https://pawnio.eu) by namazso — signed kernel driver for CPU MSR access; rtop embeds the LGPL-2.1-licensed `IntelMSR` and `AMDFamily17` modules from [PawnIO.Modules](https://github.com/namazso/PawnIO.Modules)
 
 ---
 

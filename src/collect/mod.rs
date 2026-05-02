@@ -1,8 +1,10 @@
 pub mod cpu;
+pub(crate) mod cpu_thermal;
 pub mod disk;
 pub mod gpu;
 pub mod memory;
 pub mod network;
+pub(crate) mod pawnio;
 pub mod process;
 pub mod process_display;
 pub(crate) mod win;
