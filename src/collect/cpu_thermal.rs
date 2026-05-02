@@ -23,8 +23,6 @@ const MSR_IA32_TEMPERATURE_TARGET: u32 = 0x01A2;
 const MSR_RAPL_POWER_UNIT: u32 = 0x0606;
 /// Package energy counter (32-bit, monotonic, wraps).
 const MSR_PKG_ENERGY_STATUS: u32 = 0x0611;
-/// Package power info: bits[14:0] = TDP in power units.
-const MSR_PKG_POWER_INFO: u32 = 0x0614;
 
 /// Bit 31 of IA32_THERM_STATUS — set when reading is valid.
 const THERM_STATUS_VALID: u64 = 1 << 31;
@@ -34,10 +32,6 @@ const THERM_DISTANCE_MASK: u64 = 0x7F << 16;
 const TEMP_TARGET_TJMAX_MASK: u64 = 0xFF << 16;
 /// Mask for energy unit in MSR_RAPL_POWER_UNIT bits [12:8].
 const RAPL_ENERGY_UNIT_MASK: u64 = 0x1F << 8;
-/// Mask for power unit in MSR_RAPL_POWER_UNIT bits [3:0].
-const RAPL_POWER_UNIT_MASK: u64 = 0x0F;
-/// Mask for thermal spec power in MSR_PKG_POWER_INFO bits [14:0].
-const PKG_POWER_INFO_TDP_MASK: u64 = 0x7FFF;
 
 // ---------------------------------------------------------------------------
 // AMD Family 17h+ MSRs and SMN registers
@@ -100,11 +94,7 @@ impl ThermalCollector {
         let backend = match cpu_vendor() {
             CpuVendor::Intel => IntelBackend::load(core_count)
                 .map(|b| {
-                    tracing::debug!(
-                        "Intel thermal init: {} cores, max_watts={:?}",
-                        b.tj_max.len(),
-                        b.max_watts
-                    );
+                    tracing::debug!("Intel thermal init: {} cores", b.tj_max.len());
                     Backend::Intel(b)
                 })
                 .unwrap_or_else(|e| {
@@ -176,10 +166,12 @@ struct IntelBackend {
     tj_max: Vec<u32>,
     /// Energy unit in joules per RAPL counter increment.
     energy_unit_j: f64,
-    /// Maximum (TDP) package power in watts, from MSR_PKG_POWER_INFO.
-    max_watts: Option<f64>,
     /// Energy state for power differentiation.
     energy_state: Option<EnergyState>,
+    /// Highest package power observed in watts since the collector started.
+    /// Reported as `max_watts` so the meter scales like LHM/HWiNFO/GPU-Z,
+    /// which all show running peak rather than a static spec value.
+    peak_watts: Option<f64>,
     /// True until the first successful sample is logged at debug level.
     first_sample_pending: bool,
 }
@@ -194,24 +186,17 @@ impl IntelBackend {
             .map(|core| read_intel_tj_max(&pawnio, core).unwrap_or(100))
             .collect();
 
-        // RAPL units are package-wide — read once on the current core.
+        // RAPL energy unit is package-wide — read once on the current core.
         let unit_raw = pawnio.read_msr(MSR_RAPL_POWER_UNIT)?;
         let energy_esu = ((unit_raw & RAPL_ENERGY_UNIT_MASK) >> 8) as u32;
         let energy_unit_j = 1.0 / ((1u64 << energy_esu) as f64);
-
-        // Maximum power (TDP) is a one-time read.
-        let max_watts = pawnio.read_msr(MSR_PKG_POWER_INFO).ok().map(|info| {
-            let power_esu = (unit_raw & RAPL_POWER_UNIT_MASK) as u32;
-            let power_unit_w = 1.0 / ((1u64 << power_esu) as f64);
-            ((info & PKG_POWER_INFO_TDP_MASK) as f64) * power_unit_w
-        });
 
         Ok(Self {
             pawnio,
             tj_max,
             energy_unit_j,
-            max_watts,
             energy_state: None,
+            peak_watts: None,
             first_sample_pending: true,
         })
     }
@@ -246,6 +231,10 @@ impl IntelBackend {
                 watts
             });
 
+        if let Some(w) = watts {
+            self.peak_watts = Some(self.peak_watts.map_or(w, |p| p.max(w)));
+        }
+
         if self.first_sample_pending && watts.is_some() {
             tracing::debug!(
                 "Intel thermal first sample: package={:?} °C, watts={:.1}",
@@ -259,7 +248,7 @@ impl IntelBackend {
             package_temp,
             core_temps,
             watts,
-            max_watts: self.max_watts,
+            max_watts: self.peak_watts,
         }
     }
 }
@@ -294,6 +283,10 @@ struct AmdBackend {
     energy_unit_j: f64,
     /// Energy state for power differentiation.
     energy_state: Option<EnergyState>,
+    /// Highest package power observed in watts since the collector started.
+    /// Reported as `max_watts` so the meter scales like LHM/HWiNFO/GPU-Z,
+    /// which all show running peak rather than a static spec value.
+    peak_watts: Option<f64>,
     /// True until the first successful sample is logged at debug level.
     first_sample_pending: bool,
 }
@@ -308,6 +301,7 @@ impl AmdBackend {
             pawnio,
             energy_unit_j,
             energy_state: None,
+            peak_watts: None,
             first_sample_pending: true,
         })
     }
@@ -334,6 +328,10 @@ impl AmdBackend {
                 watts
             });
 
+        if let Some(w) = watts {
+            self.peak_watts = Some(self.peak_watts.map_or(w, |p| p.max(w)));
+        }
+
         if self.first_sample_pending && watts.is_some() {
             tracing::debug!(
                 "AMD thermal first sample: package={:?} °C, watts={:.1}",
@@ -347,7 +345,7 @@ impl AmdBackend {
             package_temp,
             core_temps: Vec::new(),
             watts,
-            max_watts: None,
+            max_watts: self.peak_watts,
         }
     }
 }
