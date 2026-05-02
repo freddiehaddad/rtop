@@ -24,7 +24,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
 - **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
-- **GPU monitoring** — NVIDIA (NVML), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
+- **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via LibreHardwareMonitor HTTP API
 - **Per-box dirty rendering** — only redraws what changed
 - **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
@@ -142,11 +142,11 @@ Without LibreHardwareMonitor, rtop works normally — temperature and power fiel
 
 rtop detects GPUs from all three major vendors automatically at runtime. No additional software is needed beyond the vendor's graphics driver.
 
-| Vendor | Library | Metrics |
-|--------|---------|---------|
-| **NVIDIA** | `nvml.dll` (driver) | Utilization, temperature, VRAM, power, clocks |
-| **AMD** | `atiadlxx.dll` (driver) | Utilization, temperature, VRAM, power, clocks |
-| **Intel** | `ControlLib.dll` / `igcl.dll` (driver) | Utilization, temperature, VRAM, clocks |
+| Vendor | Supported GPUs | Metrics |
+|--------|---------------|---------|
+| **NVIDIA** | GeForce 600 series (Kepler) and newer | Utilization, temperature, VRAM, power, clocks |
+| **AMD** | Vega and newer (RX Vega, 5000, 6000, 7000, 9000 series) | Utilization, temperature, VRAM, power, clocks |
+| **Intel** | Arc discrete GPUs | Utilization, temperature, VRAM, power, clocks |
 
 Up to 8 GPUs are supported. Mixed GPU systems (e.g., Intel iGPU + NVIDIA dGPU) show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
 
