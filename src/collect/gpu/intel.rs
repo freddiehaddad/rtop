@@ -99,6 +99,100 @@ struct CtlPowerProperties {
     max_limit: i32,
 }
 
+const CTL_PSU_COUNT: usize = 5;
+const CTL_FAN_COUNT: usize = 5;
+
+/// Telemetry value union — largest member is `f64` (8 bytes).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CtlDataValue {
+    datadouble: f64,
+}
+
+/// Single telemetry item with support flag and typed value.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CtlTelemetryItem {
+    supported: u32,
+    units: u32,
+    data_type: u32,
+    value: CtlDataValue,
+}
+
+impl CtlTelemetryItem {
+    fn get(&self) -> Option<f64> {
+        (self.supported != 0).then_some(self.value.datadouble)
+    }
+}
+
+/// Per-PSU info entry.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct CtlPsuInfo {
+    supported: u32,
+    psu_type: u32,
+    energy_counter: CtlTelemetryItem,
+    voltage: CtlTelemetryItem,
+}
+
+/// Power telemetry struct returned by `ctlPowerTelemetryGet`.
+/// Fields match IGCL igcl_api.h `ctl_power_telemetry_t` (version 1).
+#[repr(C)]
+struct CtlPowerTelemetry {
+    size: u32,
+    version: u8,
+    // 3 bytes padding to align next field to 4-byte boundary
+    _pad: [u8; 3],
+    timestamp: CtlTelemetryItem,
+    gpu_energy_counter: CtlTelemetryItem,
+    gpu_voltage: CtlTelemetryItem,
+    gpu_current_clock_frequency: CtlTelemetryItem,
+    gpu_current_temperature: CtlTelemetryItem,
+    global_activity_counter: CtlTelemetryItem,
+    render_compute_activity_counter: CtlTelemetryItem,
+    media_activity_counter: CtlTelemetryItem,
+    gpu_power_limited: u32,
+    gpu_temperature_limited: u32,
+    gpu_current_limited: u32,
+    gpu_voltage_limited: u32,
+    gpu_utilization_limited: u32,
+    vram_energy_counter: CtlTelemetryItem,
+    vram_voltage: CtlTelemetryItem,
+    vram_current_clock_frequency: CtlTelemetryItem,
+    vram_current_effective_frequency: CtlTelemetryItem,
+    vram_read_bandwidth_counter: CtlTelemetryItem,
+    vram_write_bandwidth_counter: CtlTelemetryItem,
+    vram_current_temperature: CtlTelemetryItem,
+    vram_power_limited: u32,
+    vram_temperature_limited: u32,
+    vram_current_limited: u32,
+    vram_voltage_limited: u32,
+    vram_utilization_limited: u32,
+    total_card_energy_counter: CtlTelemetryItem,
+    psu: [CtlPsuInfo; CTL_PSU_COUNT],
+    fan_speed: [CtlTelemetryItem; CTL_FAN_COUNT],
+    gpu_vr_temp: CtlTelemetryItem,
+    vram_vr_temp: CtlTelemetryItem,
+    sa_vr_temp: CtlTelemetryItem,
+    gpu_effective_clock: CtlTelemetryItem,
+    gpu_over_voltage_percent: CtlTelemetryItem,
+    gpu_power_percent: CtlTelemetryItem,
+    gpu_temperature_percent: CtlTelemetryItem,
+    vram_read_bandwidth: CtlTelemetryItem,
+    vram_write_bandwidth: CtlTelemetryItem,
+}
+
+impl CtlPowerTelemetry {
+    fn new() -> Self {
+        // SAFETY: repr(C) struct with numeric and array fields. All-zeros is
+        // valid; size and version are set after construction.
+        let mut t: Self = unsafe { std::mem::zeroed() };
+        t.size = std::mem::size_of::<Self>() as u32;
+        t.version = 1;
+        t
+    }
+}
+
 // ---------------------------------------------------------------------------
 // IGCL function pointer types
 // ---------------------------------------------------------------------------
@@ -123,6 +217,7 @@ type CtlFreqGetStateFn = unsafe extern "C" fn(CtlFreqHandle, *mut CtlFreqState) 
 type CtlEnumPowerDomainsFn =
     unsafe extern "C" fn(CtlDeviceHandle, *mut u32, *mut CtlPwrHandle) -> u32;
 type CtlPowerGetPropsFn = unsafe extern "C" fn(CtlPwrHandle, *mut CtlPowerProperties) -> u32;
+type CtlPowerTelemetryGetFn = unsafe extern "C" fn(CtlDeviceHandle, *mut CtlPowerTelemetry) -> u32;
 
 struct IgclFunctions {
     _library: OwnedLibrary,
@@ -140,6 +235,7 @@ struct IgclFunctions {
     freq_get_state: CtlFreqGetStateFn,
     enum_power_domains: CtlEnumPowerDomainsFn,
     power_get_props: CtlPowerGetPropsFn,
+    power_telemetry_get: CtlPowerTelemetryGetFn,
 }
 
 impl IgclFunctions {
@@ -175,6 +271,7 @@ impl IgclFunctions {
             freq_get_state: load_fn!("ctlFrequencyGetState", CtlFreqGetStateFn),
             enum_power_domains: load_fn!("ctlEnumPowerDomains", CtlEnumPowerDomainsFn),
             power_get_props: load_fn!("ctlPowerGetProperties", CtlPowerGetPropsFn),
+            power_telemetry_get: load_fn!("ctlPowerTelemetryGet", CtlPowerTelemetryGetFn),
         })
     }
 
@@ -192,12 +289,15 @@ impl IgclFunctions {
 
 /// Per-device cached sub-handles for telemetry queries.
 struct IntelDevice {
+    handle: CtlDeviceHandle,
     temp_sensor: Option<CtlTempHandle>,
     mem_module: Option<CtlMemHandle>,
     engine_group: Option<CtlEngineHandle>,
     freq_domain: Option<CtlFreqHandle>,
     prev_active: u64,
     prev_timestamp: u64,
+    prev_energy: f64,
+    prev_energy_ts: f64,
 }
 
 pub(super) struct IntelBackend {
@@ -213,6 +313,7 @@ struct IntelLoggedFailures {
     memory: bool,
     engine: bool,
     frequency: bool,
+    power: bool,
 }
 
 impl IntelBackend {
@@ -322,7 +423,7 @@ impl GpuBackend for IntelBackend {
                 // SAFETY: pwr is a valid power handle.
                 let ret = unsafe { (self.igcl.power_get_props)(pwr, &mut power_props) };
                 if ret == CTL_RESULT_SUCCESS && power_props.max_limit > 0 {
-                    max_power_mw = power_props.max_limit as i64 * 1000;
+                    max_power_mw = power_props.max_limit as i64;
                 }
             }
 
@@ -357,12 +458,15 @@ impl GpuBackend for IntelBackend {
             };
 
             self.devices.push(IntelDevice {
+                handle: dev,
                 temp_sensor: temp_sensors.into_iter().next(),
                 mem_module: mem_modules.into_iter().next(),
                 engine_group: engine_groups.into_iter().next(),
                 freq_domain: freq_domains.into_iter().next(),
                 prev_active: 0,
                 prev_timestamp: 0,
+                prev_energy: 0.0,
+                prev_energy_ts: 0.0,
             });
             gpus.push(gpu);
         }
@@ -434,6 +538,36 @@ impl GpuBackend for IntelBackend {
                     tracing::debug!("IGCL frequency failed with error {ret:#x}");
                     self.logged.frequency = true;
                 }
+            }
+
+            // Power — derived from energy counter differentiation (ΔJ / Δs).
+            let mut telemetry = CtlPowerTelemetry::new();
+            // SAFETY: dev.handle is a valid device handle; telemetry is a valid
+            // versioned struct with size and version set.
+            let ret = unsafe { (self.igcl.power_telemetry_get)(dev.handle, &mut telemetry) };
+            if ret == CTL_RESULT_SUCCESS {
+                let energy = telemetry
+                    .total_card_energy_counter
+                    .get()
+                    .or_else(|| telemetry.gpu_energy_counter.get());
+                let timestamp = telemetry.timestamp.get();
+
+                if let (Some(energy_j), Some(ts_s)) = (energy, timestamp) {
+                    let dt = ts_s - dev.prev_energy_ts;
+                    let de = energy_j - dev.prev_energy;
+                    if dt > 0.0 && de >= 0.0 && dev.prev_energy_ts > 0.0 {
+                        let watts = de / dt;
+                        let power_mw = (watts * 1000.0) as u64;
+                        gpu.pwr_usage = power_mw as i64;
+                        let pwr_pct = super::power_percent(power_mw, gpu.pwr_max_usage as u64);
+                        push_history(&mut gpu.gpu_percent.power, pwr_pct);
+                    }
+                    dev.prev_energy = energy_j;
+                    dev.prev_energy_ts = ts_s;
+                }
+            } else if !self.logged.power {
+                tracing::debug!("IGCL power telemetry failed with error {ret:#x}");
+                self.logged.power = true;
             }
         }
     }
