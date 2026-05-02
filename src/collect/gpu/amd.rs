@@ -8,6 +8,23 @@ const ADL_OK: i32 = 0;
 const ADL_MAX_PATH: usize = 256;
 
 // ---------------------------------------------------------------------------
+// PMLog sensor IDs (from ADL SDK adl_defines.h: ADL_PMLOG_SENSORS enum)
+// ---------------------------------------------------------------------------
+
+const ADL_PMLOG_MAX_SENSORS: usize = 256;
+
+/// GPU core clock in MHz.
+const SENSOR_CLK_GFXCLK: usize = 1;
+/// GPU edge temperature in °C.
+const SENSOR_TEMPERATURE_EDGE: usize = 8;
+/// GPU utilization in % (0–100).
+const SENSOR_ACTIVITY_GFX: usize = 19;
+/// Total ASIC power in watts (pre-RDNA3).
+const SENSOR_ASIC_POWER: usize = 23;
+/// Total board power in watts (RDNA3+).
+const SENSOR_BOARD_POWER: usize = 73;
+
+// ---------------------------------------------------------------------------
 // ADL structure definitions (repr(C) matching ADL SDK headers)
 // ---------------------------------------------------------------------------
 
@@ -31,7 +48,6 @@ struct AdapterInfo {
 }
 
 impl AdapterInfo {
-    /// Create a zeroed AdapterInfo for FFI use.
     fn zeroed() -> Self {
         // SAFETY: AdapterInfo is repr(C) with only integer and byte-array fields.
         // All-zeros is a valid representation.
@@ -39,30 +55,36 @@ impl AdapterInfo {
     }
 }
 
+/// Per-sensor data returned by `ADL2_New_QueryPMLogData_Get`.
+/// `supported` is non-zero when the sensor is active; `value` holds the
+/// reading in sensor-specific units (MHz, °C, %, or watts).
 #[repr(C)]
-#[derive(Default)]
-struct AdlOdnPerformanceStatus {
-    i_core_clock: i32,
-    i_memory_clock: i32,
-    i_vddc: i32,
-    i_activity_percent: i32,
-    i_current_performance_level: i32,
-    i_current_bus_speed: i32,
-    i_current_bus_lanes: i32,
-    i_max_levels_core_clock: i32,
-    i_max_levels_memory_clock: i32,
-    i_current_core_performance_level: i32,
-    i_current_memory_performance_level: i32,
+#[derive(Clone, Copy, Default)]
+struct AdlSingleSensorData {
+    supported: i32,
+    value: i32,
 }
 
+/// Output struct for `ADL2_New_QueryPMLogData_Get`.
+/// Sensors are indexed directly by their `ADL_PMLOG_SENSORS` enum value.
 #[repr(C)]
-#[derive(Default)]
-struct AdlOdnCapabilitiesX2 {
-    i_flags: i32,
-    i_maximum_number_of_performance_levels: i32,
-    _padding: [i32; 14],
-    i_max_power_limit: i32,
-    i_min_power_limit: i32,
+struct AdlPMLogDataOutput {
+    size: i32,
+    sensors: [AdlSingleSensorData; ADL_PMLOG_MAX_SENSORS],
+}
+
+impl AdlPMLogDataOutput {
+    fn zeroed() -> Self {
+        // SAFETY: repr(C) with only integer fields. All-zeros is valid.
+        unsafe { std::mem::zeroed() }
+    }
+
+    /// Read a sensor value if supported. Returns `None` if the sensor is
+    /// not present or the index is out of range.
+    fn get(&self, sensor_id: usize) -> Option<i32> {
+        let s = self.sensors.get(sensor_id)?;
+        (s.supported != 0).then_some(s.value)
+    }
 }
 
 #[repr(C)]
@@ -95,13 +117,11 @@ type Adl2MainControlDestroy = unsafe extern "C" fn(*mut c_void) -> i32;
 type Adl2AdapterNumberOfAdaptersGet = unsafe extern "C" fn(*mut c_void, *mut i32) -> i32;
 type Adl2AdapterAdapterInfoGet = unsafe extern "C" fn(*mut c_void, *mut AdapterInfo, i32) -> i32;
 type Adl2AdapterActiveGet = unsafe extern "C" fn(*mut c_void, i32, *mut i32) -> i32;
-type Adl2OdnPerformanceStatusGet =
-    unsafe extern "C" fn(*mut c_void, i32, *mut AdlOdnPerformanceStatus) -> i32;
-type Adl2OdnCapabilitiesX2Get =
-    unsafe extern "C" fn(*mut c_void, i32, *mut AdlOdnCapabilitiesX2) -> i32;
-type Adl2OdnTemperatureGet = unsafe extern "C" fn(*mut c_void, i32, i32, *mut i32) -> i32;
+type Adl2NewQueryPMLogDataGet =
+    unsafe extern "C" fn(*mut c_void, i32, *mut AdlPMLogDataOutput) -> i32;
 type Adl2AdapterMemoryInfoX4Get =
     unsafe extern "C" fn(*mut c_void, i32, *mut AdlMemoryInfoX4) -> i32;
+type Adl2AdapterDedicatedVRAMUsageGet = unsafe extern "C" fn(*mut c_void, i32, *mut i32) -> i32;
 
 struct AdlFunctions {
     _library: OwnedLibrary,
@@ -110,10 +130,9 @@ struct AdlFunctions {
     adapter_number_of_adapters_get: Adl2AdapterNumberOfAdaptersGet,
     adapter_adapter_info_get: Adl2AdapterAdapterInfoGet,
     adapter_active_get: Adl2AdapterActiveGet,
-    odn_performance_status_get: Adl2OdnPerformanceStatusGet,
-    odn_capabilities_x2_get: Adl2OdnCapabilitiesX2Get,
-    odn_temperature_get: Adl2OdnTemperatureGet,
+    query_pmlog_data_get: Adl2NewQueryPMLogDataGet,
     adapter_memory_info_x4_get: Adl2AdapterMemoryInfoX4Get,
+    dedicated_vram_usage_get: Adl2AdapterDedicatedVRAMUsageGet,
 }
 
 /// ADL malloc callback — allocates memory using the global allocator.
@@ -159,18 +178,14 @@ impl AdlFunctions {
                 Adl2AdapterAdapterInfoGet
             ),
             adapter_active_get: load_fn!("ADL2_Adapter_Active_Get", Adl2AdapterActiveGet),
-            odn_performance_status_get: load_fn!(
-                "ADL2_OverdriveN_PerformanceStatus_Get",
-                Adl2OdnPerformanceStatusGet
-            ),
-            odn_capabilities_x2_get: load_fn!(
-                "ADL2_OverdriveN_CapabilitiesX2_Get",
-                Adl2OdnCapabilitiesX2Get
-            ),
-            odn_temperature_get: load_fn!("ADL2_OverdriveN_Temperature_Get", Adl2OdnTemperatureGet),
+            query_pmlog_data_get: load_fn!("ADL2_New_QueryPMLogData_Get", Adl2NewQueryPMLogDataGet),
             adapter_memory_info_x4_get: load_fn!(
                 "ADL2_Adapter_MemoryInfoX4_Get",
                 Adl2AdapterMemoryInfoX4Get
+            ),
+            dedicated_vram_usage_get: load_fn!(
+                "ADL2_Adapter_DedicatedVRAMUsage_Get",
+                Adl2AdapterDedicatedVRAMUsageGet
             ),
         })
     }
@@ -189,8 +204,7 @@ pub(super) struct AmdBackend {
 
 #[derive(Default)]
 struct AmdLoggedFailures {
-    performance: bool,
-    temperature: bool,
+    pmlog: bool,
     memory: bool,
 }
 
@@ -248,7 +262,7 @@ impl GpuBackend for AmdBackend {
         let mut seen_bus = std::collections::HashSet::new();
 
         for info in &adapter_infos {
-            // Skip inactive adapters
+            // Skip inactive adapters.
             let mut active: i32 = 0;
             // SAFETY: context is valid; adapter index from ADL; active is valid pointer.
             let ret = unsafe {
@@ -258,7 +272,7 @@ impl GpuBackend for AmdBackend {
                 continue;
             }
 
-            // Deduplicate by PCI bus number (ADL reports multiple entries per GPU)
+            // Deduplicate by PCI bus number (ADL reports multiple entries per GPU).
             if !seen_bus.insert(info.i_bus_number) {
                 continue;
             }
@@ -271,18 +285,27 @@ impl GpuBackend for AmdBackend {
                 ..GpuInfo::default()
             };
 
-            // Query max clock and power limit via OverdriveN capabilities
-            let mut caps = AdlOdnCapabilitiesX2::default();
-            // SAFETY: context and idx are valid; caps is a valid pointer.
-            let ret = unsafe { (self.adl.odn_capabilities_x2_get)(self.context, idx, &mut caps) };
+            // Query initial PMLog snapshot for power limit reference.
+            let mut pmlog = AdlPMLogDataOutput::zeroed();
+            // SAFETY: context and idx are valid; pmlog is a valid pointer.
+            let ret = unsafe { (self.adl.query_pmlog_data_get)(self.context, idx, &mut pmlog) };
             if ret == ADL_OK {
-                gpu.gpu_max_clock_speed = caps._padding[0].max(0) as u32;
-                if caps.i_max_power_limit > 0 {
-                    gpu.pwr_max_usage = caps.i_max_power_limit as i64 * 1000;
+                // Use board power as the max reference (best available from
+                // a single PMLog snapshot at init — actual TDP is not exposed
+                // via PMLog, so we rely on the live reading at startup and
+                // let the meter scale naturally).
+                let power_w = pmlog
+                    .get(SENSOR_BOARD_POWER)
+                    .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
+                if let Some(w) = power_w {
+                    // Sensor reports watts; domain stores milliwatts.
+                    // Use the initial reading as a baseline — the UI meter
+                    // will rescale if power exceeds this on later samples.
+                    gpu.pwr_max_usage = w.max(1) as i64 * 1000;
                 }
             }
 
-            // Query total VRAM
+            // Query total VRAM.
             let mut mem = AdlMemoryInfoX4::zeroed();
             // SAFETY: context and idx are valid; mem is a valid pointer.
             let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
@@ -298,54 +321,58 @@ impl GpuBackend for AmdBackend {
 
     fn collect(&mut self, gpus: &mut [GpuInfo]) {
         for (gpu, &idx) in gpus.iter_mut().zip(self.adapter_indices.iter()) {
-            // Performance status (utilization, clocks, power)
-            let mut perf = AdlOdnPerformanceStatus::default();
-            // SAFETY: context and idx are valid; perf is a valid pointer.
-            let ret =
-                unsafe { (self.adl.odn_performance_status_get)(self.context, idx, &mut perf) };
+            // PMLog one-shot query — provides utilization, clocks, temp, power.
+            let mut pmlog = AdlPMLogDataOutput::zeroed();
+            // SAFETY: context and idx are valid; pmlog is a valid pointer.
+            let ret = unsafe { (self.adl.query_pmlog_data_get)(self.context, idx, &mut pmlog) };
             if ret == ADL_OK {
-                push_history(
-                    &mut gpu.gpu_percent.utilization,
-                    clamp_percent(perf.i_activity_percent.max(0) as u32),
-                );
-                gpu.gpu_clock_speed = perf.i_core_clock.max(0) as u32;
+                // Utilization (direct %).
+                if let Some(pct) = pmlog.get(SENSOR_ACTIVITY_GFX) {
+                    push_history(
+                        &mut gpu.gpu_percent.utilization,
+                        clamp_percent(pct.max(0) as u32),
+                    );
+                }
 
-                if perf.i_current_core_performance_level > 0 {
-                    let power_mw = perf.i_current_core_performance_level as u64;
+                // Clock speed (direct MHz).
+                if let Some(mhz) = pmlog.get(SENSOR_CLK_GFXCLK) {
+                    gpu.gpu_clock_speed = mhz.max(0) as u32;
+                }
+
+                // Temperature (direct °C).
+                if let Some(temp) = pmlog.get(SENSOR_TEMPERATURE_EDGE) {
+                    push_history(&mut gpu.temp, temp as i64);
+                }
+
+                // Power — prefer board power (RDNA3+), fall back to ASIC power.
+                // Sensor values are in watts; domain stores milliwatts.
+                let power_w = pmlog
+                    .get(SENSOR_BOARD_POWER)
+                    .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
+                if let Some(w) = power_w {
+                    let power_mw = w.max(0) as u64 * 1000;
                     gpu.pwr_usage = power_mw as i64;
                     let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
                 }
-            } else if !self.logged.performance {
-                tracing::debug!("ADL performance status failed with error {ret}");
-                self.logged.performance = true;
+            } else if !self.logged.pmlog {
+                tracing::debug!("ADL PMLog query failed with error {ret}");
+                self.logged.pmlog = true;
             }
 
-            // Temperature (returned in millidegrees Celsius)
-            let mut temp_mc: i32 = 0;
-            // SAFETY: context and idx are valid; 1 = GPU sensor; temp_mc is valid.
-            let ret = unsafe { (self.adl.odn_temperature_get)(self.context, idx, 1, &mut temp_mc) };
-            if ret == ADL_OK {
-                push_history(&mut gpu.temp, (temp_mc / 1000) as i64);
-            } else if !self.logged.temperature {
-                tracing::debug!("ADL temperature failed with error {ret}");
-                self.logged.temperature = true;
-            }
-
-            // VRAM usage
-            let mut mem = AdlMemoryInfoX4::zeroed();
-            // SAFETY: context and idx are valid; mem is a valid pointer.
-            let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
-            if ret == ADL_OK && mem.i_memory_size > 0 {
-                let total = (mem.i_memory_size * 1024 * 1024) as u64;
-                gpu.mem_total = total;
-                let visible = (mem.i_visible_memory_size * 1024 * 1024) as u64;
-                gpu.mem_used = total.saturating_sub(visible);
-                let vram_pct = percent_u64(gpu.mem_used, total).min(100);
+            // VRAM usage (direct MB from ADL).
+            let mut vram_used_mb: i32 = 0;
+            // SAFETY: context and idx are valid; vram_used_mb is a valid pointer.
+            let ret = unsafe {
+                (self.adl.dedicated_vram_usage_get)(self.context, idx, &mut vram_used_mb)
+            };
+            if ret == ADL_OK && vram_used_mb > 0 {
+                gpu.mem_used = vram_used_mb as u64 * 1024 * 1024;
+                let vram_pct = percent_u64(gpu.mem_used, gpu.mem_total).min(100);
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
             } else if ret != ADL_OK && !self.logged.memory {
-                tracing::debug!("ADL memory info failed with error {ret}");
+                tracing::debug!("ADL VRAM usage query failed with error {ret}");
                 self.logged.memory = true;
             }
         }
