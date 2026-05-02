@@ -4,7 +4,7 @@
 
 **A terminal-based system monitor for Windows, inspired by [btop](https://github.com/aristocratos/btop).**
 
-Written in Rust. Fast. Beautiful. Zero dependencies at runtime.
+Written in Rust. Fast. Beautiful.
 
 [![Windows](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows)](https://github.com/freddiehaddad/rtop/releases)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-dea584?logo=rust)](https://www.rust-lang.org/)
@@ -39,12 +39,14 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 | Widget | Data |
 |--------|------|
-| **CPU** | Per-core utilization, frequency, temperature, power (watts), user/system graphs, load average, uptime, clock |
+| **CPU** | Per-core utilization, frequency, temperature¹, power (watts)¹, user/system graphs, load average, uptime, clock |
 | **Memory** | Used, available, cached, free, swap — with meter bars |
 | **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time, IO mode |
 | **Network** | Download/upload graphs with auto-scaling, interface selector, speed totals |
 | **GPU** | Utilization, temperature, VRAM, power draw, clocks (NVIDIA, AMD, Intel) |
 | **Process** | PID, name, command line, CPU%, memory, tree view, filter, sort, follow, terminate |
+
+¹ Temperature and power readings require [PawnIO](#cpu-temperature--power) and Administrator privileges.
 
 ### Keybinds
 
@@ -114,27 +116,27 @@ cargo test
 
 ---
 
-## Optional: Temperature & Power Monitoring
+## CPU Temperature & Power
 
-CPU temperature and power readings require [PawnIO](https://pawnio.eu) — a signed kernel driver that gives rtop direct access to CPU MSRs and AMD SMN registers without running a separate background application.
+CPU temperature and power readings require [PawnIO](https://pawnio.eu), a signed kernel driver that lets rtop read sensor data directly from the CPU. Supported on Intel and on AMD Zen and newer (Ryzen, Threadripper, EPYC). Without PawnIO, rtop runs normally and the temperature and power fields stay blank.
 
 ### Install via winget
 
 ```powershell
-winget install namazso.PawnIO
+winget install --id namazso.PawnIO
 ```
+
+After install, the PawnIO kernel driver and service are loaded automatically — no reboot required.
 
 ### Run rtop as Administrator
 
-Reading CPU MSRs requires kernel access, so rtop must be launched as Administrator (right-click → "Run as administrator"). Without elevation, rtop runs normally — temperature and power fields are simply blank.
-
-rtop embeds the signed `IntelMSR` and `AMDFamily17` PawnIO modules from [PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) (LGPL-2.1-or-later). At startup it detects the CPU vendor (Intel or AMD Family 17h+ / Zen and newer) and loads the matching module.
+To see CPU temperature and power, launch rtop as Administrator (right-click `rtop.exe` → "Run as administrator", or open it from an elevated terminal). Without admin rights, rtop runs normally — the temperature and power rows just don't appear in the CPU widget.
 
 ---
 
 ## GPU Monitoring
 
-rtop detects GPUs from all three major vendors automatically at runtime. No additional software is needed beyond the vendor's graphics driver.
+rtop detects GPUs from all three major vendors automatically at runtime. Unlike CPU temperature and power, GPU monitoring needs no extra software beyond the vendor's graphics driver and no elevation.
 
 | Vendor | Supported GPUs | Metrics |
 |--------|---------------|---------|
@@ -177,8 +179,8 @@ By default all widgets share the global `update_ms` interval (default 2000ms). E
 
 ```toml
 update_ms = 2000
-cpu_update_ms = 1000    # CPU updates every 1s
-proc_update_ms = 5000   # Processes update every 5s
+cpu_update_ms = 1000     # CPU updates every 1s
+proc_update_ms = 5000    # Processes update every 5s
 mem_update_ms = 0        # 0 = use global (2000ms)
 ```
 
@@ -219,7 +221,8 @@ Options:
 - [btop](https://github.com/aristocratos/btop) by aristocratos — the original system monitor that inspired rtop's UI design
 - [crossterm](https://github.com/crossterm-rs/crossterm) — terminal I/O
 - [windows-rs](https://github.com/microsoft/windows-rs) — Windows API bindings
-- [PawnIO](https://pawnio.eu) by namazso — signed kernel driver for CPU MSR access; rtop embeds the LGPL-2.1-licensed `IntelMSR` and `AMDFamily17` modules from [PawnIO.Modules](https://github.com/namazso/PawnIO.Modules)
+- [PawnIO](https://pawnio.eu) by namazso — signed kernel driver for CPU MSR access
+- [PawnIO.Modules](https://github.com/namazso/PawnIO.Modules) — `IntelMSR` and `AMDFamily17` bytecode modules embedded by rtop, licensed under LGPL-2.1-or-later
 
 ---
 
