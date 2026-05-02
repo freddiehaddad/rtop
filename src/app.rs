@@ -220,6 +220,11 @@ impl LiveData {
                 .mem
                 .as_ref()
                 .is_some_and(|m| m.info.stats.swap_total > 0),
+            has_cpu_temp: self.cpu.as_ref().is_some_and(|c| !c.info.temp.is_empty()),
+            has_cpu_watts: self
+                .cpu
+                .as_ref()
+                .is_some_and(|c| c.info.cpu_watts.is_some()),
         }
     }
 }

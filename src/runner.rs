@@ -68,6 +68,8 @@ pub(crate) struct LayoutHints {
     pub(crate) gpu_count: usize,
     pub(crate) disk_count: usize,
     pub(crate) has_swap: bool,
+    pub(crate) has_cpu_temp: bool,
+    pub(crate) has_cpu_watts: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -489,5 +491,7 @@ mod tests {
         assert_eq!(hints.gpu_count, 0);
         assert_eq!(hints.disk_count, 0);
         assert!(!hints.has_swap);
+        assert!(!hints.has_cpu_temp);
+        assert!(!hints.has_cpu_watts);
     }
 }
