@@ -148,7 +148,7 @@ rtop detects GPUs from all three major vendors automatically at runtime. No addi
 | **AMD** | Vega and newer (RX Vega, 5000, 6000, 7000, 9000 series) | Utilization, temperature, VRAM, power, clocks |
 | **Intel** | Arc discrete GPUs | Utilization, temperature, VRAM, power, clocks |
 
-Up to 8 GPUs are supported. Mixed GPU systems (e.g., Intel iGPU + NVIDIA dGPU) show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
+Up to 8 GPUs are supported. Mixed GPU systems show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
 
 ---
 
