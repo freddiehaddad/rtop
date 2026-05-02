@@ -8,7 +8,7 @@ Written in Rust. Fast. Beautiful. Zero dependencies at runtime.
 
 [![Windows](https://img.shields.io/badge/platform-Windows%2011-0078D6?logo=windows)](https://github.com/freddiehaddad/rtop/releases)
 [![Rust](https://img.shields.io/badge/built%20with-Rust-dea584?logo=rust)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![License](https://img.shields.io/badge/license-GPL--2.0-green)](LICENSE)
 
 ![rtop screenshot](docs/screenshot.png)
 
@@ -231,4 +231,4 @@ Options:
 
 ## License
 
-[MIT](LICENSE)
+[GPL-2.0-or-later](LICENSE)
