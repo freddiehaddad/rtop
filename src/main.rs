@@ -44,14 +44,9 @@ fn main() {
         Vec::new()
     };
 
-    // Init logging — CLI --debug overrides config.log_level
-    let log_level = if cli.debug {
-        "DEBUG"
-    } else {
-        &config.log_level
-    };
+    // Init logging — failure at startup is non-recoverable.
     let log_dir = tools::data_dir();
-    log::init(&log_dir, log_level);
+    log::init(&log_dir, config.log_level).expect("logging must initialise at startup");
 
     for w in &load_warnings {
         tracing::warn!("{}", w);

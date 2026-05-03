@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use tracing_subscriber::filter::LevelFilter;
 
 /// Maximum number of GPUs supported.
 pub const MAX_GPUS: usize = 8;
@@ -22,8 +23,6 @@ fn is_valid_box_name(name: &str) -> bool {
     }
     false
 }
-
-const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"];
 
 /// Error returned by `ConfigKey::set_string` when the supplied
 /// string cannot be parsed into the field's value type.
@@ -164,7 +163,11 @@ pub struct Config {
     pub disks_filter: String,
     pub io_graph_speeds: String,
     pub net_iface: String,
-    pub log_level: String,
+    #[serde(
+        with = "crate::log::serde_filter",
+        default = "crate::log::default_filter"
+    )]
+    pub log_level: LevelFilter,
     pub proc_filter: String,
     pub presets: String,
     pub custom_gpu_names: [String; MAX_GPUS],
@@ -257,7 +260,7 @@ impl Default for Config {
             disks_filter: String::new(),
             io_graph_speeds: String::new(),
             net_iface: "auto".to_string(),
-            log_level: "WARNING".to_string(),
+            log_level: LevelFilter::WARN,
             proc_filter: String::new(),
             presets: "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default".to_string(),
             custom_gpu_names: Default::default(),
@@ -422,13 +425,6 @@ impl Config {
             "default",
             crate::theme::THEME_NAMES,
             "color_theme",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.log_level,
-            "WARNING",
-            LOG_LEVEL_VALUES,
-            "log_level",
             &mut warnings,
         );
 
@@ -816,7 +812,6 @@ impl ConfigKey {
             | Self::CustomCpuName
             | Self::DisksFilter
             | Self::IoGraphSpeeds
-            | Self::LogLevel
             | Self::ProcFilter
             | Self::Presets
             | Self::CustomGpuName0
@@ -837,7 +832,8 @@ impl ConfigKey {
             | Self::ProcSorting
             | Self::CpuGraphUpper
             | Self::CpuGraphLower
-            | Self::TempScale => KeyKind::Enum,
+            | Self::TempScale
+            | Self::LogLevel => KeyKind::Enum,
         }
     }
 
@@ -997,7 +993,7 @@ impl ConfigKey {
             Self::CustomCpuName => config.custom_cpu_name.clone(),
             Self::DisksFilter => config.disks_filter.clone(),
             Self::IoGraphSpeeds => config.io_graph_speeds.clone(),
-            Self::LogLevel => config.log_level.clone(),
+            Self::LogLevel => config.log_level.to_string(),
             Self::ProcFilter => config.proc_filter.clone(),
             Self::Presets => config.presets.clone(),
             Self::CustomGpuName0 => config.custom_gpu_names[0].clone(),
@@ -1120,7 +1116,7 @@ impl ConfigKey {
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
             Self::DisksFilter => config.disks_filter = value.to_string(),
             Self::IoGraphSpeeds => config.io_graph_speeds = value.to_string(),
-            Self::LogLevel => config.log_level = value.to_string(),
+            Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
             Self::ProcFilter => config.proc_filter = value.to_string(),
             Self::Presets => config.presets = value.to_string(),
             Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
@@ -1153,7 +1149,7 @@ impl ConfigKey {
             Self::CpuGraphUpper | Self::CpuGraphLower => Some(CpuGraphSource::NAMES),
             Self::TempScale => Some(TempScale::NAMES),
             Self::ProcSorting => Some(ProcSort::NAMES),
-            Self::LogLevel => Some(LOG_LEVEL_VALUES),
+            Self::LogLevel => Some(crate::log::FILTER_NAMES),
             _ => None,
         }
     }

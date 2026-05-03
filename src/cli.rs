@@ -9,10 +9,6 @@ pub struct Cli {
     #[arg(short = 'c', long = "config")]
     pub config_file: Option<PathBuf>,
 
-    /// Enable debug mode.
-    #[arg(short = 'd', long = "debug")]
-    pub debug: bool,
-
     /// Set initial process filter.
     #[arg(short = 'f', long = "filter")]
     pub filter: Option<String>,
@@ -37,17 +33,10 @@ mod tests {
     #[test]
     fn parse_no_args() {
         let cli = Cli::parse_from(["rtop"]);
-        assert!(!cli.debug);
         assert!(cli.config_file.is_none());
         assert!(cli.filter.is_none());
         assert!(cli.preset.is_none());
         assert!(cli.update_ms.is_none());
-    }
-
-    #[test]
-    fn parse_debug_flag() {
-        let cli = Cli::parse_from(["rtop", "-d"]);
-        assert!(cli.debug);
     }
 
     #[test]
@@ -77,7 +66,7 @@ mod tests {
     #[test]
     fn parse_update_ms_minimum() {
         let result = Cli::try_parse_from(["rtop", "-u", "50"]);
-        assert!(result.is_err()); // Below minimum of 100
+        assert!(result.is_err());
     }
 
     #[test]

@@ -285,6 +285,8 @@ fn apply_option_change(
                 *ctx.theme = theme::Theme::from_name(&name);
                 let base = ctx.theme.base_style(ctx.config.theme_background);
                 extra_ops.push(TerminalOp::Raw(base));
+            } else if opt_key == ConfigKey::LogLevel {
+                crate::log::set_level(ctx.config.log_level);
             }
         }
         menu::options_menu::OptKind::StringVal => {

@@ -205,7 +205,6 @@ Usage: rtop [OPTIONS]
 
 Options:
   -c, --config <FILE>     Path to config file
-  -d, --debug             Enable debug logging
   -f, --filter <TEXT>     Initial process filter
   -p, --preset <ID>       Start with a preset (0-9)
   -u, --update <MS>       Update interval in milliseconds (min 100)

@@ -175,10 +175,13 @@ pub const GENERAL: &[OptDef] = &[
         desc: &[
             "Logging level.",
             "",
-            "Sets verbosity for error.log.",
+            "Sets verbosity for rtop.log.",
             "",
-            "\"ERROR\", \"WARNING\", \"INFO\",",
-            "\"DEBUG\", or \"TRACE\".",
+            "\"off\", \"error\", \"warn\",",
+            "\"info\", \"debug\", or \"trace\".",
+            "",
+            "\"off\" disables file logging.",
+            "Changes apply immediately.",
         ],
     },
     OptDef {
