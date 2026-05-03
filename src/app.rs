@@ -451,7 +451,7 @@ impl NetworkViewState {
 
         // If we have no selection yet, try the preferred interface from config
         if self.selected_iface.is_empty()
-            && preferred != "Auto"
+            && preferred != "auto"
             && !preferred.is_empty()
             && nets.iter().any(|n| n.name == preferred)
         {

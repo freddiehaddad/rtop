@@ -11,7 +11,7 @@ struct BundledTheme {
 
 const BUNDLED_THEMES: &[BundledTheme] = &[
     BundledTheme {
-        name: "Default",
+        name: "default",
         content: include_str!("../themes/default.toml"),
     },
     BundledTheme {
@@ -19,8 +19,8 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
         content: include_str!("../themes/adapta.toml"),
     },
     BundledTheme {
-        name: "adwaita-dark",
-        content: include_str!("../themes/adwaita-dark.toml"),
+        name: "adwaita_dark",
+        content: include_str!("../themes/adwaita_dark.toml"),
     },
     BundledTheme {
         name: "adwaita",
@@ -43,32 +43,32 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
         content: include_str!("../themes/elementarish.toml"),
     },
     BundledTheme {
-        name: "everforest-dark-hard",
-        content: include_str!("../themes/everforest-dark-hard.toml"),
+        name: "everforest_dark_hard",
+        content: include_str!("../themes/everforest_dark_hard.toml"),
     },
     BundledTheme {
-        name: "everforest-dark-medium",
-        content: include_str!("../themes/everforest-dark-medium.toml"),
+        name: "everforest_dark_medium",
+        content: include_str!("../themes/everforest_dark_medium.toml"),
     },
     BundledTheme {
-        name: "everforest-light-medium",
-        content: include_str!("../themes/everforest-light-medium.toml"),
+        name: "everforest_light_medium",
+        content: include_str!("../themes/everforest_light_medium.toml"),
     },
     BundledTheme {
-        name: "flat-remix-light",
-        content: include_str!("../themes/flat-remix-light.toml"),
+        name: "flat_remix_light",
+        content: include_str!("../themes/flat_remix_light.toml"),
     },
     BundledTheme {
-        name: "flat-remix",
-        content: include_str!("../themes/flat-remix.toml"),
+        name: "flat_remix",
+        content: include_str!("../themes/flat_remix.toml"),
     },
     BundledTheme {
-        name: "flexoki-dark",
-        content: include_str!("../themes/flexoki-dark.toml"),
+        name: "flexoki_dark",
+        content: include_str!("../themes/flexoki_dark.toml"),
     },
     BundledTheme {
-        name: "flexoki-light",
-        content: include_str!("../themes/flexoki-light.toml"),
+        name: "flexoki_light",
+        content: include_str!("../themes/flexoki_light.toml"),
     },
     BundledTheme {
         name: "gotham",
@@ -99,32 +99,32 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
         content: include_str!("../themes/horizon.toml"),
     },
     BundledTheme {
-        name: "HotPurpleTrafficLight",
-        content: include_str!("../themes/HotPurpleTrafficLight.toml"),
+        name: "hot_purple_traffic_light",
+        content: include_str!("../themes/hot_purple_traffic_light.toml"),
     },
     BundledTheme {
-        name: "kanagawa-lotus",
-        content: include_str!("../themes/kanagawa-lotus.toml"),
+        name: "kanagawa_lotus",
+        content: include_str!("../themes/kanagawa_lotus.toml"),
     },
     BundledTheme {
-        name: "kanagawa-wave",
-        content: include_str!("../themes/kanagawa-wave.toml"),
+        name: "kanagawa_wave",
+        content: include_str!("../themes/kanagawa_wave.toml"),
     },
     BundledTheme {
         name: "kyli0x",
         content: include_str!("../themes/kyli0x.toml"),
     },
     BundledTheme {
-        name: "matcha-dark-sea",
-        content: include_str!("../themes/matcha-dark-sea.toml"),
+        name: "matcha_dark_sea",
+        content: include_str!("../themes/matcha_dark_sea.toml"),
     },
     BundledTheme {
         name: "monokai",
         content: include_str!("../themes/monokai.toml"),
     },
     BundledTheme {
-        name: "night-owl",
-        content: include_str!("../themes/night-owl.toml"),
+        name: "night_owl",
+        content: include_str!("../themes/night_owl.toml"),
     },
     BundledTheme {
         name: "nord",
@@ -143,8 +143,8 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
         content: include_str!("../themes/paper.toml"),
     },
     BundledTheme {
-        name: "phoenix-night",
-        content: include_str!("../themes/phoenix-night.toml"),
+        name: "phoenix_night",
+        content: include_str!("../themes/phoenix_night.toml"),
     },
     BundledTheme {
         name: "solarized_dark",
@@ -155,16 +155,16 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
         content: include_str!("../themes/solarized_light.toml"),
     },
     BundledTheme {
-        name: "tokyo-night",
-        content: include_str!("../themes/tokyo-night.toml"),
+        name: "tokyo_night",
+        content: include_str!("../themes/tokyo_night.toml"),
     },
     BundledTheme {
-        name: "tokyo-storm",
-        content: include_str!("../themes/tokyo-storm.toml"),
+        name: "tokyo_storm",
+        content: include_str!("../themes/tokyo_storm.toml"),
     },
     BundledTheme {
-        name: "tomorrow-night",
-        content: include_str!("../themes/tomorrow-night.toml"),
+        name: "tomorrow_night",
+        content: include_str!("../themes/tomorrow_night.toml"),
     },
     BundledTheme {
         name: "twilight",
@@ -178,21 +178,21 @@ const BUNDLED_THEMES: &[BundledTheme] = &[
 
 /// All available theme names.
 pub const THEME_NAMES: &[&str] = &[
-    "Default",
+    "default",
     "adapta",
-    "adwaita-dark",
+    "adwaita_dark",
     "adwaita",
     "ayu",
     "dracula",
     "dusklight",
     "elementarish",
-    "everforest-dark-hard",
-    "everforest-dark-medium",
-    "everforest-light-medium",
-    "flat-remix-light",
-    "flat-remix",
-    "flexoki-dark",
-    "flexoki-light",
+    "everforest_dark_hard",
+    "everforest_dark_medium",
+    "everforest_light_medium",
+    "flat_remix_light",
+    "flat_remix",
+    "flexoki_dark",
+    "flexoki_light",
     "gotham",
     "greyscale",
     "gruvbox_dark",
@@ -200,23 +200,23 @@ pub const THEME_NAMES: &[&str] = &[
     "gruvbox_light",
     "gruvbox_material_dark",
     "horizon",
-    "HotPurpleTrafficLight",
-    "kanagawa-lotus",
-    "kanagawa-wave",
+    "hot_purple_traffic_light",
+    "kanagawa_lotus",
+    "kanagawa_wave",
     "kyli0x",
-    "matcha-dark-sea",
+    "matcha_dark_sea",
     "monokai",
-    "night-owl",
+    "night_owl",
     "nord",
     "onedark",
     "orange",
     "paper",
-    "phoenix-night",
+    "phoenix_night",
     "solarized_dark",
     "solarized_light",
-    "tokyo-night",
-    "tokyo-storm",
-    "tomorrow-night",
+    "tokyo_night",
+    "tokyo_storm",
+    "tomorrow_night",
     "twilight",
     "whiteout",
 ];
@@ -232,7 +232,7 @@ pub struct Theme {
 impl Theme {
     /// Create a new theme with default values (parses `default.toml`).
     pub fn new() -> Self {
-        Self::from_name("Default")
+        Self::from_name("default")
     }
 
     /// Load a theme by name from the bundled themes list.
@@ -501,14 +501,14 @@ mod tests {
 
     #[test]
     fn base_style_honors_theme_background() {
-        let theme = Theme::from_name("Default");
+        let theme = Theme::from_name("default");
         assert!(theme.base_style(true).contains("\x1b[48;2;"));
         assert!(theme.base_style(false).contains("\x1b[49m"));
     }
 
     #[test]
     fn style_output_reapplies_base_after_reset() {
-        let theme = Theme::from_name("Default");
+        let theme = Theme::from_name("default");
         let base = theme.base_style(true);
         let styled = theme.style_output("left\x1b[0mright", true);
         assert!(styled.starts_with(&base));

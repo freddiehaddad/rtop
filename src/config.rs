@@ -21,7 +21,7 @@ fn is_valid_box_name(name: &str) -> bool {
 }
 
 const GRAPH_SYMBOL_VALUES: &[&str] = &["default", "braille", "block"];
-const CPU_GRAPH_SOURCE_VALUES: &[&str] = &["Auto", "total", "user", "system"];
+const CPU_GRAPH_SOURCE_VALUES: &[&str] = &["auto", "total", "user", "system"];
 const TEMP_SCALE_VALUES: &[&str] = &["celsius", "fahrenheit", "kelvin", "rankine"];
 const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"];
 
@@ -213,7 +213,7 @@ impl Default for Config {
             current_preset: 0,
 
             // strings
-            color_theme: "Default".to_string(),
+            color_theme: "default".to_string(),
             shown_boxes: vec![
                 "cpu".into(),
                 "mem".into(),
@@ -236,7 +236,7 @@ impl Default for Config {
             custom_cpu_name: String::new(),
             disks_filter: String::new(),
             io_graph_speeds: String::new(),
-            net_iface: "Auto".to_string(),
+            net_iface: "auto".to_string(),
             log_level: "WARNING".to_string(),
             proc_filter: String::new(),
             presets: "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default".to_string(),
@@ -395,7 +395,7 @@ impl Config {
         // Validate choice-valued strings
         validate_choice(
             &mut self.color_theme,
-            "Default",
+            "default",
             crate::theme::THEME_NAMES,
             "color_theme",
             &mut warnings,
@@ -1233,9 +1233,9 @@ impl ConfigKey {
 
 fn bool_display(v: bool) -> String {
     if v {
-        "True".to_string()
+        "true".to_string()
     } else {
-        "False".to_string()
+        "false".to_string()
     }
 }
 
@@ -1255,7 +1255,7 @@ mod tests {
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
         assert_eq!(config.update_ms, 2000);
-        assert_eq!(config.color_theme, "Default");
+        assert_eq!(config.color_theme, "default");
         assert!(config.theme_background);
         let _ = fs::remove_file(&tmp);
     }
@@ -1349,7 +1349,7 @@ mod tests {
                 .iter()
                 .any(|w| w.contains("shown_boxes") && w.contains("nope"))
         );
-        assert_eq!(config.color_theme, "Default");
+        assert_eq!(config.color_theme, "default");
         assert_eq!(config.graph_symbol, "braille");
         // After removing invalid "nope", only "cpu" remains
         assert_eq!(config.shown_boxes, vec!["cpu"]);
@@ -1380,7 +1380,7 @@ mod tests {
         assert!(config.theme_background);
         assert!(!config.vim_keys);
         assert_eq!(config.update_ms, 2000);
-        assert_eq!(config.color_theme, "Default");
+        assert_eq!(config.color_theme, "default");
         assert_eq!(
             config.shown_boxes,
             vec!["cpu", "mem", "net", "proc", "disk"]
