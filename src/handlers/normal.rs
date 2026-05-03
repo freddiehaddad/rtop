@@ -1,5 +1,5 @@
 use crate::{
-    collect::process_display::SORT_OPTIONS,
+    collect::process_display::ProcSort,
     dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
@@ -275,21 +275,27 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             ctx.render.dirty |= Dirty::DISK_BOX;
         }
         Key::Left => {
-            let current = ctx.config.proc_sorting.clone();
-            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
+            let current = ctx.config.proc_sorting;
+            let idx = ProcSort::ALL
+                .iter()
+                .position(|&s| s == current)
+                .expect("config.proc_sorting must always be a known ProcSort variant");
             let new_idx = if idx == 0 {
-                SORT_OPTIONS.len() - 1
+                ProcSort::ALL.len() - 1
             } else {
                 idx - 1
             };
-            ctx.config.proc_sorting = SORT_OPTIONS[new_idx].to_string();
+            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Right => {
-            let current = ctx.config.proc_sorting.clone();
-            let idx = SORT_OPTIONS.iter().position(|&s| s == current).unwrap_or(0);
-            let new_idx = (idx + 1) % SORT_OPTIONS.len();
-            ctx.config.proc_sorting = SORT_OPTIONS[new_idx].to_string();
+            let current = ctx.config.proc_sorting;
+            let idx = ProcSort::ALL
+                .iter()
+                .position(|&s| s == current)
+                .expect("config.proc_sorting must always be a known ProcSort variant");
+            let new_idx = (idx + 1) % ProcSort::ALL.len();
+            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char('t') => {

@@ -16,6 +16,7 @@
 
 use crate::collect::win::OwnedHandle;
 use std::ffi::c_void;
+use thiserror::Error;
 use windows::Win32::Foundation::HANDLE;
 
 // ---------------------------------------------------------------------------
@@ -64,35 +65,21 @@ impl Module {
 // ---------------------------------------------------------------------------
 
 /// Errors returned by the PawnIO client.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
     /// PawnIO device could not be opened (driver not installed).
+    #[error("PawnIO device not available")]
     DeviceUnavailable,
     /// `IOCTL_PIO_LOAD_BINARY` failed (bad signature or unsupported CPU).
+    #[error("PawnIO module load failed (error {0:#x})")]
     LoadFailed(i32),
     /// `IOCTL_PIO_EXECUTE_FN` returned a failure status from the driver.
+    #[error("PawnIO function execute failed (error {0:#x})")]
     ExecuteFailed(i32),
     /// The driver returned fewer output bytes than the caller requested.
+    #[error("PawnIO short read: expected {expected} bytes, got {actual}")]
     ShortRead { expected: usize, actual: usize },
 }
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::DeviceUnavailable => write!(f, "PawnIO device not available"),
-            Self::LoadFailed(e) => write!(f, "PawnIO module load failed (error {e:#x})"),
-            Self::ExecuteFailed(e) => {
-                write!(f, "PawnIO function execute failed (error {e:#x})")
-            }
-            Self::ShortRead { expected, actual } => write!(
-                f,
-                "PawnIO short read: expected {expected} bytes, got {actual}"
-            ),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
 
 // ---------------------------------------------------------------------------
 // PawnIo client

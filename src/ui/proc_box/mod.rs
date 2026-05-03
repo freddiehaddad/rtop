@@ -453,7 +453,7 @@ mod tests {
         ProcView {
             start: 0,
             selected: 0,
-            sort_by: "cpu lazy",
+            sort_by: crate::collect::process_display::ProcSort::CpuLazy,
             sort_reversed: false,
             tree_mode: false,
             detailed_pid: 0,

@@ -1,6 +1,9 @@
+use crate::collect::process_display::ProcSort;
+use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 /// Maximum number of GPUs supported.
 pub const MAX_GPUS: usize = 8;
@@ -20,10 +23,22 @@ fn is_valid_box_name(name: &str) -> bool {
     false
 }
 
-const GRAPH_SYMBOL_VALUES: &[&str] = &["default", "braille", "block"];
-const CPU_GRAPH_SOURCE_VALUES: &[&str] = &["auto", "total", "user", "system"];
-const TEMP_SCALE_VALUES: &[&str] = &["celsius", "fahrenheit", "kelvin", "rankine"];
 const LOG_LEVEL_VALUES: &[&str] = &["ERROR", "WARNING", "INFO", "DEBUG", "TRACE"];
+
+/// Error returned by `ConfigKey::set_string` when the supplied
+/// string cannot be parsed into the field's value type.
+///
+/// The single in-tree caller (`menu::options_menu::cycle_browsable`)
+/// always passes a value drawn from `browsable_values()`, so this
+/// error is unreachable at runtime and the caller `.expect()`s it.
+/// Carrying the key name and offending value makes the panic
+/// message informative if the contract is ever violated.
+#[derive(Debug, Error)]
+#[error("invalid value '{value}' for config key '{key}'")]
+pub struct SetStringError {
+    pub key: &'static str,
+    pub value: String,
+}
 
 /// The kind of a config key.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -31,6 +46,11 @@ pub enum KeyKind {
     Bool,
     Int,
     String,
+    /// A field backed by a typed enum with a closed set of
+    /// canonical names. Treated by the menu exactly like
+    /// `String` with `browsable_values`, but the underlying
+    /// Config field is the enum type itself.
+    Enum,
 }
 
 // ---------------------------------------------------------------------------
@@ -128,17 +148,17 @@ pub struct Config {
     // -- strings --
     pub color_theme: String,
     pub shown_boxes: Vec<String>,
-    pub graph_symbol: String,
-    pub graph_symbol_cpu: String,
-    pub graph_symbol_gpu: String,
-    pub graph_symbol_net: String,
-    pub graph_symbol_proc: String,
-    pub graph_symbol_disk: String,
-    pub proc_sorting: String,
-    pub cpu_graph_upper: String,
-    pub cpu_graph_lower: String,
+    pub graph_symbol: GraphSymbol,
+    pub graph_symbol_cpu: GraphSymbol,
+    pub graph_symbol_gpu: GraphSymbol,
+    pub graph_symbol_net: GraphSymbol,
+    pub graph_symbol_proc: GraphSymbol,
+    pub graph_symbol_disk: GraphSymbol,
+    pub proc_sorting: ProcSort,
+    pub cpu_graph_upper: CpuGraphSource,
+    pub cpu_graph_lower: CpuGraphSource,
 
-    pub temp_scale: String,
+    pub temp_scale: TempScale,
     pub clock_format: String,
     pub custom_cpu_name: String,
     pub disks_filter: String,
@@ -221,17 +241,17 @@ impl Default for Config {
                 "proc".into(),
                 "disk".into(),
             ],
-            graph_symbol: "braille".to_string(),
-            graph_symbol_cpu: "default".to_string(),
-            graph_symbol_gpu: "default".to_string(),
-            graph_symbol_net: "default".to_string(),
-            graph_symbol_proc: "default".to_string(),
-            graph_symbol_disk: "default".to_string(),
-            proc_sorting: "cpu lazy".to_string(),
-            cpu_graph_upper: "user".to_string(),
-            cpu_graph_lower: "system".to_string(),
+            graph_symbol: GraphSymbol::Braille,
+            graph_symbol_cpu: GraphSymbol::Default,
+            graph_symbol_gpu: GraphSymbol::Default,
+            graph_symbol_net: GraphSymbol::Default,
+            graph_symbol_proc: GraphSymbol::Default,
+            graph_symbol_disk: GraphSymbol::Default,
+            proc_sorting: ProcSort::CpuLazy,
+            cpu_graph_upper: CpuGraphSource::User,
+            cpu_graph_lower: CpuGraphSource::System,
 
-            temp_scale: "celsius".to_string(),
+            temp_scale: TempScale::Celsius,
             clock_format: "%X".to_string(),
             custom_cpu_name: String::new(),
             disks_filter: String::new(),
@@ -392,82 +412,16 @@ impl Config {
             &mut warnings,
         );
 
-        // Validate choice-valued strings
+        // The only remaining `validate_choice` call covers
+        // `color_theme` — the single string-typed field with a
+        // closed set of choices. The other browsable config
+        // fields are typed enums whose validity is enforced by
+        // serde at deserialise time.
         validate_choice(
             &mut self.color_theme,
             "default",
             crate::theme::THEME_NAMES,
             "color_theme",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol,
-            "braille",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_cpu,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_cpu",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_gpu,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_gpu",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_net,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_net",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_proc,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_proc",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.graph_symbol_disk,
-            "default",
-            GRAPH_SYMBOL_VALUES,
-            "graph_symbol_disk",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.cpu_graph_upper,
-            "user",
-            CPU_GRAPH_SOURCE_VALUES,
-            "cpu_graph_upper",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.cpu_graph_lower,
-            "system",
-            CPU_GRAPH_SOURCE_VALUES,
-            "cpu_graph_lower",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.temp_scale,
-            "celsius",
-            TEMP_SCALE_VALUES,
-            "temp_scale",
-            &mut warnings,
-        );
-        validate_choice(
-            &mut self.proc_sorting,
-            "cpu lazy",
-            crate::collect::process_display::SORT_OPTIONS,
-            "proc_sorting",
             &mut warnings,
         );
         validate_choice(
@@ -858,16 +812,6 @@ impl ConfigKey {
 
             Self::ColorTheme
             | Self::ShownBoxes
-            | Self::GraphSymbol
-            | Self::GraphSymbolCpu
-            | Self::GraphSymbolGpu
-            | Self::GraphSymbolNet
-            | Self::GraphSymbolProc
-            | Self::GraphSymbolDisk
-            | Self::ProcSorting
-            | Self::CpuGraphUpper
-            | Self::CpuGraphLower
-            | Self::TempScale
             | Self::ClockFormat
             | Self::CustomCpuName
             | Self::DisksFilter
@@ -883,6 +827,17 @@ impl ConfigKey {
             | Self::CustomGpuName5
             | Self::CustomGpuName6
             | Self::CustomGpuName7 => KeyKind::String,
+
+            Self::GraphSymbol
+            | Self::GraphSymbolCpu
+            | Self::GraphSymbolGpu
+            | Self::GraphSymbolNet
+            | Self::GraphSymbolProc
+            | Self::GraphSymbolDisk
+            | Self::ProcSorting
+            | Self::CpuGraphUpper
+            | Self::CpuGraphLower
+            | Self::TempScale => KeyKind::Enum,
         }
     }
 
@@ -1027,17 +982,17 @@ impl ConfigKey {
             // strings
             Self::ColorTheme => config.color_theme.clone(),
             Self::ShownBoxes => config.shown_boxes.join(" "),
-            Self::GraphSymbol => config.graph_symbol.clone(),
-            Self::GraphSymbolCpu => config.graph_symbol_cpu.clone(),
-            Self::GraphSymbolGpu => config.graph_symbol_gpu.clone(),
-            Self::GraphSymbolNet => config.graph_symbol_net.clone(),
-            Self::GraphSymbolProc => config.graph_symbol_proc.clone(),
-            Self::GraphSymbolDisk => config.graph_symbol_disk.clone(),
-            Self::ProcSorting => config.proc_sorting.clone(),
-            Self::CpuGraphUpper => config.cpu_graph_upper.clone(),
-            Self::CpuGraphLower => config.cpu_graph_lower.clone(),
+            Self::GraphSymbol => config.graph_symbol.to_string(),
+            Self::GraphSymbolCpu => config.graph_symbol_cpu.to_string(),
+            Self::GraphSymbolGpu => config.graph_symbol_gpu.to_string(),
+            Self::GraphSymbolNet => config.graph_symbol_net.to_string(),
+            Self::GraphSymbolProc => config.graph_symbol_proc.to_string(),
+            Self::GraphSymbolDisk => config.graph_symbol_disk.to_string(),
+            Self::ProcSorting => config.proc_sorting.to_string(),
+            Self::CpuGraphUpper => config.cpu_graph_upper.to_string(),
+            Self::CpuGraphLower => config.cpu_graph_lower.to_string(),
 
-            Self::TempScale => config.temp_scale.clone(),
+            Self::TempScale => config.temp_scale.to_string(),
             Self::ClockFormat => config.clock_format.clone(),
             Self::CustomCpuName => config.custom_cpu_name.clone(),
             Self::DisksFilter => config.disks_filter.clone(),
@@ -1135,55 +1090,32 @@ impl ConfigKey {
         }
     }
 
-    /// Get a string reference. Panics on non-string keys.
-    pub fn get_string(self, config: &Config) -> &str {
-        match self {
-            Self::ColorTheme => &config.color_theme,
-            Self::GraphSymbol => &config.graph_symbol,
-            Self::GraphSymbolCpu => &config.graph_symbol_cpu,
-            Self::GraphSymbolGpu => &config.graph_symbol_gpu,
-            Self::GraphSymbolNet => &config.graph_symbol_net,
-            Self::GraphSymbolProc => &config.graph_symbol_proc,
-            Self::GraphSymbolDisk => &config.graph_symbol_disk,
-            Self::ProcSorting => &config.proc_sorting,
-            Self::CpuGraphUpper => &config.cpu_graph_upper,
-            Self::CpuGraphLower => &config.cpu_graph_lower,
-
-            Self::TempScale => &config.temp_scale,
-            Self::ClockFormat => &config.clock_format,
-            Self::CustomCpuName => &config.custom_cpu_name,
-            Self::DisksFilter => &config.disks_filter,
-            Self::IoGraphSpeeds => &config.io_graph_speeds,
-            Self::LogLevel => &config.log_level,
-            Self::ProcFilter => &config.proc_filter,
-            Self::Presets => &config.presets,
-            Self::CustomGpuName0 => &config.custom_gpu_names[0],
-            Self::CustomGpuName1 => &config.custom_gpu_names[1],
-            Self::CustomGpuName2 => &config.custom_gpu_names[2],
-            Self::CustomGpuName3 => &config.custom_gpu_names[3],
-            Self::CustomGpuName4 => &config.custom_gpu_names[4],
-            Self::CustomGpuName5 => &config.custom_gpu_names[5],
-            Self::CustomGpuName6 => &config.custom_gpu_names[6],
-            Self::CustomGpuName7 => &config.custom_gpu_names[7],
-            _ => panic!("get_string called on non-string key '{}'", self.name()),
-        }
-    }
-
-    /// Set a string value. Panics on non-string keys.
-    pub fn set_string(self, config: &mut Config, value: &str) {
+    /// Set a value from its canonical string form.
+    ///
+    /// Returns `Err(SetStringError)` if `value` does not parse for
+    /// the field's type. The single in-tree caller
+    /// (`menu::options_menu::cycle_browsable`) always passes a value
+    /// drawn from `browsable_values()`, so it `.expect()`s success
+    /// — failure indicates a contract violation, not a runtime
+    /// condition.
+    pub fn set_string(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
+        let err = || SetStringError {
+            key: self.name(),
+            value: value.to_string(),
+        };
         match self {
             Self::ColorTheme => config.color_theme = value.to_string(),
-            Self::GraphSymbol => config.graph_symbol = value.to_string(),
-            Self::GraphSymbolCpu => config.graph_symbol_cpu = value.to_string(),
-            Self::GraphSymbolGpu => config.graph_symbol_gpu = value.to_string(),
-            Self::GraphSymbolNet => config.graph_symbol_net = value.to_string(),
-            Self::GraphSymbolProc => config.graph_symbol_proc = value.to_string(),
-            Self::GraphSymbolDisk => config.graph_symbol_disk = value.to_string(),
-            Self::ProcSorting => config.proc_sorting = value.to_string(),
-            Self::CpuGraphUpper => config.cpu_graph_upper = value.to_string(),
-            Self::CpuGraphLower => config.cpu_graph_lower = value.to_string(),
+            Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolGpu => config.graph_symbol_gpu = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolProc => config.graph_symbol_proc = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolDisk => config.graph_symbol_disk = value.parse().map_err(|_| err())?,
+            Self::ProcSorting => config.proc_sorting = value.parse().map_err(|_| err())?,
+            Self::CpuGraphUpper => config.cpu_graph_upper = value.parse().map_err(|_| err())?,
+            Self::CpuGraphLower => config.cpu_graph_lower = value.parse().map_err(|_| err())?,
 
-            Self::TempScale => config.temp_scale = value.to_string(),
+            Self::TempScale => config.temp_scale = value.parse().map_err(|_| err())?,
             Self::ClockFormat => config.clock_format = value.to_string(),
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
             Self::DisksFilter => config.disks_filter = value.to_string(),
@@ -1199,8 +1131,13 @@ impl ConfigKey {
             Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
             Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
             Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
-            _ => panic!("set_string called on non-string key '{}'", self.name()),
+            // ShownBoxes (Vec<String>) and any Bool/Int keys never
+            // reach this function via the in-tree caller, which
+            // dispatches on `kind()`. If the contract is violated
+            // we return an error identifying the offending key.
+            _ => return Err(err()),
         }
+        Ok(())
     }
 
     /// Returns the allowed values for constrained string keys, or None for free-form.
@@ -1212,22 +1149,19 @@ impl ConfigKey {
             | Self::GraphSymbolGpu
             | Self::GraphSymbolNet
             | Self::GraphSymbolProc
-            | Self::GraphSymbolDisk => Some(GRAPH_SYMBOL_VALUES),
-            Self::CpuGraphUpper | Self::CpuGraphLower => Some(CPU_GRAPH_SOURCE_VALUES),
-            Self::TempScale => Some(TEMP_SCALE_VALUES),
-            Self::ProcSorting => Some(crate::collect::process_display::SORT_OPTIONS),
+            | Self::GraphSymbolDisk => Some(GraphSymbol::NAMES),
+            Self::CpuGraphUpper | Self::CpuGraphLower => Some(CpuGraphSource::NAMES),
+            Self::TempScale => Some(TempScale::NAMES),
+            Self::ProcSorting => Some(ProcSort::NAMES),
             Self::LogLevel => Some(LOG_LEVEL_VALUES),
             _ => None,
         }
     }
 
-    /// Like choice_values but also returns `&["Auto"]` for sensor/battery/iface keys.
-    /// Used by the options menu for browsable values.
+    /// Returns the canonical values cycled by the options menu for
+    /// browsable keys, or `&[]` for free-form keys.
     pub fn browsable_values(self) -> &'static [&'static str] {
-        if let Some(values) = self.choice_values() {
-            return values;
-        }
-        &[]
+        self.choice_values().unwrap_or(&[])
     }
 }
 
@@ -1324,16 +1258,39 @@ mod tests {
     }
 
     #[test]
-    fn load_invalid_string_values_generate_warnings() {
+    fn load_invalid_typed_value_aborts_whole_parse() {
+        // An invalid value for a typed enum field causes serde to
+        // fail the whole `toml::from_str::<Config>` and the loader
+        // returns a single "Failed to parse config" warning; the
+        // entire config falls back to defaults.
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_bad_typed_value.toml");
+        fs::write(&tmp, "graph_symbol = \"ascii\"\n").unwrap();
+        let warnings = config.load(&tmp);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("Failed to parse config"));
+        assert!(warnings[0].contains("graph_symbol"));
+        // Defaults preserved.
+        assert_eq!(config.graph_symbol, GraphSymbol::Braille);
+        assert_eq!(config.color_theme, "default");
+        let _ = fs::remove_file(&tmp);
+    }
+
+    #[test]
+    fn load_invalid_string_choice_resets_just_that_field() {
+        // String-typed fields validated by `validate_choice` reset
+        // the offending field and emit a per-field warning while
+        // the rest of the config loads normally. `shown_boxes`
+        // validation also strips invalid box names with a warning.
         let mut config = Config::new();
         let tmp = std::env::temp_dir().join("rtop_test_bad_string_values.toml");
         fs::write(
             &tmp,
-            "color_theme = \"foo\"\ngraph_symbol = \"ascii\"\nshown_boxes = [\"cpu\", \"nope\"]\n",
+            "color_theme = \"foo\"\nshown_boxes = [\"cpu\", \"nope\"]\n",
         )
         .unwrap();
         let warnings = config.load(&tmp);
-        assert_eq!(warnings.len(), 3);
+        assert_eq!(warnings.len(), 2);
         assert!(
             warnings
                 .iter()
@@ -1342,15 +1299,9 @@ mod tests {
         assert!(
             warnings
                 .iter()
-                .any(|w| w.contains("graph_symbol") && w.contains("ascii"))
-        );
-        assert!(
-            warnings
-                .iter()
                 .any(|w| w.contains("shown_boxes") && w.contains("nope"))
         );
         assert_eq!(config.color_theme, "default");
-        assert_eq!(config.graph_symbol, "braille");
         // After removing invalid "nope", only "cpu" remains
         assert_eq!(config.shown_boxes, vec!["cpu"]);
         let _ = fs::remove_file(&tmp);
@@ -1385,8 +1336,8 @@ mod tests {
             config.shown_boxes,
             vec!["cpu", "mem", "net", "proc", "disk"]
         );
-        assert_eq!(config.graph_symbol, "braille");
-        assert_eq!(config.proc_sorting, "cpu lazy");
+        assert_eq!(config.graph_symbol, GraphSymbol::Braille);
+        assert_eq!(config.proc_sorting, ProcSort::CpuLazy);
         assert_eq!(config.current_preset, 0);
     }
 

@@ -104,12 +104,13 @@ pub fn sec_to_dhms(seconds: u64, no_days: bool, no_seconds: bool) -> String {
 
 /// Convert a Celsius temperature value to the specified scale.
 /// Returns (converted_value, unit_suffix).
-pub fn celsius_to(celsius: i64, scale: &str) -> (i64, String) {
+pub fn celsius_to(celsius: i64, scale: crate::domain::config_enums::TempScale) -> (i64, String) {
+    use crate::domain::config_enums::TempScale;
     match scale {
-        "fahrenheit" => ((celsius * 9 / 5) + 32, "°F".to_string()),
-        "kelvin" => (celsius + 273, "°K".to_string()),
-        "rankine" => (((celsius * 9 / 5) + 32) + 460, "°R".to_string()),
-        _ => (celsius, "°C".to_string()),
+        TempScale::Fahrenheit => ((celsius * 9 / 5) + 32, "°F".to_string()),
+        TempScale::Kelvin => (celsius + 273, "°K".to_string()),
+        TempScale::Rankine => (((celsius * 9 / 5) + 32) + 460, "°R".to_string()),
+        TempScale::Celsius => (celsius, "°C".to_string()),
     }
 }
 
@@ -261,22 +262,29 @@ mod tests {
 
     #[test]
     fn celsius_to_celsius_identity() {
-        assert_eq!(celsius_to(100, "celsius"), (100, "°C".to_string()));
+        use crate::domain::config_enums::TempScale;
+        assert_eq!(celsius_to(100, TempScale::Celsius), (100, "°C".to_string()));
     }
 
     #[test]
     fn celsius_to_fahrenheit() {
-        assert_eq!(celsius_to(100, "fahrenheit"), (212, "°F".to_string()));
+        use crate::domain::config_enums::TempScale;
+        assert_eq!(
+            celsius_to(100, TempScale::Fahrenheit),
+            (212, "°F".to_string())
+        );
     }
 
     #[test]
     fn celsius_to_kelvin() {
-        assert_eq!(celsius_to(0, "kelvin"), (273, "°K".to_string()));
+        use crate::domain::config_enums::TempScale;
+        assert_eq!(celsius_to(0, TempScale::Kelvin), (273, "°K".to_string()));
     }
 
     #[test]
     fn celsius_to_rankine() {
-        assert_eq!(celsius_to(0, "rankine"), (492, "°R".to_string()));
+        use crate::domain::config_enums::TempScale;
+        assert_eq!(celsius_to(0, TempScale::Rankine), (492, "°R".to_string()));
     }
 
     #[test]

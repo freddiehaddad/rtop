@@ -1,4 +1,5 @@
 use crate::collect::CollectStatus;
+use crate::domain::config_enums::TempScale;
 use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
@@ -12,7 +13,7 @@ use super::BoxArea;
 /// Extracted settings for the GPU box, decoupled from Config.
 pub struct GpuBoxSettings<'a> {
     pub index: usize,
-    pub temp_scale: &'a str,
+    pub temp_scale: TempScale,
     pub custom_name: &'a str,
     pub base_10: bool,
 }
@@ -265,7 +266,7 @@ mod tests {
     fn make_settings() -> GpuBoxSettings<'static> {
         GpuBoxSettings {
             index: 0,
-            temp_scale: "celsius",
+            temp_scale: TempScale::Celsius,
             custom_name: "",
             base_10: false,
         }

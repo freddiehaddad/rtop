@@ -128,24 +128,25 @@ impl ProcBoxLayout {
 
 pub(super) struct SortState {
     pub(super) arrow: &'static str,
-    pub(super) sort_lower: String,
+    pub(super) sort_by: crate::collect::process_display::ProcSort,
 }
 
 impl SortState {
     pub(super) fn new(view: &ProcView) -> Self {
         Self {
             arrow: if view.sort_reversed { "▼" } else { "▲" },
-            sort_lower: view.sort_by.to_lowercase(),
+            sort_by: view.sort_by,
         }
     }
 
     pub(super) fn is_sort(&self, col: &str) -> bool {
+        use crate::collect::process_display::ProcSort;
         match col {
-            "pid" => self.sort_lower == "pid",
-            "name" => self.sort_lower == "name",
-            "command" => self.sort_lower == "command",
-            "cpu" => self.sort_lower.starts_with("cpu"),
-            "mem" | "memory" => self.sort_lower == "memory",
+            "pid" => self.sort_by == ProcSort::Pid,
+            "name" => self.sort_by == ProcSort::Name,
+            "command" => self.sort_by == ProcSort::Command,
+            "cpu" => matches!(self.sort_by, ProcSort::CpuLazy | ProcSort::CpuDirect),
+            "mem" | "memory" => self.sort_by == ProcSort::Memory,
             _ => false,
         }
     }

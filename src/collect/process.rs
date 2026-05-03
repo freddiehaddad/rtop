@@ -5,6 +5,7 @@ use std::{
     mem::{MaybeUninit, size_of},
     slice,
 };
+use thiserror::Error;
 
 use super::{
     Collector,
@@ -43,15 +44,22 @@ struct RemoteUnicodeString64 {
 #[cfg(target_pointer_width = "64")]
 const _: () = assert!(size_of::<RemoteUnicodeString64>() == 16);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 enum CmdlineReadError {
     #[cfg(not(target_pointer_width = "64"))]
+    #[error("unsupported architecture for remote command-line read")]
     UnsupportedArchitecture,
+    #[error("OpenProcess failed")]
     OpenProcess,
+    #[error("NtQueryInformationProcess (ProcessBasicInformation) failed")]
     QueryBasicInfo,
+    #[error("invalid pointer encountered while traversing PEB")]
     InvalidPointer,
+    #[error("integer overflow while computing remote read size")]
     IntegerOverflow,
+    #[error("ReadProcessMemory returned fewer bytes than requested")]
     ShortRead,
+    #[error("UNICODE_STRING in remote process is invalid")]
     InvalidUnicodeString,
 }
 

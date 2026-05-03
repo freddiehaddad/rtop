@@ -13,7 +13,7 @@ pub(super) fn draw_top_border(
     x: usize,
     y: usize,
     width: usize,
-    sort_by: &str,
+    sort_by: crate::collect::process_display::ProcSort,
     tree_mode: bool,
     theme: &Theme,
 ) -> String {
@@ -22,11 +22,7 @@ pub(super) fn draw_top_border(
     let title_color = theme.color(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
-    let sort_name = if sort_by.is_empty() {
-        "cpu lazy"
-    } else {
-        sort_by
-    };
+    let sort_name = sort_by.as_str();
     let tree_star = if tree_mode { "*" } else { "" };
 
     // Build positions right-to-left from the right corner

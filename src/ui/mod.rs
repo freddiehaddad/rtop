@@ -69,7 +69,7 @@ pub fn draw_status_inset(
 pub struct ProcView<'a> {
     pub start: usize,
     pub selected: usize,
-    pub sort_by: &'a str,
+    pub sort_by: crate::collect::process_display::ProcSort,
     pub sort_reversed: bool,
     pub tree_mode: bool,
     pub detailed_pid: u32,

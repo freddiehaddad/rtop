@@ -40,6 +40,7 @@ fn classify(key: ConfigKey, _config: &Config) -> OptKind {
         KeyKind::Int => OptKind::Int,
         KeyKind::String if !browsable_values(key).is_empty() => OptKind::Browsable,
         KeyKind::String => OptKind::StringVal,
+        KeyKind::Enum => OptKind::Browsable,
     }
 }
 
@@ -718,21 +719,24 @@ pub fn get_value(key: ConfigKey, config: &Config) -> String {
 
 /// Cycle a browsable option left or right. Returns true if changed.
 pub fn cycle_browsable(key: ConfigKey, config: &mut Config, direction: i32) -> bool {
-    if key.kind() != KeyKind::String {
+    if !matches!(key.kind(), KeyKind::String | KeyKind::Enum) {
         return false;
     }
     let vals = key.browsable_values();
     if vals.is_empty() {
         return false;
     }
-    let current = key.get_string(config).to_string();
+    let current = key.get_display(config);
     let idx = vals.iter().position(|&v| v == current).unwrap_or(0);
     let new_idx = if direction > 0 {
         (idx + 1) % vals.len()
+    } else if idx == 0 {
+        vals.len() - 1
     } else {
-        if idx == 0 { vals.len() - 1 } else { idx - 1 }
+        idx - 1
     };
-    key.set_string(config, vals[new_idx]);
+    key.set_string(config, vals[new_idx])
+        .expect("browsable_values entries must round-trip through set_string");
     true
 }
 

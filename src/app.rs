@@ -383,7 +383,7 @@ impl ProcessViewState {
         let procs: &[crate::domain::process::ProcInfo] =
             self.display_procs.as_deref().unwrap_or(live_procs);
 
-        let sort_by = &config.proc_sorting;
+        let sort_by = config.proc_sorting;
         let reversed = config.proc_reversed;
         let filter = &config.proc_filter;
         let tree_mode = config.proc_tree;
@@ -993,15 +993,15 @@ pub(crate) fn render_all(
     {
         let area = ui::BoxArea::from_dim(cpu_dim, rounded);
         let cpu_settings = ui::cpu_box::CpuBoxSettings {
-            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                &config.graph_symbol_cpu,
-                &config.graph_symbol,
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.graph_symbol_cpu,
+                config.graph_symbol,
             ),
-            upper_source: &config.cpu_graph_upper,
-            lower_source: &config.cpu_graph_lower,
+            upper_source: config.cpu_graph_upper,
+            lower_source: config.cpu_graph_lower,
             check_temp: config.check_temp,
             show_coretemp: config.show_coretemp,
-            temp_scale: &config.temp_scale,
+            temp_scale: config.temp_scale,
             single_graph: config.cpu_single_graph,
             update_ms,
             current_preset: config.current_preset,
@@ -1037,7 +1037,7 @@ pub(crate) fn render_all(
                     .unwrap_or("");
                 let gpu_settings = ui::gpu_box::GpuBoxSettings {
                     index: gi,
-                    temp_scale: &config.temp_scale,
+                    temp_scale: config.temp_scale,
                     custom_name,
                     base_10: config.base_10_sizes,
                 };
@@ -1075,9 +1075,9 @@ pub(crate) fn render_all(
     {
         let area = ui::BoxArea::from_dim(disk_dim, rounded);
         let disk_settings = ui::disk_box::DiskBoxSettings {
-            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                &config.graph_symbol_disk,
-                &config.graph_symbol,
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.graph_symbol_disk,
+                config.graph_symbol,
             ),
             base_10: config.base_10_sizes,
             show_io_stat: config.show_io_stat,
@@ -1112,9 +1112,9 @@ pub(crate) fn render_all(
             sync_scale: config.net_sync,
             max_download: config.net_download,
             max_upload: config.net_upload,
-            graph_symbol: crate::draw::graph::GraphSymbol::from_config(
-                &config.graph_symbol_net,
-                &config.graph_symbol,
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.graph_symbol_net,
+                config.graph_symbol,
             ),
             swap_dl_ul: config.swap_upload_download,
             base_10: config.base_10_sizes,
@@ -1147,7 +1147,7 @@ pub(crate) fn render_all(
             proc_selected,
             proc_start,
         );
-        let sort_by = &config.proc_sorting;
+        let sort_by = config.proc_sorting;
         let reversed = config.proc_reversed;
         let tree_mode = config.proc_tree;
         let pf = &config.proc_filter;

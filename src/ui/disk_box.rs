@@ -2,7 +2,7 @@ use crate::collect::CollectStatus;
 use crate::domain::disk::DiskData;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::{Graph, GraphSymbol};
+use crate::draw::graph::{Graph, GraphMode};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -27,7 +27,7 @@ const MIN_IO_GRAPH_W: usize = 3;
 
 /// Extracted settings for the disk box, decoupled from Config.
 pub struct DiskBoxSettings {
-    pub graph_symbol: GraphSymbol,
+    pub graph_symbol: GraphMode,
     pub base_10: bool,
     pub show_io_stat: bool,
     pub io_mode: bool,
@@ -388,7 +388,7 @@ fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, cu
 mod tests {
     use super::*;
     use crate::domain::disk::DiskInfo;
-    use crate::draw::graph::GraphSymbol;
+    use crate::draw::graph::GraphMode;
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
@@ -458,7 +458,7 @@ mod tests {
 
     fn settings() -> DiskBoxSettings {
         DiskBoxSettings {
-            graph_symbol: GraphSymbol::Braille,
+            graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: true,
             io_mode: false,

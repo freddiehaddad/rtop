@@ -2,7 +2,7 @@ use crate::collect::CollectStatus;
 use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::{Graph, GraphSymbol};
+use crate::draw::graph::{Graph, GraphMode};
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 use crate::tools;
@@ -29,7 +29,7 @@ pub struct NetBoxSettings<'a> {
     pub sync_scale: bool,
     pub max_download: i64,
     pub max_upload: i64,
-    pub graph_symbol: GraphSymbol,
+    pub graph_symbol: GraphMode,
     pub swap_dl_ul: bool,
     pub base_10: bool,
 }
@@ -317,7 +317,7 @@ mod tests {
             sync_scale: false,
             max_download: 100,
             max_upload: 100,
-            graph_symbol: GraphSymbol::Braille,
+            graph_symbol: GraphMode::Braille,
             swap_dl_ul: false,
             base_10: false,
         }

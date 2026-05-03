@@ -512,6 +512,7 @@ dependencies = [
  "directories",
  "regex",
  "serde",
+ "thiserror",
  "toml",
  "tracing",
  "tracing-appender",

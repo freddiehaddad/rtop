@@ -1,9 +1,10 @@
 use crate::collect::CollectStatus;
+use crate::domain::config_enums::{CpuGraphSource, TempScale};
 use crate::domain::cpu::{CpuInfo, get_cpu_series};
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::{Graph, GraphSymbol};
+use crate::draw::graph::{Graph, GraphMode};
 use crate::draw::meter::Meter;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -13,12 +14,12 @@ use super::BoxArea;
 
 /// Extracted settings for the CPU box, decoupled from Config.
 pub struct CpuBoxSettings<'a> {
-    pub graph_symbol: GraphSymbol,
-    pub upper_source: &'a str,
-    pub lower_source: &'a str,
+    pub graph_symbol: GraphMode,
+    pub upper_source: CpuGraphSource,
+    pub lower_source: CpuGraphSource,
     pub check_temp: bool,
     pub show_coretemp: bool,
-    pub temp_scale: &'a str,
+    pub temp_scale: TempScale,
     pub single_graph: bool,
     pub update_ms: u64,
     pub current_preset: i64,
@@ -197,14 +198,14 @@ pub fn draw(
     let graph_text_color = theme.color(tc::GRAPH_TEXT);
     let graph_sym = settings.graph_symbol;
     let upper_key = match settings.upper_source {
-        "user" => "user",
-        "system" => "system",
-        _ => "total",
+        CpuGraphSource::User => "user",
+        CpuGraphSource::System => "system",
+        CpuGraphSource::Auto | CpuGraphSource::Total => "total",
     };
     let lower_key = match settings.lower_source {
-        "user" => "user",
-        "system" => "system",
-        _ => "total",
+        CpuGraphSource::User => "user",
+        CpuGraphSource::System => "system",
+        CpuGraphSource::Auto | CpuGraphSource::Total => "total",
     };
 
     let mut buf = AnsiBuffer::new();
@@ -456,10 +457,10 @@ struct CorePanelArea {
 }
 
 /// Data needed by the core panel renderer, beyond the CpuInfo and theme.
-struct CorePanelParams<'a> {
+struct CorePanelParams {
     has_temp: bool,
-    temp_scale: &'a str,
-    graph_sym: GraphSymbol,
+    temp_scale: TempScale,
+    graph_sym: GraphMode,
     has_watts: bool,
     cpu_watts: Option<f64>,
     cpu_max_watts: Option<f64>,
@@ -792,12 +793,12 @@ mod tests {
 
     fn make_settings() -> CpuBoxSettings<'static> {
         CpuBoxSettings {
-            graph_symbol: GraphSymbol::Braille,
-            upper_source: "user",
-            lower_source: "system",
+            graph_symbol: GraphMode::Braille,
+            upper_source: CpuGraphSource::User,
+            lower_source: CpuGraphSource::System,
             check_temp: false,
             show_coretemp: false,
-            temp_scale: "celsius",
+            temp_scale: TempScale::Celsius,
             single_graph: false,
             update_ms: 2000,
             current_preset: 0,

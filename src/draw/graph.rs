@@ -1,24 +1,39 @@
 use std::collections::VecDeque;
 
-/// Graph symbol mode.
+/// The resolved rendering mode for a graph (after `default →
+/// inherit` has been resolved against the global setting).
+///
+/// This is distinct from `crate::domain::config_enums::GraphSymbol`,
+/// which models the user's config choice (and includes a `Default`
+/// "inherit from global" sentinel).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GraphSymbol {
+pub enum GraphMode {
     Braille,
     Block,
 }
 
-impl GraphSymbol {
-    /// Parse a config string like "braille", "block", or "default" into a GraphSymbol.
-    /// If `specific` is "default", falls back to `global`.
-    pub fn from_config(specific: &str, global: &str) -> Self {
-        let s = if specific == "default" {
+impl GraphMode {
+    /// Resolve a per-widget config choice against the global config
+    /// choice. `specific = Default` inherits the global; the global
+    /// is itself never `Default` (its config default is `Braille`).
+    pub fn from_config(
+        specific: crate::domain::config_enums::GraphSymbol,
+        global: crate::domain::config_enums::GraphSymbol,
+    ) -> Self {
+        use crate::domain::config_enums::GraphSymbol as Choice;
+        let resolved = if specific == Choice::Default {
             global
         } else {
             specific
         };
-        match s {
-            "block" => Self::Block,
-            _ => Self::Braille,
+        match resolved {
+            Choice::Block => Self::Block,
+            // `Default` here would mean the global was also Default —
+            // a configuration the type allows but the validation in
+            // Config::default + serde does not produce. Render as
+            // Braille rather than panicking; this is a render-path
+            // function and Braille is the documented fallback.
+            Choice::Braille | Choice::Default => Self::Braille,
         }
     }
 }
@@ -91,7 +106,7 @@ fn parse_graph_elements(s: &str) -> Vec<&str> {
 pub struct Graph {
     width: usize,
     height: usize,
-    symbol: GraphSymbol,
+    symbol: GraphMode,
     invert: bool,
     max_value: i64,
     offset: i64,
@@ -105,7 +120,7 @@ impl Graph {
     pub fn new(
         width: usize,
         height: usize,
-        symbol: GraphSymbol,
+        symbol: GraphMode,
         invert: bool,
         max_value: i64,
         offset: i64,
@@ -127,8 +142,8 @@ impl Graph {
     /// For block, returns None — it uses single-level lookup instead.
     fn braille_table(&self) -> Option<&'static [&'static str; 25]> {
         match (self.symbol, self.invert) {
-            (GraphSymbol::Braille, false) => Some(&BRAILLE_UP),
-            (GraphSymbol::Braille, true) => Some(&BRAILLE_DOWN),
+            (GraphMode::Braille, false) => Some(&BRAILLE_UP),
+            (GraphMode::Braille, true) => Some(&BRAILLE_DOWN),
             _ => None,
         }
     }
@@ -137,9 +152,9 @@ impl Graph {
     fn simple_char(&self, level: usize) -> &'static str {
         let lvl = level.min(4);
         match (self.symbol, self.invert) {
-            (GraphSymbol::Block, false) => BLOCK_UP[lvl],
-            (GraphSymbol::Block, true) => BLOCK_DOWN[lvl],
-            (GraphSymbol::Braille, _) => unreachable!(),
+            (GraphMode::Block, false) => BLOCK_UP[lvl],
+            (GraphMode::Block, true) => BLOCK_DOWN[lvl],
+            (GraphMode::Braille, _) => unreachable!(),
         }
     }
 
@@ -356,7 +371,7 @@ mod tests {
 
     #[test]
     fn render_rows_returns_correct_count() {
-        let mut graph = Graph::new(10, 4, GraphSymbol::Braille, false, 100, 0);
+        let mut graph = Graph::new(10, 4, GraphMode::Braille, false, 100, 0);
         let data: VecDeque<i64> = (0..10).map(|i| i * 10).collect();
         let gradient: Vec<String> = (0..=100)
             .map(|_| "\x1b[38;2;128;128;128m".to_string())

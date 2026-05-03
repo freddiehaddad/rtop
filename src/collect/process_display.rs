@@ -1,18 +1,97 @@
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
+use std::str::FromStr;
+use thiserror::Error;
 
-/// Canonical sort options for the process list.
-/// Used by app.rs keybinds, options_menu.rs browsable values, and display sorting.
-pub const SORT_OPTIONS: &[&str] = &[
-    "pid",
-    "name",
-    "command",
-    "threads",
-    "user",
-    "memory",
-    "cpu lazy",
-    "cpu direct",
-];
+// ---------------------------------------------------------------------------
+// ProcSort — typed sort key for the process list
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Error)]
+#[error("invalid ProcSort value '{0}'")]
+pub struct ParseProcSortError(pub String);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ProcSort {
+    Pid,
+    Name,
+    Command,
+    Threads,
+    User,
+    Memory,
+    #[default]
+    CpuLazy,
+    CpuDirect,
+}
+
+impl ProcSort {
+    pub const ALL: &'static [ProcSort] = &[
+        ProcSort::Pid,
+        ProcSort::Name,
+        ProcSort::Command,
+        ProcSort::Threads,
+        ProcSort::User,
+        ProcSort::Memory,
+        ProcSort::CpuLazy,
+        ProcSort::CpuDirect,
+    ];
+
+    pub const NAMES: &'static [&'static str] = &[
+        "pid",
+        "name",
+        "command",
+        "threads",
+        "user",
+        "memory",
+        "cpu lazy",
+        "cpu direct",
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            ProcSort::Pid => "pid",
+            ProcSort::Name => "name",
+            ProcSort::Command => "command",
+            ProcSort::Threads => "threads",
+            ProcSort::User => "user",
+            ProcSort::Memory => "memory",
+            ProcSort::CpuLazy => "cpu lazy",
+            ProcSort::CpuDirect => "cpu direct",
+        }
+    }
+}
+
+impl fmt::Display for ProcSort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ProcSort {
+    type Err = ParseProcSortError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        ProcSort::ALL
+            .iter()
+            .copied()
+            .find(|v| v.as_str() == s)
+            .ok_or_else(|| ParseProcSortError(s.to_string()))
+    }
+}
+
+impl Serialize for ProcSort {
+    fn serialize<S: Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ProcSort {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = <String>::deserialize(d)?;
+        raw.parse().map_err(serde::de::Error::custom)
+    }
+}
 
 /// Pre-parsed process filter for efficient per-process matching.
 pub enum ParsedFilter {
@@ -54,7 +133,7 @@ impl ParsedFilter {
 /// Build process display entries from raw process data and current view settings.
 pub fn build_proc_display_entries(
     procs: &[ProcInfo],
-    sort_by: &str,
+    sort_by: ProcSort,
     reversed: bool,
     filter: &str,
     tree_mode: bool,
@@ -165,7 +244,12 @@ impl TreeDisplayBuilder<'_, '_> {
 }
 
 /// Sort raw process indices by the given process column.
-pub fn sort_proc_indices(indices: &mut [usize], procs: &[ProcInfo], sort_by: &str, reverse: bool) {
+pub fn sort_proc_indices(
+    indices: &mut [usize],
+    procs: &[ProcInfo],
+    sort_by: ProcSort,
+    reverse: bool,
+) {
     indices.sort_by(|&a_idx, &b_idx| {
         let cmp = match (procs.get(a_idx), procs.get(b_idx)) {
             (Some(a), Some(b)) => compare_procs(a, b, sort_by),
@@ -231,19 +315,18 @@ fn aggregate_tree_entries(
     result
 }
 
-fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: &str) -> std::cmp::Ordering {
+fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: ProcSort) -> std::cmp::Ordering {
     match sort_by {
-        "pid" => a.pid.cmp(&b.pid),
-        "name" => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
-        "command" => a.cmd.to_lowercase().cmp(&b.cmd.to_lowercase()),
-        "threads" => a.threads.cmp(&b.threads),
-        "user" => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
-        "memory" => a.mem.cmp(&b.mem),
-        "cpu direct" | "cpu lazy" => a
+        ProcSort::Pid => a.pid.cmp(&b.pid),
+        ProcSort::Name => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        ProcSort::Command => a.cmd.to_lowercase().cmp(&b.cmd.to_lowercase()),
+        ProcSort::Threads => a.threads.cmp(&b.threads),
+        ProcSort::User => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
+        ProcSort::Memory => a.mem.cmp(&b.mem),
+        ProcSort::CpuDirect | ProcSort::CpuLazy => a
             .cpu_p
             .partial_cmp(&b.cpu_p)
             .unwrap_or(std::cmp::Ordering::Equal),
-        _ => std::cmp::Ordering::Equal,
     }
 }
 
@@ -326,7 +409,7 @@ mod tests {
             },
         ];
         let mut indices = vec![0, 1, 2];
-        sort_proc_indices(&mut indices, &procs, "cpu lazy", false);
+        sort_proc_indices(&mut indices, &procs, ProcSort::CpuLazy, false);
         assert_eq!(procs[indices[0]].pid, 3);
         assert_eq!(procs[indices[2]].pid, 2);
     }
@@ -351,7 +434,7 @@ mod tests {
             },
         ];
         let mut indices = vec![0, 1, 2];
-        sort_proc_indices(&mut indices, &procs, "memory", true); // Reverse = descending
+        sort_proc_indices(&mut indices, &procs, ProcSort::Memory, true); // Reverse = descending
         assert_eq!(procs[indices[0]].pid, 2);
         assert_eq!(procs[indices[2]].pid, 3);
     }
@@ -376,7 +459,7 @@ mod tests {
             },
         ];
         let mut indices = vec![0, 1, 2];
-        sort_proc_indices(&mut indices, &procs, "name", false);
+        sort_proc_indices(&mut indices, &procs, ProcSort::Name, false);
         assert_eq!(procs[indices[0]].name, "Acrobat.exe");
         assert_eq!(procs[indices[2]].name, "zsh.exe");
     }
@@ -463,7 +546,7 @@ mod tests {
             },
         ];
 
-        let entries = build_proc_display_entries(&procs, "cpu lazy", true, "", false, false);
+        let entries = build_proc_display_entries(&procs, ProcSort::CpuLazy, true, "", false, false);
 
         let pids: Vec<u32> = entries
             .iter()
