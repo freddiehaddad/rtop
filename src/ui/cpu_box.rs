@@ -713,14 +713,14 @@ fn draw_bottom_hints(
     theme: &Theme,
 ) -> String {
     let box_color = theme.color(tc::CPU_BOX);
-    let fg = theme.color(tc::MAIN_FG);
+    let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
 
-    let preset_label = format!("p{}reset *{}", fg, current_preset);
+    let preset_label = format!("preset *{}", current_preset);
     let rate_label = format!("{}ms", update_ms);
-    let menu_inset = box_drawing::keybind_inset("menu", box_color, hi, fg, true);
-    let preset_inset = box_drawing::title_inset(&preset_label, box_color, hi, true);
-    let rate_text = format!("─ {}{} {}+", fg, rate_label, hi);
+    let menu_inset = box_drawing::keybind_inset("menu", box_color, hi, title_color, true);
+    let preset_inset = box_drawing::keybind_inset(&preset_label, box_color, hi, title_color, true);
+    let rate_text = format!("─ {}{} {}+", title_color, rate_label, hi);
     let rate_inset = box_drawing::title_inset(&rate_text, box_color, hi, true);
     let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
 
@@ -945,6 +945,35 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(plain.contains("0.84"), "should contain 1-min load: {plain}");
         assert!(plain.contains("0.38"), "should contain 5-min load: {plain}");
+    }
+
+    #[test]
+    fn bottom_hints_use_title_for_label_text() {
+        // Defends border-inset color consistency: pre-fix the CPU bottom
+        // hints rendered "enu", "reset *0", and "2000ms" in MAIN_FG while
+        // every other widget's border insets use TITLE for label/value text.
+        // Hotkey letters (m, p, ─, +) stay HI_FG.
+        let theme = Theme::default();
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        assert!(
+            output.contains(&format!("{}{}", title, "enu")),
+            "menu inset 'enu' should be preceded by TITLE"
+        );
+        assert!(
+            output.contains(&format!("{}{}", title, "reset *0")),
+            "preset inset 'reset *0' should be preceded by TITLE"
+        );
+        assert!(
+            output.contains(&format!("{}{}", title, "2000ms")),
+            "rate inset '2000ms' should be preceded by TITLE"
+        );
     }
 
     #[test]

@@ -753,4 +753,27 @@ mod tests {
         assert!(colored.contains(&cpu_color));
         assert!(!plain.contains(&cpu_color));
     }
+
+    #[test]
+    fn count_inset_uses_title_color() {
+        // Defends border-inset color consistency: pre-fix the bottom-right
+        // process count "N/M" rendered in MAIN_FG while every other widget's
+        // border insets use TITLE for label/value text.
+        let theme = Theme::default();
+        let output = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &make_view(),
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        // 3 procs in the fixture; layout fits all 3 → "3/3".
+        assert!(
+            output.contains(&format!("{}{}", title, "3/3")),
+            "process count '3/3' inset should be preceded by TITLE"
+        );
+    }
 }
