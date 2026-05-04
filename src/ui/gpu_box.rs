@@ -55,6 +55,7 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::GPU_BOX);
+    let fg = theme.color(tc::MAIN_FG);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
     let meter_bg = theme.color(tc::METER_BG);
@@ -122,7 +123,7 @@ pub fn draw(
     let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0) as i32;
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
-            .color(title_color)
+            .color(fg)
             .text("GPU   ")
             .text(gpu_meter.render(gpu_pct))
             .color(gradient_color(grad_gpu, gpu_pct))
@@ -140,7 +141,7 @@ pub fn draw(
     };
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
-            .color(title_color)
+            .color(fg)
             .text("Clock ")
             .text(clock_meter.render(clock_pct))
             .color(gradient_color(grad_clock, clock_pct))
@@ -154,7 +155,7 @@ pub fn draw(
     let temp_pct = temp.clamp(0, 100) as i32;
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
-            .color(title_color)
+            .color(fg)
             .text("Temp  ")
             .text(temp_meter.render(temp_pct))
             .color(gradient_color(grad_temp, temp_pct))
@@ -176,7 +177,7 @@ pub fn draw(
     };
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
-            .color(title_color)
+            .color(fg)
             .text("Watts ")
             .text(power_meter.render(pwr_pct))
             .color(gradient_color(grad_power, pwr_pct))
@@ -194,7 +195,7 @@ pub fn draw(
     let vram_total = fmt_bytes(gpu.mem_total, settings.base_10);
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
-            .color(title_color)
+            .color(fg)
             .text("VRAM  ")
             .text(vram_meter.render(vram_pct))
             .color(gradient_color(grad_vram, vram_pct))
@@ -424,5 +425,25 @@ mod tests {
             output.contains(&grad_vram[42]),
             "VRAM value should be colored by GRAD_GPU_VRAM[42]"
         );
+    }
+
+    #[test]
+    fn meter_row_labels_use_main_fg() {
+        // Body label rule: GPU/Clock/Temp/Watts/VRAM labels render in MAIN_FG.
+        let theme = Theme::default();
+        let output = draw(
+            &make_gpu_info(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        for label in &["GPU   ", "Clock ", "Temp  ", "Watts ", "VRAM  "] {
+            assert!(
+                output.contains(&format!("{fg}{label}")),
+                "gpu label {label:?} should be preceded by MAIN_FG"
+            );
+        }
     }
 }

@@ -500,7 +500,7 @@ fn draw_core_panel(
     if let Some(&pct) = cpu.cpu_percent.total.back() {
         let pct = pct.clamp(0, 100) as i32;
         buf.mv(content_x, panel.y + 1 + row)
-            .color(title_color)
+            .color(fg)
             .text("CPU   ")
             .text(cpu_meter.render(pct))
             .color(gradient_color(cpu_gradient, pct))
@@ -517,7 +517,7 @@ fn draw_core_panel(
         let temp_meter = Meter::new(meter_w, temp_gradient, meter_bg);
         let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, params.temp_scale);
         buf.mv(content_x, panel.y + 1 + row)
-            .color(title_color)
+            .color(fg)
             .text("Temp  ")
             .text(temp_meter.render(temp_pct))
             .color(gradient_color(temp_gradient, temp_pct))
@@ -542,7 +542,7 @@ fn draw_core_panel(
             let watts_meter = Meter::new(meter_w, cpu_gradient, meter_bg);
             let val = format!("{:.0}W/{:.0}W", watts, max_w);
             let mut s = String::new();
-            s.push_str(title_color);
+            s.push_str(fg);
             s.push_str("Watts ");
             s.push_str(watts_meter.render(pct));
             s.push_str(gradient_color(cpu_gradient, pct));
@@ -553,7 +553,7 @@ fn draw_core_panel(
             // "gradient only when a meter exists" rule.
             let val = format!("{:.1} W", watts);
             let mut s = String::new();
-            s.push_str(title_color);
+            s.push_str(fg);
             s.push_str("Watts ");
             // Fill meter space with blanks for alignment
             s.push_str(&" ".repeat(meter_w));
@@ -573,7 +573,7 @@ fn draw_core_panel(
         let load_meter = Meter::new(meter_w, cpu_gradient, meter_bg);
         let load_val = format!("{:.2}", load1);
         buf.mv(content_x, panel.y + 1 + row)
-            .color(title_color)
+            .color(fg)
             .text("Load  ")
             .text(load_meter.render(load_pct))
             .color(gradient_color(cpu_gradient, load_pct))
@@ -1037,6 +1037,33 @@ mod tests {
             assert!(
                 !output.contains(&format!("{}{}", grad_escape, "    42.5 W")),
                 "Watts-no-max value must not be coloured by GRAD_CPU_UPPER"
+            );
+        }
+    }
+
+    #[test]
+    fn stats_panel_labels_use_main_fg() {
+        // Body label rule: CPU/Temp/Watts/Load meter labels render in
+        // MAIN_FG, not TITLE. Pre-shift these were TITLE, which made them
+        // look identical to box title insets and section dividers; the
+        // shift creates a clean two-tier visual hierarchy.
+        let theme = Theme::default();
+        let mut settings = make_settings();
+        settings.show_cpu_watts = true;
+        settings.cpu_watts = Some(42.5);
+        settings.cpu_max_watts = Some(125.0);
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &theme,
+            &settings,
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        for label in &["CPU   ", "Watts ", "Load  "] {
+            assert!(
+                output.contains(&format!("{fg}{label}")),
+                "cpu stats label {label:?} should be preceded by MAIN_FG"
             );
         }
     }

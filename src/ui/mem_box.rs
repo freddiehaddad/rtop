@@ -40,6 +40,7 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::MEM_BOX);
+    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let used_grad = theme.gradient(tc::GRAD_USED);
@@ -117,7 +118,7 @@ pub fn draw(
             "Used  ",
             used_meter.render(used_pct),
             &used_str,
-            title_color,
+            fg,
             used_color,
             content_x,
             y + 2 + row,
@@ -136,7 +137,7 @@ pub fn draw(
             "Avail ",
             avail_meter.render(avail_pct),
             &avail_str,
-            title_color,
+            fg,
             avail_color,
             content_x,
             y + 2 + row,
@@ -155,7 +156,7 @@ pub fn draw(
             "Cache ",
             cached_meter.render(cached_pct),
             &cached_str,
-            title_color,
+            fg,
             cache_color,
             content_x,
             y + 2 + row,
@@ -174,7 +175,7 @@ pub fn draw(
             "Free  ",
             free_meter.render(free_pct),
             &free_str,
-            title_color,
+            fg,
             free_color,
             content_x,
             y + 2 + row,
@@ -200,7 +201,7 @@ pub fn draw(
                 "Swap  ",
                 used_meter.render(swap_pct),
                 &swap_str,
-                title_color,
+                fg,
                 swap_color,
                 content_x,
                 y + 2 + row,
@@ -357,5 +358,30 @@ mod tests {
             output.contains(&expected),
             "swap value cell should be GRAD_USED[25] immediately followed by ' 1.0G'; got:\n{output}"
         );
+    }
+
+    #[test]
+    fn meter_row_labels_use_main_fg() {
+        // Body label rule: meter row labels (Used, Avail, Cache, Free, Swap)
+        // render in MAIN_FG so they distinguish from structural text (TITLE
+        // border insets and section dividers). Pre-shift these were TITLE.
+        let theme = Theme::default();
+        let output = draw(
+            &make_mem_info(),
+            &make_area(),
+            &theme,
+            &MemBoxSettings {
+                show_swap: true,
+                base_10: false,
+            },
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        for label in &["Used  ", "Avail ", "Cache ", "Free  ", "Swap  "] {
+            assert!(
+                output.contains(&format!("{fg}{label}")),
+                "mem label {label:?} should be preceded by MAIN_FG"
+            );
+        }
     }
 }

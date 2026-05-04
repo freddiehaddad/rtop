@@ -877,4 +877,58 @@ mod tests {
             "no row should render with SELECTED_BG when the followed row is also the selected row"
         );
     }
+
+    #[test]
+    fn proc_column_headers_use_title_color() {
+        // Carve-out: proc column headers (PID, Program, Command Line, CPU%,
+        // Mem) stay TITLE, not MAIN_FG. They're a structural header row above
+        // the body data, not row labels themselves.
+        let theme = Theme::default();
+        let output = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &make_view(),
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        // The header is "PID    Program          ..." padded to column widths.
+        // PID, Program, and "Command Line" are left-justified so their text
+        // appears immediately after the color escape; right-justified columns
+        // (CPU%, Mem) have leading spaces between the escape and the text and
+        // are intentionally excluded.
+        for label in &["PID", "Program", "Command Line"] {
+            assert!(
+                output.contains(&format!("{title}{label}")),
+                "proc column header {label:?} should be preceded by TITLE"
+            );
+        }
+    }
+
+    #[test]
+    fn detail_panel_field_labels_use_main_fg() {
+        // Body label rule: detail panel field labels (Cmd, User, Status,
+        // Threads, etc.) render in MAIN_FG. Pre-shift these were TITLE.
+        let theme = Theme::default();
+        let mut view = make_view();
+        view.detailed_pid = 100;
+        let output = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &view,
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        for label in &["Cmd", "User", "Status", "Threads"] {
+            assert!(
+                output.contains(&format!("{fg}{label}")),
+                "detail panel field label {label:?} should be preceded by MAIN_FG"
+            );
+        }
+    }
 }

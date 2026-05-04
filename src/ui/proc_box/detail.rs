@@ -34,7 +34,6 @@ pub(super) fn draw_detail_panel(
     theme: &Theme,
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
-    let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let proc_grad = theme.gradient(tc::GRAD_PROCESS);
     let inner_w = width.saturating_sub(4);
@@ -53,7 +52,7 @@ pub(super) fn draw_detail_panel(
         y + 2,
         inner_w,
         DetailColors {
-            label: title_color,
+            label: fg,
             value: fg,
             emphasis: hi,
         },
@@ -71,7 +70,7 @@ pub(super) fn draw_detail_panel(
             color: fg,
         };
         buf.mv(detail_x, y + 3);
-        draw_detail_field(&mut buf, &cmd_field, inner_w, title_color);
+        draw_detail_field(&mut buf, &cmd_field, inner_w, fg);
     }
 
     let fields = detail_fields(proc, settings, fg, hi, proc_grad);
@@ -80,15 +79,7 @@ pub(super) fn draw_detail_panel(
         for (row, pair) in fields.chunks(2).take(grid_rows).enumerate() {
             let left = &pair[0];
             let right = pair.get(1);
-            draw_detail_pair(
-                &mut buf,
-                left,
-                right,
-                detail_x,
-                y + 4 + row,
-                inner_w,
-                title_color,
-            );
+            draw_detail_pair(&mut buf, left, right, detail_x, y + 4 + row, inner_w, fg);
         }
     } else {
         for (row, field_index) in NARROW_DETAIL_FIELD_ORDER
@@ -99,7 +90,7 @@ pub(super) fn draw_detail_panel(
         {
             if let Some(field) = fields.get(field_index) {
                 buf.mv(detail_x, y + 4 + row);
-                draw_detail_field(&mut buf, field, inner_w, title_color);
+                draw_detail_field(&mut buf, field, inner_w, fg);
             }
         }
     }

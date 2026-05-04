@@ -57,6 +57,7 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::DISK_BOX);
+    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
@@ -154,7 +155,7 @@ pub fn draw(
                 let combined_pct =
                     ((combined_speed as i64).saturating_mul(100) / max).min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
-                    .color(title_color)
+                    .color(fg)
                     .text(&label)
                     .text(&graph_row)
                     .color(gradient_color(read_grad, combined_pct))
@@ -186,7 +187,7 @@ pub fn draw(
                 let read_pct = ((disk.read_bytes_per_sec as i64).saturating_mul(100) / read_max)
                     .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
-                    .color(title_color)
+                    .color(fg)
                     .text(&label_r)
                     .text(&rg_row)
                     .color(gradient_color(read_grad, read_pct))
@@ -216,7 +217,7 @@ pub fn draw(
                 let write_pct = ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_max)
                     .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
-                    .color(title_color)
+                    .color(fg)
                     .text(&label_w)
                     .text(&wg_row)
                     .color(gradient_color(write_grad, write_pct))
@@ -242,7 +243,7 @@ pub fn draw(
             let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
 
             buf.mv(content_x, y + 2 + row)
-                .color(title_color)
+                .color(fg)
                 .text(&label)
                 .text(disk_meter.render(disk.used_percent))
                 .color(gradient_color(avail_grad, disk.used_percent))
@@ -293,7 +294,7 @@ fn draw_perf_row(
     }
 
     let base_10 = params.settings.base_10;
-    let title_color = params.theme.color(tc::TITLE);
+    let fg = params.theme.color(tc::MAIN_FG);
     let read_speed =
         tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, base_10);
     let write_speed =
@@ -320,7 +321,7 @@ fn draw_perf_row(
 
     let mut col = x;
     buf.mv(col, y)
-        .color(title_color)
+        .color(fg)
         .text("R")
         .color(read_color)
         .text(&format!(" {read_speed}"));
@@ -368,7 +369,7 @@ fn draw_perf_row(
         ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_graph_max).min(100) as i32;
     let write_color = gradient_color(params.write_grad, write_pct);
 
-    buf.color(title_color)
+    buf.color(fg)
         .text("W")
         .color(write_color)
         .text(&format!(" {write_speed}"));
@@ -389,7 +390,7 @@ fn draw_perf_row(
 
     let busy_color = gradient_color(params.busy_grad, busy);
     buf.mv(busy_x, y)
-        .color(title_color)
+        .color(fg)
         .text("B")
         .color(busy_color)
         .text(&format!("{:>5}", format!("{busy}%")));
@@ -660,6 +661,38 @@ mod tests {
         assert!(
             output.contains(&expected) || output.contains(&expected_padded),
             "combined IO value should be GRAD_DISK_READ[100] adjacent to 'R42M/s W8.0M/s' (with leading rjust padding)"
+        );
+    }
+
+    #[test]
+    fn body_labels_use_main_fg() {
+        // Body label rule: drive labels (C: NTFS) and perf row labels (R, W,
+        // B) render in MAIN_FG. Pre-shift these were TITLE.
+        let theme = Theme::default();
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &theme,
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        assert!(
+            output.contains(&format!("{fg}C: NTFS ")),
+            "drive label 'C: NTFS' should be preceded by MAIN_FG"
+        );
+        // Perf row R/W/B labels — each rendered with .color(fg).text("R") etc.
+        assert!(
+            output.contains(&format!("{fg}R")),
+            "perf row 'R' label should be preceded by MAIN_FG"
+        );
+        assert!(
+            output.contains(&format!("{fg}W")),
+            "perf row 'W' label should be preceded by MAIN_FG"
+        );
+        assert!(
+            output.contains(&format!("{fg}B")),
+            "perf row 'B' label should be preceded by MAIN_FG"
         );
     }
 }
