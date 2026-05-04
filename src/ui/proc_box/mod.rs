@@ -843,4 +843,38 @@ mod tests {
             "narrow box should still render the count '4/50'"
         );
     }
+
+    #[test]
+    fn followed_row_uses_followed_bg_not_selected_bg() {
+        // System invariant (handlers/normal.rs): F always sets followed_pid =
+        // selected pid; any nav key clears followed_pid. So followed_pid > 0
+        // implies the cursor is on the followed row. The dispatch in
+        // rows.rs::draw_process_row must therefore prefer the followed branch
+        // over the selected branch for that row, otherwise pressing F has no
+        // visual effect on the row (only on the border chip), which is
+        // exactly the bug this guards against.
+        let theme = Theme::default();
+        let mut view = make_view();
+        view.selected = 0;
+        view.followed_pid = 100; // matches make_procs()[0].pid
+        let output = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &view,
+            &CollectStatus::Ok,
+        );
+        let followed_bg = theme.background(tc::FOLLOWED_BG);
+        let selected_bg = theme.background(tc::SELECTED_BG);
+        assert!(
+            output.contains(&followed_bg),
+            "followed row should render with FOLLOWED_BG background"
+        );
+        assert!(
+            !output.contains(&selected_bg),
+            "no row should render with SELECTED_BG when the followed row is also the selected row"
+        );
+    }
 }

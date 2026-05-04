@@ -101,8 +101,8 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
 
     let is_followed = params.followed_pid > 0 && params.proc.pid == params.followed_pid;
 
-    if params.absolute_index == params.selected {
-        draw_selected_process_row(
+    if is_followed {
+        draw_followed_process_row(
             buf,
             params,
             &RowText {
@@ -116,8 +116,8 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 name_avail,
             },
         );
-    } else if is_followed {
-        draw_followed_process_row(
+    } else if params.absolute_index == params.selected {
+        draw_selected_process_row(
             buf,
             params,
             &RowText {
