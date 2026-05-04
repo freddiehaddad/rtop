@@ -541,12 +541,31 @@ fn try_get_process_cmdline(pid: u32) -> Result<String, CmdlineReadError> {
         cmdline.buffer as usize,
     )?;
     let cmd_buf = read_remote_utf16(handle.get(), cmdline.buffer as usize, char_count)?;
-    Ok(String::from_utf16_lossy(&cmd_buf).trim().to_string())
+    Ok(sanitize_command_line(&String::from_utf16_lossy(&cmd_buf)))
 }
 
 #[cfg(not(target_pointer_width = "64"))]
 fn try_get_process_cmdline(_pid: u32) -> Result<String, CmdlineReadError> {
     Err(CmdlineReadError::UnsupportedArchitecture)
+}
+
+/// Replace every Unicode control character (`U+0000`–`U+001F`, `U+007F` DEL,
+/// and `U+0080`–`U+009F` C1 controls) in a raw command-line string with a
+/// single ASCII space, then trim leading and trailing whitespace.
+///
+/// Foreign processes' `RTL_USER_PROCESS_PARAMETERS.CommandLine` buffers can
+/// contain embedded `NUL` units (commonly between argv elements for
+/// COM-launched services such as `WmiPrvSE.exe`). Those characters are
+/// zero-width on terminals and would corrupt downstream display alignment,
+/// regex matching, sort order, and the detail panel; `ESC` would also
+/// trample our own ANSI rendering. Replace them all defensively before the
+/// rest of the program ever sees them.
+fn sanitize_command_line(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    cleaned.trim().to_string()
 }
 
 fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
@@ -662,6 +681,72 @@ mod tests {
         assert_eq!(
             command_line_utf16_units(8, 10, 0),
             Err(CmdlineReadError::InvalidUnicodeString)
+        );
+    }
+
+    #[test]
+    fn sanitize_command_line_replaces_nul_with_space() {
+        assert_eq!(
+            sanitize_command_line("wmiprvse.exe\0-secured\0-Embedding"),
+            "wmiprvse.exe -secured -Embedding"
+        );
+    }
+
+    #[test]
+    fn sanitize_command_line_replaces_other_c0_controls() {
+        // ESC, BEL, SOH, US — would otherwise corrupt ANSI rendering or alignment.
+        assert_eq!(sanitize_command_line("a\x01b\x07c\x1bd\x1fe"), "a b c d e");
+    }
+
+    #[test]
+    fn sanitize_command_line_replaces_tab_cr_lf() {
+        assert_eq!(sanitize_command_line("a\tb\rc\nd"), "a b c d");
+    }
+
+    #[test]
+    fn sanitize_command_line_replaces_del() {
+        assert_eq!(sanitize_command_line("a\x7fb"), "a b");
+    }
+
+    #[test]
+    fn sanitize_command_line_trims_ends() {
+        assert_eq!(
+            sanitize_command_line("\0\0  cmd.exe -arg  \0\0"),
+            "cmd.exe -arg"
+        );
+    }
+
+    #[test]
+    fn sanitize_command_line_leaves_normal_ascii_unchanged() {
+        let s = "C:\\Program Files\\app.exe --flag value";
+        assert_eq!(sanitize_command_line(s), s);
+    }
+
+    #[test]
+    fn sanitize_command_line_preserves_unicode_text() {
+        let s = "C:\\項目\\app.exe --名前 値";
+        assert_eq!(sanitize_command_line(s), s);
+    }
+
+    #[test]
+    fn sanitize_command_line_does_not_collapse_runs_of_spaces() {
+        // Two NULs become two spaces; intentional spacing is preserved.
+        assert_eq!(sanitize_command_line("a\0\0b"), "a  b");
+    }
+
+    #[test]
+    fn sanitize_command_line_output_is_control_char_free() {
+        // The renderer relies on `proc.cmd` being free of control characters
+        // (NUL/ESC/CR/LF/TAB/DEL/C1) so that `format!("{:<W$}", cmd)` pads to
+        // the same number of terminal columns it pads bytes — the original
+        // alignment bug was caused by NULs being zero-width on terminals
+        // while consuming a slot in the format-width budget. This is the
+        // contract test for that prerequisite.
+        let raw = "exe\0arg1\x01\x07\x1b\x1ftab\there\rcr\nlf\x7fdel\u{0085}c1";
+        let cleaned = sanitize_command_line(raw);
+        assert!(
+            cleaned.chars().all(|c| !c.is_control()),
+            "sanitized command line still contains control chars: {cleaned:?}"
         );
     }
 
