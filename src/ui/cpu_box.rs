@@ -6,7 +6,7 @@ use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphMode};
 use crate::draw::meter::Meter;
-use crate::theme::Theme;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
@@ -498,11 +498,12 @@ fn draw_core_panel(
 
     // Row: CPU utilization meter (always shown)
     if let Some(&pct) = cpu.cpu_percent.total.back() {
+        let pct = pct.clamp(0, 100) as i32;
         buf.mv(content_x, panel.y + 1 + row)
             .color(title_color)
             .text("CPU   ")
-            .text(cpu_meter.render(pct.clamp(0, 100) as i32))
-            .color(fg)
+            .text(cpu_meter.render(pct))
+            .color(gradient_color(cpu_gradient, pct))
             .text(&tools::rjust(&format!("{}%", pct), STATS_VAL_W, true));
         row += 1;
     }
@@ -512,13 +513,14 @@ fn draw_core_panel(
         && let Some(pkg_data) = cpu.temp.first()
     {
         let pkg_temp = pkg_data.back().copied().unwrap_or(0);
+        let temp_pct = pkg_temp.clamp(0, 100) as i32;
         let temp_meter = Meter::new(meter_w, temp_gradient, meter_bg);
         let (conv_temp, temp_unit) = crate::tools::celsius_to(pkg_temp, params.temp_scale);
         buf.mv(content_x, panel.y + 1 + row)
             .color(title_color)
             .text("Temp  ")
-            .text(temp_meter.render(pkg_temp.clamp(0, 100) as i32))
-            .color(fg)
+            .text(temp_meter.render(temp_pct))
+            .color(gradient_color(temp_gradient, temp_pct))
             .text(&tools::rjust(
                 &format!("{}{}", conv_temp, temp_unit),
                 STATS_VAL_W,
@@ -543,11 +545,12 @@ fn draw_core_panel(
             s.push_str(title_color);
             s.push_str("Watts ");
             s.push_str(watts_meter.render(pct));
-            s.push_str(fg);
+            s.push_str(gradient_color(cpu_gradient, pct));
             s.push_str(&tools::rjust(&val, STATS_VAL_W, true));
             s
         } else {
-            // No max — show value only, no meter bar
+            // No max — show value only, no meter bar; value stays fg per the
+            // "gradient only when a meter exists" rule.
             let val = format!("{:.1} W", watts);
             let mut s = String::new();
             s.push_str(title_color);
@@ -573,7 +576,7 @@ fn draw_core_panel(
             .color(title_color)
             .text("Load  ")
             .text(load_meter.render(load_pct))
-            .color(fg)
+            .color(gradient_color(cpu_gradient, load_pct))
             .text(&tools::rjust(&load_val, STATS_VAL_W, true));
         row += 1;
     }
@@ -665,11 +668,7 @@ fn draw_core_panel(
         }
 
         let pct = core_data.back().copied().unwrap_or(0);
-        let pct_color = if !cpu_gradient.is_empty() {
-            &cpu_gradient[pct.clamp(0, 100) as usize]
-        } else {
-            fg
-        };
+        let pct_color = gradient_color(cpu_gradient, pct.clamp(0, 100) as i32);
 
         let label = grid.format_label(i);
         buf.mv(row_x, row_y).color(fg).text(&label);
@@ -695,11 +694,7 @@ fn draw_core_panel(
                 .and_then(|dq| dq.back())
                 .copied()
                 .unwrap_or(0);
-            let t_color = if !temp_gradient.is_empty() {
-                &temp_gradient[(core_temp.clamp(0, 100)) as usize]
-            } else {
-                fg
-            };
+            let t_color = gradient_color(temp_gradient, core_temp.clamp(0, 100) as i32);
             let (conv_temp, temp_unit) = crate::tools::celsius_to(core_temp, params.temp_scale);
             buf.color(t_color)
                 .text(&format!("{:>4}{}", conv_temp, temp_unit));
@@ -950,6 +945,71 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(plain.contains("0.84"), "should contain 1-min load: {plain}");
         assert!(plain.contains("0.38"), "should contain 5-min load: {plain}");
+    }
+
+    #[test]
+    fn stats_panel_cpu_value_uses_cpu_upper_gradient() {
+        // Defends Option A. Pre-fix the CPU/Temp/Watts/Load values in the
+        // stats panel rendered MAIN_FG even though their meters used
+        // GRAD_CPU_UPPER / GRAD_TEMP. The same widget's per-core grid
+        // already coloured by gradient, so the widget disagreed with itself.
+        let theme = Theme::default();
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let cpu_grad = theme.gradient(tc::GRAD_CPU_UPPER);
+        // CPU total = 50 → CPU value cell is rjust("50%", 10) = "       50%"
+        // immediately preceded by GRAD_CPU_UPPER[50].
+        let expected = format!("{}{}", cpu_grad[50], "       50%");
+        assert!(
+            output.contains(&expected),
+            "CPU stats value should be GRAD_CPU_UPPER[50] followed by '       50%'"
+        );
+        // Load = 0.84 → load_pct = 84.
+        let expected_load = format!("{}{}", cpu_grad[84], "      0.84");
+        assert!(
+            output.contains(&expected_load),
+            "Load stats value should be GRAD_CPU_UPPER[84] followed by '      0.84'"
+        );
+    }
+
+    #[test]
+    fn stats_panel_watts_without_max_stays_main_fg() {
+        // Explicit exception: when cpu_max_watts is None there is no meter
+        // (the meter slot is filled with blanks for alignment), so the value
+        // text stays MAIN_FG, not coloured by any gradient. This guards the
+        // exception against future refactors.
+        let theme = Theme::default();
+        let mut settings = make_settings();
+        settings.show_cpu_watts = true;
+        settings.cpu_watts = Some(42.5);
+        settings.cpu_max_watts = None;
+        let output = draw(
+            &make_cpu_info(),
+            &make_area(),
+            &theme,
+            &settings,
+            &CollectStatus::Ok,
+        );
+        let fg = theme.color(tc::MAIN_FG);
+        let cpu_grad = theme.gradient(tc::GRAD_CPU_UPPER);
+        // Watts value '42.5 W' rjust'd to 10 = '    42.5 W'.
+        let expected = format!("{}{}", fg, "    42.5 W");
+        assert!(
+            output.contains(&expected),
+            "Watts-no-max value should be MAIN_FG followed by '    42.5 W'"
+        );
+        // And it must NOT be preceded by a CPU_UPPER gradient escape.
+        for grad_escape in cpu_grad {
+            assert!(
+                !output.contains(&format!("{}{}", grad_escape, "    42.5 W")),
+                "Watts-no-max value must not be coloured by GRAD_CPU_UPPER"
+            );
+        }
     }
 
     #[test]

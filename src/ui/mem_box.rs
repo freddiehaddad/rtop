@@ -3,7 +3,7 @@ use crate::domain::memory::MemInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::theme::Theme;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
@@ -40,7 +40,6 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::MEM_BOX);
-    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let used_grad = theme.gradient(tc::GRAD_USED);
@@ -110,7 +109,7 @@ pub fn draw(
     // Used
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
-    let used_color = gradient_color(used_grad, used_pct as i64);
+    let used_color = gradient_color(used_grad, used_pct);
     let used_str = tools::floating_humanizer(used, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
@@ -129,7 +128,7 @@ pub fn draw(
     // Available
     let avail = mem.stats.available;
     let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
-    let avail_color = gradient_color(avail_grad, avail_pct as i64);
+    let avail_color = gradient_color(avail_grad, avail_pct);
     let avail_str = tools::floating_humanizer(avail, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
@@ -149,7 +148,7 @@ pub fn draw(
     let cached = mem.stats.cached;
     if cached > 0 && row < inner_h {
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
-        let cache_color = gradient_color(cached_grad, cached_pct as i64);
+        let cache_color = gradient_color(cached_grad, cached_pct);
         let cached_str = tools::floating_humanizer(cached, true, 0, false, false, settings.base_10);
         render_row(
             &mut buf,
@@ -167,7 +166,7 @@ pub fn draw(
     // Free
     let free = mem.stats.free;
     let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
-    let free_color = gradient_color(free_grad, free_pct as i64);
+    let free_color = gradient_color(free_grad, free_pct);
     let free_str = tools::floating_humanizer(free, true, 0, false, false, settings.base_10);
     if row < inner_h {
         render_row(
@@ -192,6 +191,7 @@ pub fn draw(
         } else {
             0
         };
+        let swap_color = gradient_color(used_grad, swap_pct);
         let swap_str =
             tools::floating_humanizer(swap_used, true, 0, false, false, settings.base_10);
         if row < inner_h {
@@ -201,7 +201,7 @@ pub fn draw(
                 used_meter.render(swap_pct),
                 &swap_str,
                 title_color,
-                fg,
+                swap_color,
                 content_x,
                 y + 2 + row,
             );
@@ -209,13 +209,6 @@ pub fn draw(
     }
 
     buf.finish()
-}
-
-fn gradient_color(gradient: &[String], pct: i64) -> &str {
-    if gradient.is_empty() {
-        return "";
-    }
-    &gradient[pct.clamp(0, 100) as usize]
 }
 
 #[cfg(test)]
@@ -336,6 +329,33 @@ mod tests {
         assert!(
             !plain.contains("Swap"),
             "output should not contain 'Swap' when show_swap=false"
+        );
+    }
+
+    #[test]
+    fn swap_value_is_colored_by_used_gradient() {
+        // Defends Option A: every value with a meter takes the meter's
+        // gradient at the value's pct. Swap meter uses GRAD_USED, so swap
+        // value must too. Pre-fix the swap value used MAIN_FG while the four
+        // rows above used their gradients — the only inconsistency in mem.
+        let theme = Theme::default();
+        // 1 GiB used / 4 GiB total = 25 %.
+        let info = make_mem_info();
+        let output = draw(
+            &info,
+            &make_area(),
+            &theme,
+            &MemBoxSettings {
+                show_swap: true,
+                base_10: false,
+            },
+            &CollectStatus::Ok,
+        );
+        let used_grad = theme.gradient(tc::GRAD_USED);
+        let expected = format!("{}{}", used_grad[25], " 1.0G");
+        assert!(
+            output.contains(&expected),
+            "swap value cell should be GRAD_USED[25] immediately followed by ' 1.0G'; got:\n{output}"
         );
     }
 }

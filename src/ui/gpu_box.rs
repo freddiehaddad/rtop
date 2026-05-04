@@ -4,7 +4,7 @@ use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::theme::Theme;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
@@ -55,7 +55,6 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::GPU_BOX);
-    let fg = theme.color(tc::MAIN_FG);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
     let meter_bg = theme.color(tc::METER_BG);
@@ -126,7 +125,7 @@ pub fn draw(
             .color(title_color)
             .text("GPU   ")
             .text(gpu_meter.render(gpu_pct))
-            .color(fg)
+            .color(gradient_color(grad_gpu, gpu_pct))
             .text(&tools::rjust(&format!("{}%", gpu_pct), val_w, true));
         row += 1;
     }
@@ -144,7 +143,7 @@ pub fn draw(
             .color(title_color)
             .text("Clock ")
             .text(clock_meter.render(clock_pct))
-            .color(fg)
+            .color(gradient_color(grad_clock, clock_pct))
             .text(&tools::rjust(&fmt_clock(clock), val_w, true));
         row += 1;
     }
@@ -158,7 +157,7 @@ pub fn draw(
             .color(title_color)
             .text("Temp  ")
             .text(temp_meter.render(temp_pct))
-            .color(fg)
+            .color(gradient_color(grad_temp, temp_pct))
             .text(&tools::rjust(
                 &format!("{}{}", conv_temp, temp_unit),
                 val_w,
@@ -180,7 +179,7 @@ pub fn draw(
             .color(title_color)
             .text("Watts ")
             .text(power_meter.render(pwr_pct))
-            .color(fg)
+            .color(gradient_color(grad_power, pwr_pct))
             .text(&tools::rjust(
                 &format!("{:.0}W/{:.0}W", pwr_w, pwr_max_w),
                 val_w,
@@ -198,7 +197,7 @@ pub fn draw(
             .color(title_color)
             .text("VRAM  ")
             .text(vram_meter.render(vram_pct))
-            .color(fg)
+            .color(gradient_color(grad_vram, vram_pct))
             .text(&tools::rjust(
                 &format!("{}/{}", vram_used, vram_total),
                 val_w,
@@ -374,5 +373,56 @@ mod tests {
         assert_eq!(fmt_clock(3000), "3.0GHz");
         assert_eq!(fmt_clock(800), "800MHz");
         assert_eq!(fmt_clock(0), "0MHz");
+    }
+
+    #[test]
+    fn each_value_cell_uses_its_meter_gradient() {
+        // Defends Option A: every value with a meter takes that meter's
+        // gradient at the value's pct. Pre-fix every GPU value rendered in
+        // MAIN_FG even though five distinct gradients existed for the meters.
+        let theme = Theme::default();
+        let info = make_gpu_info();
+        let output = draw(
+            &info,
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+
+        // GPU row: util = 78 % → GRAD_GPU[78] then "   78%".
+        let grad_gpu = theme.gradient(tc::GRAD_GPU);
+        assert!(
+            output.contains(&format!("{}{:>10}", grad_gpu[78], "78%")),
+            "GPU value should be GRAD_GPU[78] adjacent to right-justified value"
+        );
+
+        // Clock row: 2520 / 3000 = 84 %.
+        let grad_clock = theme.gradient(tc::GRAD_GPU_CLOCK);
+        assert!(
+            output.contains(&format!("{}{:>10}", grad_clock[84], "2.5GHz")),
+            "Clock value should be GRAD_GPU_CLOCK[84] adjacent to '2.5GHz'"
+        );
+
+        // Temp row: 65 → GRAD_TEMP[65].
+        let grad_temp = theme.gradient(tc::GRAD_TEMP);
+        assert!(
+            output.contains(&format!("{}{:>10}", grad_temp[65], "65°C")),
+            "Temp value should be GRAD_TEMP[65] adjacent to '65°C'"
+        );
+
+        // Watts row: 320000 / 450000 = 71 %, value '320W/450W'.
+        let grad_power = theme.gradient(tc::GRAD_GPU_POWER);
+        assert!(
+            output.contains(&format!("{}{:>10}", grad_power[71], "320W/450W")),
+            "Watts value should be GRAD_GPU_POWER[71] adjacent to '320W/450W'"
+        );
+
+        // VRAM row: 42 % from utilization slot.
+        let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
+        assert!(
+            output.contains(&grad_vram[42]),
+            "VRAM value should be colored by GRAD_GPU_VRAM[42]"
+        );
     }
 }

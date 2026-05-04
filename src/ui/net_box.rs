@@ -3,7 +3,7 @@ use crate::domain::network::NetInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphMode};
-use crate::theme::Theme;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
@@ -64,7 +64,6 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::NET_BOX);
-    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let dl_grad = theme.gradient(tc::GRAD_DOWNLOAD);
     let ul_grad = theme.gradient(tc::GRAD_UPLOAD);
@@ -171,16 +170,12 @@ pub fn draw(
     // Top speed label overlaid at top-right
     {
         let speed = tools::floating_humanizer(top_stat.speed, true, 0, false, true, base_10);
-        let top_color = if !top_grad.is_empty() {
-            let idx = if top_stat.top > 0 {
-                (top_stat.speed * 100 / top_stat.top.max(1)) as usize
-            } else {
-                0
-            };
-            &top_grad[idx.min(100)]
+        let pct = if top_stat.top > 0 {
+            ((top_stat.speed * 100) / top_stat.top.max(1)).min(100) as i32
         } else {
-            fg
+            0
         };
+        let top_color = gradient_color(top_grad, pct);
         let label = format!("{} {}", speed, top_arrow);
         let label_vis = tools::ulen(&label, false);
         let lx = x + width.saturating_sub(label_vis + 1);
@@ -202,16 +197,12 @@ pub fn draw(
     // Bottom speed label overlaid at bottom-right
     {
         let speed = tools::floating_humanizer(bot_stat.speed, true, 0, false, true, base_10);
-        let bot_color = if !bot_grad.is_empty() {
-            let idx = if bot_stat.top > 0 {
-                (bot_stat.speed * 100 / bot_stat.top.max(1)) as usize
-            } else {
-                0
-            };
-            &bot_grad[idx.min(100)]
+        let pct = if bot_stat.top > 0 {
+            ((bot_stat.speed * 100) / bot_stat.top.max(1)).min(100) as i32
         } else {
-            fg
+            0
         };
+        let bot_color = gradient_color(bot_grad, pct);
         let label = format!("{} {}", speed, bot_arrow);
         let label_vis = tools::ulen(&label, false);
         let lx = x + width.saturating_sub(label_vis + 1);

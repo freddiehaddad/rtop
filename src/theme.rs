@@ -437,6 +437,16 @@ fn interpolate(start: u8, end: u8, step: usize, total: usize) -> u8 {
     (s + (step as i32) * (e - s) / (total as i32)).clamp(0, 255) as u8
 }
 
+/// Look up the ANSI color escape from a 101-element gradient at the given
+/// percentage. `pct` is clamped to `0..=100` before indexing.
+///
+/// `Theme::gradient` is documented to return a 101-element slice and
+/// `generate_gradient` always emits 101 elements, so this never panics on
+/// any gradient produced by the theme system.
+pub fn gradient_color(gradient: &[String], pct: i32) -> &str {
+    &gradient[pct.clamp(0, 100) as usize]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -525,6 +535,27 @@ mod tests {
         let styled = theme.style_output("left\x1b[0mright", true);
         assert!(styled.starts_with(&base));
         assert!(styled.contains(&format!("\x1b[0m{base}right")));
+    }
+
+    // --- gradient_color helper ---
+
+    #[test]
+    fn gradient_color_returns_indexed_escape() {
+        let theme = Theme::new();
+        let grad = theme.gradient(tc::GRAD_CPU_UPPER);
+        assert_eq!(gradient_color(grad, 0), grad[0].as_str());
+        assert_eq!(gradient_color(grad, 50), grad[50].as_str());
+        assert_eq!(gradient_color(grad, 100), grad[100].as_str());
+    }
+
+    #[test]
+    fn gradient_color_clamps_out_of_range_pct() {
+        let theme = Theme::new();
+        let grad = theme.gradient(tc::GRAD_CPU_UPPER);
+        assert_eq!(gradient_color(grad, -1), grad[0].as_str());
+        assert_eq!(gradient_color(grad, -1000), grad[0].as_str());
+        assert_eq!(gradient_color(grad, 101), grad[100].as_str());
+        assert_eq!(gradient_color(grad, i32::MAX), grad[100].as_str());
     }
 
     #[test]

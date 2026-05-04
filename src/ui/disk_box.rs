@@ -4,7 +4,7 @@ use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphMode};
 use crate::draw::meter::Meter;
-use crate::theme::Theme;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
@@ -57,7 +57,6 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let box_color = theme.color(tc::DISK_BOX);
-    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
@@ -151,11 +150,14 @@ pub fn draw(
                 let mut graph = Graph::new(graph_w, 1, settings.graph_symbol, false, max, 0);
                 let graph_row = graph.render_row(&combined, read_grad);
 
+                let combined_speed = disk.read_bytes_per_sec + disk.write_bytes_per_sec;
+                let combined_pct =
+                    ((combined_speed as i64).saturating_mul(100) / max).min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
                     .color(title_color)
                     .text(&label)
                     .text(&graph_row)
-                    .color(fg)
+                    .color(gradient_color(read_grad, combined_pct))
                     .text(&tools::rjust(&value, IO_COMBINED_VAL_W, false));
                 row += 1;
             } else {
@@ -181,11 +183,13 @@ pub fn draw(
                 let mut rg = Graph::new(graph_w, 1, settings.graph_symbol, false, read_max, 0);
                 let rg_row = rg.render_row(&disk.read_history, read_grad);
 
+                let read_pct = ((disk.read_bytes_per_sec as i64).saturating_mul(100) / read_max)
+                    .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
                     .color(title_color)
                     .text(&label_r)
                     .text(&rg_row)
-                    .color(fg)
+                    .color(gradient_color(read_grad, read_pct))
                     .text(&tools::rjust(&speed_r, IO_VAL_W, false));
                 row += 1;
 
@@ -209,11 +213,13 @@ pub fn draw(
                 let mut wg = Graph::new(graph_w, 1, settings.graph_symbol, false, write_max, 0);
                 let wg_row = wg.render_row(&disk.write_history, write_grad);
 
+                let write_pct = ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_max)
+                    .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
                     .color(title_color)
                     .text(&label_w)
                     .text(&wg_row)
-                    .color(fg)
+                    .color(gradient_color(write_grad, write_pct))
                     .text(&tools::rjust(&speed_w, IO_VAL_W, false));
                 row += 1;
             }
@@ -239,7 +245,7 @@ pub fn draw(
                 .color(title_color)
                 .text(&label)
                 .text(disk_meter.render(disk.used_percent))
-                .color(fg)
+                .color(gradient_color(avail_grad, disk.used_percent))
                 .text(&tools::rjust(&value, USAGE_VAL_W, false));
             row += 1;
 
@@ -287,7 +293,6 @@ fn draw_perf_row(
     }
 
     let base_10 = params.settings.base_10;
-    let fg = params.theme.color(tc::MAIN_FG);
     let title_color = params.theme.color(tc::TITLE);
     let read_speed =
         tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, base_10);
@@ -307,11 +312,17 @@ fn draw_perf_row(
     let read_graph_w = graph_total / 2;
     let write_graph_w = graph_total.saturating_sub(read_graph_w);
 
+    let read_graph_max =
+        visible_graph_max(&disk.read_history, read_graph_w, disk.read_bytes_per_sec);
+    let read_pct =
+        ((disk.read_bytes_per_sec as i64).saturating_mul(100) / read_graph_max).min(100) as i32;
+    let read_color = gradient_color(params.read_grad, read_pct);
+
     let mut col = x;
     buf.mv(col, y)
         .color(title_color)
         .text("R")
-        .color(fg)
+        .color(read_color)
         .text(&format!(" {read_speed}"));
     col += read_w;
 
@@ -323,7 +334,7 @@ fn draw_perf_row(
             1,
             params.settings.graph_symbol,
             false,
-            visible_graph_max(&disk.read_history, read_graph_w, disk.read_bytes_per_sec),
+            read_graph_max,
             0,
         );
         let graph_row = graph.render_row(&disk.read_history, params.read_grad);
@@ -335,13 +346,33 @@ fn draw_perf_row(
         buf.text(" ");
         col += 1;
     }
-    buf.color(title_color)
-        .text("W")
-        .color(fg)
-        .text(&format!(" {write_speed}"));
-    col += write_w;
 
     let available_write_graph_w = write_graph_w.min(busy_x.saturating_sub(col + 1));
+    let write_graph_max = if available_write_graph_w > 0 {
+        visible_graph_max(
+            &disk.write_history,
+            available_write_graph_w,
+            disk.write_bytes_per_sec,
+        )
+    } else {
+        // No room for the graph — still need a sane denominator for value
+        // coloring. Match the "lifetime peak when no window" idiom by using
+        // the visible-window max over the full history.
+        visible_graph_max(
+            &disk.write_history,
+            disk.write_history.len().max(1),
+            disk.write_bytes_per_sec,
+        )
+    };
+    let write_pct =
+        ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_graph_max).min(100) as i32;
+    let write_color = gradient_color(params.write_grad, write_pct);
+
+    buf.color(title_color)
+        .text("W")
+        .color(write_color)
+        .text(&format!(" {write_speed}"));
+
     if available_write_graph_w > 0 {
         buf.text(" ");
         let mut graph = Graph::new(
@@ -349,22 +380,14 @@ fn draw_perf_row(
             1,
             params.settings.graph_symbol,
             false,
-            visible_graph_max(
-                &disk.write_history,
-                available_write_graph_w,
-                disk.write_bytes_per_sec,
-            ),
+            write_graph_max,
             0,
         );
         let graph_row = graph.render_row(&disk.write_history, params.write_grad);
         buf.text(&graph_row);
     }
 
-    let busy_color = if !params.busy_grad.is_empty() {
-        &params.busy_grad[busy as usize]
-    } else {
-        fg
-    };
+    let busy_color = gradient_color(params.busy_grad, busy);
     buf.mv(busy_x, y)
         .color(title_color)
         .text("B")
@@ -528,6 +551,115 @@ mod tests {
         assert!(
             plain.contains("B") && plain.contains("12%"),
             "output should contain busy label"
+        );
+    }
+
+    #[test]
+    fn normal_mode_usage_value_uses_avail_gradient() {
+        // Defends Option A: the usage value cell takes the meter's gradient
+        // (avail_grad) at used_percent. Pre-fix it was MAIN_FG while the
+        // meter rendered in colour.
+        let theme = Theme::default();
+        let area = BoxArea {
+            x: 1,
+            y: 1,
+            width: 40,
+            height: 12,
+            rounded: true,
+        };
+        let output = draw(
+            &make_disk_data(),
+            &area,
+            &theme,
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
+        // C: used_percent = 50 → "250G/500G" rjust(10) = " 250G/500G"
+        let expected_c = format!("{}{}", avail_grad[50], " 250G/500G");
+        assert!(
+            output.contains(&expected_c),
+            "C: usage value should be GRAD_AVAILABLE[50] adjacent to ' 250G/500G'"
+        );
+        // D: used_percent = 30 → "300G/1000G" (10 chars, no leading space)
+        let expected_d = format!("{}{}", avail_grad[30], "300G/1000G");
+        assert!(
+            output.contains(&expected_d),
+            "D: usage value should be GRAD_AVAILABLE[30] adjacent to '300G/1000G'"
+        );
+    }
+
+    #[test]
+    fn perf_row_speeds_and_busy_use_their_gradients() {
+        // Defends Option A: R/W speeds are coloured by their gradients at
+        // pct of the row's graph max (visible_graph_max), not lifetime
+        // peaks. Busy was already gradient. Pre-fix only busy was coloured.
+        let theme = Theme::default();
+        let output = draw(
+            &make_disk_data(),
+            &make_area(),
+            &theme,
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let read_grad = theme.gradient(tc::GRAD_DISK_READ);
+        let write_grad = theme.gradient(tc::GRAD_DISK_WRITE);
+        let busy_grad = theme.gradient(tc::GRAD_DISK_BUSY);
+
+        // read_history is tiny ints; current = 42 MB/s dwarfs them; so
+        // visible_graph_max = current → pct = 100. Expected: " 42M/s".
+        let expected_r = format!("{}{}", read_grad[100], " 42M/s");
+        assert!(
+            output.contains(&expected_r),
+            "perf-row R speed should be GRAD_DISK_READ[100] adjacent to ' 42M/s'"
+        );
+
+        // Same logic for W — current 8 MB/s dominates the history window.
+        let expected_w = format!("{}{}", write_grad[100], " 8.0M/s");
+        assert!(
+            output.contains(&expected_w),
+            "perf-row W speed should be GRAD_DISK_WRITE[100] adjacent to ' 8.0M/s'"
+        );
+
+        // Busy: 12 % → format!("{:>5}", "12%") = "  12%".
+        let expected_b = format!("{}{}", busy_grad[12], "  12%");
+        assert!(
+            output.contains(&expected_b),
+            "busy value should be GRAD_DISK_BUSY[12] adjacent to '  12%'"
+        );
+    }
+
+    #[test]
+    fn io_combined_value_uses_read_gradient() {
+        // The combined IO row renders one graph (using read_grad) and one
+        // value cell. The value takes read_grad at the combined pct
+        // (against the same max the graph row uses).
+        let theme = Theme::default();
+        let area = BoxArea {
+            x: 1,
+            y: 1,
+            width: 60,
+            height: 8,
+            rounded: true,
+        };
+        let s = DiskBoxSettings {
+            graph_symbol: GraphMode::Braille,
+            base_10: false,
+            show_io_stat: false,
+            io_mode: true,
+            disk_io_mode: false,
+            io_graph_combined: true,
+        };
+        let output = draw(&make_disk_data(), &area, &theme, &s, &CollectStatus::Ok);
+        let read_grad = theme.gradient(tc::GRAD_DISK_READ);
+        // C: r = 42 MB/s, w = 8 MB/s → combined 50 MB/s, max from current
+        // ≥ history window → pct = 100. Combined value text: "R42M/s W8.0M/s".
+        let expected = format!("{}{}", read_grad[100], "R42M/s W8.0M/s");
+        // combined value is rjust to IO_COMBINED_VAL_W = 19 → 5 leading spaces.
+        let expected_padded = format!("{}     {}", read_grad[100], "R42M/s W8.0M/s");
+        assert!(
+            output.contains(&expected) || output.contains(&expected_padded),
+            "combined IO value should be GRAD_DISK_READ[100] adjacent to 'R42M/s W8.0M/s' (with leading rjust padding)"
         );
     }
 }
