@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 20;
+pub const COLOR_COUNT: usize = 19;
 pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
@@ -275,26 +275,25 @@ impl Theme {
 
         // Extract colors in index order matching ColorKey constants.
         let rgb_opts: [Option<Rgb>; COLOR_COUNT] = [
-            c.main_bg,              // 0
-            Some(c.main_fg),        // 1
-            Some(c.title),          // 2
-            Some(c.hi_fg),          // 3
-            Some(c.selected_bg),    // 4
-            Some(c.selected_fg),    // 5
-            Some(c.graph_text),     // 6
-            Some(c.meter_bg),       // 7
-            Some(c.proc_tree_fg),   // 8
-            Some(c.cpu_box),        // 9
-            Some(c.mem_box),        // 10
-            Some(c.net_box),        // 11
-            Some(c.proc_box),       // 12
-            Some(c.gpu_box),        // 13
-            Some(c.disk_box),       // 14
-            Some(c.help_box),       // 15
-            Some(c.options_box),    // 16
-            Some(c.proc_follow_bg), // 17
-            Some(c.followed_bg),    // 18
-            Some(c.followed_fg),    // 19
+            c.main_bg,            // 0
+            Some(c.main_fg),      // 1
+            Some(c.title),        // 2
+            Some(c.hi_fg),        // 3
+            Some(c.selected_bg),  // 4
+            Some(c.selected_fg),  // 5
+            Some(c.graph_text),   // 6
+            Some(c.meter_bg),     // 7
+            Some(c.proc_tree_fg), // 8
+            Some(c.cpu_box),      // 9
+            Some(c.mem_box),      // 10
+            Some(c.net_box),      // 11
+            Some(c.proc_box),     // 12
+            Some(c.gpu_box),      // 13
+            Some(c.disk_box),     // 14
+            Some(c.help_box),     // 15
+            Some(c.options_box),  // 16
+            Some(c.followed_bg),  // 17
+            Some(c.followed_fg),  // 18
         ];
 
         let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| match rgb_opts[i] {

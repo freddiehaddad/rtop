@@ -18,7 +18,6 @@ disk_box = "#5e7a5e"
 help_box = "#4a7a99"
 options_box = "#997a4a"
 proc_tree_fg = "#505050"
-proc_follow_bg = "#4040b5"
 
 [gradients.cpu_upper]
 start = "#77ca9b"
@@ -104,4 +103,5 @@ end = "#ff40b6"
 start = "#80d0a3"
 mid = "#dcd179"
 end = "#d45454"
+
 

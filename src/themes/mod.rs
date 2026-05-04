@@ -90,7 +90,6 @@ pub struct PaletteColors {
     pub disk_box: Rgb,
     pub help_box: Rgb,
     pub options_box: Rgb,
-    pub proc_follow_bg: Rgb,
     pub followed_bg: Rgb,
     pub followed_fg: Rgb,
 }
@@ -174,7 +173,6 @@ disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
 proc_tree_fg = "#44475a"
-proc_follow_bg = "#bd93f9"
 
 [gradients.cpu_upper]
 start = "#bd93f9"
@@ -290,7 +288,6 @@ disk_box = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
 proc_tree_fg = "#44475a"
-proc_follow_bg = "#bd93f9"
 
 [gradients.cpu_upper]
 start = "#000000"

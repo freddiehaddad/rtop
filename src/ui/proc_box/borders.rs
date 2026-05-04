@@ -110,8 +110,15 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
 
     // Following label (hidden when armed — prompt replaces entire line)
     if p.armed_name.is_empty() && p.followed_pid > 0 {
-        let follow_bg = theme.color(tc::PROC_FOLLOW_BG);
-        let follow_text = format!("{}following", follow_bg);
+        // Render "following" as a chip whose colors match the followed row
+        // in the list (FOLLOWED_BG background, FOLLOWED_FG foreground), so
+        // the eye links the inset and the row. The trailing reset is
+        // mandatory: buf.mv() (used by subsequent inset placement) only
+        // repositions the cursor and does not clear SGR state, so without
+        // a reset the chip's bg would bleed into the count "N/M" inset.
+        let follow_bg = theme.background(tc::FOLLOWED_BG);
+        let follow_fg = theme.color(tc::FOLLOWED_FG);
+        let follow_text = format!("{follow_bg}{follow_fg}following{}", term::RESET);
         let follow_inset = box_drawing::title_inset(&follow_text, box_color, title_color, true);
         buf.text(&follow_inset);
     }

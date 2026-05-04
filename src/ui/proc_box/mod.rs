@@ -776,4 +776,71 @@ mod tests {
             "process count '3/3' inset should be preceded by TITLE"
         );
     }
+
+    #[test]
+    fn following_inset_renders_as_chip_matching_followed_row() {
+        // When following a process, the bottom-border "following" inset is
+        // rendered as a colored chip whose background matches FOLLOWED_BG
+        // and whose text matches FOLLOWED_FG — same color identity as the
+        // followed row in the list. The chip ends with a hard ANSI reset
+        // so the bg does not bleed into the count "N/M" inset rendered to
+        // the right.
+        let theme = Theme::default();
+        let mut view = make_view();
+        view.followed_pid = 100;
+        let output = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &view,
+            &CollectStatus::Ok,
+        );
+        let bg = theme.background(tc::FOLLOWED_BG);
+        let fg = theme.color(tc::FOLLOWED_FG);
+        let expected = format!("{bg}{fg}following\x1b[0m");
+        assert!(
+            output.contains(&expected),
+            "following inset should be FOLLOWED_BG bg + FOLLOWED_FG fg + 'following' + reset"
+        );
+    }
+
+    #[test]
+    fn following_chip_does_not_break_count_inset_in_narrow_box() {
+        // Regression guard against chip width math drifting: with a narrow
+        // proc box and a large process count, both the chip and the right-
+        // aligned count must still render and not collide.
+        let theme = Theme::default();
+        let area = BoxArea {
+            x: 1,
+            y: 1,
+            width: 60,
+            height: 8,
+            rounded: true,
+        };
+        let procs = make_numbered_procs(50);
+        let entries = make_entries_for(&procs);
+        let mut view = make_view();
+        view.followed_pid = 100;
+        let output = draw(
+            &procs,
+            &entries,
+            &area,
+            &theme,
+            &make_settings(),
+            &view,
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("following"),
+            "narrow box should still render the following chip"
+        );
+        // 4-row content area (height 8 - 4 overhead) shows 4 of 50 procs.
+        assert!(
+            plain.contains("4/50"),
+            "narrow box should still render the count '4/50'"
+        );
+    }
 }

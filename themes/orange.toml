@@ -18,7 +18,6 @@ disk_box = "#ffa500"
 help_box = "#ffa500"
 options_box = "#ffa500"
 proc_tree_fg = "#4d3200"
-proc_follow_bg = "#ffa500"
 
 [gradients.cpu_upper]
 start = "#996300"
@@ -104,4 +103,5 @@ end = "#ffa500"
 start = "#996300"
 mid = "#cc8400"
 end = "#ffa500"
+
 

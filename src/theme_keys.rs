@@ -48,9 +48,8 @@ pub const GPU_BOX: ColorKey = ColorKey(13);
 pub const DISK_BOX: ColorKey = ColorKey(14);
 pub const HELP_BOX: ColorKey = ColorKey(15);
 pub const OPTIONS_BOX: ColorKey = ColorKey(16);
-pub const PROC_FOLLOW_BG: ColorKey = ColorKey(17);
-pub const FOLLOWED_BG: ColorKey = ColorKey(18);
-pub const FOLLOWED_FG: ColorKey = ColorKey(19);
+pub const FOLLOWED_BG: ColorKey = ColorKey(17);
+pub const FOLLOWED_FG: ColorKey = ColorKey(18);
 
 // Gradient keys for `Theme::gradient()` lookups.
 // Grouped by widget: CPU, memory, network, GPU, disk, other.
