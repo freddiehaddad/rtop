@@ -15,7 +15,7 @@
 //! private `OnceLock` because the `tracing` global subscriber
 //! is itself process-wide.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use thiserror::Error;
 use tracing_appender::rolling;
@@ -65,6 +65,13 @@ pub enum InitError {
     PrepareLogDir(#[from] std::io::Error),
 }
 
+/// Errors returned by [`set_level`].
+#[derive(Debug, Error)]
+pub enum SetLevelError {
+    #[error(transparent)]
+    Install(#[from] InitError),
+}
+
 /// Serde adapter for `tracing_subscriber::filter::LevelFilter`.
 ///
 /// Used via `#[serde(with = "crate::log::serde_filter")]` on the
@@ -86,9 +93,9 @@ pub mod serde_filter {
 }
 
 static RELOAD_HANDLE: OnceLock<reload::Handle<LevelFilter, Registry>> = OnceLock::new();
+static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Prepare the log directory: create it if missing, truncate the
-/// log file so each session starts fresh.
+/// Create the log directory if missing and truncate `rtop.log`.
 fn prepare_log_dir(log_dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(log_dir)?;
     let log_file = log_dir.join("rtop.log");
@@ -96,12 +103,9 @@ fn prepare_log_dir(log_dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Initialise the logging system.
-///
-/// Logs are written to `rtop.log` inside `log_dir`; the file is
-/// truncated on each run. The level filter is reloadable via
-/// [`set_level`].
-pub fn init(log_dir: &Path, filter: LevelFilter) -> Result<(), InitError> {
+/// Build the file appender, install the subscriber as the global
+/// default, and store the reload handle. Truncates `rtop.log`.
+fn install_subscriber(log_dir: &Path, filter: LevelFilter) -> Result<(), InitError> {
     prepare_log_dir(log_dir)?;
     let file_appender = rolling::never(log_dir, "rtop.log");
     let (filter_layer, handle) = reload::Layer::new(filter);
@@ -118,17 +122,55 @@ pub fn init(log_dir: &Path, filter: LevelFilter) -> Result<(), InitError> {
         .map_err(|_| InitError::AlreadyInitialised)
 }
 
-/// Apply a new level filter to the live subscriber.
+/// Initialise the logging system.
+///
+/// `rtop.log` lives inside `log_dir`. With `filter` set to a
+/// non-`OFF` level the directory is created, the file is
+/// truncated, and the subscriber is installed immediately. With
+/// `filter == LevelFilter::OFF` no subscriber is installed and
+/// the filesystem is not touched; the subscriber will be installed
+/// on the first [`set_level`] call that raises the level.
+///
+/// The level filter is reloadable via [`set_level`].
+pub fn init(log_dir: &Path, filter: LevelFilter) -> Result<(), InitError> {
+    LOG_DIR
+        .set(log_dir.to_path_buf())
+        .map_err(|_| InitError::AlreadyInitialised)?;
+    if filter != LevelFilter::OFF {
+        install_subscriber(log_dir, filter)?;
+    }
+    Ok(())
+}
+
+/// Apply a new level filter to the live subscriber, installing
+/// the subscriber on first activation if necessary.
+///
+/// Three exhaustive cases:
+///
+/// * Subscriber already installed → flip the filter via the
+///   reload handle.
+/// * No subscriber and `filter == LevelFilter::OFF` → no-op.
+/// * No subscriber and `filter != LevelFilter::OFF` → install
+///   the subscriber for the first time, which prepares the log
+///   directory and truncates `rtop.log`.
 ///
 /// Panics if [`init`] was not called first; the in-tree callers
 /// all run after `main` has called `init`.
-pub fn set_level(filter: LevelFilter) {
-    let handle = RELOAD_HANDLE
+pub fn set_level(filter: LevelFilter) -> Result<(), SetLevelError> {
+    if let Some(handle) = RELOAD_HANDLE.get() {
+        handle
+            .modify(|f| *f = filter)
+            .expect("reload handle should accept a LevelFilter");
+        return Ok(());
+    }
+    if filter == LevelFilter::OFF {
+        return Ok(());
+    }
+    let log_dir = LOG_DIR
         .get()
         .expect("log::set_level called before log::init");
-    handle
-        .modify(|f| *f = filter)
-        .expect("reload handle should accept a LevelFilter");
+    install_subscriber(log_dir, filter)?;
+    Ok(())
 }
 
 #[cfg(test)]

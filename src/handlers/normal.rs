@@ -150,7 +150,7 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
     let base = ctx.theme.base_style(ctx.config.theme_background);
     ctx.runtime.rounded = ctx.config.rounded_corners;
     sync_update_ms(ctx);
-    crate::log::set_level(ctx.config.log_level);
+    crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
     ctx.render.dirty |= Dirty::FULL;
     Some(HandleResult::raw(base))
 }

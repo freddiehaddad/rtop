@@ -286,7 +286,7 @@ fn apply_option_change(
                 let base = ctx.theme.base_style(ctx.config.theme_background);
                 extra_ops.push(TerminalOp::Raw(base));
             } else if opt_key == ConfigKey::LogLevel {
-                crate::log::set_level(ctx.config.log_level);
+                crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
             }
         }
         menu::options_menu::OptKind::StringVal => {
