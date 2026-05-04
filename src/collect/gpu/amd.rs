@@ -199,13 +199,6 @@ pub(super) struct AmdBackend {
     adl: AdlFunctions,
     context: *mut c_void,
     adapter_indices: Vec<i32>,
-    logged: AmdLoggedFailures,
-}
-
-#[derive(Default)]
-struct AmdLoggedFailures {
-    pmlog: bool,
-    memory: bool,
 }
 
 impl AmdBackend {
@@ -225,7 +218,6 @@ impl AmdBackend {
             adl,
             context,
             adapter_indices: Vec::new(),
-            logged: AmdLoggedFailures::default(),
         })
     }
 }
@@ -355,9 +347,8 @@ impl GpuBackend for AmdBackend {
                     let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
                 }
-            } else if !self.logged.pmlog {
+            } else {
                 tracing::debug!("ADL PMLog query failed with error {ret}");
-                self.logged.pmlog = true;
             }
 
             // VRAM usage (direct MB from ADL).
@@ -371,9 +362,8 @@ impl GpuBackend for AmdBackend {
                 let vram_pct = percent_u64(gpu.mem_used, gpu.mem_total).min(100);
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
-            } else if ret != ADL_OK && !self.logged.memory {
+            } else if ret != ADL_OK {
                 tracing::debug!("ADL VRAM usage query failed with error {ret}");
-                self.logged.memory = true;
             }
         }
     }

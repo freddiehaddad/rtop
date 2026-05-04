@@ -394,17 +394,6 @@ pub(super) struct NvidiaBackend {
     devices: Vec<NvPhysicalGpuHandle>,
     /// Default power limit (TDP) per device in milliwatts, from NVML.
     tdp_mw: Vec<u64>,
-    /// Tracks which metrics have already logged a failure (log once, not every cycle).
-    logged: LoggedFailures,
-}
-
-#[derive(Default)]
-struct LoggedFailures {
-    utilization: bool,
-    temperature: bool,
-    memory: bool,
-    power: bool,
-    clock: bool,
 }
 
 impl NvidiaBackend {
@@ -423,7 +412,6 @@ impl NvidiaBackend {
             nvapi,
             devices: Vec::new(),
             tdp_mw: Vec::new(),
-            logged: LoggedFailures::default(),
         })
     }
 }
@@ -538,9 +526,8 @@ impl GpuBackend for NvidiaBackend {
                         clamp_percent(gpu_util.percentage),
                     );
                 }
-            } else if !self.logged.utilization {
+            } else {
                 tracing::debug!("NvAPI utilization failed with error {ret}");
-                self.logged.utilization = true;
             }
 
             // Temperature — request all sensors, pick the GPU target
@@ -561,9 +548,8 @@ impl GpuBackend for NvidiaBackend {
                     .map(|s| s.current_temp as i64)
                     .unwrap_or(0);
                 push_history(&mut gpu.temp, temp);
-            } else if !self.logged.temperature {
+            } else {
                 tracing::debug!("NvAPI temperature failed with error {ret}");
-                self.logged.temperature = true;
             }
 
             // Memory (values in KB)
@@ -588,9 +574,8 @@ impl GpuBackend for NvidiaBackend {
                 let vram_pct = percent_u64(used, total).min(100);
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
-            } else if !self.logged.memory {
+            } else {
                 tracing::debug!("NvAPI memory failed with error {ret}");
-                self.logged.memory = true;
             }
 
             // Power — pick the Board domain entry (PCM) and convert to mW.
@@ -614,9 +599,8 @@ impl GpuBackend for NvidiaBackend {
                     gpu.pwr_usage = power_mw as i64;
                     let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
-                } else if !self.logged.power {
+                } else {
                     tracing::debug!("NvAPI power topology failed with error {ret}");
-                    self.logged.power = true;
                 }
             }
 
@@ -633,9 +617,8 @@ impl GpuBackend for NvidiaBackend {
                 if gfx.flags & 1 != 0 {
                     gpu.gpu_clock_speed = gfx.frequency_khz / 1000;
                 }
-            } else if !self.logged.clock {
+            } else {
                 tracing::debug!("NvAPI clock failed with error {ret}");
-                self.logged.clock = true;
             }
         }
     }

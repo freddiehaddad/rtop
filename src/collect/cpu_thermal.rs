@@ -172,8 +172,6 @@ struct IntelBackend {
     /// Reported as `max_watts` so the meter scales like LHM/HWiNFO/GPU-Z,
     /// which all show running peak rather than a static spec value.
     peak_watts: Option<f64>,
-    /// True until the first successful sample is logged at debug level.
-    first_sample_pending: bool,
 }
 
 impl IntelBackend {
@@ -197,7 +195,6 @@ impl IntelBackend {
             energy_unit_j,
             energy_state: None,
             peak_watts: None,
-            first_sample_pending: true,
         })
     }
 
@@ -233,15 +230,6 @@ impl IntelBackend {
 
         if let Some(w) = watts {
             self.peak_watts = Some(self.peak_watts.map_or(w, |p| p.max(w)));
-        }
-
-        if self.first_sample_pending && watts.is_some() {
-            tracing::debug!(
-                "Intel thermal first sample: package={:?} °C, watts={:.1}",
-                package_temp,
-                watts.unwrap_or(0.0)
-            );
-            self.first_sample_pending = false;
         }
 
         ThermalSample {
@@ -287,8 +275,6 @@ struct AmdBackend {
     /// Reported as `max_watts` so the meter scales like LHM/HWiNFO/GPU-Z,
     /// which all show running peak rather than a static spec value.
     peak_watts: Option<f64>,
-    /// True until the first successful sample is logged at debug level.
-    first_sample_pending: bool,
 }
 
 impl AmdBackend {
@@ -302,7 +288,6 @@ impl AmdBackend {
             energy_unit_j,
             energy_state: None,
             peak_watts: None,
-            first_sample_pending: true,
         })
     }
 
@@ -330,15 +315,6 @@ impl AmdBackend {
 
         if let Some(w) = watts {
             self.peak_watts = Some(self.peak_watts.map_or(w, |p| p.max(w)));
-        }
-
-        if self.first_sample_pending && watts.is_some() {
-            tracing::debug!(
-                "AMD thermal first sample: package={:?} °C, watts={:.1}",
-                package_temp,
-                watts.unwrap_or(0.0)
-            );
-            self.first_sample_pending = false;
         }
 
         ThermalSample {
