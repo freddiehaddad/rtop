@@ -26,6 +26,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     let mut manager = runner::CollectorManager::start(config.update_ms as u64, event_tx.clone());
     spawn_input_thread(event_tx);
     let mut state = AppState::new(config, Instant::now());
+    tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
 
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
@@ -55,7 +56,16 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
 
         // Process resize before keys — keys may draw overlays that need current dimensions.
         if has_resize {
-            terminal.refresh();
+            let changed = terminal.refresh();
+            if changed {
+                let (w, h) = terminal.size();
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::Ui,
+                    w,
+                    h,
+                    "terminal resized",
+                );
+            }
             state.render.mark_resize();
         }
         let size = terminal_size(terminal);
@@ -95,6 +105,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             if handle_input_key(key, &mut state, config, terminal, theme, &manager, size)
                 == AppCommand::Quit
             {
+                tracing::info!(subsystem = %crate::log::Subsystem::Startup, "exiting");
                 manager.shutdown();
                 save_config_on_exit(config);
                 return;
@@ -108,6 +119,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         }
     }
 
+    tracing::info!(subsystem = %crate::log::Subsystem::Startup, "exiting");
     manager.shutdown();
     save_config_on_exit(config);
 }
@@ -510,7 +522,14 @@ fn spawn_input_thread(tx: std::sync::mpsc::Sender<AppEvent>) {
                 Ok(Event::Resize(_, _)) if tx.send(AppEvent::Resize).is_err() => {
                     break;
                 }
-                _ => {}
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        subsystem = %crate::log::Subsystem::Input,
+                        error = %e,
+                        "crossterm::event::read failed",
+                    );
+                }
             }
         }
     });
@@ -689,7 +708,13 @@ fn render_if_dirty_small(
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
     {
         let output = style_terminal_output(&render_too_small(size, theme), config, theme);
-        let _ = terminal.write_synced(&output);
+        if let Err(e) = terminal.write_synced(&output) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "terminal write failed",
+            );
+        }
         state.render.clear_dirty();
     }
 }
@@ -719,7 +744,13 @@ fn render_if_dirty_waiting(
     {
         let output =
             style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
-        let _ = terminal.write_synced(&output);
+        if let Err(e) = terminal.write_synced(&output) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "terminal write failed",
+            );
+        }
         state.render.clear_dirty();
     }
 }
@@ -778,7 +809,11 @@ fn write_dirty_frame(
     let output = render_dirty_frame(state, config, theme);
     let output = style_terminal_output(&output, config, theme);
     if let Err(e) = terminal.write_synced(&output) {
-        tracing::debug!("terminal write failed: {e}");
+        tracing::warn!(
+            subsystem = %crate::log::Subsystem::Terminal,
+            error = %e,
+            "terminal write failed",
+        );
     }
     state.render.clear_dirty();
 }
@@ -862,7 +897,13 @@ fn handle_input_key(
     if result.redraw_overlay {
         let out = handlers::redraw_after_overlay(&mut ctx);
         let out = style_terminal_output(&out, ctx.config, ctx.theme);
-        let _ = terminal.write_synced(&out);
+        if let Err(e) = terminal.write_synced(&out) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "terminal write failed",
+            );
+        }
     }
 
     if result.quit {
@@ -896,10 +937,22 @@ fn execute_terminal_ops(
         };
         match op {
             handlers::TerminalOp::Raw(_) => {
-                let _ = terminal.write_raw(&styled);
+                if let Err(e) = terminal.write_raw(&styled) {
+                    tracing::warn!(
+                        subsystem = %crate::log::Subsystem::Terminal,
+                        error = %e,
+                        "terminal write failed",
+                    );
+                }
             }
             handlers::TerminalOp::Synced(_) => {
-                let _ = terminal.write_synced(&styled);
+                if let Err(e) = terminal.write_synced(&styled) {
+                    tracing::warn!(
+                        subsystem = %crate::log::Subsystem::Terminal,
+                        error = %e,
+                        "terminal write failed",
+                    );
+                }
             }
         }
     }
@@ -912,7 +965,19 @@ fn style_terminal_output(output: &str, config: &config::Config, theme: &theme::T
 fn save_config_on_exit(config: &config::Config) {
     if config.save_config_on_exit {
         let conf_path = tools::config_dir().join("rtop.toml");
-        let _ = config.write(&conf_path);
+        match config.write(&conf_path) {
+            Ok(()) => tracing::info!(
+                subsystem = %crate::log::Subsystem::Config,
+                path = %conf_path.display(),
+                "config saved",
+            ),
+            Err(e) => tracing::warn!(
+                subsystem = %crate::log::Subsystem::Config,
+                error = %e,
+                path = %conf_path.display(),
+                "config save failed",
+            ),
+        }
     }
 }
 

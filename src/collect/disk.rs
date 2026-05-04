@@ -56,7 +56,10 @@ impl DiskCollector {
         let previous_disks = std::mem::take(&mut self.info.disks);
 
         let Some(drives_buf) = logical_drive_strings() else {
-            tracing::warn!("Disk: GetLogicalDriveStringsW returned no drives");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Disk,
+                "GetLogicalDriveStringsW returned no drives",
+            );
             self.status
                 .downgrade(super::CollectStatus::Failed("drive query failed"));
             return;
@@ -142,7 +145,10 @@ impl DiskCollector {
         }
 
         let Ok(query) = PdhQuery::open() else {
-            tracing::warn!("Disk: PdhOpenQueryW failed");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Disk,
+                "PdhOpenQueryW failed",
+            );
             self.status
                 .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
             return;
@@ -161,7 +167,10 @@ impl DiskCollector {
         }
 
         if self.pdh_counters.is_empty() {
-            tracing::warn!("Disk: no logical disk performance counters available");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Disk,
+                "no logical disk performance counters available",
+            );
             self.status
                 .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
             return;
@@ -185,7 +194,10 @@ impl DiskCollector {
         }
 
         if query.collect().is_err() {
-            tracing::warn!("Disk: PdhCollectQueryData failed");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Disk,
+                "PdhCollectQueryData failed",
+            );
             self.status
                 .downgrade(super::CollectStatus::Degraded("disk perf unavailable"));
             return;

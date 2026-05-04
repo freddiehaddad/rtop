@@ -72,7 +72,10 @@ impl MemCollector {
                     push_pct(&mut self.info.percent.swap_free, swap_avail, swap_total);
                 }
             } else {
-                tracing::warn!("Memory: GlobalMemoryStatusEx failed");
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Memory,
+                    "GlobalMemoryStatusEx failed",
+                );
                 self.status
                     .downgrade(super::CollectStatus::Failed("memory query failed"));
             }

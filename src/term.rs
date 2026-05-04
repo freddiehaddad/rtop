@@ -44,6 +44,13 @@ impl Terminal {
         let mut stdout = io::stdout();
         execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide)?;
         let (w, h) = terminal::size()?;
+        tracing::info!(
+            subsystem = %crate::log::Subsystem::Terminal,
+            width = w,
+            height = h,
+            sync_enabled,
+            "terminal initialized",
+        );
         Ok(Self {
             width: w,
             height: h,
@@ -59,8 +66,24 @@ impl Terminal {
     /// Restore terminal to normal state.
     pub fn restore(&self) {
         let mut stdout = io::stdout();
-        let _ = execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen);
-        let _ = terminal::disable_raw_mode();
+        if let Err(e) = execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "terminal restore failed",
+            );
+        }
+        if let Err(e) = terminal::disable_raw_mode() {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "raw mode restore failed",
+            );
+        }
+        tracing::info!(
+            subsystem = %crate::log::Subsystem::Terminal,
+            "terminal restored",
+        );
     }
 
     /// Check if the terminal size has changed. Returns true if resized.

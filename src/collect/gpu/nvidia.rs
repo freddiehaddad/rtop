@@ -258,7 +258,11 @@ fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
     // SAFETY: init was loaded from nvml.dll.
     let ret = unsafe { init() };
     if ret != NVML_SUCCESS {
-        tracing::debug!("nvmlInit_v2 failed with error {ret}");
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuNvml,
+            code = %crate::log::Hex(ret),
+            "nvmlInit_v2 failed",
+        );
         return None;
     }
 
@@ -279,10 +283,20 @@ fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
         // SAFETY: dev is a valid handle; limit_mw is a valid pointer.
         let ret = unsafe { get_default_limit(dev, &mut limit_mw) };
         if ret == NVML_SUCCESS {
-            tracing::debug!("NVML device {i} default power limit: {limit_mw} mW");
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvml,
+                device = i,
+                limit_mw,
+                "default power limit read",
+            );
             tdps.push(limit_mw);
         } else {
-            tracing::debug!("NVML device {i} GetPowerManagementDefaultLimit failed: {ret}");
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvml,
+                device = i,
+                code = %crate::log::Hex(ret),
+                "GetPowerManagementDefaultLimit failed",
+            );
             tdps.push(0);
         }
     }
@@ -404,7 +418,11 @@ impl NvidiaBackend {
         // the NvAPI_Initialize signature.
         let ret = unsafe { (nvapi.initialize)() };
         if ret != NVAPI_OK {
-            tracing::warn!("NvAPI_Initialize failed with error {ret}");
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI_Initialize failed",
+            );
             return None;
         }
 
@@ -425,7 +443,11 @@ impl GpuBackend for NvidiaBackend {
         // count is a valid pointer to a stack-allocated u32.
         let ret = unsafe { (self.nvapi.enum_physical_gpus)(handles.as_mut_ptr(), &mut count) };
         if ret != NVAPI_OK {
-            tracing::warn!("NvAPI_EnumPhysicalGPUs failed with error {ret}");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI_EnumPhysicalGPUs failed",
+            );
             return Vec::new();
         }
 
@@ -527,7 +549,11 @@ impl GpuBackend for NvidiaBackend {
                     );
                 }
             } else {
-                tracing::debug!("NvAPI utilization failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    code = %crate::log::Hex(ret),
+                    "NvAPI utilization query failed",
+                );
             }
 
             // Temperature — request all sensors, pick the GPU target
@@ -549,7 +575,11 @@ impl GpuBackend for NvidiaBackend {
                     .unwrap_or(0);
                 push_history(&mut gpu.temp, temp);
             } else {
-                tracing::debug!("NvAPI temperature failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    code = %crate::log::Hex(ret),
+                    "NvAPI temperature query failed",
+                );
             }
 
             // Memory (values in KB)
@@ -575,7 +605,11 @@ impl GpuBackend for NvidiaBackend {
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
             } else {
-                tracing::debug!("NvAPI memory failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    code = %crate::log::Hex(ret),
+                    "NvAPI memory query failed",
+                );
             }
 
             // Power — pick the Board domain entry (PCM) and convert to mW.
@@ -600,7 +634,11 @@ impl GpuBackend for NvidiaBackend {
                     let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
                 } else {
-                    tracing::debug!("NvAPI power topology failed with error {ret}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::GpuNvapi,
+                        code = %crate::log::Hex(ret),
+                        "NvAPI power topology query failed",
+                    );
                 }
             }
 
@@ -618,7 +656,11 @@ impl GpuBackend for NvidiaBackend {
                     gpu.gpu_clock_speed = gfx.frequency_khz / 1000;
                 }
             } else {
-                tracing::debug!("NvAPI clock failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    code = %crate::log::Hex(ret),
+                    "NvAPI clock query failed",
+                );
             }
         }
     }

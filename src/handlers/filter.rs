@@ -16,6 +16,12 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.overlay.set_menu_state(MenuState::None);
             ctx.process.selected = 0;
             ctx.process.start = 0;
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "filter_commit",
+                filter = %ctx.config.proc_filter,
+                "filter applied",
+            );
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Backspace => {
@@ -30,6 +36,11 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.config.proc_filter.clear();
             ctx.process.selected = 0;
             ctx.process.start = 0;
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "filter_clear",
+                "filter cleared",
+            );
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
         }
         Key::Char(c) => {

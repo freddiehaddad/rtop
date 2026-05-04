@@ -147,14 +147,20 @@ impl ProcCollector {
                 Ok(h) => match OwnedHandle::new(h) {
                     Some(handle) => handle,
                     None => {
-                        tracing::warn!("Process: CreateToolhelp32Snapshot returned invalid handle");
+                        tracing::warn!(
+                            subsystem = %crate::log::Subsystem::Process,
+                            "CreateToolhelp32Snapshot returned invalid handle",
+                        );
                         self.status
                             .downgrade(super::CollectStatus::Failed("snapshot failed"));
                         return;
                     }
                 },
                 Err(_) => {
-                    tracing::warn!("Process: CreateToolhelp32Snapshot failed");
+                    tracing::warn!(
+                        subsystem = %crate::log::Subsystem::Process,
+                        "CreateToolhelp32Snapshot failed",
+                    );
                     self.status
                         .downgrade(super::CollectStatus::Failed("snapshot failed"));
                     return;

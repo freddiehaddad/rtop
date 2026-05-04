@@ -263,7 +263,7 @@ pub(crate) struct CollectorManager {
     pub(crate) gpu_slot: LatestSlot<GpuSnapshot>,
     pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
 
-    joins: Vec<JoinHandle<()>>,
+    joins: Vec<(&'static str, JoinHandle<()>)>,
 }
 
 impl CollectorManager {
@@ -296,7 +296,7 @@ impl CollectorManager {
                 status: c.status.clone(),
             },
         );
-        joins.push(cpu_join);
+        joins.push(("cpu", cpu_join));
 
         // Memory thread
         let (mem_tx, mem_join) = spawn_collector(
@@ -310,7 +310,7 @@ impl CollectorManager {
                 status: c.status.clone(),
             },
         );
-        joins.push(mem_join);
+        joins.push(("memory", mem_join));
 
         // Disk thread
         let (disk_tx, disk_join) = spawn_collector(
@@ -324,16 +324,19 @@ impl CollectorManager {
                 status: c.status.clone(),
             },
         );
-        joins.push(disk_join);
+        joins.push(("disk", disk_join));
 
         // Network thread (custom loop — uses NetCommand for ResetTotals)
         let (net_tx, net_rx) = mpsc::channel();
         {
             let slot = net_slot.clone();
             let tx = event_tx.clone();
-            joins.push(std::thread::spawn(move || {
-                run_net_loop(NetCollector::new(), update_ms, slot, tx, net_rx);
-            }));
+            joins.push((
+                "network",
+                std::thread::spawn(move || {
+                    run_net_loop(NetCollector::new(), update_ms, slot, tx, net_rx);
+                }),
+            ));
         }
 
         // GPU thread
@@ -348,7 +351,7 @@ impl CollectorManager {
                 status: c.status.clone(),
             },
         );
-        joins.push(gpu_join);
+        joins.push(("gpu", gpu_join));
 
         // Process thread
         let (proc_tx, proc_join) = spawn_collector(
@@ -366,7 +369,7 @@ impl CollectorManager {
                 status: c.status.clone(),
             },
         );
-        joins.push(proc_join);
+        joins.push(("process", proc_join));
 
         Self {
             cpu_tx,
@@ -387,37 +390,51 @@ impl CollectorManager {
 
     /// Update the collection interval for a single collector.
     pub(crate) fn set_cpu_interval(&self, ms: u64) {
-        let _ = self.cpu_tx.send(CollectorCommand::SetInterval(ms));
+        send_interval(&self.cpu_tx, "cpu", ms);
     }
 
     /// Update the collection interval for the memory collector.
     pub(crate) fn set_mem_interval(&self, ms: u64) {
-        let _ = self.mem_tx.send(CollectorCommand::SetInterval(ms));
+        send_interval(&self.mem_tx, "memory", ms);
     }
 
     /// Update the collection interval for the disk collector.
     pub(crate) fn set_disk_interval(&self, ms: u64) {
-        let _ = self.disk_tx.send(CollectorCommand::SetInterval(ms));
+        send_interval(&self.disk_tx, "disk", ms);
     }
 
     /// Update the collection interval for the network collector.
     pub(crate) fn set_net_interval(&self, ms: u64) {
-        let _ = self.net_tx.send(NetCommand::SetInterval(ms));
+        if let Err(e) = self.net_tx.send(NetCommand::SetInterval(ms)) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Runner,
+                target = "network",
+                error = %e,
+                "interval command send failed",
+            );
+        }
     }
 
     /// Update the collection interval for the GPU collector.
     pub(crate) fn set_gpu_interval(&self, ms: u64) {
-        let _ = self.gpu_tx.send(CollectorCommand::SetInterval(ms));
+        send_interval(&self.gpu_tx, "gpu", ms);
     }
 
     /// Update the collection interval for the process collector.
     pub(crate) fn set_proc_interval(&self, ms: u64) {
-        let _ = self.proc_tx.send(CollectorCommand::SetInterval(ms));
+        send_interval(&self.proc_tx, "process", ms);
     }
 
     /// Reset cumulative network totals for an interface.
     pub(crate) fn reset_net_totals(&self, iface: String) {
-        let _ = self.net_tx.send(NetCommand::ResetTotals(iface));
+        if let Err(e) = self.net_tx.send(NetCommand::ResetTotals(iface)) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Runner,
+                target = "network",
+                error = %e,
+                "reset-totals command send failed",
+            );
+        }
     }
 
     /// Shut down all collector threads and wait for them to finish.
@@ -428,9 +445,32 @@ impl CollectorManager {
         let _ = self.net_tx.send(NetCommand::Shutdown);
         let _ = self.gpu_tx.send(CollectorCommand::Shutdown);
         let _ = self.proc_tx.send(CollectorCommand::Shutdown);
-        for join in self.joins.drain(..) {
-            let _ = join.join();
+        for (target, join) in self.joins.drain(..) {
+            if let Err(panic) = join.join() {
+                let payload = panic
+                    .downcast_ref::<&str>()
+                    .copied()
+                    .or_else(|| panic.downcast_ref::<String>().map(|s| s.as_str()))
+                    .unwrap_or("(non-string panic payload)");
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Runner,
+                    target,
+                    payload,
+                    "collector thread panicked",
+                );
+            }
         }
+    }
+}
+
+fn send_interval(tx: &Sender<CollectorCommand>, target: &'static str, ms: u64) {
+    if let Err(e) = tx.send(CollectorCommand::SetInterval(ms)) {
+        tracing::warn!(
+            subsystem = %crate::log::Subsystem::Runner,
+            target,
+            error = %e,
+            "interval command send failed",
+        );
     }
 }
 

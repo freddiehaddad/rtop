@@ -246,9 +246,21 @@ impl Theme {
             .unwrap();
 
         match toml::from_str::<ThemePalette>(content) {
-            Ok(palette) => Self::from_palette(&palette),
+            Ok(palette) => {
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Theme,
+                    theme = name,
+                    "theme loaded",
+                );
+                Self::from_palette(&palette)
+            }
             Err(e) => {
-                tracing::warn!("failed to parse theme '{name}': {e}, using Default");
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Theme,
+                    theme = name,
+                    error = %e,
+                    "theme parse failed; falling back to default",
+                );
                 let default = BUNDLED_THEMES[0].content;
                 let palette: ThemePalette =
                     toml::from_str(default).expect("default theme must parse");

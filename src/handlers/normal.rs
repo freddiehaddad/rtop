@@ -47,12 +47,24 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
                 ctx.theme,
             );
             ctx.overlay.set_menu_state(MenuState::Main);
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Ui,
+                menu = "main",
+                opened = true,
+                "menu transition",
+            );
             Some(HandleResult::raw(menu_out))
         }
         Key::Char('?') | Key::F(1) => {
             let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.set_menu_state(MenuState::Help);
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Ui,
+                menu = "help",
+                opened = true,
+                "menu transition",
+            );
             Some(HandleResult::raw(menu_out))
         }
         Key::Char('o') | Key::F(2) => {
@@ -70,6 +82,12 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
             );
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.set_menu_state(MenuState::Options);
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Ui,
+                menu = "options",
+                opened = true,
+                "menu transition",
+            );
             Some(HandleResult::raw(menu_out))
         }
         _ => None,
@@ -92,6 +110,12 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
                 ctx.config.current_preset = next;
                 ctx.config.apply_preset(&presets[next as usize]);
                 sync_update_ms(ctx);
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Input,
+                    action = "preset_cycle",
+                    preset = next,
+                    "preset action",
+                );
                 ctx.render.dirty |= Dirty::FULL;
             }
             Some(HandleResult::none())
@@ -108,12 +132,24 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
                 ctx.config.current_preset = next;
                 ctx.config.apply_preset(&presets[next as usize]);
                 sync_update_ms(ctx);
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Input,
+                    action = "preset_cycle",
+                    preset = next,
+                    "preset action",
+                );
                 ctx.render.dirty |= Dirty::FULL;
             }
             Some(HandleResult::none())
         }
         Key::CtrlS => {
             ctx.config.save_preset();
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "preset_save",
+                preset = ctx.config.current_preset,
+                "preset action",
+            );
             ctx.render.dirty |= Dirty::CPU_BOX;
             Some(HandleResult::none())
         }
@@ -127,6 +163,12 @@ fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
                     ctx.config.apply_preset(&presets[new_cur as usize]);
                     sync_update_ms(ctx);
                 }
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Input,
+                    action = "preset_delete",
+                    preset = cur,
+                    "preset action",
+                );
                 ctx.render.dirty |= Dirty::FULL;
             }
             Some(HandleResult::none())
@@ -143,7 +185,11 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
     }
     let warnings = ctx.config.reload();
     for w in &warnings {
-        tracing::warn!("{}", w);
+        tracing::warn!(
+            subsystem = %crate::log::Subsystem::Config,
+            warning = %w,
+            "config reload warning",
+        );
     }
     let theme_name = ctx.config.color_theme.clone();
     *ctx.theme = theme::Theme::from_name(&theme_name);
@@ -151,6 +197,7 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
     ctx.runtime.rounded = ctx.config.rounded_corners;
     sync_update_ms(ctx);
     crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
+    tracing::info!(subsystem = %crate::log::Subsystem::Config, "config reloaded");
     ctx.render.dirty |= Dirty::FULL;
     Some(HandleResult::raw(base))
 }
@@ -301,6 +348,12 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         }
         Key::Char('t') => {
             if let Some((armed_pid, _, false)) = ctx.process.armed_terminate {
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Input,
+                    action = "process_terminate",
+                    pid = armed_pid,
+                    "graceful terminate requested",
+                );
                 graceful_terminate(armed_pid);
                 ctx.process.armed_terminate = None;
             } else if let Some((pid, name)) = ctx.selected_proc_info() {
@@ -310,6 +363,12 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         }
         Key::Char('T') => {
             if let Some((armed_pid, _, true)) = ctx.process.armed_terminate {
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Input,
+                    action = "process_kill",
+                    pid = armed_pid,
+                    "kill requested",
+                );
                 terminate_process(armed_pid);
                 ctx.process.armed_terminate = None;
             } else if let Some((pid, name)) = ctx.selected_proc_info() {
@@ -346,29 +405,55 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
 // --- Box visibility toggles ---
 
 fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
-    match *key {
+    let box_name: String = match *key {
         Key::Char(c @ '1'..='9') => {
             let digit = (c as u8) - b'0';
             match digit {
-                crate::ui::CPU_KEY => ctx.config.toggle_box("cpu"),
-                crate::ui::MEM_KEY => ctx.config.toggle_box("mem"),
-                crate::ui::NET_KEY => ctx.config.toggle_box("net"),
-                crate::ui::PROC_KEY => ctx.config.toggle_box("proc"),
-                crate::ui::DISK_KEY => ctx.config.toggle_box("disk"),
+                crate::ui::CPU_KEY => {
+                    ctx.config.toggle_box("cpu");
+                    "cpu".into()
+                }
+                crate::ui::MEM_KEY => {
+                    ctx.config.toggle_box("mem");
+                    "mem".into()
+                }
+                crate::ui::NET_KEY => {
+                    ctx.config.toggle_box("net");
+                    "net".into()
+                }
+                crate::ui::PROC_KEY => {
+                    ctx.config.toggle_box("proc");
+                    "proc".into()
+                }
+                crate::ui::DISK_KEY => {
+                    ctx.config.toggle_box("disk");
+                    "disk".into()
+                }
                 d if d >= crate::ui::GPU_KEY_BASE => {
                     let gpu_idx = (d - crate::ui::GPU_KEY_BASE) as usize;
-                    ctx.config.toggle_box(&format!("gpu{gpu_idx}"))
+                    let name = format!("gpu{gpu_idx}");
+                    ctx.config.toggle_box(&name);
+                    name
                 }
                 _ => return,
-            };
+            }
         }
         Key::Char('0') => {
             for i in 4..crate::config::MAX_GPUS {
                 ctx.config.toggle_box(&format!("gpu{i}"));
             }
+            "gpu_extras".into()
         }
         _ => return,
     };
+    let shown = ctx.config.shown_boxes.iter().any(|b| b == &box_name);
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "box_toggle",
+        r#box = %box_name,
+        shown,
+        "box visibility toggled",
+    );
     ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
 }
 
@@ -378,10 +463,22 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
     match *key {
         Key::Char('b') if ctx.live.net.as_ref().is_some_and(|n| !n.nets.is_empty()) => {
             cycle_net_iface(ctx, -1);
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "net_iface_cycle",
+                iface = %ctx.network.selected_iface,
+                "network interface switched",
+            );
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('n') if ctx.live.net.as_ref().is_some_and(|n| !n.nets.is_empty()) => {
             cycle_net_iface(ctx, 1);
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "net_iface_cycle",
+                iface = %ctx.network.selected_iface,
+                "network interface switched",
+            );
             ctx.render.dirty |= Dirty::NET_BOX;
         }
         Key::Char('a') => {
@@ -418,6 +515,12 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
     ctx.config.update_ms = new_ms;
     ctx.runtime.update_ms = ctx.config.update_ms as u64;
     sync_all_intervals(ctx);
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "update_rate",
+        update_ms = new_ms,
+        "update interval changed",
+    );
     ctx.render.dirty |= Dirty::CPU_BOX;
 }
 
@@ -487,7 +590,14 @@ fn graceful_terminate(pid: u32) {
         let mut window_pid: u32 = 0;
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut window_pid)) };
         if window_pid == data.target_pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
-            let _ = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            if let Err(e) = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) } {
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Process,
+                    pid = data.target_pid,
+                    error = %e,
+                    "PostMessageW(WM_CLOSE) failed",
+                );
+            }
             data.found = true;
         }
         TRUE
@@ -501,12 +611,21 @@ fn graceful_terminate(pid: u32) {
     // SAFETY: enum_callback receives a valid pointer to stack-allocated data.
     // EnumWindows iterates all top-level windows; we filter by PID.
     unsafe {
-        let _ = EnumWindows(Some(enum_callback), LPARAM(&mut data as *mut _ as isize));
+        if let Err(e) = EnumWindows(Some(enum_callback), LPARAM(&mut data as *mut _ as isize)) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Process,
+                pid,
+                error = %e,
+                "EnumWindows failed during graceful terminate",
+            );
+        }
     }
 
     if !data.found {
         tracing::debug!(
-            "graceful terminate skipped for pid {pid}: no visible window to send WM_CLOSE (use T to force kill)"
+            subsystem = %crate::log::Subsystem::Process,
+            pid,
+            "graceful terminate skipped: no visible window",
         );
     }
 }
@@ -522,9 +641,26 @@ fn terminate_process(pid: u32) {
         if let Some(handle) = OpenProcess(PROCESS_TERMINATE, false, pid)
             .ok()
             .and_then(OwnedHandle::new)
-            && TerminateProcess(handle.get(), 1).is_err()
         {
-            tracing::warn!("Process: TerminateProcess failed for pid {pid}");
+            if TerminateProcess(handle.get(), 1).is_err() {
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Process,
+                    pid,
+                    "TerminateProcess failed",
+                );
+            } else {
+                tracing::info!(
+                    subsystem = %crate::log::Subsystem::Process,
+                    pid,
+                    "process terminated",
+                );
+            }
+        } else {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Process,
+                pid,
+                "OpenProcess failed",
+            );
         }
     }
 }

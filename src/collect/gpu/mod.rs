@@ -72,6 +72,11 @@ impl GpuCollector {
             let devices = nvidia.init_devices();
             let start = gpus.len();
             let count = devices.len();
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                devices = count,
+                "vendor initialized",
+            );
             gpus.extend(devices);
             backends.push(BackendSlice {
                 backend: Box::new(nvidia),
@@ -84,6 +89,11 @@ impl GpuCollector {
             let devices = amd.init_devices();
             let start = gpus.len();
             let count = devices.len();
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::GpuAdl,
+                devices = count,
+                "vendor initialized",
+            );
             gpus.extend(devices);
             backends.push(BackendSlice {
                 backend: Box::new(amd),
@@ -96,6 +106,11 @@ impl GpuCollector {
             let devices = intel.init_devices();
             let start = gpus.len();
             let count = devices.len();
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::GpuIgcl,
+                devices = count,
+                "vendor initialized",
+            );
             gpus.extend(devices);
             backends.push(BackendSlice {
                 backend: Box::new(intel),

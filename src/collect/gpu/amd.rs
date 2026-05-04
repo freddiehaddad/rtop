@@ -210,7 +210,11 @@ impl AmdBackend {
         // adl_malloc is a valid callback; 1 = enumerate connected adapters only.
         let ret = unsafe { (adl.main_control_create)(adl_malloc, 1, &mut context) };
         if ret != ADL_OK {
-            tracing::warn!("ADL2_Main_Control_Create failed with error {ret}");
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuAdl,
+                code = %crate::log::Hex(ret),
+                "ADL2_Main_Control_Create failed",
+            );
             return None;
         }
 
@@ -348,7 +352,11 @@ impl GpuBackend for AmdBackend {
                     push_history(&mut gpu.gpu_percent.power, pwr_pct);
                 }
             } else {
-                tracing::debug!("ADL PMLog query failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuAdl,
+                    code = %crate::log::Hex(ret),
+                    "ADL PMLog query failed",
+                );
             }
 
             // VRAM usage (direct MB from ADL).
@@ -363,7 +371,11 @@ impl GpuBackend for AmdBackend {
                 push_history(&mut gpu.gpu_percent.vram, vram_pct);
                 push_history(&mut gpu.mem_utilization_percent, vram_pct);
             } else if ret != ADL_OK {
-                tracing::debug!("ADL VRAM usage query failed with error {ret}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuAdl,
+                    code = %crate::log::Hex(ret),
+                    "ADL VRAM usage query failed",
+                );
             }
         }
     }

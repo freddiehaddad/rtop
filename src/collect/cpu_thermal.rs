@@ -94,20 +94,39 @@ impl ThermalCollector {
         let backend = match cpu_vendor() {
             CpuVendor::Intel => IntelBackend::load(core_count)
                 .map(|b| {
-                    tracing::debug!("Intel thermal init: {} cores", b.tj_max.len());
+                    tracing::info!(
+                        subsystem = %crate::log::Subsystem::CpuThermal,
+                        vendor = "intel",
+                        cores = b.tj_max.len(),
+                        "thermal backend bound",
+                    );
                     Backend::Intel(b)
                 })
                 .unwrap_or_else(|e| {
-                    tracing::debug!("Intel thermal init failed: {e}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::CpuThermal,
+                        vendor = "intel",
+                        error = %e,
+                        "thermal backend init failed",
+                    );
                     Backend::Inactive
                 }),
             CpuVendor::Amd => AmdBackend::load()
                 .map(|b| {
-                    tracing::debug!("AMD thermal init succeeded");
+                    tracing::info!(
+                        subsystem = %crate::log::Subsystem::CpuThermal,
+                        vendor = "amd",
+                        "thermal backend bound",
+                    );
                     Backend::Amd(b)
                 })
                 .unwrap_or_else(|e| {
-                    tracing::debug!("AMD thermal init failed: {e}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::CpuThermal,
+                        vendor = "amd",
+                        error = %e,
+                        "thermal backend init failed",
+                    );
                     Backend::Inactive
                 }),
             CpuVendor::Other => Backend::Inactive,

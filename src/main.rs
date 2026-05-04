@@ -24,7 +24,6 @@ use clap::Parser;
 fn main() {
     let cli = cli::Cli::parse();
 
-    // --default-config: print and exit
     if cli.default_config {
         let config = config::Config::new();
         let output = toml::to_string_pretty(&config).unwrap_or_default();
@@ -32,8 +31,6 @@ fn main() {
         return;
     }
 
-    // Load config (from CLI path or default location) BEFORE logging,
-    // so we can read config.log_level.
     let mut config = config::Config::new();
     let default_conf_path = tools::config_dir().join("rtop.toml");
     let load_warnings = if let Some(ref path) = cli.config_file {
@@ -44,15 +41,23 @@ fn main() {
         Vec::new()
     };
 
-    // Init logging — failure at startup is non-recoverable.
     let log_dir = tools::data_dir();
     log::init(&log_dir, config.log_level).expect("logging must initialise at startup");
+    let active_config_file = cli.config_file.as_deref().or_else(|| {
+        default_conf_path
+            .exists()
+            .then_some(default_conf_path.as_path())
+    });
+    log::startup_banner(
+        config.log_level,
+        &log_dir.join("rtop.log"),
+        active_config_file,
+    );
 
     for w in &load_warnings {
-        tracing::warn!("{}", w);
+        tracing::warn!(subsystem = %log::Subsystem::Config, warning = %w, "config load warning");
     }
 
-    // Apply CLI overrides
     if let Some(ms) = cli.update_ms {
         config.update_ms = ms as i64;
     }
@@ -63,21 +68,29 @@ fn main() {
         config.current_preset = p as i64;
     }
 
-    // Init terminal
     let mut terminal = match term::Terminal::init(config.terminal_sync) {
         Ok(t) => t,
         Err(e) => {
+            tracing::error!(
+                subsystem = %log::Subsystem::Terminal,
+                error = %e,
+                "terminal init failed",
+            );
             eprintln!("Failed to initialize terminal: {e}");
             return;
         }
     };
 
-    // Init theme
     let mut theme = theme::Theme::from_name(&config.color_theme);
 
-    // Set terminal base colors from theme
     let base_colors = theme.base_style(config.theme_background);
-    let _ = terminal.write_raw(&base_colors);
+    if let Err(e) = terminal.write_raw(&base_colors) {
+        tracing::warn!(
+            subsystem = %log::Subsystem::Terminal,
+            error = %e,
+            "terminal write failed",
+        );
+    }
 
     app::run(&mut config, &mut terminal, &mut theme);
 }

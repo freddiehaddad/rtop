@@ -238,6 +238,12 @@ fn apply_option_change(
         menu::options_menu::OptKind::Bool => {
             opt_key.toggle_bool(ctx.config);
             ctx.runtime.rounded = ctx.config.rounded_corners;
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "option_toggle",
+                option = opt_key.name(),
+                "option toggled",
+            );
             if opt_key == ConfigKey::ThemeBackground {
                 extra_ops.push(TerminalOp::Raw(
                     ctx.theme.base_style(ctx.config.theme_background),
@@ -246,6 +252,13 @@ fn apply_option_change(
         }
         menu::options_menu::OptKind::Int => {
             menu::options_menu::step_int(opt_key, ctx.config, dir);
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "option_step",
+                option = opt_key.name(),
+                value = opt_key.get_int(ctx.config),
+                "option stepped",
+            );
             match opt_key {
                 ConfigKey::UpdateMs => {
                     ctx.runtime.update_ms = ctx.config.update_ms as u64;
@@ -280,6 +293,12 @@ fn apply_option_change(
         }
         menu::options_menu::OptKind::Browsable => {
             menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "option_cycle",
+                option = opt_key.name(),
+                "option cycled",
+            );
             if opt_key == ConfigKey::ColorTheme {
                 let name = ctx.config.color_theme.clone();
                 *ctx.theme = theme::Theme::from_name(&name);

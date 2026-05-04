@@ -36,7 +36,6 @@ fn data_dir_inner(xdg: Option<&str>) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
 }
 
-#[cfg(test)]
 /// Get the system hostname.
 pub fn hostname() -> String {
     std::env::var("COMPUTERNAME")
@@ -44,7 +43,6 @@ pub fn hostname() -> String {
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-#[cfg(test)]
 /// Get the current username.
 pub fn username() -> String {
     std::env::var("USERNAME")

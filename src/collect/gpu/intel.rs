@@ -324,7 +324,11 @@ impl IntelBackend {
         // SAFETY: init_args is valid repr(C) struct; api_handle is valid pointer.
         let ret = unsafe { (igcl.init)(&mut init_args, &mut api_handle) };
         if ret != CTL_RESULT_SUCCESS {
-            tracing::warn!("ctlInit failed with error {ret:#x}");
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuIgcl,
+                code = %crate::log::Hex(ret),
+                "ctlInit failed",
+            );
             return None;
         }
 
@@ -473,7 +477,11 @@ impl GpuBackend for IntelBackend {
                 if ret == CTL_RESULT_SUCCESS {
                     push_history(&mut gpu.temp, state.temperature as i64);
                 } else {
-                    tracing::debug!("IGCL temperature failed with error {ret:#x}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::GpuIgcl,
+                        code = %crate::log::Hex(ret),
+                        "IGCL temperature query failed",
+                    );
                 }
             }
 
@@ -490,7 +498,11 @@ impl GpuBackend for IntelBackend {
                     push_history(&mut gpu.gpu_percent.vram, vram_pct);
                     push_history(&mut gpu.mem_utilization_percent, vram_pct);
                 } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!("IGCL memory failed with error {ret:#x}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::GpuIgcl,
+                        code = %crate::log::Hex(ret),
+                        "IGCL memory query failed",
+                    );
                 }
             }
 
@@ -509,7 +521,11 @@ impl GpuBackend for IntelBackend {
                     dev.prev_active = activity.active_time;
                     dev.prev_timestamp = activity.timestamp;
                 } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!("IGCL engine activity failed with error {ret:#x}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::GpuIgcl,
+                        code = %crate::log::Hex(ret),
+                        "IGCL engine activity query failed",
+                    );
                 }
             }
 
@@ -521,7 +537,11 @@ impl GpuBackend for IntelBackend {
                 if ret == CTL_RESULT_SUCCESS && state.actual_frequency > 0.0 {
                     gpu.gpu_clock_speed = state.actual_frequency as u32;
                 } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!("IGCL frequency failed with error {ret:#x}");
+                    tracing::debug!(
+                        subsystem = %crate::log::Subsystem::GpuIgcl,
+                        code = %crate::log::Hex(ret),
+                        "IGCL frequency query failed",
+                    );
                 }
             }
 
@@ -551,7 +571,11 @@ impl GpuBackend for IntelBackend {
                     dev.prev_energy_ts = ts_s;
                 }
             } else {
-                tracing::debug!("IGCL power telemetry failed with error {ret:#x}");
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    code = %crate::log::Hex(ret),
+                    "IGCL power telemetry query failed",
+                );
             }
         }
     }

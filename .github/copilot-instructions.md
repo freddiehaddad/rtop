@@ -30,6 +30,70 @@ If code exists, it must be reachable and used. Dead feature scaffolding
 (config fields, enum variants, UI options for unimplemented features)
 must not be checked in — add it when the feature is built, not before.
 
+## Logging
+
+Logging is always installed; the level filter is the only knob, and
+defaults to `warn`. Disable by setting `log_level = "off"` in
+`rtop.toml` — that suppresses log file creation entirely.
+
+A startup diagnostic banner is emitted at `info` from
+`log::startup_banner` (rtop version, profile, target, Windows version,
+host, user, config path, log path). To collect it for a bug report,
+set `log_level = "info"` in `rtop.toml` and reproduce.
+
+### Conventions
+
+- Every `tracing::*!` call must include
+  `subsystem = %log::Subsystem::Foo` as a structured field.
+- Vendor and Win32 return codes use `code = %log::Hex(ret)`. The `Hex`
+  newtype standardises the format as `0x` prefixed, uppercase, 8-wide.
+- Other typed values (pid, device index, theme name, option key) use
+  structured fields, not message interpolation.
+- The message string is a stable, present-tense identifier of the
+  operation: `"PdhCollectQueryData failed"`, `"option toggled"`. Not
+  a sentence.
+- State-changing user actions are logged at `info` with
+  `subsystem = %log::Subsystem::Input` and an `action` field
+  (preset switch, option toggle, theme cycle, log-level change,
+  process kill, filter commit, config save). Read-only navigation
+  (arrow keys, menu open/close) is `debug` or unlogged.
+- **Never silently swallow errors with `let _ = …`** on a fallible
+  operation the user might care about. Either attach a `warn!` with
+  the error and the operation name, or document why the result is
+  intentionally discarded (RAII drops, first-call sizing probes,
+  shutdown-path channel sends).
+- No throttling. If a per-cycle log would spam, choose the right
+  level (`debug` for expected-on-some-systems, `warn` for a real
+  degraded state) and accept the volume.
+
+### Do not log
+
+- Per-frame render and dirty-flag updates
+- Per-keystroke navigation (arrow keys, j/k, Page Up/Down, Home/End,
+  mouse wheel)
+- Filter-text character appends/backspaces (log once on Enter when
+  the filter actually commits)
+- Sub-threshold resize bursts (log only when the size actually
+  changes)
+- Routine Win32 success returns (the absence of a `warn!` is the
+  success signal)
+- Shutdown-path RAII drop errors (`CloseHandle`, `RegCloseKey`,
+  `FreeLibrary`, `PdhCloseQuery`, vendor SDK unloads)
+
+### Level rubric
+
+- `error` — unrecoverable failure that requires the process to exit.
+  Reserved for the panic hook and terminal-init failure in `main`.
+- `warn` — recoverable failure that degrades observable behavior; the
+  user might notice missing data and want to know why.
+- `info` — significant lifecycle event the user may want to confirm
+  (subscriber installed, level changed, config reloaded, GPU vendor
+  detected, theme loaded, user took a state-changing action).
+- `debug` — per-cycle or per-resource diagnostics for bug reports;
+  includes vendor-init failures expected on systems without that
+  vendor.
+- `trace` — reserved.
+
 ## Commit Style
 
 Use Conventional Commit subjects that match the existing history:

@@ -64,7 +64,10 @@ impl NetCollector {
 
         let flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_ANYCAST;
         let Some(mut buffer) = adapter_addresses_buffer(flags) else {
-            tracing::warn!("Network: GetAdaptersAddresses failed");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Network,
+                "GetAdaptersAddresses failed",
+            );
             self.status
                 .downgrade(super::CollectStatus::Failed("adapter query failed"));
             return;

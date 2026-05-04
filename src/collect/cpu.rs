@@ -170,7 +170,10 @@ impl CpuCollector {
         // --- Per-core CPU times via NtQuerySystemInformation ---
         let core_count = self.info.core_count;
         if core_count == 0 {
-            tracing::warn!("CPU: core_count is 0, skipping per-core collection");
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Cpu,
+                "core_count is 0; per-core collection skipped",
+            );
             self.status
                 .downgrade(super::CollectStatus::Failed("no cores detected"));
             return;
