@@ -806,13 +806,15 @@ fn calculate_layout(
     let stats_rows = ui::cpu_widget::stats_row_count(has_temp, has_watts);
     let cpu_panel_overhead = stats_rows + 2; // stats + load detail row + section divider
 
+    let layout = config.layout();
+
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        widgets: config.widgets(),
-        cpu_bottom: config.cpu_bottom(),
-        mem_below_net: config.mem_below_net(),
-        proc_left: config.proc_left(),
+        widgets: layout.widgets,
+        cpu_bottom: layout.cpu_bottom,
+        mem_below_net: layout.mem_below_net,
+        proc_left: layout.proc_left,
         core_count: live.core_count,
         gpu_count: live.gpu.as_ref().map_or(0, |g| g.gpus.len()),
         disk_count: filtered_disk_count(live.disk.as_deref(), config),
@@ -1096,7 +1098,7 @@ pub(crate) fn render_all(
             single_graph: config.cpu_single_graph,
             auto_scale: config.cpu_auto_scale,
             update_ms,
-            current_preset: config.current_preset,
+            preset_name: config.preset.active().name(),
             invert_lower: config.cpu_invert_lower,
             show_cpu_freq: config.show_cpu_freq,
             show_uptime: config.show_uptime,

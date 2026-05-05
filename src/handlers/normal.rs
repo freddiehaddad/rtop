@@ -98,17 +98,17 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
 // --- Presets ---
 
 fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
-    let delta = match *key {
-        Key::Char('p') => 1,
-        Key::Char('P') => -1,
+    let forward = match *key {
+        Key::Char('p') => true,
+        Key::Char('P') => false,
         _ => return None,
     };
-    ctx.config.cycle_preset(delta);
+    ctx.config.cycle_preset(forward);
     sync_update_ms(ctx);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "preset_cycle",
-        preset = ctx.config.current_preset,
+        preset = ctx.config.preset.active().name(),
         "preset action",
     );
     ctx.render.dirty |= Dirty::FULL;
@@ -385,7 +385,7 @@ fn handle_widget_toggles(key: &Key, ctx: &mut InputContext) {
         _ => return,
     };
     ctx.config.toggle_widget(kind);
-    let shown = ctx.config.widgets().contains(&kind);
+    let shown = ctx.config.layout().widgets.contains(&kind);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "widget_toggle",

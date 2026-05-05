@@ -28,7 +28,10 @@ pub struct CpuWidgetSettings<'a> {
     /// the height of the bar then directly maps to the CPU%.
     pub auto_scale: bool,
     pub update_ms: u64,
-    pub current_preset: i64,
+    /// Canonical name of the active preset (e.g. "all", "cpu+proc",
+    /// "custom"). Rendered in the bottom-border preset hint as
+    /// `← P NAME p →`.
+    pub preset_name: &'a str,
     pub invert_lower: bool,
     pub show_cpu_freq: bool,
     pub show_uptime: bool,
@@ -190,22 +193,22 @@ impl CoreGridLayout {
 /// Draw the CPU widget into an ANSI string.
 ///
 /// Layout:
-/// ╭─┐¹cpu┌────────────────────────┬──────────────────┐Intel(R) Core(TM) i9-14900KF┌─╮
-/// │                       user 2% │ CPU   ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        4% │
-/// │                               │ Temp  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      40°C │
-/// │                               │ Watts ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  31W/400W │
-/// │                               │ Load  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      0.06 │
-/// │                               │          1m: 0.06  5m: 0.06  15m: 0.06          │
-/// │                               ├─┐Cores┌──────────────────────────────┐4.77 GHz┌─┤
-/// │⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│ C00 ⣀⣀⣀⣀⣀⣀⣀⣀   3%  32°C C08 ⣀⣀⣀⣀⣀⣀⣀⣀  10%  37°C │
-/// │⠉⠉⠉⠙⠋⠉⠉⠙⠋⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉│ C01 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C09 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
-/// │                               │ C02 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  34°C C10 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
-/// │                               │ C03 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  34°C C11 ⣀⣀⣀⣀⣀⣀⣀⣀  12%  37°C │
-/// │                               │ C04 ⣀⣀⣀⣀⣀⣀⣀⣀   2%  33°C C12 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  35°C │
-/// │                               │ C05 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C C13 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
-/// │                               │ C06 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C14 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
-/// │                     system 2% │ C07 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  33°C C15 ⣀⣀⣀⣀⣀⣀⣀⣀   5%  35°C │
-/// ╰─┘menu└┘preset *0└┘─ 2000ms +└─┴─────────────────────────┘up 13d21:05└┘18:01:00└─╯
+/// ╭─┐¹cpu┌──────────────────────────┬──────────────────┐Intel(R) Core(TM) i9-14900KF┌─╮
+/// │                         user 2% │ CPU   ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        4% │
+/// │                                 │ Temp  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      40°C │
+/// │                                 │ Watts ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  31W/400W │
+/// │                                 │ Load  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      0.06 │
+/// │                                 │          1m: 0.06  5m: 0.06  15m: 0.06          │
+/// │                                 ├─┐Cores┌──────────────────────────────┐4.77 GHz┌─┤
+/// │⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│ C00 ⣀⣀⣀⣀⣀⣀⣀⣀   3%  32°C C08 ⣀⣀⣀⣀⣀⣀⣀⣀  10%  37°C │
+/// │⠉⠉⠉⠙⠋⠉⠉⠙⠋⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉│ C01 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C09 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
+/// │                                 │ C02 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  34°C C10 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
+/// │                                 │ C03 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  34°C C11 ⣀⣀⣀⣀⣀⣀⣀⣀  12%  37°C │
+/// │                                 │ C04 ⣀⣀⣀⣀⣀⣀⣀⣀   2%  33°C C12 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  35°C │
+/// │                                 │ C05 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C C13 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
+/// │                                 │ C06 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C14 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
+/// │                       system 2% │ C07 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  33°C C15 ⣀⣀⣀⣀⣀⣀⣀⣀   5%  35°C │
+/// ╰─┘menu└┘← P all p →└┘─ 2000ms +└─┴─────────────────────────┘up 13d21:05└┘18:01:00└─╯
 pub fn draw(
     cpu: &CpuInfo,
     area: &WidgetArea,
@@ -471,7 +474,7 @@ pub fn draw(
         x,
         y + height,
         settings.update_ms,
-        settings.current_preset,
+        settings.preset_name,
         theme,
     ));
 
@@ -734,26 +737,39 @@ fn draw_core_panel(
     buf.finish()
 }
 
-/// Render the bottom border keybind hints (menu, preset with number, update rate).
+/// Render the bottom border keybind hints (menu, preset cycler, update rate).
+///
+/// The preset hint is laid out as `← P NAME p →`: arrows + spaces
+/// in the label colour (TITLE), only the keybind letters `P` and
+/// `p` in the keybind colour (HI). Mirrors the colour + spacing
+/// rule established for the net-widget iface inset.
 fn draw_bottom_hints(
     x: usize,
     bottom_y: usize,
     update_ms: u64,
-    current_preset: i64,
+    preset_name: &str,
     theme: &Theme,
 ) -> String {
     let border_color = theme.color(tc::CPU_WIDGET);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
 
-    let preset_label = format!("preset *{}", current_preset);
-    let rate_label = format!("{}ms", update_ms);
     let menu_inset = box_drawing::keybind_inset("menu", border_color, hi, title_color, true);
-    let preset_inset =
-        box_drawing::keybind_inset(&preset_label, border_color, hi, title_color, true);
+    let preset_text = format!(
+        "{} {}P{} {} {}p{} {}",
+        symbols::LEFT_ARROW,
+        hi,
+        title_color,
+        preset_name,
+        hi,
+        title_color,
+        symbols::RIGHT_ARROW,
+    );
+    let preset_inset = box_drawing::title_inset(&preset_text, border_color, title_color, true);
+    let rate_label = format!("{update_ms}ms");
     let rate_text = format!("─ {}{} {}+", title_color, rate_label, hi);
     let rate_inset = box_drawing::title_inset(&rate_text, border_color, hi, true);
-    let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
+    let hints = format!("{menu_inset}{preset_inset}{rate_inset}");
 
     let mut buf = AnsiBuffer::new();
     buf.mv(x + 3, bottom_y).text(&hints);
@@ -828,7 +844,7 @@ mod tests {
             single_graph: false,
             auto_scale: false,
             update_ms: 2000,
-            current_preset: 0,
+            preset_name: "all",
             invert_lower: true,
             show_cpu_freq: true,
             show_uptime: true,
@@ -855,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn draw_contains_preset_label() {
+    fn draw_contains_preset_hint_with_arrows_and_keybinds() {
         let output = draw(
             &make_cpu_info(),
             &make_area(),
@@ -864,13 +880,21 @@ mod tests {
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
+        // Preset hint format: `← P NAME p →`. Arrows + spaces are
+        // structural; preset name and keybinds are content.
+        assert!(plain.contains('←'), "output should contain left arrow");
+        assert!(plain.contains('→'), "output should contain right arrow");
         assert!(
-            plain.contains("reset"),
-            "output should contain preset label"
+            plain.contains(" P "),
+            "output should contain backward keybind 'P'"
         );
         assert!(
-            plain.contains("*0"),
-            "output should contain preset number '*0'"
+            plain.contains(" p "),
+            "output should contain forward keybind 'p'"
+        );
+        assert!(
+            plain.contains("all"),
+            "output should contain the preset name 'all'"
         );
     }
 
@@ -994,16 +1018,40 @@ mod tests {
             &CollectStatus::Ok,
         );
         let title = theme.color(tc::TITLE);
+        let hi = theme.color(tc::HI_FG);
+
+        // Menu keybind inset: 'm' in HI, "enu" in TITLE.
         assert!(
-            output.contains(&format!("{}{}", title, "enu")),
+            output.contains(&format!("{title}enu")),
             "menu inset 'enu' should be preceded by TITLE"
         );
+        // Preset hint follows the `← P NAME p →` rule: arrows +
+        // spaces in TITLE, only `P` and `p` in HI. The `P` is
+        // preceded by HI; `p` is preceded by HI. Each arrow + its
+        // adjacent space is preceded by TITLE.
         assert!(
-            output.contains(&format!("{}{}", title, "reset *0")),
-            "preset inset 'reset *0' should be preceded by TITLE"
+            output.contains(&format!("{title}← ")),
+            "left arrow + trailing space should be preceded by TITLE"
         );
         assert!(
-            output.contains(&format!("{}{}", title, "2000ms")),
+            output.contains(&format!("{hi}P")),
+            "preset back keybind 'P' should be preceded by HI"
+        );
+        assert!(
+            output.contains(&format!("{title} all ")),
+            "preset name and surrounding spaces should be preceded by TITLE"
+        );
+        assert!(
+            output.contains(&format!("{hi}p")),
+            "preset forward keybind 'p' should be preceded by HI"
+        );
+        assert!(
+            output.contains(&format!("{title} →")),
+            "leading space + right arrow should be preceded by TITLE"
+        );
+        // Rate inset: "2000ms" in TITLE.
+        assert!(
+            output.contains(&format!("{title}2000ms")),
             "rate inset '2000ms' should be preceded by TITLE"
         );
     }

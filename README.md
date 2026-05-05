@@ -186,10 +186,16 @@ Set per-widget intervals via the options menu (each category tab has an update i
 
 ### Visible Widgets
 
-Control which widgets are shown via the `custom_widgets` config (used when the active preset is the custom one):
+Control which widgets are shown via the `[layout]` config table (used when the active preset is `custom`):
 
 ```toml
-custom_widgets = ["cpu", "mem", "net", "proc", "disk", "gpu0"]
+preset = "custom"
+
+[layout]
+widgets = ["cpu", "mem", "net", "proc", "disk", "gpu0"]
+cpu_bottom = false
+mem_below_net = false
+proc_left = false
 ```
 
 Toggle widgets at runtime with the `1`–`9` and `0` keys.

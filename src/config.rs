@@ -1,5 +1,6 @@
 use crate::collect::process_display::ProcSort;
 use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
+use crate::domain::preset::CustomLayout;
 use crate::domain::widget_kind::{WidgetKind, WidgetList};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -70,24 +71,6 @@ fn validate_choice(
     }
 }
 
-/// The full set of widgets a freshly-defaulted `Config` lists in
-/// `custom_widgets`: the five base widgets plus a `Gpu(N)`
-/// entry for every supported index. The layout engine drops Gpu
-/// entries whose index is `>= detected gpu_count` so the list can
-/// safely include all of them — widgets only render when both
-/// listed and backed by hardware.
-fn default_custom_widgets() -> Vec<WidgetKind> {
-    let mut widgets = vec![
-        WidgetKind::Cpu,
-        WidgetKind::Mem,
-        WidgetKind::Net,
-        WidgetKind::Proc,
-        WidgetKind::Disk,
-    ];
-    widgets.extend((0..MAX_GPUS).filter_map(WidgetKind::gpu));
-    widgets
-}
-
 // ---------------------------------------------------------------------------
 // Config struct
 // ---------------------------------------------------------------------------
@@ -144,16 +127,12 @@ pub struct Config {
     pub net_download: i64,
     pub net_upload: i64,
 
-    pub current_preset: i64,
+    pub preset: crate::domain::preset::PresetField,
 
-    // -- custom preset (the only layout state persisted to TOML) --
-    /// Widget list for the user's custom preset (preset index
-    /// `BUILTIN_PRESETS.len()`). Only this and the three
-    /// `custom_*` bools below describe layout in TOML.
-    pub custom_widgets: WidgetList,
-    pub custom_cpu_bottom: bool,
-    pub custom_mem_below_net: bool,
-    pub custom_proc_left: bool,
+    /// Persisted layout for the `Custom` preset slot. Serialised
+    /// as a TOML `[layout]` table.
+    #[serde(rename = "layout")]
+    pub custom: CustomLayout,
 
     // -- strings --
     pub color_theme: String,
@@ -234,22 +213,17 @@ impl Default for Config {
             net_upload: 100,
 
             // Default to the custom preset so first-launch users
-            // see what their TOML actually says (the `custom_*`
-            // fields below). Otherwise the cursor would lie.
-            current_preset: crate::domain::preset::BUILTIN_PRESETS.len() as i64,
+            // see what their TOML actually says (the `[layout]`
+            // block below). Otherwise the cursor would lie.
+            preset: crate::domain::preset::PresetField::new(
+                crate::domain::preset::ActivePreset::Custom,
+            ),
 
-            // Custom preset default: every widget rtop knows about.
-            // `Gpu(N)` entries for indices not backed by physical
-            // hardware are silently ignored by the layout engine
-            // (no slot allocated when `N >= detected gpu_count`),
-            // so the list can include them all without producing
-            // empty widgets. New GPUs plugged in later are picked
-            // up automatically because their index is already in
-            // the list.
-            custom_widgets: WidgetList::from_kinds(default_custom_widgets()),
-            custom_cpu_bottom: false,
-            custom_mem_below_net: false,
-            custom_proc_left: false,
+            // First-launch custom layout: every widget rtop knows
+            // about (see `CustomLayout::default`). New GPUs plugged
+            // in later are picked up automatically because their
+            // index is already in the list.
+            custom: CustomLayout::default(),
 
             // strings
             color_theme: "default".to_string(),
@@ -407,8 +381,6 @@ impl Config {
             &mut warnings,
         );
 
-        self.clamp_current_preset();
-
         // The only remaining `validate_choice` call covers
         // `color_theme` — the single string-typed field with a
         // closed set of choices. The other browsable config
@@ -422,14 +394,25 @@ impl Config {
             &mut warnings,
         );
 
+        // Surface deserialise-time parse failures from the active
+        // preset cursor. Bad names are already dropped by
+        // PresetField's deserialiser (defaulting to Custom); we
+        // just need to fold the captured offending name into the
+        // warning list.
+        if let Some(invalid) = self.preset.take_invalid() {
+            warnings.push(format!(
+                "Unknown preset name in 'preset': '{invalid}', falling back to custom",
+            ));
+        }
+
         // Surface deserialise-time parse failures from the custom
-        // preset's widget list. Bad strings are already dropped by
+        // layout's widget list. Bad strings are already dropped by
         // WidgetList's deserialiser; we just need to fold the
         // captured invalid entries into the warning list.
-        let invalid_widgets = self.custom_widgets.take_invalid();
+        let invalid_widgets = self.custom.widgets.take_invalid();
         if !invalid_widgets.is_empty() {
             warnings.push(format!(
-                "Invalid widget name(s) in 'custom_widgets': {}",
+                "Invalid widget name(s) in '[layout].widgets': {}",
                 invalid_widgets.join(", ")
             ));
         }
@@ -468,132 +451,113 @@ impl Config {
         self.conf_file = saved_conf;
     }
 
-    /// Clamp `current_preset` to a valid index in
-    /// `0..=BUILTIN_PRESETS.len()` (inclusive — the upper bound is
-    /// the custom preset). Out-of-range values fall back to the
-    /// custom preset so the user's saved layout is what they see
-    /// rather than a builtin they didn't pick.
-    pub fn clamp_current_preset(&mut self) {
-        let custom_idx = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
-        if self.current_preset < 0 || self.current_preset > custom_idx {
-            self.current_preset = custom_idx;
+    /// Borrowed view of the live layout. Builtins return a borrow
+    /// of their `&'static [WidgetKind]` and bool flags; the custom
+    /// preset returns a borrow of `self.custom`. No allocation per
+    /// call — the view is constructed by copy and the widget slice
+    /// is forwarded as-is.
+    pub fn layout(&self) -> crate::domain::preset::ActiveLayout<'_> {
+        match self.preset.active() {
+            crate::domain::preset::ActivePreset::Builtin(b) => {
+                crate::domain::preset::ActiveLayout {
+                    widgets: b.widgets(),
+                    cpu_bottom: b.cpu_bottom(),
+                    mem_below_net: b.mem_below_net(),
+                    proc_left: b.proc_left(),
+                }
+            }
+            crate::domain::preset::ActivePreset::Custom => crate::domain::preset::ActiveLayout {
+                widgets: self.custom.widgets.as_slice(),
+                cpu_bottom: self.custom.cpu_bottom,
+                mem_below_net: self.custom.mem_below_net,
+                proc_left: self.custom.proc_left,
+            },
         }
     }
 
-    /// Live layout: the widget list shown on screen, dispatched from
-    /// whichever preset is currently active. Builtins return their
-    /// `&'static [WidgetKind]` directly; the custom preset returns a
-    /// borrow of `custom_widgets`.
-    pub fn widgets(&self) -> &[WidgetKind] {
-        match self.active_builtin() {
-            Some(b) => b.widgets,
-            None => self.custom_widgets.as_slice(),
-        }
-    }
-
-    /// Live `cpu_bottom` for the active preset.
-    pub fn cpu_bottom(&self) -> bool {
-        match self.active_builtin() {
-            Some(b) => b.cpu_bottom,
-            None => self.custom_cpu_bottom,
-        }
-    }
-
-    /// Live `mem_below_net` for the active preset.
-    pub fn mem_below_net(&self) -> bool {
-        match self.active_builtin() {
-            Some(b) => b.mem_below_net,
-            None => self.custom_mem_below_net,
-        }
-    }
-
-    /// Live `proc_left` for the active preset.
-    pub fn proc_left(&self) -> bool {
-        match self.active_builtin() {
-            Some(b) => b.proc_left,
-            None => self.custom_proc_left,
-        }
-    }
-
-    /// Move the preset cursor by `delta` (wrapping over the full
-    /// `0..=BUILTIN_PRESETS.len()` range, where the last index is
-    /// the custom preset).
-    pub fn cycle_preset(&mut self, delta: i64) {
-        let count = (crate::domain::preset::BUILTIN_PRESETS.len() + 1) as i64;
-        self.current_preset = (self.current_preset + delta).rem_euclid(count);
+    /// Move the preset cursor one position in the cycle. `forward`
+    /// = `true` advances (`p`); `forward` = `false` retreats (`P`).
+    /// The cycle wraps over [`crate::domain::preset::ActivePreset::CYCLE_LEN`]
+    /// positions (the four builtins plus custom).
+    pub fn cycle_preset(&mut self, forward: bool) {
+        let next = if forward {
+            self.preset.active().next()
+        } else {
+            self.preset.active().prev()
+        };
+        self.preset.set(next);
     }
 
     /// Toggle a single widget on or off in the custom preset.
     /// Auto-promotes from a builtin preset to the custom one
     /// (copying the active builtin's layout into custom first) so
-    /// the user's edit always lands somewhere persistent.
+    /// the user's edit always lands somewhere persistent. Toggle
+    /// is always a real change (the kind is either added or
+    /// removed), so unlike the bool / widget-list setters there
+    /// is no no-op short-circuit.
     pub fn toggle_widget(&mut self, kind: WidgetKind) {
-        self.promote_to_custom_if_builtin();
-        if !self.custom_widgets.remove_kind(kind) {
-            self.custom_widgets.push(kind);
+        let custom = self.promote_to_custom();
+        if !custom.widgets.remove_kind(kind) {
+            custom.widgets.push(kind);
         }
     }
 
     /// Replace the custom preset's widget list with `kinds`.
     ///
-    /// If the cursor is on a builtin preset whose layout already
-    /// matches `kinds`, this is a no-op so the cursor stays on the
-    /// builtin (no surprise promote-to-custom on an unchanged value).
-    /// Otherwise it promotes-to-custom and writes the new list.
-    pub fn set_custom_widgets(&mut self, kinds: Vec<WidgetKind>) {
-        if self.widgets() == kinds.as_slice() {
+    /// No-op if `kinds` already matches the live layout — preserves
+    /// the cursor on a builtin so an "edit" that doesn't actually
+    /// change anything doesn't surprise-promote. Otherwise
+    /// promotes-to-custom and writes the new list.
+    pub fn set_widgets(&mut self, kinds: Vec<WidgetKind>) {
+        if self.layout().widgets == kinds.as_slice() {
             return;
         }
-        self.promote_to_custom_if_builtin();
-        self.custom_widgets = WidgetList::from_kinds(kinds);
+        self.promote_to_custom().widgets = WidgetList::from_kinds(kinds);
     }
 
-    /// Set `custom_cpu_bottom` (or first promote from a builtin).
-    /// Used by the options-menu Bool toggle path.
+    /// Set `custom.cpu_bottom`. No-op if the live value already
+    /// equals `value` (preserves cursor on a builtin).
     pub fn set_cpu_bottom(&mut self, value: bool) {
-        self.promote_to_custom_if_builtin();
-        self.custom_cpu_bottom = value;
+        if self.layout().cpu_bottom == value {
+            return;
+        }
+        self.promote_to_custom().cpu_bottom = value;
     }
 
-    /// Set `custom_mem_below_net` (or first promote from a builtin).
+    /// Set `custom.mem_below_net`. No-op if the live value already
+    /// equals `value` (preserves cursor on a builtin).
     pub fn set_mem_below_net(&mut self, value: bool) {
-        self.promote_to_custom_if_builtin();
-        self.custom_mem_below_net = value;
+        if self.layout().mem_below_net == value {
+            return;
+        }
+        self.promote_to_custom().mem_below_net = value;
     }
 
-    /// Set `custom_proc_left` (or first promote from a builtin).
+    /// Set `custom.proc_left`. No-op if the live value already
+    /// equals `value` (preserves cursor on a builtin).
     pub fn set_proc_left(&mut self, value: bool) {
-        self.promote_to_custom_if_builtin();
-        self.custom_proc_left = value;
+        if self.layout().proc_left == value {
+            return;
+        }
+        self.promote_to_custom().proc_left = value;
     }
 
-    /// Borrow the active builtin preset, or `None` when the
-    /// current cursor points to the custom preset.
-    fn active_builtin(&self) -> Option<&'static crate::domain::preset::Preset> {
-        let presets = crate::domain::preset::BUILTIN_PRESETS;
-        if self.current_preset < 0 {
-            return None;
+    /// Move the cursor to `Custom`, copying the active builtin's
+    /// layout into `self.custom` on first promotion, and return a
+    /// mutable borrow of the custom slot. Already-on-Custom is a
+    /// no-op (no copy). Used by every layout-mutating setter so
+    /// that the user's edit always lands in the persistent slot.
+    fn promote_to_custom(&mut self) -> &mut CustomLayout {
+        if let crate::domain::preset::ActivePreset::Builtin(b) = self.preset.active() {
+            self.custom = CustomLayout {
+                widgets: WidgetList::from_kinds(b.widgets().iter().copied()),
+                cpu_bottom: b.cpu_bottom(),
+                mem_below_net: b.mem_below_net(),
+                proc_left: b.proc_left(),
+            };
+            self.preset.set(crate::domain::preset::ActivePreset::Custom);
         }
-        let idx = self.current_preset as usize;
-        if idx < presets.len() {
-            Some(&presets[idx])
-        } else {
-            None
-        }
-    }
-
-    /// If the cursor is on a builtin, copy that builtin's layout
-    /// into the custom_* fields and switch the cursor to custom.
-    /// Called from every layout-mutating setter so that the user's
-    /// edit always lands in the persistent custom preset.
-    fn promote_to_custom_if_builtin(&mut self) {
-        if let Some(b) = self.active_builtin() {
-            self.custom_widgets = WidgetList::from_kinds(b.widgets.iter().copied());
-            self.custom_cpu_bottom = b.cpu_bottom;
-            self.custom_mem_below_net = b.mem_below_net;
-            self.custom_proc_left = b.proc_left;
-            self.current_preset = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
-        }
+        &mut self.custom
     }
 }
 
@@ -931,20 +895,20 @@ impl ConfigKey {
             Self::ProcGradient => bool_display(config.proc_gradient),
             Self::ProcPerCore => bool_display(config.proc_per_core),
             Self::ProcMemBytes => bool_display(config.proc_mem_bytes),
-            Self::ProcLeft => bool_display(config.proc_left()),
+            Self::ProcLeft => bool_display(config.layout().proc_left),
 
             Self::ProcAggregate => bool_display(config.proc_aggregate),
             Self::KeepDeadProcUsage => bool_display(config.keep_dead_proc_usage),
             Self::CpuInvertLower => bool_display(config.cpu_invert_lower),
             Self::CpuSingleGraph => bool_display(config.cpu_single_graph),
             Self::CpuAutoScale => bool_display(config.cpu_auto_scale),
-            Self::CpuBottom => bool_display(config.cpu_bottom()),
+            Self::CpuBottom => bool_display(config.layout().cpu_bottom),
             Self::ShowUptime => bool_display(config.show_uptime),
             Self::ShowCpuWatts => bool_display(config.show_cpu_watts),
             Self::CheckTemp => bool_display(config.check_temp),
             Self::ShowCoretemp => bool_display(config.show_coretemp),
             Self::ShowCpuFreq => bool_display(config.show_cpu_freq),
-            Self::MemBelowNet => bool_display(config.mem_below_net()),
+            Self::MemBelowNet => bool_display(config.layout().mem_below_net),
             Self::ShowSwap => bool_display(config.show_swap),
 
             Self::ShowIoStat => bool_display(config.show_io_stat),
@@ -976,7 +940,8 @@ impl ConfigKey {
             // strings
             Self::ColorTheme => config.color_theme.clone(),
             Self::Widgets => config
-                .widgets()
+                .layout()
+                .widgets
                 .iter()
                 .map(WidgetKind::to_string)
                 .collect::<Vec<_>>()
@@ -1017,20 +982,20 @@ impl ConfigKey {
             Self::ProcGradient => config.proc_gradient = !config.proc_gradient,
             Self::ProcPerCore => config.proc_per_core = !config.proc_per_core,
             Self::ProcMemBytes => config.proc_mem_bytes = !config.proc_mem_bytes,
-            Self::ProcLeft => config.set_proc_left(!config.proc_left()),
+            Self::ProcLeft => config.set_proc_left(!config.layout().proc_left),
 
             Self::ProcAggregate => config.proc_aggregate = !config.proc_aggregate,
             Self::KeepDeadProcUsage => config.keep_dead_proc_usage = !config.keep_dead_proc_usage,
             Self::CpuInvertLower => config.cpu_invert_lower = !config.cpu_invert_lower,
             Self::CpuSingleGraph => config.cpu_single_graph = !config.cpu_single_graph,
             Self::CpuAutoScale => config.cpu_auto_scale = !config.cpu_auto_scale,
-            Self::CpuBottom => config.set_cpu_bottom(!config.cpu_bottom()),
+            Self::CpuBottom => config.set_cpu_bottom(!config.layout().cpu_bottom),
             Self::ShowUptime => config.show_uptime = !config.show_uptime,
             Self::ShowCpuWatts => config.show_cpu_watts = !config.show_cpu_watts,
             Self::CheckTemp => config.check_temp = !config.check_temp,
             Self::ShowCoretemp => config.show_coretemp = !config.show_coretemp,
             Self::ShowCpuFreq => config.show_cpu_freq = !config.show_cpu_freq,
-            Self::MemBelowNet => config.set_mem_below_net(!config.mem_below_net()),
+            Self::MemBelowNet => config.set_mem_below_net(!config.layout().mem_below_net),
             Self::ShowSwap => config.show_swap = !config.show_swap,
 
             Self::ShowIoStat => config.show_io_stat = !config.show_io_stat,
@@ -1103,7 +1068,7 @@ impl ConfigKey {
             Self::ColorTheme => config.color_theme = value.to_string(),
             Self::Widgets => {
                 let kinds = Self::parse_widgets(value).map_err(|_| err())?;
-                config.set_custom_widgets(kinds);
+                config.set_widgets(kinds);
             }
             Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
@@ -1387,13 +1352,14 @@ mod tests {
     fn load_invalid_string_choice_resets_just_that_field() {
         // String-typed fields validated by `validate_choice` reset
         // the offending field and emit a per-field warning while
-        // the rest of the config loads normally. `custom_widgets`
-        // validation also strips invalid widget names with a warning.
+        // the rest of the config loads normally. The `[layout]`
+        // table's widget list also strips invalid widget names with
+        // a warning.
         let mut config = Config::new();
         let tmp = std::env::temp_dir().join("rtop_test_bad_string_values.toml");
         fs::write(
             &tmp,
-            "color_theme = \"foo\"\ncustom_widgets = [\"cpu\", \"nope\"]\n",
+            "color_theme = \"foo\"\n[layout]\nwidgets = [\"cpu\", \"nope\"]\n",
         )
         .unwrap();
         let warnings = config.load(&tmp);
@@ -1406,11 +1372,11 @@ mod tests {
         assert!(
             warnings
                 .iter()
-                .any(|w| w.contains("custom_widgets") && w.contains("nope"))
+                .any(|w| w.contains("[layout].widgets") && w.contains("nope"))
         );
         assert_eq!(config.color_theme, "default");
         // After dropping invalid "nope", only "cpu" remains in custom.
-        assert_eq!(config.custom_widgets.as_slice(), &[WidgetKind::Cpu]);
+        assert_eq!(config.custom.widgets.as_slice(), &[WidgetKind::Cpu]);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1444,16 +1410,17 @@ mod tests {
         // First-launch cursor lands on the custom preset so the
         // visible layout matches what's persisted in TOML.
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+            config.preset.active(),
+            crate::domain::preset::ActivePreset::Custom
         );
         // On the custom cursor, the live layout view is the
         // custom widget list verbatim. Specific contents are covered
-        // by `default_custom_widgets_includes_all_supported_widgets`.
-        assert_eq!(config.widgets(), config.custom_widgets.as_slice());
-        assert!(!config.cpu_bottom());
-        assert!(!config.mem_below_net());
-        assert!(!config.proc_left());
+        // by `custom_layout_default_includes_every_supported_widget`
+        // in `domain/preset.rs`.
+        assert_eq!(config.layout().widgets, config.custom.widgets.as_slice());
+        assert!(!config.layout().cpu_bottom);
+        assert!(!config.layout().mem_below_net);
+        assert!(!config.layout().proc_left);
     }
 
     #[test]
@@ -1519,236 +1486,228 @@ mod tests {
     fn toggle_widget_adds_when_missing() {
         let mut config = Config::new();
         // Start from a controlled custom layout.
-        config.custom_widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
+        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
         config.toggle_widget(WidgetKind::Net);
-        assert!(config.widgets().contains(&WidgetKind::Net));
-        assert!(config.custom_widgets.as_slice().contains(&WidgetKind::Net));
+        assert!(config.layout().widgets.contains(&WidgetKind::Net));
+        assert!(config.custom.widgets.as_slice().contains(&WidgetKind::Net));
     }
 
     #[test]
     fn toggle_widget_removes_when_present() {
         let mut config = Config::new();
-        config.custom_widgets =
+        config.custom.widgets =
             WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Net]);
         config.toggle_widget(WidgetKind::Net);
-        assert!(!config.widgets().contains(&WidgetKind::Net));
-        assert!(!config.custom_widgets.as_slice().contains(&WidgetKind::Net));
+        assert!(!config.layout().widgets.contains(&WidgetKind::Net));
+        assert!(!config.custom.widgets.as_slice().contains(&WidgetKind::Net));
     }
 
     #[test]
     fn toggle_widget_on_builtin_promotes_to_custom() {
         let mut config = Config::new();
-        // Move to a builtin (preset 0 = "all") explicitly.
-        config.current_preset = 0;
-        // Pre-conditions: live layout matches builtin "all".
-        assert_eq!(
-            config.widgets(),
-            &[
-                WidgetKind::Cpu,
-                WidgetKind::Mem,
-                WidgetKind::Net,
-                WidgetKind::Proc,
-                WidgetKind::Disk,
-            ]
-        );
+        // Move to a builtin ("all") explicitly.
+        config
+            .preset
+            .set(crate::domain::preset::ActivePreset::Builtin(
+                crate::domain::preset::BuiltinPreset::All,
+            ));
+        // Pre-conditions: live layout matches builtin "all" (which
+        // includes the 5 base widgets plus every supported GPU).
+        let all_widgets_len = 5 + MAX_GPUS;
+        assert_eq!(config.layout().widgets.len(), all_widgets_len);
+        assert!(config.layout().widgets.contains(&WidgetKind::Cpu));
 
         config.toggle_widget(WidgetKind::Cpu);
 
         // Cursor switched to custom and custom captured the new
         // (builtin minus cpu) layout.
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+            config.preset.active(),
+            crate::domain::preset::ActivePreset::Custom
         );
-        assert_eq!(
-            config.custom_widgets.as_slice(),
-            &[
-                WidgetKind::Mem,
-                WidgetKind::Net,
-                WidgetKind::Proc,
-                WidgetKind::Disk
-            ]
-        );
-        assert_eq!(
-            config.widgets(),
-            &[
-                WidgetKind::Mem,
-                WidgetKind::Net,
-                WidgetKind::Proc,
-                WidgetKind::Disk
-            ]
-        );
+        assert_eq!(config.custom.widgets.as_slice().len(), all_widgets_len - 1);
+        assert!(!config.custom.widgets.as_slice().contains(&WidgetKind::Cpu));
+        assert!(!config.layout().widgets.contains(&WidgetKind::Cpu));
     }
 
     #[test]
     fn toggle_widget_on_custom_does_not_change_cursor() {
         let mut config = Config::new();
         // Default cursor is custom.
-        let before = config.current_preset;
+        let before = config.preset.active();
         config.toggle_widget(WidgetKind::Cpu);
-        assert_eq!(config.current_preset, before);
+        assert_eq!(config.preset.active(), before);
     }
 
     #[test]
-    fn current_preset_default_is_custom() {
+    fn preset_default_is_custom() {
         let config = Config::new();
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+            config.preset.active(),
+            crate::domain::preset::ActivePreset::Custom
         );
     }
 
     #[test]
-    fn cycle_preset_wraps_modulo_total_count() {
+    fn cycle_preset_forward_walks_full_cycle_then_wraps() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        let total = (crate::domain::preset::BUILTIN_PRESETS.len() + 1) as i64;
-        config.current_preset = 0;
-        for _ in 0..total {
-            config.cycle_preset(1);
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        for _ in 0..ActivePreset::CYCLE_LEN {
+            config.cycle_preset(true);
         }
         // After one full lap forward we are back where we started.
-        assert_eq!(config.current_preset, 0);
-        config.cycle_preset(-1);
-        assert_eq!(config.current_preset, total - 1);
+        assert_eq!(
+            config.preset.active(),
+            ActivePreset::Builtin(BuiltinPreset::All)
+        );
+        config.cycle_preset(false);
+        // One step backward from "all" lands on Custom (the slot
+        // immediately before the first builtin in cycle order).
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
     }
 
     #[test]
     fn cycle_preset_to_builtin_dispatches_to_builtin_layout() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.custom_widgets = WidgetList::from_kinds([WidgetKind::Mem, WidgetKind::Proc]);
-        config.custom_cpu_bottom = true;
-        config.current_preset = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
+        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Mem, WidgetKind::Proc]);
+        config.custom.cpu_bottom = true;
+        config.preset.set(ActivePreset::Custom);
         // On custom, live = custom.
-        assert_eq!(config.widgets(), &[WidgetKind::Mem, WidgetKind::Proc]);
-        assert!(config.cpu_bottom());
-
-        // Cycle to builtin 0 (all). Live now reads from the builtin.
-        config.current_preset = 0;
         assert_eq!(
-            config.widgets(),
-            &[
-                WidgetKind::Cpu,
-                WidgetKind::Mem,
-                WidgetKind::Net,
-                WidgetKind::Proc,
-                WidgetKind::Disk,
-            ]
-        );
-        assert!(!config.cpu_bottom());
-        // Custom storage is untouched by cycling.
-        assert_eq!(
-            config.custom_widgets.as_slice(),
+            config.layout().widgets,
             &[WidgetKind::Mem, WidgetKind::Proc]
         );
-        assert!(config.custom_cpu_bottom);
+        assert!(config.layout().cpu_bottom);
+
+        // Cycle to builtin "all". Live now reads from the builtin.
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        // Builtin "all" includes 5 base widgets + every supported GPU.
+        assert_eq!(config.layout().widgets.len(), 5 + MAX_GPUS);
+        assert!(config.layout().widgets.contains(&WidgetKind::Cpu));
+        assert!(config.layout().widgets.contains(&WidgetKind::Disk));
+        assert!(!config.layout().cpu_bottom);
+        // Custom storage is untouched by cycling.
+        assert_eq!(
+            config.custom.widgets.as_slice(),
+            &[WidgetKind::Mem, WidgetKind::Proc]
+        );
+        assert!(config.custom.cpu_bottom);
     }
 
     #[test]
     fn cycle_preset_back_to_custom_restores_user_layout() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        config.custom_widgets =
+        config.custom.widgets =
             WidgetList::from_kinds([WidgetKind::Mem, WidgetKind::Proc, WidgetKind::Gpu(0)]);
-        config.current_preset = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
+        config.preset.set(ActivePreset::Custom);
 
         // Visit a builtin and come back.
-        config.cycle_preset(1);
-        config.cycle_preset(-1);
+        config.cycle_preset(true);
+        config.cycle_preset(false);
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
-        );
-        assert_eq!(
-            config.widgets(),
+            config.layout().widgets,
             &[WidgetKind::Mem, WidgetKind::Proc, WidgetKind::Gpu(0)]
         );
     }
 
     #[test]
     fn set_cpu_bottom_on_builtin_promotes_to_custom() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = 0;
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
 
         config.set_cpu_bottom(true);
 
-        assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
-        );
-        assert!(config.custom_cpu_bottom);
-        assert!(config.cpu_bottom());
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert!(config.custom.cpu_bottom);
+        assert!(config.layout().cpu_bottom);
     }
 
     #[test]
     fn set_proc_left_on_custom_just_mutates_custom() {
         let mut config = Config::new();
         // Default is custom.
-        let before = config.current_preset;
+        let before = config.preset.active();
         config.set_proc_left(true);
-        assert_eq!(config.current_preset, before);
-        assert!(config.custom_proc_left);
-        assert!(config.proc_left());
+        assert_eq!(config.preset.active(), before);
+        assert!(config.custom.proc_left);
+        assert!(config.layout().proc_left);
     }
 
     #[test]
-    fn default_custom_widgets_includes_all_supported_widgets() {
-        let config = Config::new();
-        let kinds = config.custom_widgets.as_slice();
-        // 5 base widgets + every supported GPU index.
-        assert_eq!(kinds.len(), 5 + MAX_GPUS);
-        assert!(kinds.contains(&WidgetKind::Cpu));
-        assert!(kinds.contains(&WidgetKind::Mem));
-        assert!(kinds.contains(&WidgetKind::Net));
-        assert!(kinds.contains(&WidgetKind::Proc));
-        assert!(kinds.contains(&WidgetKind::Disk));
-        for i in 0..MAX_GPUS {
-            let gpu = WidgetKind::gpu(i).expect("0..MAX_GPUS is in range");
-            assert!(kinds.contains(&gpu), "default custom must list {gpu}");
-        }
-    }
-
-    #[test]
-    fn clamp_current_preset_keeps_in_range_value() {
+    fn set_cpu_bottom_no_op_on_equal_value_keeps_builtin_cursor() {
+        // Builtin "all" has cpu_bottom = false. Setting to false
+        // (the same value) must not promote to custom.
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = 1;
-        config.clamp_current_preset();
-        assert_eq!(config.current_preset, 1);
-    }
-
-    #[test]
-    fn clamp_current_preset_resets_negative_to_custom() {
-        let mut config = Config::new();
-        config.current_preset = -3;
-        config.clamp_current_preset();
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        config.set_cpu_bottom(false);
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+            config.preset.active(),
+            ActivePreset::Builtin(BuiltinPreset::All)
         );
     }
 
     #[test]
-    fn clamp_current_preset_resets_overflow_to_custom() {
+    fn set_mem_below_net_no_op_on_equal_value_keeps_builtin_cursor() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = (crate::domain::preset::BUILTIN_PRESETS.len() + 99) as i64;
-        config.clamp_current_preset();
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        config.set_mem_below_net(false);
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+            config.preset.active(),
+            ActivePreset::Builtin(BuiltinPreset::All)
+        );
+    }
+
+    #[test]
+    fn set_proc_left_no_op_on_equal_value_keeps_builtin_cursor() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
+        let mut config = Config::new();
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        config.set_proc_left(false);
+        assert_eq!(
+            config.preset.active(),
+            ActivePreset::Builtin(BuiltinPreset::All)
+        );
+    }
+    #[test]
+    fn unknown_preset_name_warns_and_falls_back_to_custom() {
+        let path = std::env::temp_dir().join("rtop_test_bad_preset_name.toml");
+        std::fs::write(&path, "preset = \"cpu+pro\"\n").unwrap();
+
+        let mut config = Config::new();
+        let warnings = config.load(&path);
+
+        assert_eq!(
+            config.preset.active(),
+            crate::domain::preset::ActivePreset::Custom
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("preset") && w.contains("cpu+pro")),
+            "expected a warning naming the offending preset value, got {warnings:?}"
         );
     }
 
     #[test]
     fn config_round_trips_custom_layout_through_toml() {
         let mut config = Config::new();
-        config.custom_widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
-        config.custom_cpu_bottom = true;
+        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
+        config.custom.cpu_bottom = true;
         let tmp = std::env::temp_dir().join("rtop_test_layout_roundtrip.toml");
         config.write(&tmp).unwrap();
 
         let mut loaded = Config::new();
         loaded.load(&tmp);
         // Cursor on custom (default), so live should match custom.
-        assert_eq!(loaded.widgets(), &[WidgetKind::Cpu, WidgetKind::Mem]);
-        assert!(loaded.cpu_bottom());
+        assert_eq!(loaded.layout().widgets, &[WidgetKind::Cpu, WidgetKind::Mem]);
+        assert!(loaded.layout().cpu_bottom);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1773,7 +1732,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Inline editor parser/validator/set_custom_widgets coverage
+    // Inline editor parser/validator/set_widgets coverage
     // -----------------------------------------------------------------
 
     #[test]
@@ -1934,52 +1893,58 @@ mod tests {
     }
 
     #[test]
-    fn set_custom_widgets_no_op_keeps_builtin_cursor() {
+    fn set_widgets_no_op_keeps_builtin_cursor() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = 0;
-        let preset_zero = config.widgets().to_vec();
-        config.set_custom_widgets(preset_zero);
-        assert_eq!(config.current_preset, 0, "no-op must not promote to custom");
+        let cursor = ActivePreset::Builtin(BuiltinPreset::All);
+        config.preset.set(cursor);
+        let live = config.layout().widgets.to_vec();
+        config.set_widgets(live);
+        assert_eq!(
+            config.preset.active(),
+            cursor,
+            "no-op must not promote to custom"
+        );
     }
 
     #[test]
-    fn set_custom_widgets_change_promotes_builtin_to_custom() {
+    fn set_widgets_change_promotes_builtin_to_custom() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = 1;
-        config.set_custom_widgets(vec![WidgetKind::Cpu, WidgetKind::Mem]);
+        config
+            .preset
+            .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
+        config.set_widgets(vec![WidgetKind::Cpu, WidgetKind::Mem]);
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
-        );
-        assert_eq!(
-            config.custom_widgets.as_slice(),
+            config.custom.widgets.as_slice(),
             &[WidgetKind::Cpu, WidgetKind::Mem]
         );
     }
 
     #[test]
-    fn set_custom_widgets_on_custom_writes_without_changing_cursor() {
+    fn set_widgets_on_custom_writes_without_changing_cursor() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        let custom_idx = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
-        config.current_preset = custom_idx;
-        config.set_custom_widgets(vec![WidgetKind::Cpu]);
-        assert_eq!(config.current_preset, custom_idx);
-        assert_eq!(config.custom_widgets.as_slice(), &[WidgetKind::Cpu]);
+        config.preset.set(ActivePreset::Custom);
+        config.set_widgets(vec![WidgetKind::Cpu]);
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert_eq!(config.custom.widgets.as_slice(), &[WidgetKind::Cpu]);
     }
 
     #[test]
     fn set_string_widgets_via_inline_editor_path() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.current_preset = 1;
+        config
+            .preset
+            .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
         ConfigKey::Widgets
             .set_string(&mut config, "cpu mem disk")
             .unwrap();
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.current_preset,
-            crate::domain::preset::BUILTIN_PRESETS.len() as i64
-        );
-        assert_eq!(
-            config.custom_widgets.as_slice(),
+            config.custom.widgets.as_slice(),
             &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk]
         );
     }
