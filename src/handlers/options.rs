@@ -349,27 +349,33 @@ pub(crate) fn apply_post_change_effects(
         }
         ConfigKey::CpuUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
-            ctx.manager.set_cpu_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Cpu, ms);
         }
         ConfigKey::MemUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
-            ctx.manager.set_mem_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Mem, ms);
         }
         ConfigKey::DiskUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
-            ctx.manager.set_disk_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Disk, ms);
         }
         ConfigKey::NetUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
-            ctx.manager.set_net_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Net, ms);
         }
         ConfigKey::GpuUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
-            ctx.manager.set_gpu_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Gpu, ms);
         }
         ConfigKey::ProcUpdateMs => {
             let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
-            ctx.manager.set_proc_interval(ms);
+            ctx.manager
+                .set_interval(crate::event::SubsystemKind::Proc, ms);
         }
         _ => {}
     }

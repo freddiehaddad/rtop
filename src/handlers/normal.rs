@@ -471,18 +471,19 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
 /// (per-widget interval == 0) get the new global value, while collectors
 /// with a custom per-widget interval keep their own.
 pub(super) fn sync_all_intervals(ctx: &mut InputContext) {
-    ctx.manager
-        .set_cpu_interval(ctx.config.effective_interval(ctx.config.cpu_update_ms));
-    ctx.manager
-        .set_mem_interval(ctx.config.effective_interval(ctx.config.mem_update_ms));
-    ctx.manager
-        .set_disk_interval(ctx.config.effective_interval(ctx.config.disk_update_ms));
-    ctx.manager
-        .set_net_interval(ctx.config.effective_interval(ctx.config.net_update_ms));
-    ctx.manager
-        .set_gpu_interval(ctx.config.effective_interval(ctx.config.gpu_update_ms));
-    ctx.manager
-        .set_proc_interval(ctx.config.effective_interval(ctx.config.proc_update_ms));
+    use crate::event::SubsystemKind;
+    let intervals = [
+        (SubsystemKind::Cpu, ctx.config.cpu_update_ms),
+        (SubsystemKind::Mem, ctx.config.mem_update_ms),
+        (SubsystemKind::Disk, ctx.config.disk_update_ms),
+        (SubsystemKind::Net, ctx.config.net_update_ms),
+        (SubsystemKind::Gpu, ctx.config.gpu_update_ms),
+        (SubsystemKind::Proc, ctx.config.proc_update_ms),
+    ];
+    for (kind, widget_ms) in intervals {
+        ctx.manager
+            .set_interval(kind, ctx.config.effective_interval(widget_ms));
+    }
 }
 
 fn sync_update_ms(ctx: &mut InputContext) {

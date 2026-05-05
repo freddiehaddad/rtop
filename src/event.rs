@@ -33,16 +33,27 @@ impl SubsystemKind {
         SubsystemKind::Gpu,
         SubsystemKind::Proc,
     ];
+
+    /// Stable short name for diagnostics and tracing fields.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            SubsystemKind::Cpu => "cpu",
+            SubsystemKind::Mem => "memory",
+            SubsystemKind::Disk => "disk",
+            SubsystemKind::Net => "network",
+            SubsystemKind::Gpu => "gpu",
+            SubsystemKind::Proc => "process",
+        }
+    }
 }
 
 /// Typed indexed container with one slot per [`SubsystemKind`].
 ///
 /// Used where a value of uniform type `T` exists per subsystem —
-/// today, the per-cycle "ready" bools and (in upcoming work)
-/// command channels and dirty flags. The exhaustive `match` in
-/// the accessors is checked by the compiler: adding a variant to
-/// [`SubsystemKind`] forces every `PerSubsystem<T>` accessor to
-/// be updated.
+/// today, the per-cycle "ready" bools and the per-collector
+/// command channels. The exhaustive `match` in the accessors is
+/// checked by the compiler: adding a variant to [`SubsystemKind`]
+/// forces every `PerSubsystem<T>` accessor to be updated.
 ///
 /// Heterogeneous per-subsystem data (e.g. typed snapshot slots
 /// where each subsystem has a different concrete type) keeps
@@ -58,6 +69,20 @@ pub(crate) struct PerSubsystem<T> {
 }
 
 impl<T> PerSubsystem<T> {
+    /// Construct from one value per subsystem, in `SubsystemKind`
+    /// declaration order. Use this when `T` does not implement
+    /// `Default` (e.g. `Sender<_>`).
+    pub(crate) fn new(cpu: T, mem: T, disk: T, net: T, gpu: T, process: T) -> Self {
+        Self {
+            cpu,
+            mem,
+            disk,
+            net,
+            gpu,
+            process,
+        }
+    }
+
     pub(crate) fn get(&self, kind: SubsystemKind) -> &T {
         match kind {
             SubsystemKind::Cpu => &self.cpu,
@@ -216,5 +241,26 @@ mod tests {
         for (i, kind) in SubsystemKind::ALL.iter().enumerate() {
             assert_eq!(*p.get(*kind), i as u32 + 1);
         }
+    }
+
+    #[test]
+    fn per_subsystem_new_assigns_each_slot_in_declaration_order() {
+        let p = PerSubsystem::new("cpu", "mem", "disk", "net", "gpu", "process");
+        assert_eq!(*p.get(SubsystemKind::Cpu), "cpu");
+        assert_eq!(*p.get(SubsystemKind::Mem), "mem");
+        assert_eq!(*p.get(SubsystemKind::Disk), "disk");
+        assert_eq!(*p.get(SubsystemKind::Net), "net");
+        assert_eq!(*p.get(SubsystemKind::Gpu), "gpu");
+        assert_eq!(*p.get(SubsystemKind::Proc), "process");
+    }
+
+    #[test]
+    fn subsystem_kind_as_str_matches_tracing_targets() {
+        assert_eq!(SubsystemKind::Cpu.as_str(), "cpu");
+        assert_eq!(SubsystemKind::Mem.as_str(), "memory");
+        assert_eq!(SubsystemKind::Disk.as_str(), "disk");
+        assert_eq!(SubsystemKind::Net.as_str(), "network");
+        assert_eq!(SubsystemKind::Gpu.as_str(), "gpu");
+        assert_eq!(SubsystemKind::Proc.as_str(), "process");
     }
 }
