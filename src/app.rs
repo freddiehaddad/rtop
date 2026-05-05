@@ -3,7 +3,7 @@ use crate::{
     config,
     dirty::Dirty,
     draw,
-    event::{AppEvent, SubsystemKind},
+    event::{AppEvent, PerSubsystem, SubsystemKind},
     handlers,
     handlers::{InputContext, MenuState},
     input, runner, term, theme, theme_keys as tc, tools, ui,
@@ -31,25 +31,17 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);
-        let mut has_cpu = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Cpu));
-        let mut has_mem = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Mem));
-        let mut has_disk = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Disk));
-        let mut has_net = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Net));
-        let mut has_gpu = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Gpu));
-        let mut has_proc = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Proc));
+        let mut ready = PerSubsystem::<bool>::default();
         let mut keys: Vec<input::Key> = Vec::new();
-        if let AppEvent::Key(k) = first {
-            keys.push(k);
+        match first {
+            AppEvent::Resize => {}
+            AppEvent::SubsystemReady(kind) => *ready.get_mut(kind) = true,
+            AppEvent::Key(k) => keys.push(k),
         }
         for event in std::iter::from_fn(|| event_rx.try_recv().ok()) {
             match event {
                 AppEvent::Resize => has_resize = true,
-                AppEvent::SubsystemReady(SubsystemKind::Cpu) => has_cpu = true,
-                AppEvent::SubsystemReady(SubsystemKind::Mem) => has_mem = true,
-                AppEvent::SubsystemReady(SubsystemKind::Disk) => has_disk = true,
-                AppEvent::SubsystemReady(SubsystemKind::Net) => has_net = true,
-                AppEvent::SubsystemReady(SubsystemKind::Gpu) => has_gpu = true,
-                AppEvent::SubsystemReady(SubsystemKind::Proc) => has_proc = true,
+                AppEvent::SubsystemReady(kind) => *ready.get_mut(kind) = true,
                 AppEvent::Key(k) => keys.push(k),
             }
         }
@@ -72,14 +64,6 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
 
         // Always consume slot data into LiveData regardless of overlay state.
         let render_ui = config.background_update || state.overlay.render_ui();
-        let ready = SubsystemReady {
-            cpu: has_cpu,
-            mem: has_mem,
-            disk: has_disk,
-            net: has_net,
-            gpu: has_gpu,
-            proc_data: has_proc,
-        };
         pull_subsystem_data(&mut state, config, &manager, render_ui, &ready);
 
         // Handle too-small terminal: render message, only accept quit.
@@ -599,79 +583,77 @@ fn terminal_size(terminal: &term::Terminal) -> TerminalSize {
     }
 }
 
-/// Tracks which per-subsystem ready events were received in this drain cycle.
-struct SubsystemReady {
-    cpu: bool,
-    mem: bool,
-    disk: bool,
-    net: bool,
-    gpu: bool,
-    proc_data: bool,
-}
-
 fn pull_subsystem_data(
     state: &mut AppState,
     config: &mut config::Config,
     manager: &runner::CollectorManager,
     render_ui: bool,
-    ready: &SubsystemReady,
+    ready: &PerSubsystem<bool>,
 ) {
-    // Always consume slot data into LiveData.
-    if ready.cpu
-        && let Some(snap) = manager.cpu_slot.latest()
-    {
-        state.live.core_count = snap.info.core_count;
-        state.live.cpu = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::CPU_WIDGET;
+    // Drain ready subsystems into LiveData. Each arm owns the
+    // per-subsystem fetch + side effects; the loop owns the dispatch.
+    for kind in SubsystemKind::ALL {
+        if !*ready.get(kind) {
+            continue;
         }
-    }
-    if ready.mem
-        && let Some(snap) = manager.mem_slot.latest()
-    {
-        state.live.total_mem = snap
-            .info
-            .stats
-            .used
-            .saturating_add(snap.info.stats.available);
-        state.live.mem = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::MEM_WIDGET;
-        }
-    }
-    if ready.disk
-        && let Some(snap) = manager.disk_slot.latest()
-    {
-        state.live.disk = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::DISK_WIDGET;
-        }
-    }
-    if ready.net
-        && let Some(snap) = manager.net_slot.latest()
-    {
-        state.live.net = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::NET_WIDGET;
-        }
-    }
-    if ready.gpu
-        && let Some(snap) = manager.gpu_slot.latest()
-    {
-        state.live.gpu = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::GPU_WIDGET;
-        }
-    }
-    if ready.proc_data
-        && let Some(snap) = manager.proc_slot.latest()
-    {
-        state
-            .process
-            .update_stale_procs(&snap.procs, config.keep_dead_proc_usage);
-        state.live.proc_data = Some(snap);
-        if render_ui {
-            state.render.dirty |= Dirty::PROC_WIDGET | Dirty::PROC_LIST;
+        match kind {
+            SubsystemKind::Cpu => {
+                if let Some(snap) = manager.cpu_slot.latest() {
+                    state.live.core_count = snap.info.core_count;
+                    state.live.cpu = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::CPU_WIDGET;
+                    }
+                }
+            }
+            SubsystemKind::Mem => {
+                if let Some(snap) = manager.mem_slot.latest() {
+                    state.live.total_mem = snap
+                        .info
+                        .stats
+                        .used
+                        .saturating_add(snap.info.stats.available);
+                    state.live.mem = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::MEM_WIDGET;
+                    }
+                }
+            }
+            SubsystemKind::Disk => {
+                if let Some(snap) = manager.disk_slot.latest() {
+                    state.live.disk = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::DISK_WIDGET;
+                    }
+                }
+            }
+            SubsystemKind::Net => {
+                if let Some(snap) = manager.net_slot.latest() {
+                    state.live.net = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::NET_WIDGET;
+                    }
+                }
+            }
+            SubsystemKind::Gpu => {
+                if let Some(snap) = manager.gpu_slot.latest() {
+                    state.live.gpu = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::GPU_WIDGET;
+                    }
+                }
+            }
+            SubsystemKind::Proc => {
+                if let Some(snap) = manager.proc_slot.latest() {
+                    state
+                        .process
+                        .update_stale_procs(&snap.procs, config.keep_dead_proc_usage);
+                    state.live.proc_data = Some(snap);
+                    if render_ui {
+                        state.render.dirty |= Dirty::PROC_WIDGET | Dirty::PROC_LIST;
+                    }
+                }
+            }
         }
     }
 

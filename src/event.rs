@@ -22,6 +22,65 @@ pub(crate) enum SubsystemKind {
     Proc,
 }
 
+impl SubsystemKind {
+    /// Every subsystem variant in declaration order. Iterate this
+    /// slice instead of repeating the six-way match by hand.
+    pub(crate) const ALL: [SubsystemKind; 6] = [
+        SubsystemKind::Cpu,
+        SubsystemKind::Mem,
+        SubsystemKind::Disk,
+        SubsystemKind::Net,
+        SubsystemKind::Gpu,
+        SubsystemKind::Proc,
+    ];
+}
+
+/// Typed indexed container with one slot per [`SubsystemKind`].
+///
+/// Used where a value of uniform type `T` exists per subsystem —
+/// today, the per-cycle "ready" bools and (in upcoming work)
+/// command channels and dirty flags. The exhaustive `match` in
+/// the accessors is checked by the compiler: adding a variant to
+/// [`SubsystemKind`] forces every `PerSubsystem<T>` accessor to
+/// be updated.
+///
+/// Heterogeneous per-subsystem data (e.g. typed snapshot slots
+/// where each subsystem has a different concrete type) keeps
+/// using explicit per-subsystem fields.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PerSubsystem<T> {
+    cpu: T,
+    mem: T,
+    disk: T,
+    net: T,
+    gpu: T,
+    process: T,
+}
+
+impl<T> PerSubsystem<T> {
+    pub(crate) fn get(&self, kind: SubsystemKind) -> &T {
+        match kind {
+            SubsystemKind::Cpu => &self.cpu,
+            SubsystemKind::Mem => &self.mem,
+            SubsystemKind::Disk => &self.disk,
+            SubsystemKind::Net => &self.net,
+            SubsystemKind::Gpu => &self.gpu,
+            SubsystemKind::Proc => &self.process,
+        }
+    }
+
+    pub(crate) fn get_mut(&mut self, kind: SubsystemKind) -> &mut T {
+        match kind {
+            SubsystemKind::Cpu => &mut self.cpu,
+            SubsystemKind::Mem => &mut self.mem,
+            SubsystemKind::Disk => &mut self.disk,
+            SubsystemKind::Net => &mut self.net,
+            SubsystemKind::Gpu => &mut self.gpu,
+            SubsystemKind::Proc => &mut self.process,
+        }
+    }
+}
+
 /// Events processed by the main event loop.
 ///
 /// All event sources (input thread, collector threads) send through
@@ -108,5 +167,54 @@ mod tests {
         let event = AppEvent::SubsystemReady(SubsystemKind::Cpu);
         let copy = event;
         assert_eq!(event, copy);
+    }
+
+    #[test]
+    fn subsystem_kind_all_lists_every_variant_once() {
+        let all = SubsystemKind::ALL;
+        assert_eq!(all.len(), 6);
+        for kind in [
+            SubsystemKind::Cpu,
+            SubsystemKind::Mem,
+            SubsystemKind::Disk,
+            SubsystemKind::Net,
+            SubsystemKind::Gpu,
+            SubsystemKind::Proc,
+        ] {
+            assert_eq!(all.iter().filter(|k| **k == kind).count(), 1);
+        }
+    }
+
+    #[test]
+    fn per_subsystem_default_is_default_for_every_variant() {
+        let p = PerSubsystem::<bool>::default();
+        for kind in SubsystemKind::ALL {
+            assert!(!*p.get(kind));
+        }
+    }
+
+    #[test]
+    fn per_subsystem_get_mut_writes_to_named_slot() {
+        let mut p = PerSubsystem::<bool>::default();
+        for kind in SubsystemKind::ALL {
+            assert!(!*p.get(kind));
+            *p.get_mut(kind) = true;
+            assert!(*p.get(kind));
+        }
+        // Every slot is independently set.
+        for kind in SubsystemKind::ALL {
+            assert!(*p.get(kind));
+        }
+    }
+
+    #[test]
+    fn per_subsystem_slots_are_independent() {
+        let mut p = PerSubsystem::<u32>::default();
+        for (i, kind) in SubsystemKind::ALL.iter().enumerate() {
+            *p.get_mut(*kind) = i as u32 + 1;
+        }
+        for (i, kind) in SubsystemKind::ALL.iter().enumerate() {
+            assert_eq!(*p.get(*kind), i as u32 + 1);
+        }
     }
 }
