@@ -110,6 +110,7 @@ pub struct Config {
     pub keep_dead_proc_usage: bool,
     pub cpu_invert_lower: bool,
     pub cpu_single_graph: bool,
+    pub cpu_auto_scale: bool,
     pub show_uptime: bool,
     pub show_cpu_watts: bool,
     pub check_temp: bool,
@@ -198,6 +199,7 @@ impl Default for Config {
             keep_dead_proc_usage: false,
             cpu_invert_lower: true,
             cpu_single_graph: false,
+            cpu_auto_scale: false,
             show_uptime: true,
             show_cpu_watts: true,
             check_temp: true,
@@ -617,6 +619,7 @@ pub enum ConfigKey {
     KeepDeadProcUsage,
     CpuInvertLower,
     CpuSingleGraph,
+    CpuAutoScale,
     CpuBottom,
     ShowUptime,
     ShowCpuWatts,
@@ -697,6 +700,7 @@ impl ConfigKey {
             Self::KeepDeadProcUsage => "keep_dead_proc_usage",
             Self::CpuInvertLower => "cpu_invert_lower",
             Self::CpuSingleGraph => "cpu_single_graph",
+            Self::CpuAutoScale => "cpu_auto_scale",
             Self::CpuBottom => "cpu_bottom",
             Self::ShowUptime => "show_uptime",
             Self::ShowCpuWatts => "show_cpu_watts",
@@ -774,6 +778,7 @@ impl ConfigKey {
             | Self::KeepDeadProcUsage
             | Self::CpuInvertLower
             | Self::CpuSingleGraph
+            | Self::CpuAutoScale
             | Self::CpuBottom
             | Self::ShowUptime
             | Self::ShowCpuWatts
@@ -850,6 +855,7 @@ impl ConfigKey {
             "keep_dead_proc_usage" => Some(Self::KeepDeadProcUsage),
             "cpu_invert_lower" => Some(Self::CpuInvertLower),
             "cpu_single_graph" => Some(Self::CpuSingleGraph),
+            "cpu_auto_scale" => Some(Self::CpuAutoScale),
             "cpu_bottom" => Some(Self::CpuBottom),
             "show_uptime" => Some(Self::ShowUptime),
             "show_cpu_watts" => Some(Self::ShowCpuWatts),
@@ -931,6 +937,7 @@ impl ConfigKey {
             Self::KeepDeadProcUsage => bool_display(config.keep_dead_proc_usage),
             Self::CpuInvertLower => bool_display(config.cpu_invert_lower),
             Self::CpuSingleGraph => bool_display(config.cpu_single_graph),
+            Self::CpuAutoScale => bool_display(config.cpu_auto_scale),
             Self::CpuBottom => bool_display(config.cpu_bottom()),
             Self::ShowUptime => bool_display(config.show_uptime),
             Self::ShowCpuWatts => bool_display(config.show_cpu_watts),
@@ -1016,6 +1023,7 @@ impl ConfigKey {
             Self::KeepDeadProcUsage => config.keep_dead_proc_usage = !config.keep_dead_proc_usage,
             Self::CpuInvertLower => config.cpu_invert_lower = !config.cpu_invert_lower,
             Self::CpuSingleGraph => config.cpu_single_graph = !config.cpu_single_graph,
+            Self::CpuAutoScale => config.cpu_auto_scale = !config.cpu_auto_scale,
             Self::CpuBottom => config.set_cpu_bottom(!config.cpu_bottom()),
             Self::ShowUptime => config.show_uptime = !config.show_uptime,
             Self::ShowCpuWatts => config.show_cpu_watts = !config.show_cpu_watts,

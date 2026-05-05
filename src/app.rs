@@ -293,7 +293,12 @@ impl OverlayState {
             self.menu_state,
             new,
         );
-        debug_assert!(
+        // The buffer-invariant check is `assert!`, not `debug_assert!`,
+        // because release builds must crash on a dangling
+        // `option_edit` rather than silently render with inconsistent
+        // state. Cost is one boolean per menu transition (handled on
+        // user keystrokes, not per frame), which is negligible.
+        assert!(
             new == MenuState::OptionsEdit || self.option_edit.is_none(),
             "option_edit must be cleared before transitioning to {:?}",
             new,
@@ -1089,6 +1094,7 @@ pub(crate) fn render_all(
             show_coretemp: config.show_coretemp,
             temp_scale: config.temp_scale,
             single_graph: config.cpu_single_graph,
+            auto_scale: config.cpu_auto_scale,
             update_ms,
             current_preset: config.current_preset,
             invert_lower: config.cpu_invert_lower,

@@ -242,6 +242,18 @@ pub const CPU: &[OptDef] = &[
         ],
     },
     OptDef {
+        key: ConfigKey::CpuAutoScale,
+        desc: &[
+            "Auto-scale CPU graph y-axis.",
+            "",
+            "Off: graph height maps to absolute",
+            "0-100% (default).",
+            "On: scale to the largest visible",
+            "value (recolours by visible max,",
+            "not absolute %).",
+        ],
+    },
+    OptDef {
         key: ConfigKey::CheckTemp,
         desc: &[
             "CPU temperature monitoring.",

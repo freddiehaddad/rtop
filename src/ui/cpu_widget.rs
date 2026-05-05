@@ -9,6 +9,7 @@ use crate::draw::meter::Meter;
 use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
+use std::collections::VecDeque;
 
 use super::WidgetArea;
 
@@ -21,6 +22,11 @@ pub struct CpuWidgetSettings<'a> {
     pub show_coretemp: bool,
     pub temp_scale: TempScale,
     pub single_graph: bool,
+    /// When `true`, scale each main graph's y-axis to the largest
+    /// value in its visible window (matches the net widget). When
+    /// `false` (default), scale to a fixed 0-100 absolute range —
+    /// the height of the bar then directly maps to the CPU%.
+    pub auto_scale: bool,
     pub update_ms: u64,
     pub current_preset: i64,
     pub invert_lower: bool,
@@ -59,6 +65,28 @@ pub fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
         n += 1;
     }
     n
+}
+
+/// Compute the y-axis maximum for a CPU graph row.
+///
+/// When `auto_scale` is `false` (default) returns 100 — the natural
+/// upper bound for CPU%. When `true`, returns the largest value in
+/// the most recent `width` data points (matches the net widget's
+/// `net_auto` algorithm). The `.max(1)` floor avoids a degenerate
+/// max=0 reading on an all-zero window; `Graph::new` would replace
+/// max=0 with 100 internally, but flooring at 1 keeps the
+/// per-frame semantic stable when data first becomes non-zero.
+fn graph_max(data: &VecDeque<i64>, width: usize, auto_scale: bool) -> i64 {
+    if !auto_scale {
+        return 100;
+    }
+    data.iter()
+        .rev()
+        .take(width.max(1))
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .max(1)
 }
 
 /// Grid layout for the per-core display area.
@@ -315,7 +343,8 @@ pub fn draw(
         && graph_width > 0
         && let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key)
     {
-        let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, 100, 0);
+        let max = graph_max(data, graph_width, settings.auto_scale);
+        let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, max, 0);
         let rows = graph.render_rows(data, cpu_upper_gradient);
         for (i, row) in rows.iter().enumerate() {
             buf.mv(x + 2, y + 2 + i).text(row);
@@ -344,12 +373,13 @@ pub fn draw(
         && let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key)
     {
         let lower_start_y = y + 2 + upper_h;
+        let max = graph_max(data, graph_width, settings.auto_scale);
         let mut graph = Graph::new(
             graph_width,
             lower_h,
             graph_sym,
             settings.invert_lower,
-            100,
+            max,
             0,
         );
         let rows = graph.render_rows(data, cpu_lower_gradient);
@@ -796,6 +826,7 @@ mod tests {
             show_coretemp: false,
             temp_scale: TempScale::Celsius,
             single_graph: false,
+            auto_scale: false,
             update_ms: 2000,
             current_preset: 0,
             invert_lower: true,
@@ -1104,5 +1135,60 @@ mod tests {
         assert_eq!(grid.col_offset(0), 0);
         assert_eq!(grid.col_offset(1), stride);
         assert_eq!(grid.col_offset(2), stride * 2);
+    }
+
+    // ----- graph_max / auto-scale --------------------------------------
+
+    #[test]
+    fn graph_max_off_returns_fixed_100() {
+        let data: VecDeque<i64> = VecDeque::from([5, 10, 7]);
+        assert_eq!(graph_max(&data, 80, false), 100);
+        let empty: VecDeque<i64> = VecDeque::new();
+        assert_eq!(graph_max(&empty, 80, false), 100);
+    }
+
+    #[test]
+    fn graph_max_on_returns_visible_window_max() {
+        let data: VecDeque<i64> = VecDeque::from([99, 88, 5, 10, 7]);
+        // Width covers the last 3 values only; 99 and 88 fall outside.
+        assert_eq!(graph_max(&data, 3, true), 10);
+        // Wider window includes the older spike.
+        assert_eq!(graph_max(&data, 80, true), 99);
+    }
+
+    #[test]
+    fn graph_max_on_floors_at_one_for_empty_or_zero_data() {
+        let empty: VecDeque<i64> = VecDeque::new();
+        assert_eq!(graph_max(&empty, 80, true), 1);
+        let zeros: VecDeque<i64> = VecDeque::from([0, 0, 0]);
+        assert_eq!(graph_max(&zeros, 80, true), 1);
+    }
+
+    #[test]
+    fn auto_scale_changes_rendered_graph_for_low_values() {
+        // With fixed 0-100 scale, low values render as a mostly-empty
+        // graph. With auto-scale, the same low values fill the box.
+        // The two outputs must differ.
+        let area = make_area();
+        let theme = Theme::default();
+        let mut cpu = CpuInfo::default();
+        // Low-percentage data so the rescale is dramatic.
+        let low: VecDeque<i64> = VecDeque::from([3, 5, 4, 6, 5, 4, 3, 5]);
+        cpu.cpu_percent.user = low.clone();
+        cpu.cpu_percent.system = low;
+
+        let mut s_off = make_settings();
+        s_off.auto_scale = false;
+        let out_off = draw(&cpu, &area, &theme, &s_off, &CollectStatus::Ok);
+
+        let mut s_on = make_settings();
+        s_on.auto_scale = true;
+        let out_on = draw(&cpu, &area, &theme, &s_on, &CollectStatus::Ok);
+
+        assert_ne!(
+            out_off, out_on,
+            "auto_scale=true must produce different graph output \
+             than auto_scale=false on a low-value data series"
+        );
     }
 }
