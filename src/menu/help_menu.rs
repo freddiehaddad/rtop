@@ -102,11 +102,6 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Process",
     },
     Keybind {
-        key: "i",
-        desc: "Toggle IO mode",
-        section: "Process",
-    },
-    Keybind {
         key: "c",
         desc: "Toggle per-core CPU",
         section: "Process",
@@ -130,6 +125,12 @@ pub const KEYBINDS: &[Keybind] = &[
         key: "F",
         desc: "Follow/unfollow process",
         section: "Process",
+    },
+    // Disk
+    Keybind {
+        key: "i",
+        desc: "Toggle IO mode",
+        section: "Disk",
     },
     // Network
     Keybind {
@@ -262,6 +263,7 @@ mod tests {
         let sections: Vec<&str> = KEYBINDS.iter().map(|kb| kb.section).collect();
         assert!(sections.contains(&"Global"), "missing Global section");
         assert!(sections.contains(&"Process"), "missing Process section");
+        assert!(sections.contains(&"Disk"), "missing Disk section");
         assert!(sections.contains(&"Network"), "missing Network section");
         assert!(sections.contains(&"Filter"), "missing Filter section");
     }

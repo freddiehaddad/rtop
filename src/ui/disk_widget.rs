@@ -54,17 +54,18 @@ pub struct DiskWidgetSettings {
 /// │ R 0.0B/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ W  52K/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ B   0% │
 /// │ S: NTFS ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■ 83G/1024G │
 /// │ R 0.0B/s ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ W 0.0B/s ⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣠⣄ B   0% │
-/// ╰──────────────────────────────────────────────────────────────────╯
+/// ╰─┘io└─────────────────────────────────────────────────────────────╯
 ///
 /// IO mode (`io_mode=true`, `io_graph_combined=false`): each disk
 /// becomes two rows, one per direction. The R/W letter sits on the
 /// right next to the speed value (matching the perf-row column
 /// order); the graph fills the variable space between drive label
-/// and letter.
+/// and letter. The bottom-border `io` inset gains a trailing `*`
+/// to signal the toggle is active.
 /// ╭─┐⁵disks┌─────────────────────────────────────────────────────────╮
 /// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ R 0.0B/s │
 /// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀ W 0.0B/s │
-/// ╰──────────────────────────────────────────────────────────────────╯
+/// ╰─┘io*└────────────────────────────────────────────────────────────╯
 pub fn draw(
     disks: &[&DiskInfo],
     area: &WidgetArea,
@@ -109,9 +110,17 @@ pub fn draw(
 
     super::draw_status_inset(&mut buf, status, "disks", x, y, border_color, title_color);
 
-    let mut row = 0;
-
     let io_view = settings.io_mode || settings.disk_io_mode;
+
+    // Bottom-border keybind hint: `io` (with `i` highlighted) when
+    // showing usage, `io*` when the IO view is active. Mirrors the
+    // proc-widget `tree` / `tre*e` convention for binary toggles.
+    let star = if io_view { "*" } else { "" };
+    let io_text = format!("{hi}i{title_color}o{star}");
+    let io_inset = box_drawing::title_inset(&io_text, border_color, title_color, true);
+    buf.mv(x + 3, y + height).text(&io_inset);
+
+    let mut row = 0;
 
     for disk in disks {
         if row >= inner_h {
@@ -547,6 +556,99 @@ mod tests {
         assert!(
             plain.contains("disks"),
             "output should contain 'disks' title"
+        );
+    }
+
+    #[test]
+    fn io_inset_inactive_renders_io_with_keybind_colour() {
+        // Stateless `io` inset: `i` highlighted in HI, `o` in TITLE,
+        // no trailing `*`. Mirrors the proc:tree convention for a
+        // binary toggle that is currently OFF.
+        let data = make_disk_data();
+        let theme = Theme::default();
+        let output = draw(
+            &all_disks(&data),
+            &make_area(),
+            &theme,
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        let hi = theme.color(tc::HI_FG);
+
+        // `i` is preceded by HI (the keybind colour).
+        assert!(
+            output.contains(&format!("{hi}i")),
+            "keybind 'i' should render in HI colour"
+        );
+        // `o` is preceded by TITLE (the label colour).
+        assert!(
+            output.contains(&format!("{title}o")),
+            "label 'o' should render in TITLE colour"
+        );
+        // No `*` marker when the IO view is inactive.
+        let plain = strip_ansi(&output);
+        assert!(
+            !plain.contains("io*"),
+            "no '*' marker should appear when io_view is inactive"
+        );
+    }
+
+    #[test]
+    fn io_inset_active_appends_star_marker() {
+        // When io_mode is on, the inset becomes `io*`. The `*` is
+        // in TITLE colour (it follows the embedded title-colour
+        // switch after `i`), and the trailing label is `o*`.
+        let data = make_disk_data();
+        let theme = Theme::default();
+        let mut s = settings();
+        s.io_mode = true;
+        let output = draw(
+            &all_disks(&data),
+            &make_area(),
+            &theme,
+            &s,
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        let hi = theme.color(tc::HI_FG);
+
+        assert!(
+            output.contains(&format!("{hi}i")),
+            "keybind 'i' should render in HI colour"
+        );
+        assert!(
+            output.contains(&format!("{title}o*")),
+            "label 'o*' should render in TITLE colour with the star marker"
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("io*"),
+            "visible text should contain 'io*' when io_view is active"
+        );
+    }
+
+    #[test]
+    fn io_inset_marks_active_when_disk_io_mode_persistent_flag_set() {
+        // The `*` marker tracks the live IO view, which is
+        // (io_mode || disk_io_mode). With only disk_io_mode set,
+        // the marker should still appear so the user can see the
+        // view is active.
+        let data = make_disk_data();
+        let theme = Theme::default();
+        let mut s = settings();
+        s.disk_io_mode = true;
+        let output = draw(
+            &all_disks(&data),
+            &make_area(),
+            &theme,
+            &s,
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("io*"),
+            "io marker should appear when disk_io_mode is set, even with io_mode=false"
         );
     }
 
