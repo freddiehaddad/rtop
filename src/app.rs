@@ -3,7 +3,7 @@ use crate::{
     config,
     dirty::Dirty,
     draw,
-    event::AppEvent,
+    event::{AppEvent, SubsystemKind},
     handlers,
     handlers::{InputContext, MenuState},
     input, runner, term, theme, theme_keys as tc, tools, ui,
@@ -31,12 +31,12 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);
-        let mut has_cpu = matches!(first, AppEvent::CpuReady);
-        let mut has_mem = matches!(first, AppEvent::MemReady);
-        let mut has_disk = matches!(first, AppEvent::DiskReady);
-        let mut has_net = matches!(first, AppEvent::NetReady);
-        let mut has_gpu = matches!(first, AppEvent::GpuReady);
-        let mut has_proc = matches!(first, AppEvent::ProcReady);
+        let mut has_cpu = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Cpu));
+        let mut has_mem = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Mem));
+        let mut has_disk = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Disk));
+        let mut has_net = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Net));
+        let mut has_gpu = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Gpu));
+        let mut has_proc = matches!(first, AppEvent::SubsystemReady(SubsystemKind::Proc));
         let mut keys: Vec<input::Key> = Vec::new();
         if let AppEvent::Key(k) = first {
             keys.push(k);
@@ -44,12 +44,12 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         for event in std::iter::from_fn(|| event_rx.try_recv().ok()) {
             match event {
                 AppEvent::Resize => has_resize = true,
-                AppEvent::CpuReady => has_cpu = true,
-                AppEvent::MemReady => has_mem = true,
-                AppEvent::DiskReady => has_disk = true,
-                AppEvent::NetReady => has_net = true,
-                AppEvent::GpuReady => has_gpu = true,
-                AppEvent::ProcReady => has_proc = true,
+                AppEvent::SubsystemReady(SubsystemKind::Cpu) => has_cpu = true,
+                AppEvent::SubsystemReady(SubsystemKind::Mem) => has_mem = true,
+                AppEvent::SubsystemReady(SubsystemKind::Disk) => has_disk = true,
+                AppEvent::SubsystemReady(SubsystemKind::Net) => has_net = true,
+                AppEvent::SubsystemReady(SubsystemKind::Gpu) => has_gpu = true,
+                AppEvent::SubsystemReady(SubsystemKind::Proc) => has_proc = true,
                 AppEvent::Key(k) => keys.push(k),
             }
         }

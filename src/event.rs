@@ -1,5 +1,27 @@
 use crate::input;
 
+/// Identifier for a data-collection subsystem.
+///
+/// Each subsystem corresponds to one collector thread and one
+/// publish slot. `SubsystemKind` is the dispatch key used by
+/// [`AppEvent::SubsystemReady`] and by per-subsystem plumbing in
+/// `runner` / `app` so the same six subsystems are no longer
+/// enumerated by hand at every site.
+///
+/// This is distinct from `crate::domain::widget_kind::WidgetKind`,
+/// which identifies a *render-side* widget. One subsystem can drive
+/// many widgets — notably `SubsystemKind::Gpu` produces data for
+/// every `WidgetKind::Gpu(n)` instance.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum SubsystemKind {
+    Cpu,
+    Mem,
+    Disk,
+    Net,
+    Gpu,
+    Proc,
+}
+
 /// Events processed by the main event loop.
 ///
 /// All event sources (input thread, collector threads) send through
@@ -11,18 +33,8 @@ pub(crate) enum AppEvent {
     Key(input::Key),
     /// Terminal was resized (from input thread).
     Resize,
-    /// New CPU data available in the CPU slot.
-    CpuReady,
-    /// New memory data available in the memory slot.
-    MemReady,
-    /// New disk data available in the disk slot.
-    DiskReady,
-    /// New network data available in the network slot.
-    NetReady,
-    /// New GPU data available in the GPU slot.
-    GpuReady,
-    /// New process data available in the process slot.
-    ProcReady,
+    /// New data is available in the named subsystem's publish slot.
+    SubsystemReady(SubsystemKind),
 }
 
 #[cfg(test)]
@@ -36,16 +48,24 @@ mod tests {
 
         tx.send(AppEvent::Key(input::Key::Char('q'))).unwrap();
         tx.send(AppEvent::Resize).unwrap();
-        tx.send(AppEvent::CpuReady).unwrap();
-        tx.send(AppEvent::ProcReady).unwrap();
+        tx.send(AppEvent::SubsystemReady(SubsystemKind::Cpu))
+            .unwrap();
+        tx.send(AppEvent::SubsystemReady(SubsystemKind::Proc))
+            .unwrap();
 
         assert!(matches!(
             rx.recv().unwrap(),
             AppEvent::Key(input::Key::Char('q'))
         ));
         assert!(matches!(rx.recv().unwrap(), AppEvent::Resize));
-        assert!(matches!(rx.recv().unwrap(), AppEvent::CpuReady));
-        assert!(matches!(rx.recv().unwrap(), AppEvent::ProcReady));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            AppEvent::SubsystemReady(SubsystemKind::Cpu)
+        ));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            AppEvent::SubsystemReady(SubsystemKind::Proc)
+        ));
     }
 
     #[test]
@@ -54,13 +74,17 @@ mod tests {
         let tx2 = tx.clone();
 
         tx.send(AppEvent::Key(input::Key::Char('a'))).unwrap();
-        tx2.send(AppEvent::MemReady).unwrap();
+        tx2.send(AppEvent::SubsystemReady(SubsystemKind::Mem))
+            .unwrap();
 
         assert!(matches!(
             rx.recv().unwrap(),
             AppEvent::Key(input::Key::Char('a'))
         ));
-        assert!(matches!(rx.recv().unwrap(), AppEvent::MemReady));
+        assert!(matches!(
+            rx.recv().unwrap(),
+            AppEvent::SubsystemReady(SubsystemKind::Mem)
+        ));
     }
 
     #[test]
@@ -69,7 +93,8 @@ mod tests {
 
         tx.send(AppEvent::Key(input::Key::Up)).unwrap();
         tx.send(AppEvent::Key(input::Key::Down)).unwrap();
-        tx.send(AppEvent::CpuReady).unwrap();
+        tx.send(AppEvent::SubsystemReady(SubsystemKind::Cpu))
+            .unwrap();
 
         let first = rx.recv().unwrap();
         let rest: Vec<_> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
@@ -80,7 +105,7 @@ mod tests {
 
     #[test]
     fn app_event_is_copy() {
-        let event = AppEvent::CpuReady;
+        let event = AppEvent::SubsystemReady(SubsystemKind::Cpu);
         let copy = event;
         assert_eq!(event, copy);
     }

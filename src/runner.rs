@@ -10,7 +10,7 @@ use crate::domain::{
     cpu::CpuInfo, disk::DiskData, gpu::GpuInfo, memory::MemInfo, network::NetInfo,
     process::ProcInfo,
 };
-use crate::event::AppEvent;
+use crate::event::{AppEvent, SubsystemKind};
 use std::sync::{
     Arc, Mutex,
     mpsc::{self, Receiver, Sender},
@@ -180,7 +180,7 @@ fn run_net_loop(
             nets: c.nets.clone(),
             status: c.status.clone(),
         });
-        let _ = event_tx.send(AppEvent::NetReady);
+        let _ = event_tx.send(AppEvent::SubsystemReady(SubsystemKind::Net));
     };
 
     loop {
@@ -290,7 +290,7 @@ impl CollectorManager {
             update_ms,
             &cpu_slot,
             &event_tx,
-            AppEvent::CpuReady,
+            AppEvent::SubsystemReady(SubsystemKind::Cpu),
             |c| CpuSnapshot {
                 info: c.info.clone(),
                 status: c.status.clone(),
@@ -304,7 +304,7 @@ impl CollectorManager {
             update_ms,
             &mem_slot,
             &event_tx,
-            AppEvent::MemReady,
+            AppEvent::SubsystemReady(SubsystemKind::Mem),
             |c| MemSnapshot {
                 info: c.info.clone(),
                 status: c.status.clone(),
@@ -318,7 +318,7 @@ impl CollectorManager {
             update_ms,
             &disk_slot,
             &event_tx,
-            AppEvent::DiskReady,
+            AppEvent::SubsystemReady(SubsystemKind::Disk),
             |c| DiskSnapshot {
                 info: c.info.clone(),
                 status: c.status.clone(),
@@ -345,7 +345,7 @@ impl CollectorManager {
             update_ms,
             &gpu_slot,
             &event_tx,
-            AppEvent::GpuReady,
+            AppEvent::SubsystemReady(SubsystemKind::Gpu),
             |c| GpuSnapshot {
                 gpus: c.gpus.clone(),
                 status: c.status.clone(),
@@ -363,7 +363,7 @@ impl CollectorManager {
             update_ms,
             &proc_slot,
             &event_tx,
-            AppEvent::ProcReady,
+            AppEvent::SubsystemReady(SubsystemKind::Proc),
             |c| ProcSnapshot {
                 procs: c.procs.clone(),
                 status: c.status.clone(),
