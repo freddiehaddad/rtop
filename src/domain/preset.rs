@@ -21,13 +21,34 @@ use std::fmt;
 /// Adding a variant is a three-step change: extend the enum, extend
 /// the const data table, and bump [`Self::COUNT`] / [`Self::ALL`].
 /// The const assert below guarantees the table and the enum stay
-/// aligned at compile time.
+/// aligned at compile time. Variant declaration order MUST match
+/// the order of entries in [`BUILTIN_PRESETS`] because [`Self::data`]
+/// indexes the table with `self as usize`.
+///
+/// Cycle order (also the variant declaration order) visits the
+/// dashboard first, then the four resource diagnostics paired with
+/// `proc`, then the gaming/ML focus, then the no-process system
+/// status view, then `Custom`. Each step is a distinct user mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinPreset {
+    /// Everything: the five base widgets plus a `Gpu(N)` for every
+    /// supported index. The dashboard / overview position.
     All,
+    /// CPU + processes — "what's eating my CPU?"
     CpuProc,
-    CpuMemDisk,
+    /// Memory + processes — "what's eating my RAM?"
+    MemProc,
+    /// Disk + processes — "what's hammering my disk?" Pairs with
+    /// the disk widget's `i` toggle to enter IO view.
+    DiskProc,
+    /// CPU + network + processes — "what's saturating my bandwidth
+    /// and is the CPU keeping up?"
     CpuNetProc,
+    /// CPU + every supported GPU + processes — gaming / ML focus.
+    CpuGpuProc,
+    /// CPU + memory + disk — passive system-utilisation view with
+    /// no process noise and no network.
+    CpuMemDisk,
 }
 
 /// Per-preset layout data. Private to this module — callers go
@@ -67,6 +88,30 @@ const PRESET_ALL_WIDGETS: &[WidgetKind] = {
     &ARR
 };
 
+/// Widget list for the `cpu+gpu+proc` builtin: CPU at the top,
+/// every supported GPU index in the middle, processes on the
+/// right (or wherever proc_left places it). Like
+/// [`PRESET_ALL_WIDGETS`], the GPU run is built at compile time
+/// so `MAX_GPUS` stays the single source of truth, and the layout
+/// engine drops `Gpu(N)` entries whose index exceeds the detected
+/// GPU count.
+const PRESET_CPU_GPU_PROC_WIDGETS: &[WidgetKind] = {
+    const TOTAL: usize = 2 + crate::config::MAX_GPUS;
+    const fn build() -> [WidgetKind; TOTAL] {
+        let mut arr = [WidgetKind::Cpu; TOTAL];
+        arr[0] = WidgetKind::Cpu;
+        let mut i = 0;
+        while i < crate::config::MAX_GPUS {
+            arr[1 + i] = WidgetKind::Gpu(i as u8);
+            i += 1;
+        }
+        arr[1 + crate::config::MAX_GPUS] = WidgetKind::Proc;
+        arr
+    }
+    const ARR: [WidgetKind; TOTAL] = build();
+    &ARR
+};
+
 const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
     PresetData {
         name: "all",
@@ -83,8 +128,15 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         proc_left: false,
     },
     PresetData {
-        name: "cpu+mem+disk",
-        widgets: &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk],
+        name: "mem+proc",
+        widgets: &[WidgetKind::Mem, WidgetKind::Proc],
+        cpu_bottom: false,
+        mem_below_net: false,
+        proc_left: false,
+    },
+    PresetData {
+        name: "disk+proc",
+        widgets: &[WidgetKind::Disk, WidgetKind::Proc],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
@@ -92,6 +144,20 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
     PresetData {
         name: "cpu+net+proc",
         widgets: &[WidgetKind::Cpu, WidgetKind::Net, WidgetKind::Proc],
+        cpu_bottom: false,
+        mem_below_net: false,
+        proc_left: false,
+    },
+    PresetData {
+        name: "cpu+gpu+proc",
+        widgets: PRESET_CPU_GPU_PROC_WIDGETS,
+        cpu_bottom: false,
+        mem_below_net: false,
+        proc_left: false,
+    },
+    PresetData {
+        name: "cpu+mem+disk",
+        widgets: &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
@@ -105,13 +171,20 @@ const _: () = assert!(BUILTIN_PRESETS.len() == BuiltinPreset::COUNT);
 
 impl BuiltinPreset {
     /// Total number of built-in presets.
-    pub const COUNT: usize = 4;
+    pub const COUNT: usize = 7;
 
     /// All built-in presets in cycle order. The order also defines
     /// the cycle position via [`ActivePreset::next`] / [`ActivePreset::prev`]
     /// — `Custom` follows the last builtin, then wraps to the first.
-    pub const ALL: [Self; Self::COUNT] =
-        [Self::All, Self::CpuProc, Self::CpuMemDisk, Self::CpuNetProc];
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::All,
+        Self::CpuProc,
+        Self::MemProc,
+        Self::DiskProc,
+        Self::CpuNetProc,
+        Self::CpuGpuProc,
+        Self::CpuMemDisk,
+    ];
 
     /// Stable, user-visible identifier for the preset (used in
     /// the CPU widget bottom hint and in TOML serialisation).
@@ -153,13 +226,14 @@ impl BuiltinPreset {
     }
 }
 
-/// Cursor identifying which preset is currently active. The four
+/// Cursor identifying which preset is currently active. The
 /// builtins are shaped data; `Custom` is the user's mutable slot
-/// whose layout lives in `Config::custom_*` fields.
+/// whose layout lives in `Config::custom` (a [`CustomLayout`]).
 ///
-/// The cycle order (`Self::next` / `Self::prev`) visits all four
-/// builtins in [`BuiltinPreset::ALL`] order, then `Custom`, then
-/// wraps. Five positions total.
+/// The cycle order (`Self::next` / `Self::prev`) visits every
+/// builtin in [`BuiltinPreset::ALL`] order, then `Custom`, then
+/// wraps. [`Self::CYCLE_LEN`] positions total
+/// (`BuiltinPreset::COUNT + 1`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum ActivePreset {
     Builtin(BuiltinPreset),
@@ -426,6 +500,43 @@ mod tests {
         assert!(!p.proc_left());
     }
 
+    #[test]
+    fn cpu_gpu_proc_preset_lists_cpu_every_gpu_and_proc() {
+        let p = BuiltinPreset::CpuGpuProc;
+        assert_eq!(p.name(), "cpu+gpu+proc");
+        let widgets = p.widgets();
+        // CPU + every supported GPU + proc, in that order.
+        assert_eq!(widgets.len(), 2 + crate::config::MAX_GPUS);
+        assert_eq!(widgets[0], WidgetKind::Cpu);
+        assert_eq!(widgets[widgets.len() - 1], WidgetKind::Proc);
+        for i in 0..crate::config::MAX_GPUS {
+            let gpu = WidgetKind::gpu(i).expect("0..MAX_GPUS is in range");
+            assert!(
+                widgets.contains(&gpu),
+                "preset 'cpu+gpu+proc' must list {gpu}"
+            );
+        }
+        // Mem/Net/Disk are intentionally absent.
+        assert!(!widgets.contains(&WidgetKind::Mem));
+        assert!(!widgets.contains(&WidgetKind::Net));
+        assert!(!widgets.contains(&WidgetKind::Disk));
+    }
+
+    #[test]
+    fn diagnostic_pair_presets_are_resource_plus_proc() {
+        // The mem+proc and disk+proc presets are deliberately
+        // two-widget pairs, mirroring cpu+proc. Each pairs one
+        // primary resource with the process list for diagnostic
+        // workflows.
+        let mem_proc = BuiltinPreset::MemProc;
+        assert_eq!(mem_proc.name(), "mem+proc");
+        assert_eq!(mem_proc.widgets(), &[WidgetKind::Mem, WidgetKind::Proc]);
+
+        let disk_proc = BuiltinPreset::DiskProc;
+        assert_eq!(disk_proc.name(), "disk+proc");
+        assert_eq!(disk_proc.widgets(), &[WidgetKind::Disk, WidgetKind::Proc]);
+    }
+
     // -- ActivePreset --
 
     #[test]
@@ -454,15 +565,17 @@ mod tests {
 
     #[test]
     fn active_preset_next_walks_full_cycle_then_wraps() {
-        // Forward cycle: All -> CpuProc -> CpuMemDisk -> CpuNetProc
-        // -> Custom -> All ... (5 positions, wraps).
-        let order = [
-            ActivePreset::Builtin(BuiltinPreset::All),
-            ActivePreset::Builtin(BuiltinPreset::CpuProc),
-            ActivePreset::Builtin(BuiltinPreset::CpuMemDisk),
-            ActivePreset::Builtin(BuiltinPreset::CpuNetProc),
-            ActivePreset::Custom,
-        ];
+        // Forward cycle visits every builtin in BuiltinPreset::ALL
+        // order, then Custom, then wraps. Derived from ALL rather
+        // than hardcoded so the test stays correct as the cycle
+        // grows or is reordered.
+        let mut order: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        order.push(ActivePreset::Custom);
+        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
+
         let mut cursor = order[0];
         for &expected_next in order.iter().cycle().skip(1).take(order.len()) {
             cursor = cursor.next();
@@ -474,13 +587,15 @@ mod tests {
 
     #[test]
     fn active_preset_prev_walks_full_cycle_then_wraps() {
-        let order = [
-            ActivePreset::Custom,
-            ActivePreset::Builtin(BuiltinPreset::CpuNetProc),
-            ActivePreset::Builtin(BuiltinPreset::CpuMemDisk),
-            ActivePreset::Builtin(BuiltinPreset::CpuProc),
-            ActivePreset::Builtin(BuiltinPreset::All),
-        ];
+        // Backward cycle is the reverse of the forward order.
+        let mut forward: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        forward.push(ActivePreset::Custom);
+        let order: Vec<ActivePreset> = forward.iter().rev().copied().collect();
+        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
+
         let mut cursor = order[0];
         for &expected_prev in order.iter().cycle().skip(1).take(order.len()) {
             cursor = cursor.prev();
@@ -534,13 +649,13 @@ mod tests {
 
     #[test]
     fn preset_field_round_trips_through_toml_for_all_active_values() {
-        let cases = [
-            ActivePreset::Builtin(BuiltinPreset::All),
-            ActivePreset::Builtin(BuiltinPreset::CpuProc),
-            ActivePreset::Builtin(BuiltinPreset::CpuMemDisk),
-            ActivePreset::Builtin(BuiltinPreset::CpuNetProc),
-            ActivePreset::Custom,
-        ];
+        // Iterate ALL plus Custom rather than hardcoding the
+        // variants — this test stays correct as the catalog grows.
+        let mut cases: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        cases.push(ActivePreset::Custom);
         for active in cases {
             let field = PresetField::new(active);
             let serialised = toml::Value::try_from(&field).unwrap();
