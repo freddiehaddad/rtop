@@ -50,7 +50,7 @@ pub struct NetWidgetSettings<'a> {
 /// │             ⢸⡏⠉⠁                      ⠈⢹⡇                                 │
 /// │             ⢸⡇                         ⢸⡇                                 │
 /// │                                        ⢸⡇                        0.0B/s ▲ │
-/// ╰─┘sync└┘auto└┘zero└┘←b Ethernet n→└────────────────────────────────────────╯
+/// ╰─┘sync└┘auto└┘zero└┘← b Ethernet n →└──────────────────────────────────────╯
 pub fn draw(
     net: &NetInfo,
     area: &WidgetArea,
@@ -225,8 +225,11 @@ pub fn draw(
     let sync_inset = box_drawing::keybind_inset("sync", border_color, hi, title_color, true);
     let auto_inset = box_drawing::keybind_inset("auto", border_color, hi, title_color, true);
     let zero_inset = box_drawing::keybind_inset("zero", border_color, hi, title_color, true);
-    let iface_text = format!("←b {}{} {}n→", title_color, iface_display, hi);
-    let iface_inset = box_drawing::title_inset(&iface_text, border_color, hi, true);
+    let iface_text = format!(
+        "← {}b{} {} {}n{} →",
+        hi, title_color, iface_display, hi, title_color,
+    );
+    let iface_inset = box_drawing::title_inset(&iface_text, border_color, title_color, true);
 
     let mut bx = x + 3;
     buf.mv(bx, bottom_y).text(&sync_inset);
@@ -360,6 +363,55 @@ mod tests {
         assert!(
             plain.contains('▲'),
             "output should contain upload indicator '▲'"
+        );
+    }
+
+    #[test]
+    fn iface_inset_colours_arrows_as_label_and_letters_as_keybind() {
+        // Locks in the rule that arrow-style keybind insets render
+        // arrows + spaces in the label colour (TITLE) and only the
+        // keybind letters themselves in the keybind colour (HI_FG).
+        // Pre-fix everything in `←b Ethernet n→` was rendered in HI_FG.
+        // The format also has a space on each side of every arrow so
+        // the keybind letter and the arrow read as separate tokens.
+        use crate::theme_keys as tc;
+        let theme = Theme::default();
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &theme,
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let title = theme.color(tc::TITLE);
+        let hi = theme.color(tc::HI_FG);
+
+        // `← ` (arrow + trailing space) is in TITLE; the title_inset
+        // wrapper sets text_color = TITLE, so both inherit it.
+        assert!(
+            output.contains(&format!("{title}← ")),
+            "left arrow + trailing space should render in TITLE colour"
+        );
+        // `b` is preceded by HI (embedded switch).
+        assert!(
+            output.contains(&format!("{hi}b")),
+            "keybind 'b' should render in HI colour"
+        );
+        // The space + iface name + space region is in TITLE.
+        assert!(
+            output.contains(&format!("{title} Ethernet ")),
+            "iface name and surrounding spaces should render in TITLE colour"
+        );
+        // `n` is preceded by HI.
+        assert!(
+            output.contains(&format!("{hi}n")),
+            "keybind 'n' should render in HI colour"
+        );
+        // ` →` (leading space + arrow) is in TITLE so the closing
+        // border isn't HI-coloured and the arrow isn't fused with `n`.
+        assert!(
+            output.contains(&format!("{title} →")),
+            "leading space + right arrow should render in TITLE colour"
         );
     }
 }
