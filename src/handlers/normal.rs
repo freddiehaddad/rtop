@@ -71,15 +71,16 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
             ctx.overlay.options_cat = 0;
             ctx.overlay.options_selected = 0;
             ctx.overlay.options_page = 0;
-            let menu_out = menu::options_menu::draw(
-                ctx.tw,
-                ctx.th,
-                ctx.overlay.options_cat,
-                ctx.overlay.options_selected,
-                ctx.overlay.options_page,
-                ctx.config,
-                ctx.theme,
-            );
+            let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
+                term_width: ctx.tw,
+                term_height: ctx.th,
+                cat: ctx.overlay.options_cat,
+                selected: ctx.overlay.options_selected,
+                page: ctx.overlay.options_page,
+                config: ctx.config,
+                theme: ctx.theme,
+                option_edit: None,
+            });
             ctx.overlay.menu_return_to = MenuState::None;
             ctx.overlay.set_menu_state(MenuState::Options);
             tracing::debug!(

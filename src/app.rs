@@ -263,6 +263,14 @@ pub(crate) struct OverlayState {
     pub(crate) options_cat: usize,
     pub(crate) options_selected: usize,
     pub(crate) options_page: usize,
+    /// Mutable buffer for an in-progress inline option edit.
+    ///
+    /// Invariant maintained by [`Self::enter_option_edit`] and
+    /// [`Self::exit_option_edit`]: this is `Some` if and only if
+    /// `menu_state == MenuState::OptionsEdit`. The check is also
+    /// re-asserted in [`Self::set_menu_state`] to catch any future
+    /// caller that bypasses the helpers.
+    option_edit: Option<crate::handlers::options_edit::OptionEditState>,
 }
 
 impl OverlayState {
@@ -274,6 +282,7 @@ impl OverlayState {
             options_cat: 0,
             options_selected: 0,
             options_page: 0,
+            option_edit: None,
         }
     }
 
@@ -284,7 +293,46 @@ impl OverlayState {
             self.menu_state,
             new,
         );
+        debug_assert!(
+            new == MenuState::OptionsEdit || self.option_edit.is_none(),
+            "option_edit must be cleared before transitioning to {:?}",
+            new,
+        );
         self.menu_state = new;
+    }
+
+    /// Begin an inline option edit: store the buffer state and
+    /// transition to [`MenuState::OptionsEdit`] in one atomic step.
+    pub(crate) fn enter_option_edit(
+        &mut self,
+        state: crate::handlers::options_edit::OptionEditState,
+    ) {
+        // Set the buffer first so the debug_assert in
+        // set_menu_state sees the new invariant satisfied.
+        self.option_edit = Some(state);
+        self.set_menu_state(MenuState::OptionsEdit);
+    }
+
+    /// End an inline option edit: discard the buffer and return to
+    /// [`MenuState::Options`] in one atomic step. Returns the
+    /// discarded state for callers who need to inspect it (e.g.
+    /// log the cancelled value).
+    pub(crate) fn exit_option_edit(
+        &mut self,
+    ) -> Option<crate::handlers::options_edit::OptionEditState> {
+        let edit = self.option_edit.take();
+        self.set_menu_state(MenuState::Options);
+        edit
+    }
+
+    pub(crate) fn option_edit(&self) -> Option<&crate::handlers::options_edit::OptionEditState> {
+        self.option_edit.as_ref()
+    }
+
+    pub(crate) fn option_edit_mut(
+        &mut self,
+    ) -> Option<&mut crate::handlers::options_edit::OptionEditState> {
+        self.option_edit.as_mut()
     }
 
     fn render_ui(&self) -> bool {
@@ -890,6 +938,7 @@ fn dispatch_handler(key: &input::Key, ctx: &mut InputContext) -> handlers::Handl
         MenuState::Main => handlers::main_menu::handle(key, ctx),
         MenuState::Help => handlers::help::handle(key, ctx),
         MenuState::Options => handlers::options::handle(key, ctx),
+        MenuState::OptionsEdit => handlers::options_edit::handle(key, ctx),
         MenuState::Filter => handlers::filter::handle(key, ctx),
         MenuState::None => handlers::normal::handle(key, ctx),
     }
@@ -1273,6 +1322,70 @@ mod tests {
 
         state.overlay.menu_state = MenuState::Options;
         assert!(!state.overlay.render_ui());
+    }
+
+    #[test]
+    fn enter_option_edit_transitions_and_stores_buffer() {
+        use crate::config::ConfigKey;
+        use crate::handlers::options_edit::{EditKind, OptionEditState};
+        let config = config::Config::new();
+        let mut state = AppState::new(&config, Instant::now());
+
+        // Start in Options (precondition for entering edit mode).
+        state.overlay.set_menu_state(MenuState::Main);
+        state.overlay.set_menu_state(MenuState::Options);
+        assert_eq!(state.overlay.menu_state, MenuState::Options);
+        assert!(state.overlay.option_edit().is_none());
+
+        let edit = OptionEditState::new(ConfigKey::ClockFormat, EditKind::Text, "%H:%M".into());
+        state.overlay.enter_option_edit(edit);
+        assert_eq!(state.overlay.menu_state, MenuState::OptionsEdit);
+        let stored = state
+            .overlay
+            .option_edit()
+            .expect("option_edit must be Some after enter_option_edit");
+        assert_eq!(stored.buffer, "%H:%M");
+        assert_eq!(stored.key, ConfigKey::ClockFormat);
+    }
+
+    #[test]
+    fn exit_option_edit_clears_buffer_and_returns_to_options() {
+        use crate::config::ConfigKey;
+        use crate::handlers::options_edit::{EditKind, OptionEditState};
+        let config = config::Config::new();
+        let mut state = AppState::new(&config, Instant::now());
+
+        state.overlay.set_menu_state(MenuState::Main);
+        state.overlay.set_menu_state(MenuState::Options);
+        state.overlay.enter_option_edit(OptionEditState::new(
+            ConfigKey::ProcFilter,
+            EditKind::Text,
+            String::new(),
+        ));
+        let returned = state.overlay.exit_option_edit();
+        assert!(returned.is_some(), "exit must return the discarded buffer");
+        assert_eq!(state.overlay.menu_state, MenuState::Options);
+        assert!(state.overlay.option_edit().is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "option_edit must be cleared")]
+    fn set_menu_state_panics_if_option_edit_is_dangling() {
+        use crate::config::ConfigKey;
+        use crate::handlers::options_edit::{EditKind, OptionEditState};
+        let config = config::Config::new();
+        let mut state = AppState::new(&config, Instant::now());
+
+        state.overlay.set_menu_state(MenuState::Main);
+        state.overlay.set_menu_state(MenuState::Options);
+        state.overlay.enter_option_edit(OptionEditState::new(
+            ConfigKey::ProcFilter,
+            EditKind::Text,
+            String::new(),
+        ));
+        // Bypassing exit_option_edit (which would clear option_edit
+        // first) must trip the invariant assertion in set_menu_state.
+        state.overlay.set_menu_state(MenuState::Options);
     }
 
     #[test]

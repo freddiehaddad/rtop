@@ -1,6 +1,7 @@
 use crate::{
     config::ConfigKey,
     dirty::Dirty,
+    handlers::options_edit::{EditKind, OptionEditState},
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
     input::Key,
     menu, theme,
@@ -145,9 +146,10 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        Key::Left | Key::Right | Key::Enter | Key::Space => {
-            let mut extra_ops: Vec<TerminalOp> = Vec::new();
-
+        Key::Enter => {
+            // Enter on Int / StringVal opens the inline editor.
+            // Enter on Bool / Browsable falls through to the same
+            // step-right behaviour as the arrow keys.
             if let Some(opt_key) = menu::options_menu::opt_key(
                 ctx.overlay.options_cat,
                 ctx.overlay.options_page,
@@ -155,58 +157,24 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 ctx.th,
             ) {
                 let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
-                let dir: i64 = if matches!(key, Key::Left) { -1 } else { 1 };
-
-                apply_option_change(opt_key, kind, dir, ctx, &mut extra_ops);
+                match kind {
+                    menu::options_menu::OptKind::Int => {
+                        return enter_inline_edit(ctx, opt_key, EditKind::Integer);
+                    }
+                    menu::options_menu::OptKind::StringVal => {
+                        return enter_inline_edit(ctx, opt_key, EditKind::Text);
+                    }
+                    menu::options_menu::OptKind::Bool | menu::options_menu::OptKind::Browsable => {
+                        return step_selected_option(ctx, 1);
+                    }
+                }
             }
-
-            let menu_out = menu::options_menu::draw(
-                ctx.tw,
-                ctx.th,
-                ctx.overlay.options_cat,
-                ctx.overlay.options_selected,
-                ctx.overlay.options_page,
-                ctx.config,
-                ctx.theme,
-            );
-            extra_ops.push(TerminalOp::Synced(menu_out));
-            return HandleResult {
-                quit: false,
-                ops: extra_ops,
-                redraw_overlay: false,
-            };
+            return HandleResult::none();
         }
-        Key::Char('h') | Key::Char('l') if ctx.config.vim_keys => {
-            let mut extra_ops: Vec<TerminalOp> = Vec::new();
-
-            if let Some(opt_key) = menu::options_menu::opt_key(
-                ctx.overlay.options_cat,
-                ctx.overlay.options_page,
-                ctx.overlay.options_selected,
-                ctx.th,
-            ) {
-                let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
-                let dir: i64 = if *key == Key::Char('h') { -1 } else { 1 };
-
-                apply_option_change(opt_key, kind, dir, ctx, &mut extra_ops);
-            }
-
-            let menu_out = menu::options_menu::draw(
-                ctx.tw,
-                ctx.th,
-                ctx.overlay.options_cat,
-                ctx.overlay.options_selected,
-                ctx.overlay.options_page,
-                ctx.config,
-                ctx.theme,
-            );
-            extra_ops.push(TerminalOp::Synced(menu_out));
-            return HandleResult {
-                quit: false,
-                ops: extra_ops,
-                redraw_overlay: false,
-            };
-        }
+        Key::Left => return step_selected_option(ctx, -1),
+        Key::Right | Key::Space => return step_selected_option(ctx, 1),
+        Key::Char('h') if ctx.config.vim_keys => return step_selected_option(ctx, -1),
+        Key::Char('l') if ctx.config.vim_keys => return step_selected_option(ctx, 1),
         _ => {}
     }
     HandleResult::none()
@@ -214,15 +182,80 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
 
 /// Build a HandleResult that redraws the options menu overlay.
 fn options_menu_output(ctx: &mut InputContext) -> HandleResult {
-    let menu_out = menu::options_menu::draw(
-        ctx.tw,
-        ctx.th,
+    let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
+        term_width: ctx.tw,
+        term_height: ctx.th,
+        cat: ctx.overlay.options_cat,
+        selected: ctx.overlay.options_selected,
+        page: ctx.overlay.options_page,
+        config: ctx.config,
+        theme: ctx.theme,
+        option_edit: ctx.overlay.option_edit(),
+    });
+    HandleResult::synced(menu_out)
+}
+
+/// Step (Bool toggle, Int delta, Browsable cycle, StringVal no-op)
+/// the selected option in `dir` direction. Always re-renders the
+/// menu so the new value is visible.
+fn step_selected_option(ctx: &mut InputContext, dir: i64) -> HandleResult {
+    let mut extra_ops: Vec<TerminalOp> = Vec::new();
+
+    if let Some(opt_key) = menu::options_menu::opt_key(
         ctx.overlay.options_cat,
-        ctx.overlay.options_selected,
         ctx.overlay.options_page,
-        ctx.config,
-        ctx.theme,
+        ctx.overlay.options_selected,
+        ctx.th,
+    ) {
+        let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
+        apply_option_change(opt_key, kind, dir, ctx, &mut extra_ops);
+    }
+
+    let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
+        term_width: ctx.tw,
+        term_height: ctx.th,
+        cat: ctx.overlay.options_cat,
+        selected: ctx.overlay.options_selected,
+        page: ctx.overlay.options_page,
+        config: ctx.config,
+        theme: ctx.theme,
+        option_edit: ctx.overlay.option_edit(),
+    });
+    extra_ops.push(TerminalOp::Synced(menu_out));
+    HandleResult {
+        quit: false,
+        ops: extra_ops,
+        redraw_overlay: false,
+    }
+}
+
+/// Open the inline editor on the selected option, seeding the
+/// buffer with the current value so the user can backspace to clear
+/// or just keep typing.
+fn enter_inline_edit(
+    ctx: &mut InputContext,
+    opt_key: ConfigKey,
+    edit_kind: EditKind,
+) -> HandleResult {
+    let buffer = opt_key.get_display(ctx.config);
+    ctx.overlay
+        .enter_option_edit(OptionEditState::new(opt_key, edit_kind, buffer));
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "option_edit_open",
+        option = opt_key.name(),
+        "inline editor opened",
     );
+    let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
+        term_width: ctx.tw,
+        term_height: ctx.th,
+        cat: ctx.overlay.options_cat,
+        selected: ctx.overlay.options_selected,
+        page: ctx.overlay.options_page,
+        config: ctx.config,
+        theme: ctx.theme,
+        option_edit: ctx.overlay.option_edit(),
+    });
     HandleResult::synced(menu_out)
 }
 

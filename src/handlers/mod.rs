@@ -3,6 +3,7 @@ pub(crate) mod help;
 pub(crate) mod main_menu;
 pub(crate) mod normal;
 pub(crate) mod options;
+pub(crate) mod options_edit;
 
 use crate::{
     app::{LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
@@ -18,6 +19,7 @@ pub(crate) enum MenuState {
     Main,
     Help,
     Options,
+    OptionsEdit,
     Filter,
 }
 
@@ -40,6 +42,13 @@ impl MenuState {
                 | (MenuState::Help, MenuState::Main)
                 | (MenuState::Options, MenuState::None)
                 | (MenuState::Options, MenuState::Main)
+                // Inline editor: only reachable from Options, and
+                // only returns to Options. Both directions are
+                // gated by OverlayState's enter_option_edit /
+                // exit_option_edit helpers, which keep
+                // `option_edit.is_some() <=> menu_state == OptionsEdit`.
+                | (MenuState::Options, MenuState::OptionsEdit)
+                | (MenuState::OptionsEdit, MenuState::Options)
                 // From filter back to normal
                 | (MenuState::Filter, MenuState::None)
         )
@@ -249,5 +258,22 @@ mod tests {
         // Identity transitions are not valid (state should change)
         assert!(!MenuState::None.can_transition_to(MenuState::None));
         assert!(!MenuState::Main.can_transition_to(MenuState::Main));
+    }
+
+    #[test]
+    fn options_edit_is_only_reachable_from_options() {
+        // Options ↔ OptionsEdit allowed in both directions.
+        assert!(MenuState::Options.can_transition_to(MenuState::OptionsEdit));
+        assert!(MenuState::OptionsEdit.can_transition_to(MenuState::Options));
+        // OptionsEdit cannot reach any other state directly.
+        assert!(!MenuState::OptionsEdit.can_transition_to(MenuState::None));
+        assert!(!MenuState::OptionsEdit.can_transition_to(MenuState::Main));
+        assert!(!MenuState::OptionsEdit.can_transition_to(MenuState::Help));
+        assert!(!MenuState::OptionsEdit.can_transition_to(MenuState::Filter));
+        // Other states cannot enter OptionsEdit directly.
+        assert!(!MenuState::None.can_transition_to(MenuState::OptionsEdit));
+        assert!(!MenuState::Main.can_transition_to(MenuState::OptionsEdit));
+        assert!(!MenuState::Help.can_transition_to(MenuState::OptionsEdit));
+        assert!(!MenuState::Filter.can_transition_to(MenuState::OptionsEdit));
     }
 }

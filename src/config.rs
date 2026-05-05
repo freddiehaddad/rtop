@@ -532,6 +532,20 @@ impl Config {
         }
     }
 
+    /// Replace the custom preset's widget list with `kinds`.
+    ///
+    /// If the cursor is on a builtin preset whose layout already
+    /// matches `kinds`, this is a no-op so the cursor stays on the
+    /// builtin (no surprise promote-to-custom on an unchanged value).
+    /// Otherwise it promotes-to-custom and writes the new list.
+    pub fn set_custom_widgets(&mut self, kinds: Vec<WidgetKind>) {
+        if self.widgets() == kinds.as_slice() {
+            return;
+        }
+        self.promote_to_custom_if_builtin();
+        self.custom_widgets = WidgetList::from_kinds(kinds);
+    }
+
     /// Set `custom_cpu_bottom` (or first promote from a builtin).
     /// Used by the options-menu Bool toggle path.
     pub fn set_cpu_bottom(&mut self, value: bool) {
@@ -1067,11 +1081,11 @@ impl ConfigKey {
     /// Set a value from its canonical string form.
     ///
     /// Returns `Err(SetStringError)` if `value` does not parse for
-    /// the field's type. The single in-tree caller
-    /// (`menu::options_menu::cycle_browsable`) always passes a value
-    /// drawn from `browsable_values()`, so it `.expect()`s success
-    /// — failure indicates a contract violation, not a runtime
-    /// condition.
+    /// the field's type. Used both by `cycle_browsable` (which
+    /// passes a value drawn from `browsable_values()`, so failure
+    /// is a contract violation) and by the inline-edit commit path
+    /// (which validates first via [`Self::validate_string`] so the
+    /// contract is also already satisfied).
     pub fn set_string(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
         let err = || SetStringError {
             key: self.name(),
@@ -1079,6 +1093,10 @@ impl ConfigKey {
         };
         match self {
             Self::ColorTheme => config.color_theme = value.to_string(),
+            Self::Widgets => {
+                let kinds = Self::parse_widgets(value).map_err(|_| err())?;
+                config.set_custom_widgets(kinds);
+            }
             Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
             Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
@@ -1091,7 +1109,7 @@ impl ConfigKey {
             Self::ClockFormat => config.clock_format = value.to_string(),
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
             Self::DisksFilter => {
-                config.disks_filter = value.split_whitespace().map(str::to_string).collect();
+                config.disks_filter = Self::parse_disks_filter(value).map_err(|_| err())?;
             }
             Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
             Self::ProcFilter => config.proc_filter = value.to_string(),
@@ -1103,13 +1121,124 @@ impl ConfigKey {
             Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
             Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
             Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
-            // Widgets (Vec<WidgetKind>) and any Bool/Int keys never
-            // reach this function via the in-tree caller, which
-            // dispatches on `kind()`. If the contract is violated
-            // we return an error identifying the offending key.
+            // Bool and Int keys go through `set_bool` / `set_int`.
+            // If the contract is violated we return an error
+            // identifying the offending key.
             _ => return Err(err()),
         }
         Ok(())
+    }
+
+    /// Parse `value` as a whitespace-separated list of widget names.
+    ///
+    /// Used by both [`Self::set_string`] and [`Self::validate_string`]
+    /// for the [`Self::Widgets`] key. Returns a static error message
+    /// suitable for inline display in the options menu.
+    pub fn parse_widgets(value: &str) -> Result<Vec<WidgetKind>, &'static str> {
+        let kinds: Result<Vec<_>, _> = value
+            .split_whitespace()
+            .map(str::parse::<WidgetKind>)
+            .collect();
+        let kinds = kinds.map_err(|_| "invalid widget name")?;
+        if kinds.is_empty() {
+            return Err("at least one widget required");
+        }
+        Ok(kinds)
+    }
+
+    /// Parse `value` as a whitespace-separated list of drive filter
+    /// entries (e.g. `"C: !D:"`).
+    ///
+    /// An empty list is allowed (matches every disk). Each entry
+    /// must be a single ASCII letter followed by `:`, optionally
+    /// prefixed with `!`. Returns the original token list (so case
+    /// and `!` prefixes are preserved verbatim for round-trip
+    /// fidelity) — normalisation happens at match time.
+    pub fn parse_disks_filter(value: &str) -> Result<Vec<String>, &'static str> {
+        let tokens: Vec<String> = value.split_whitespace().map(str::to_string).collect();
+        let parsed = crate::domain::disk::DisksFilter::parse(&tokens);
+        if !parsed.invalid().is_empty() {
+            return Err("drive entries must be like 'C:' or '!D:'");
+        }
+        Ok(tokens)
+    }
+
+    /// Parse `value` as an integer for this int-typed key, enforcing
+    /// the same bounds that [`Config::validate`] would clamp to.
+    ///
+    /// Calling this on a non-int key returns an error rather than
+    /// panicking so the inline editor can degrade gracefully.
+    pub fn parse_int(self, value: &str) -> Result<i64, &'static str> {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err("must be an integer");
+        }
+        let n: i64 = trimmed.parse().map_err(|_| "must be an integer")?;
+        let in_range = match self {
+            Self::UpdateMs => (100..=86_400_000).contains(&n),
+            Self::CpuUpdateMs
+            | Self::MemUpdateMs
+            | Self::DiskUpdateMs
+            | Self::NetUpdateMs
+            | Self::GpuUpdateMs
+            | Self::ProcUpdateMs => (0..=86_400_000).contains(&n),
+            Self::NetDownload | Self::NetUpload => (0..=10_000_000).contains(&n),
+            _ => return Err("not an integer key"),
+        };
+        if in_range {
+            Ok(n)
+        } else {
+            Err(self.int_bounds_message())
+        }
+    }
+
+    fn int_bounds_message(self) -> &'static str {
+        match self {
+            Self::UpdateMs => "must be 100..86400000 ms",
+            Self::CpuUpdateMs
+            | Self::MemUpdateMs
+            | Self::DiskUpdateMs
+            | Self::NetUpdateMs
+            | Self::GpuUpdateMs
+            | Self::ProcUpdateMs => "must be 0..86400000 ms (0=inherit)",
+            Self::NetDownload | Self::NetUpload => "must be 0..10000000 KiB/s",
+            _ => "out of range",
+        }
+    }
+
+    /// Validate that `value` is acceptable for this string-typed key
+    /// without mutating any config field. Returns a static error
+    /// message suitable for inline display in the options menu when
+    /// validation fails.
+    ///
+    /// Used by the inline editor commit path: validate first, and
+    /// only call [`Self::set_string`] when validation succeeds.
+    pub fn validate_string(self, value: &str) -> Result<(), &'static str> {
+        match self {
+            Self::Widgets => Self::parse_widgets(value).map(|_| ()),
+            Self::DisksFilter => Self::parse_disks_filter(value).map(|_| ()),
+            Self::ClockFormat
+            | Self::CustomCpuName
+            | Self::ProcFilter
+            | Self::CustomGpuName0
+            | Self::CustomGpuName1
+            | Self::CustomGpuName2
+            | Self::CustomGpuName3
+            | Self::CustomGpuName4
+            | Self::CustomGpuName5
+            | Self::CustomGpuName6
+            | Self::CustomGpuName7 => Ok(()),
+            _ => match self.kind() {
+                KeyKind::String | KeyKind::Enum => {
+                    if self.browsable_values().contains(&value) {
+                        Ok(())
+                    } else {
+                        Err("invalid value")
+                    }
+                }
+                _ => Err("not a string key"),
+            },
+        }
     }
 
     /// Returns the allowed values for constrained string keys, or None for free-form.
@@ -1633,5 +1762,242 @@ mod tests {
         for key in keys {
             assert_eq!(ConfigKey::parse(key.name()), Some(key));
         }
+    }
+
+    // -----------------------------------------------------------------
+    // Inline editor parser/validator/set_custom_widgets coverage
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_widgets_rejects_empty_input() {
+        assert!(ConfigKey::parse_widgets("").is_err());
+        assert!(ConfigKey::parse_widgets("   ").is_err());
+    }
+
+    #[test]
+    fn parse_widgets_accepts_known_kinds() {
+        let result = ConfigKey::parse_widgets("cpu mem net proc disk").unwrap();
+        assert_eq!(
+            result,
+            vec![
+                WidgetKind::Cpu,
+                WidgetKind::Mem,
+                WidgetKind::Net,
+                WidgetKind::Proc,
+                WidgetKind::Disk,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_widgets_accepts_gpu_indices() {
+        let result = ConfigKey::parse_widgets("cpu gpu0 gpu7").unwrap();
+        assert_eq!(
+            result,
+            vec![WidgetKind::Cpu, WidgetKind::Gpu(0), WidgetKind::Gpu(7)]
+        );
+    }
+
+    #[test]
+    fn parse_widgets_rejects_unknown_token() {
+        assert!(ConfigKey::parse_widgets("cpu nope").is_err());
+        assert!(ConfigKey::parse_widgets("gpu99").is_err());
+    }
+
+    #[test]
+    fn parse_disks_filter_accepts_empty() {
+        assert_eq!(
+            ConfigKey::parse_disks_filter("").unwrap(),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            ConfigKey::parse_disks_filter("   ").unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn parse_disks_filter_preserves_case_and_prefix() {
+        let result = ConfigKey::parse_disks_filter("c: !D: E:").unwrap();
+        assert_eq!(
+            result,
+            vec!["c:".to_string(), "!D:".to_string(), "E:".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_disks_filter_rejects_bare_letter() {
+        assert!(ConfigKey::parse_disks_filter("C").is_err());
+        assert!(ConfigKey::parse_disks_filter("C: D").is_err());
+        assert!(ConfigKey::parse_disks_filter("!E").is_err());
+    }
+
+    #[test]
+    fn parse_int_enforces_update_ms_lower_bound() {
+        assert!(ConfigKey::UpdateMs.parse_int("99").is_err());
+        assert_eq!(ConfigKey::UpdateMs.parse_int("100").unwrap(), 100);
+    }
+
+    #[test]
+    fn parse_int_accepts_zero_for_inherit_keys() {
+        for key in [
+            ConfigKey::CpuUpdateMs,
+            ConfigKey::MemUpdateMs,
+            ConfigKey::DiskUpdateMs,
+            ConfigKey::NetUpdateMs,
+            ConfigKey::GpuUpdateMs,
+            ConfigKey::ProcUpdateMs,
+        ] {
+            assert_eq!(key.parse_int("0").unwrap(), 0);
+        }
+    }
+
+    #[test]
+    fn parse_int_rejects_negative_and_overflow() {
+        assert!(ConfigKey::CpuUpdateMs.parse_int("-1").is_err());
+        assert!(ConfigKey::NetDownload.parse_int("10000001").is_err());
+        assert_eq!(
+            ConfigKey::NetDownload.parse_int("10000000").unwrap(),
+            10_000_000
+        );
+    }
+
+    #[test]
+    fn parse_int_trims_whitespace() {
+        assert_eq!(ConfigKey::UpdateMs.parse_int("  500  ").unwrap(), 500);
+    }
+
+    #[test]
+    fn parse_int_rejects_non_numeric_or_empty() {
+        assert!(ConfigKey::UpdateMs.parse_int("abc").is_err());
+        assert!(ConfigKey::UpdateMs.parse_int("").is_err());
+    }
+
+    #[test]
+    fn parse_int_rejects_non_int_key() {
+        assert!(ConfigKey::ColorTheme.parse_int("100").is_err());
+        assert!(ConfigKey::Widgets.parse_int("100").is_err());
+    }
+
+    #[test]
+    fn validate_string_widgets() {
+        assert!(ConfigKey::Widgets.validate_string("cpu mem").is_ok());
+        assert!(ConfigKey::Widgets.validate_string("").is_err());
+        assert!(ConfigKey::Widgets.validate_string("nope").is_err());
+    }
+
+    #[test]
+    fn validate_string_disks_filter() {
+        assert!(ConfigKey::DisksFilter.validate_string("").is_ok());
+        assert!(ConfigKey::DisksFilter.validate_string("C: !D:").is_ok());
+        assert!(ConfigKey::DisksFilter.validate_string("X").is_err());
+    }
+
+    #[test]
+    fn validate_string_free_form_keys_always_ok() {
+        for key in [
+            ConfigKey::ClockFormat,
+            ConfigKey::CustomCpuName,
+            ConfigKey::ProcFilter,
+            ConfigKey::CustomGpuName0,
+            ConfigKey::CustomGpuName7,
+        ] {
+            assert!(key.validate_string("").is_ok());
+            assert!(key.validate_string("anything goes !@#$%").is_ok());
+        }
+    }
+
+    #[test]
+    fn validate_string_constrained_choice_keys() {
+        assert!(ConfigKey::ColorTheme.validate_string("default").is_ok());
+        assert!(
+            ConfigKey::ColorTheme
+                .validate_string("nonexistent")
+                .is_err()
+        );
+        assert!(ConfigKey::LogLevel.validate_string("info").is_ok());
+        assert!(ConfigKey::LogLevel.validate_string("loud").is_err());
+    }
+
+    #[test]
+    fn validate_string_rejects_non_string_keys() {
+        assert!(ConfigKey::UpdateMs.validate_string("100").is_err());
+        assert!(ConfigKey::RoundedCorners.validate_string("true").is_err());
+    }
+
+    #[test]
+    fn set_custom_widgets_no_op_keeps_builtin_cursor() {
+        let mut config = Config::new();
+        config.current_preset = 0;
+        let preset_zero = config.widgets().to_vec();
+        config.set_custom_widgets(preset_zero);
+        assert_eq!(config.current_preset, 0, "no-op must not promote to custom");
+    }
+
+    #[test]
+    fn set_custom_widgets_change_promotes_builtin_to_custom() {
+        let mut config = Config::new();
+        config.current_preset = 1;
+        config.set_custom_widgets(vec![WidgetKind::Cpu, WidgetKind::Mem]);
+        assert_eq!(
+            config.current_preset,
+            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+        );
+        assert_eq!(
+            config.custom_widgets.as_slice(),
+            &[WidgetKind::Cpu, WidgetKind::Mem]
+        );
+    }
+
+    #[test]
+    fn set_custom_widgets_on_custom_writes_without_changing_cursor() {
+        let mut config = Config::new();
+        let custom_idx = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
+        config.current_preset = custom_idx;
+        config.set_custom_widgets(vec![WidgetKind::Cpu]);
+        assert_eq!(config.current_preset, custom_idx);
+        assert_eq!(config.custom_widgets.as_slice(), &[WidgetKind::Cpu]);
+    }
+
+    #[test]
+    fn set_string_widgets_via_inline_editor_path() {
+        let mut config = Config::new();
+        config.current_preset = 1;
+        ConfigKey::Widgets
+            .set_string(&mut config, "cpu mem disk")
+            .unwrap();
+        assert_eq!(
+            config.current_preset,
+            crate::domain::preset::BUILTIN_PRESETS.len() as i64
+        );
+        assert_eq!(
+            config.custom_widgets.as_slice(),
+            &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk]
+        );
+    }
+
+    #[test]
+    fn set_string_widgets_invalid_returns_err() {
+        let mut config = Config::new();
+        assert!(ConfigKey::Widgets.set_string(&mut config, "nope").is_err());
+        assert!(ConfigKey::Widgets.set_string(&mut config, "").is_err());
+    }
+
+    #[test]
+    fn set_string_disks_filter_via_inline_editor_path() {
+        let mut config = Config::new();
+        ConfigKey::DisksFilter
+            .set_string(&mut config, "C: !D:")
+            .unwrap();
+        assert_eq!(
+            config.disks_filter,
+            vec!["C:".to_string(), "!D:".to_string()]
+        );
+    }
+
+    #[test]
+    fn set_string_disks_filter_invalid_returns_err() {
+        let mut config = Config::new();
+        assert!(ConfigKey::DisksFilter.set_string(&mut config, "X").is_err());
     }
 }

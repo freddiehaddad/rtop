@@ -1,5 +1,6 @@
 use crate::config::{Config, ConfigKey, KeyKind};
 use crate::draw::box_drawing::{self, symbols};
+use crate::handlers::options_edit::OptionEditState;
 use crate::term;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -739,6 +740,41 @@ fn cjust(s: &str, width: usize) -> String {
     format!("{}{}{}", " ".repeat(pad_left), s, " ".repeat(pad_right))
 }
 
+/// Render `buffer` as a `width`-character window for inline editing.
+///
+/// The cursor (a char index into `buffer`) is rendered with an
+/// ANSI underline marker (`term::UNDERLINE` / `term::UNDERLINE_OFF`).
+/// When `cursor` lies past the rendered text the marker wraps a
+/// space so it stays visible — this is the same precedent the proc
+/// filter uses (see `src/ui/proc_widget/borders.rs`).
+///
+/// When the buffer is wider than `width`, the window scrolls so
+/// the cursor stays on-screen: cursor positions `< width` show from
+/// the start; positions `>= width` shift the start so the cursor
+/// lands on the last column.
+pub(crate) fn render_edit_value(buffer: &str, cursor: usize, width: usize) -> String {
+    let chars: Vec<char> = buffer.chars().collect();
+    let cc = chars.len();
+    let scroll = if cc <= width || cursor < width {
+        0
+    } else {
+        cursor + 1 - width
+    };
+    let mut out = String::with_capacity(width + term::UNDERLINE.len() + term::UNDERLINE_OFF.len());
+    for col in 0..width {
+        let pos = scroll + col;
+        let ch = chars.get(pos).copied().unwrap_or(' ');
+        if pos == cursor {
+            out.push_str(term::UNDERLINE);
+            out.push(ch);
+            out.push_str(term::UNDERLINE_OFF);
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
 /// Capitalize first letter of each word, replace underscores with spaces.
 fn capitalize_option(key: ConfigKey) -> String {
     key.name()
@@ -758,21 +794,44 @@ fn capitalize_option(key: ConfigKey) -> String {
         .join(" ")
 }
 
+/// Parameters for [`draw`].
+///
+/// Bundled into a struct because the option-set is wide enough to
+/// trigger `clippy::too_many_arguments` (the codebase forbids
+/// `#[allow(...)]` lint suppressions). All fields are required;
+/// `option_edit` is `None` outside the inline-editor menu state.
+pub struct DrawParams<'a> {
+    pub term_width: usize,
+    pub term_height: usize,
+    pub cat: usize,
+    pub selected: usize,
+    pub page: usize,
+    pub config: &'a Config,
+    pub theme: &'a Theme,
+    pub option_edit: Option<&'a OptionEditState>,
+}
+
 /// Draw the btop-style options menu.
 ///
 /// The box is 78 chars wide, centered on screen.
 /// Left panel: 30 chars (option name + value rows).
 /// Right panel: description of selected option.
 /// Vertical divider at column x+30.
-pub fn draw(
-    term_width: usize,
-    term_height: usize,
-    cat: usize,
-    selected: usize,
-    page: usize,
-    config: &Config,
-    theme: &Theme,
-) -> String {
+///
+/// `option_edit` (in [`DrawParams`]) is `Some` only while
+/// [`crate::handlers::MenuState::OptionsEdit`] is active. When set,
+/// the value cell on the matching row is rendered as a left-aligned
+/// editable buffer with an underline cursor; the right panel
+/// additionally shows any validation error.
+pub fn draw(p: &DrawParams) -> String {
+    let term_width = p.term_width;
+    let term_height = p.term_height;
+    let cat = p.cat;
+    let selected = p.selected;
+    let page = p.page;
+    let config = p.config;
+    let theme = p.theme;
+    let option_edit = p.option_edit;
     let cats = categories();
     let cat = cat.min(cats.len() - 1);
     let options = cats[cat];
@@ -935,59 +994,111 @@ pub fn draw(
             reset,
         ));
 
-        // Row 2: value (centered in 25 chars within left panel, with arrow indicators)
-        let value_display = cjust(&value, 25);
-        out.push_str(&format!(
-            "{}{}  {}  {}",
-            term::mv(x + 2, cy_start + c * 2 + 1),
-            if is_selected { &sel_fg } else { &fg },
-            value_display,
-            reset,
-        ));
+        // Row 2: value cell. Two presentations:
+        //   - normal: centered in 25 chars with arrow / enter inset
+        //   - editing (selected row + matching option_edit): left-
+        //     aligned editable buffer with underline cursor
+        let val_row = cy_start + c * 2 + 1;
+        let active_edit: Option<&OptionEditState> = if is_selected {
+            option_edit.filter(|e| e.key == opt.key)
+        } else {
+            None
+        };
+        if let Some(edit) = active_edit {
+            let value_color = if edit.error.is_some() { hi } else { sel_fg };
+            let cell = render_edit_value(&edit.buffer, edit.cursor, 25);
+            out.push_str(&format!(
+                "{}{}  {}{}",
+                term::mv(x + 2, val_row),
+                value_color,
+                cell,
+                reset,
+            ));
+        } else {
+            let value_display = cjust(&value, 25);
+            out.push_str(&format!(
+                "{}{}  {}  {}",
+                term::mv(x + 2, val_row),
+                if is_selected { &sel_fg } else { &fg },
+                value_display,
+                reset,
+            ));
+        }
 
-        // Draw arrows and enter symbol for selected item
+        // Decorations and right-panel description for the selected item.
         if is_selected {
-            let val_row = cy_start + c * 2 + 1;
-            match kind {
-                OptKind::Bool | OptKind::Browsable | OptKind::Int => {
-                    out.push_str(&format!(
-                        "{}{}{}{}{}{}{}",
-                        term::BOLD,
-                        term::mv(x + 3, val_row),
-                        hi,
-                        symbols::LEFT_ARROW,
-                        term::mv(x + 29, val_row),
-                        hi,
-                        symbols::RIGHT_ARROW,
-                    ));
-                    out.push_str(reset);
+            if let Some(edit) = active_edit {
+                // Inline-editor decorations: no left/right arrows
+                // (cursor keys move within the buffer instead).
+                // Right panel: description + blank line + error.
+                out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
+                let desc_top = y + 8 + 1;
+                let desc_bottom = y + 6 + height;
+                let mut row = desc_top;
+                for (di, desc_line) in opt.desc.iter().enumerate() {
+                    if row >= desc_bottom {
+                        break;
+                    }
+                    if di == 1 {
+                        out.push_str(&format!("{}{}", fg, term::BOLD_OFF));
+                    }
+                    out.push_str(&format!("{}{}", term::mv(x + 33, row + 1), desc_line));
+                    row += 1;
                 }
-                OptKind::StringVal => {
+                if let Some(msg) = edit.error
+                    && row + 1 < desc_bottom
+                {
                     out.push_str(&format!(
                         "{}{}{}{}",
-                        term::BOLD,
-                        term::mv(x + 29, val_row),
+                        term::mv(x + 33, row + 2),
                         hi,
-                        symbols::ENTER,
+                        msg,
+                        reset,
                     ));
-                    out.push_str(reset);
                 }
-            }
+                out.push_str(reset);
+            } else {
+                match kind {
+                    OptKind::Bool | OptKind::Browsable | OptKind::Int => {
+                        out.push_str(&format!(
+                            "{}{}{}{}{}{}{}",
+                            term::BOLD,
+                            term::mv(x + 3, val_row),
+                            hi,
+                            symbols::LEFT_ARROW,
+                            term::mv(x + 29, val_row),
+                            hi,
+                            symbols::RIGHT_ARROW,
+                        ));
+                        out.push_str(reset);
+                    }
+                    OptKind::StringVal => {
+                        out.push_str(&format!(
+                            "{}{}{}{}",
+                            term::BOLD,
+                            term::mv(x + 29, val_row),
+                            hi,
+                            symbols::ENTER,
+                        ));
+                        out.push_str(reset);
+                    }
+                }
 
-            // Description in right panel
-            out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
-            for (di, desc_line) in opt.desc.iter().enumerate() {
-                let desc_row = y + 8 + 1 + di; // start at the row after the divider
-                if desc_row >= y + 6 + height {
-                    break;
+                // Description in right panel
+                out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
+                for (di, desc_line) in opt.desc.iter().enumerate() {
+                    let desc_row = y + 8 + 1 + di; // start at the row after the divider
+                    if desc_row >= y + 6 + height {
+                        break;
+                    }
+                    // First description line is title-colored, rest are main_fg
+                    if di == 1 {
+                        out.push_str(&format!("{}{}", fg, term::BOLD_OFF));
+                    }
+                    out.push_str(&format!("{}{}", term::mv(x + 33, desc_row + 1), desc_line,));
                 }
-                // First description line is title-colored, rest are main_fg
-                if di == 1 {
-                    out.push_str(&format!("{}{}", fg, term::BOLD_OFF));
-                }
-                out.push_str(&format!("{}{}", term::mv(x + 33, desc_row + 1), desc_line,));
+                out.push_str(reset);
             }
-            out.push_str(reset);
         }
     }
 
@@ -1056,5 +1167,67 @@ mod tests {
                 assert_eq!(ConfigKey::parse(option.key.name()), Some(option.key));
             }
         }
+    }
+
+    fn count_visible_chars(s: &str) -> usize {
+        // Strip ANSI underline markers; count remaining chars.
+        s.replace(term::UNDERLINE, "")
+            .replace(term::UNDERLINE_OFF, "")
+            .chars()
+            .count()
+    }
+
+    #[test]
+    fn render_edit_value_pads_short_buffer_to_full_width() {
+        let out = render_edit_value("ab", 2, 25);
+        assert_eq!(count_visible_chars(&out), 25);
+    }
+
+    #[test]
+    fn render_edit_value_marks_cursor_with_underline() {
+        let out = render_edit_value("ab", 1, 25);
+        // Cursor on 'b' → underline wraps it.
+        let expected = format!("{}b{}", term::UNDERLINE, term::UNDERLINE_OFF);
+        assert!(out.contains(&expected));
+    }
+
+    #[test]
+    fn render_edit_value_underlines_blank_when_cursor_at_end() {
+        let out = render_edit_value("ab", 2, 25);
+        let expected = format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF);
+        assert!(out.contains(&expected));
+    }
+
+    #[test]
+    fn render_edit_value_handles_empty_buffer() {
+        let out = render_edit_value("", 0, 25);
+        // Cursor at column 0 wraps a space.
+        let expected = format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF);
+        assert!(out.contains(&expected));
+        assert_eq!(count_visible_chars(&out), 25);
+    }
+
+    #[test]
+    fn render_edit_value_scrolls_when_buffer_exceeds_width() {
+        let buffer: String = "0123456789012345678901234567890".to_string(); // 31 chars
+        let out = render_edit_value(&buffer, 31, 25);
+        // Cursor at end (pos 31). With width=25, scroll = 31+1-25 = 7.
+        // Visible window starts at char 7, so the rendered prefix is
+        // "78901234..." and the underline marks the trailing space
+        // (cursor sits past the last char).
+        assert!(out.contains("78901"));
+        assert_eq!(count_visible_chars(&out), 25);
+    }
+
+    #[test]
+    fn render_edit_value_supports_multibyte_chars() {
+        // Crab is 1 char, 4 bytes. The renderer is char-indexed.
+        let out = render_edit_value("a🦀b", 2, 25);
+        // Cursor on 'b' → underline wraps 'b'.
+        let expected = format!("{}b{}", term::UNDERLINE, term::UNDERLINE_OFF);
+        assert!(out.contains(&expected));
+        // Crab is preserved verbatim.
+        assert!(out.contains('🦀'));
+        assert_eq!(count_visible_chars(&out), 25);
     }
 }
