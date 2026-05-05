@@ -65,7 +65,7 @@ pub const GENERAL: &[OptDef] = &[
             "",
             "Choose from all bundled themes.",
             "",
-            "\"Default\" for the built-in theme.",
+            "\"default\" for the built-in theme.",
         ],
     },
     OptDef {
