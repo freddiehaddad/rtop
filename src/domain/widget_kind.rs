@@ -201,6 +201,67 @@ impl<'de> Deserialize<'de> for WidgetList {
     }
 }
 
+/// Typed indexed container with one slot per [`WidgetKind`].
+///
+/// Provides exhaustive enum-keyed storage for per-widget values
+/// without runtime hashing or `Option` lookup misses. Used by
+/// `draw::layout::Layout` so that GPU widgets are stored under
+/// their actual [`WidgetKind::Gpu(n)`] index — preventing the
+/// dense-positional `Vec` shape that previously dropped GPU
+/// identity when a sparse subset of GPU widgets was enabled.
+///
+/// The five base widgets each occupy a single field; GPU
+/// widgets occupy a fixed-size `[T; MAX_GPUS]` array indexed
+/// by the variant payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PerWidget<T> {
+    cpu: T,
+    mem: T,
+    net: T,
+    process: T,
+    disk: T,
+    gpu: [T; MAX_GPUS],
+}
+
+impl<T: Default> Default for PerWidget<T> {
+    fn default() -> Self {
+        Self {
+            cpu: T::default(),
+            mem: T::default(),
+            net: T::default(),
+            process: T::default(),
+            disk: T::default(),
+            gpu: std::array::from_fn(|_| T::default()),
+        }
+    }
+}
+
+impl<T> PerWidget<T> {
+    /// Borrow the slot for `kind`.
+    pub fn get(&self, kind: WidgetKind) -> &T {
+        match kind {
+            WidgetKind::Cpu => &self.cpu,
+            WidgetKind::Mem => &self.mem,
+            WidgetKind::Net => &self.net,
+            WidgetKind::Proc => &self.process,
+            WidgetKind::Disk => &self.disk,
+            WidgetKind::Gpu(n) => &self.gpu[n as usize],
+        }
+    }
+
+    /// Mutably borrow the slot for `kind`.
+    pub fn get_mut(&mut self, kind: WidgetKind) -> &mut T {
+        match kind {
+            WidgetKind::Cpu => &mut self.cpu,
+            WidgetKind::Mem => &mut self.mem,
+            WidgetKind::Net => &mut self.net,
+            WidgetKind::Proc => &mut self.process,
+            WidgetKind::Disk => &mut self.disk,
+            WidgetKind::Gpu(n) => &mut self.gpu[n as usize],
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,5 +360,70 @@ mod tests {
         assert!(!list.remove_kind(WidgetKind::Mem));
         assert!(list.remove_kind(WidgetKind::Cpu));
         assert!(list.as_slice().is_empty());
+    }
+
+    #[test]
+    fn per_widget_default_is_default_for_every_slot() {
+        let p = PerWidget::<bool>::default();
+        for kind in [
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
+        ] {
+            assert!(!*p.get(kind));
+        }
+        for n in 0..MAX_GPUS {
+            assert!(!*p.get(WidgetKind::Gpu(n as u8)));
+        }
+    }
+
+    #[test]
+    fn per_widget_base_slots_are_independent() {
+        let mut p = PerWidget::<u32>::default();
+        for (i, kind) in [
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            *p.get_mut(kind) = i as u32 + 1;
+        }
+        assert_eq!(*p.get(WidgetKind::Cpu), 1);
+        assert_eq!(*p.get(WidgetKind::Mem), 2);
+        assert_eq!(*p.get(WidgetKind::Net), 3);
+        assert_eq!(*p.get(WidgetKind::Proc), 4);
+        assert_eq!(*p.get(WidgetKind::Disk), 5);
+    }
+
+    #[test]
+    fn per_widget_gpu_slots_are_addressable_by_index() {
+        let mut p = PerWidget::<u32>::default();
+        for n in 0..MAX_GPUS {
+            *p.get_mut(WidgetKind::Gpu(n as u8)) = (100 + n) as u32;
+        }
+        for n in 0..MAX_GPUS {
+            assert_eq!(*p.get(WidgetKind::Gpu(n as u8)), (100 + n) as u32);
+        }
+        // Sparse writes preserve identity: writing only Gpu(2) leaves Gpu(0) and Gpu(1) untouched.
+        let mut q = PerWidget::<u32>::default();
+        *q.get_mut(WidgetKind::Gpu(2)) = 42;
+        assert_eq!(*q.get(WidgetKind::Gpu(0)), 0);
+        assert_eq!(*q.get(WidgetKind::Gpu(1)), 0);
+        assert_eq!(*q.get(WidgetKind::Gpu(2)), 42);
+    }
+
+    #[test]
+    fn per_widget_gpu_does_not_alias_base_slots() {
+        let mut p = PerWidget::<u32>::default();
+        *p.get_mut(WidgetKind::Cpu) = 1;
+        *p.get_mut(WidgetKind::Gpu(0)) = 2;
+        assert_eq!(*p.get(WidgetKind::Cpu), 1);
+        assert_eq!(*p.get(WidgetKind::Gpu(0)), 2);
     }
 }

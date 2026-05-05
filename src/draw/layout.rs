@@ -1,3 +1,6 @@
+use crate::config::MAX_GPUS;
+use crate::domain::widget_kind::{PerWidget, WidgetKind};
+
 /// Dimensions and position of a UI widget.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WidgetDimensions {
@@ -8,14 +11,28 @@ pub struct WidgetDimensions {
 }
 
 /// Complete layout of all UI widgets.
+///
+/// Widget dimensions are stored keyed by [`WidgetKind`]. GPU widget
+/// slots are addressed by their actual index `n` (from
+/// [`WidgetKind::Gpu(n)`]) — preserving identity end-to-end so a
+/// sparse GPU layout (e.g. only `gpu1` enabled) renders the
+/// correct device's data with the correct title and toggle key.
 #[derive(Debug, Clone, Default)]
 pub struct Layout {
-    pub cpu: Option<WidgetDimensions>,
-    pub mem: Option<WidgetDimensions>,
-    pub disk: Option<WidgetDimensions>,
-    pub net: Option<WidgetDimensions>,
-    pub proc_widget: Option<WidgetDimensions>,
-    pub gpu: Vec<WidgetDimensions>,
+    dims: PerWidget<Option<WidgetDimensions>>,
+}
+
+impl Layout {
+    /// Borrow the dimensions assigned to `kind`, if the widget is
+    /// laid out this frame.
+    pub fn dims_for(&self, kind: WidgetKind) -> Option<&WidgetDimensions> {
+        self.dims.get(kind).as_ref()
+    }
+
+    /// Assign dimensions to `kind` for this frame.
+    fn set(&mut self, kind: WidgetKind, dim: WidgetDimensions) {
+        *self.dims.get_mut(kind) = Some(dim);
+    }
 }
 
 /// Minimum widget dimensions (matching btop).
@@ -53,7 +70,7 @@ pub const MIN_TERM_HEIGHT: usize = MIN_CPU_HEIGHT + MIN_NET_HEIGHT + MIN_DISK_HE
 pub struct LayoutConfig<'a> {
     pub term_width: usize,
     pub term_height: usize,
-    pub widgets: &'a [crate::domain::widget_kind::WidgetKind],
+    pub widgets: &'a [WidgetKind],
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
@@ -69,8 +86,6 @@ pub struct LayoutConfig<'a> {
 
 /// Calculate widget sizes and positions based on terminal dimensions and config.
 pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
-    use crate::domain::widget_kind::WidgetKind;
-
     let term_width = cfg.term_width;
     let term_height = cfg.term_height;
     let widgets = cfg.widgets;
@@ -85,11 +100,15 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let has_proc = widgets.contains(&WidgetKind::Proc);
     let has_disk = widgets.contains(&WidgetKind::Disk);
 
-    // Count how many gpu widgets are shown
-    let gpu_count_shown = (0..gpu_count)
-        .filter_map(WidgetKind::gpu)
-        .filter(|kind| widgets.contains(kind))
-        .count();
+    // Collect the actual GPU indices to render this frame, preserving
+    // identity. Filter against `gpu_count` (devices detected) and the
+    // user's widget list. The order in this Vec is the layout
+    // placement order — GPU widgets are placed top-to-bottom in their
+    // index order, but each placement carries its true `n`.
+    let gpu_indices_shown: Vec<u8> = (0..MAX_GPUS as u8)
+        .filter(|n| (*n as usize) < gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
+        .collect();
+    let gpu_count_shown = gpu_indices_shown.len();
 
     let mut layout = Layout::default();
 
@@ -180,27 +199,38 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     };
 
     if has_cpu {
-        layout.cpu = Some(WidgetDimensions {
-            x: 0,
-            y: cpu_y,
-            width: term_width,
-            height: cpu_height,
-        });
+        layout.set(
+            WidgetKind::Cpu,
+            WidgetDimensions {
+                x: 0,
+                y: cpu_y,
+                width: term_width,
+                height: cpu_height,
+            },
+        );
     }
 
     // Left column positioning
     let left_y_start = if cpu_bottom { 0 } else { top_section };
     let left_x = if proc_left { proc_width } else { 0 };
 
-    // GPU widgets in the left column, above mem
+    // GPU widgets in the left column, above mem. Each enabled GPU
+    // widget is keyed by its actual index `n` (from
+    // `WidgetKind::Gpu(n)`); the `placement_i` only drives the
+    // vertical position so widgets stack top-to-bottom in
+    // declaration order without leaving gaps when a low-index GPU
+    // is disabled.
     let gpu_start_y = left_y_start;
-    for i in 0..gpu_count_shown {
-        layout.gpu.push(WidgetDimensions {
-            x: left_x,
-            y: gpu_start_y + i * MIN_GPU_HEIGHT,
-            width: left_width.max(MIN_MEM_WIDTH),
-            height: MIN_GPU_HEIGHT,
-        });
+    for (placement_i, n) in gpu_indices_shown.iter().enumerate() {
+        layout.set(
+            WidgetKind::Gpu(*n),
+            WidgetDimensions {
+                x: left_x,
+                y: gpu_start_y + placement_i * MIN_GPU_HEIGHT,
+                width: left_width.max(MIN_MEM_WIDTH),
+                height: MIN_GPU_HEIGHT,
+            },
+        );
     }
 
     // Shift left column content below GPU
@@ -214,43 +244,55 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     };
 
     if has_mem {
-        layout.mem = Some(WidgetDimensions {
-            x: left_x,
-            y: mem_y,
-            width: left_width.max(MIN_MEM_WIDTH),
-            height: mem_height,
-        });
+        layout.set(
+            WidgetKind::Mem,
+            WidgetDimensions {
+                x: left_x,
+                y: mem_y,
+                width: left_width.max(MIN_MEM_WIDTH),
+                height: mem_height,
+            },
+        );
     }
 
     if has_net {
-        layout.net = Some(WidgetDimensions {
-            x: left_x,
-            y: net_y,
-            width: left_width.max(MIN_NET_WIDTH),
-            height: net_height,
-        });
+        layout.set(
+            WidgetKind::Net,
+            WidgetDimensions {
+                x: left_x,
+                y: net_y,
+                width: left_width.max(MIN_NET_WIDTH),
+                height: net_height,
+            },
+        );
     }
 
     // Disk widget — below mem+net in the left column
     if has_disk {
         let disk_y = left_content_y + mem_height + net_height;
-        layout.disk = Some(WidgetDimensions {
-            x: left_x,
-            y: disk_y,
-            width: left_width.max(MIN_MEM_WIDTH),
-            height: disk_height,
-        });
+        layout.set(
+            WidgetKind::Disk,
+            WidgetDimensions {
+                x: left_x,
+                y: disk_y,
+                width: left_width.max(MIN_MEM_WIDTH),
+                height: disk_height,
+            },
+        );
     }
 
     // PROC position
     if has_proc {
         let proc_x = if proc_left { 0 } else { left_width };
-        layout.proc_widget = Some(WidgetDimensions {
-            x: proc_x,
-            y: left_y_start,
-            width: proc_width,
-            height: remaining_height,
-        });
+        layout.set(
+            WidgetKind::Proc,
+            WidgetDimensions {
+                x: proc_x,
+                y: left_y_start,
+                width: proc_width,
+                height: remaining_height,
+            },
+        );
     }
 
     layout
@@ -293,28 +335,28 @@ mod tests {
             core_count: 8,
             ..lc(120, 40, &b)
         });
-        assert!(layout.cpu.is_some());
-        assert!(layout.mem.is_some());
-        assert!(layout.net.is_some());
-        assert!(layout.proc_widget.is_some());
+        assert!(layout.dims_for(WidgetKind::Cpu).is_some());
+        assert!(layout.dims_for(WidgetKind::Mem).is_some());
+        assert!(layout.dims_for(WidgetKind::Net).is_some());
+        assert!(layout.dims_for(WidgetKind::Proc).is_some());
     }
 
     #[test]
     fn calc_sizes_cpu_only() {
         let b = widgets(&[WidgetKind::Cpu]);
         let layout = calc_sizes(&lc(80, 24, &b));
-        assert!(layout.cpu.is_some());
-        assert!(layout.mem.is_none());
-        assert!(layout.net.is_none());
-        assert!(layout.proc_widget.is_none());
+        assert!(layout.dims_for(WidgetKind::Cpu).is_some());
+        assert!(layout.dims_for(WidgetKind::Mem).is_none());
+        assert!(layout.dims_for(WidgetKind::Net).is_none());
+        assert!(layout.dims_for(WidgetKind::Proc).is_none());
     }
 
     #[test]
     fn calc_sizes_proc_only() {
         let b = widgets(&[WidgetKind::Proc]);
         let layout = calc_sizes(&lc(80, 24, &b));
-        assert!(layout.proc_widget.is_some());
-        assert!(layout.cpu.is_none());
+        assert!(layout.dims_for(WidgetKind::Proc).is_some());
+        assert!(layout.dims_for(WidgetKind::Cpu).is_none());
     }
 
     #[test]
@@ -325,7 +367,10 @@ mod tests {
             cpu_bottom: true,
             ..lc(80, 40, &b)
         });
-        assert!(layout_top.cpu.as_ref().unwrap().y < layout_bot.cpu.as_ref().unwrap().y);
+        assert!(
+            layout_top.dims_for(WidgetKind::Cpu).unwrap().y
+                < layout_bot.dims_for(WidgetKind::Cpu).unwrap().y
+        );
     }
 
     #[test]
@@ -340,8 +385,8 @@ mod tests {
             proc_left: true,
             ..lc(120, 40, &b)
         });
-        let proc_x = layout.proc_widget.as_ref().unwrap().x;
-        let mem_x = layout.mem.as_ref().unwrap().x;
+        let proc_x = layout.dims_for(WidgetKind::Proc).unwrap().x;
+        let mem_x = layout.dims_for(WidgetKind::Mem).unwrap().x;
         assert!(proc_x < mem_x); // proc on left, mem on right
     }
 
@@ -353,8 +398,14 @@ mod tests {
             mem_below_net: true,
             ..lc(80, 40, &b)
         });
-        assert!(layout_above.mem.as_ref().unwrap().y < layout_above.net.as_ref().unwrap().y);
-        assert!(layout_below.mem.as_ref().unwrap().y > layout_below.net.as_ref().unwrap().y);
+        assert!(
+            layout_above.dims_for(WidgetKind::Mem).unwrap().y
+                < layout_above.dims_for(WidgetKind::Net).unwrap().y
+        );
+        assert!(
+            layout_below.dims_for(WidgetKind::Mem).unwrap().y
+                > layout_below.dims_for(WidgetKind::Net).unwrap().y
+        );
     }
 
     #[test]
@@ -385,11 +436,11 @@ mod tests {
             core_count: 16,
             ..lc(200, 60, &b)
         });
-        if let Some(mem) = &layout.mem {
+        if let Some(mem) = layout.dims_for(WidgetKind::Mem) {
             assert!(mem.width >= MIN_MEM_WIDTH);
             assert!(mem.height >= 6); // minimum: 4 rows + 2 borders
         }
-        if let Some(proc_b) = &layout.proc_widget {
+        if let Some(proc_b) = layout.dims_for(WidgetKind::Proc) {
             assert!(proc_b.width >= MIN_PROC_WIDTH);
         }
     }
@@ -407,11 +458,12 @@ mod tests {
             core_count: 8,
             ..lc(120, 50, &b)
         });
-        assert!(layout.disk.is_some(), "disk widget should be present");
-        let disk = layout.disk.as_ref().unwrap();
+        let disk = layout
+            .dims_for(WidgetKind::Disk)
+            .expect("disk widget should be present");
         assert!(disk.height >= 2 * 2 + 2);
         // Disk should be below mem and net in the left column
-        if let Some(mem) = &layout.mem {
+        if let Some(mem) = layout.dims_for(WidgetKind::Mem) {
             assert!(disk.y >= mem.y + mem.height);
         }
     }
@@ -425,6 +477,70 @@ mod tests {
             WidgetKind::Proc,
         ]);
         let layout = calc_sizes(&lc(120, 50, &b));
-        assert!(layout.disk.is_none(), "disk widget should be absent");
+        assert!(
+            layout.dims_for(WidgetKind::Disk).is_none(),
+            "disk widget should be absent",
+        );
+    }
+
+    /// Regression test for the GPU widget identity bug.
+    ///
+    /// Prior to keying `Layout` by `WidgetKind`, the layout engine
+    /// stored GPU dimensions in a dense `Vec` and the renderer
+    /// indexed `gpu.gpus[gi]` by enumerate position. Toggling off
+    /// `gpu0` while `gpu1` was enabled would render `gpu.gpus[0]`
+    /// (the wrong device) with a `gpu0` title (the wrong label).
+    ///
+    /// With `PerWidget<Option<WidgetDimensions>>` keyed by
+    /// `WidgetKind::Gpu(n)`, sparse layouts populate exactly the
+    /// requested slots and the renderer iterates `0..MAX_GPUS`
+    /// using the actual `n` for both the slot lookup and the
+    /// `gpu.gpus[n]` index.
+    #[test]
+    fn calc_sizes_sparse_gpu_layout_preserves_indices() {
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(1), WidgetKind::Gpu(3)]);
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 8,
+            gpu_count: 4,
+            ..lc(120, 50, &b)
+        });
+
+        assert!(
+            layout.dims_for(WidgetKind::Gpu(0)).is_none(),
+            "gpu0 was not in the widget list",
+        );
+        assert!(
+            layout.dims_for(WidgetKind::Gpu(1)).is_some(),
+            "gpu1 was enabled and should be present",
+        );
+        assert!(
+            layout.dims_for(WidgetKind::Gpu(2)).is_none(),
+            "gpu2 was not in the widget list",
+        );
+        assert!(
+            layout.dims_for(WidgetKind::Gpu(3)).is_some(),
+            "gpu3 was enabled and should be present",
+        );
+
+        // Placement order preserved: gpu1 above gpu3 (lower index first).
+        let gpu1 = layout.dims_for(WidgetKind::Gpu(1)).unwrap();
+        let gpu3 = layout.dims_for(WidgetKind::Gpu(3)).unwrap();
+        assert!(
+            gpu1.y < gpu3.y,
+            "lower GPU index should be placed above higher index",
+        );
+    }
+
+    #[test]
+    fn calc_sizes_skips_gpu_indices_beyond_detected_count() {
+        // Enabled in widget list but no such device — must not be laid out.
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(0), WidgetKind::Gpu(5)]);
+        let layout = calc_sizes(&LayoutConfig {
+            core_count: 8,
+            gpu_count: 1,
+            ..lc(120, 50, &b)
+        });
+        assert!(layout.dims_for(WidgetKind::Gpu(0)).is_some());
+        assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
     }
 }

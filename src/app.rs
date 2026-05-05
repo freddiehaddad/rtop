@@ -1063,7 +1063,7 @@ pub(crate) fn render_all(
     let mut output = String::new();
 
     if dirty.intersects(Dirty::CPU_WIDGET)
-        && let Some(ref cpu_dim) = layout.cpu
+        && let Some(cpu_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Cpu)
         && let Some(cpu) = params.cpu
     {
         let area = ui::WidgetArea::from_dim(cpu_dim, rounded);
@@ -1103,33 +1103,44 @@ pub(crate) fn render_all(
     if dirty.intersects(Dirty::GPU_WIDGET)
         && let Some(gpu) = params.gpu
     {
-        for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
-            if gi < gpu.gpus.len() {
-                let area = ui::WidgetArea::from_dim(gpu_dim, rounded);
-                let custom_name = config
-                    .custom_gpu_names
-                    .get(gi)
-                    .map(String::as_str)
-                    .unwrap_or("");
-                let gpu_settings = ui::gpu_widget::GpuWidgetSettings {
-                    index: gi,
-                    temp_scale: config.temp_scale,
-                    custom_name,
-                    base_10: config.base_10_sizes,
-                };
-                output.push_str(&ui::gpu_widget::draw(
-                    &gpu.gpus[gi],
-                    &area,
-                    theme,
-                    &gpu_settings,
-                    &gpu.status,
-                ));
-            }
+        // Iterate by actual GPU index n. Layout slots are keyed by
+        // WidgetKind::Gpu(n), so a sparse selection (e.g. only
+        // gpu1) renders gpu.gpus[1] with the correct title and
+        // toggle key. The defensive bounds check on gpu.gpus
+        // covers the narrow window where layout was computed
+        // against an older device count.
+        for n in 0..config::MAX_GPUS {
+            let kind = crate::domain::widget_kind::WidgetKind::Gpu(n as u8);
+            let Some(gpu_dim) = layout.dims_for(kind) else {
+                continue;
+            };
+            let Some(gpu_info) = gpu.gpus.get(n) else {
+                continue;
+            };
+            let area = ui::WidgetArea::from_dim(gpu_dim, rounded);
+            let custom_name = config
+                .custom_gpu_names
+                .get(n)
+                .map(String::as_str)
+                .unwrap_or("");
+            let gpu_settings = ui::gpu_widget::GpuWidgetSettings {
+                index: n,
+                temp_scale: config.temp_scale,
+                custom_name,
+                base_10: config.base_10_sizes,
+            };
+            output.push_str(&ui::gpu_widget::draw(
+                gpu_info,
+                &area,
+                theme,
+                &gpu_settings,
+                &gpu.status,
+            ));
         }
     }
 
     if dirty.intersects(Dirty::MEM_WIDGET)
-        && let Some(ref mem_dim) = layout.mem
+        && let Some(mem_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Mem)
         && let Some(mem) = params.mem
     {
         let area = ui::WidgetArea::from_dim(mem_dim, rounded);
@@ -1146,7 +1157,7 @@ pub(crate) fn render_all(
     }
 
     if dirty.intersects(Dirty::DISK_WIDGET)
-        && let Some(ref disk_dim) = layout.disk
+        && let Some(disk_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Disk)
         && let Some(disk) = params.disk
     {
         let area = ui::WidgetArea::from_dim(disk_dim, rounded);
@@ -1173,7 +1184,7 @@ pub(crate) fn render_all(
     }
 
     if dirty.intersects(Dirty::NET_WIDGET)
-        && let Some(ref net_dim) = layout.net
+        && let Some(net_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Net)
         && let Some(net) = params.net
     {
         let iface = params.selected_iface;
@@ -1207,7 +1218,7 @@ pub(crate) fn render_all(
     }
 
     if dirty.intersects(Dirty::PROC_WIDGET)
-        && let Some(ref proc_dim) = layout.proc_widget
+        && let Some(proc_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Proc)
         && let Some(proc_snap) = params.proc_data
     {
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
