@@ -22,12 +22,10 @@ pub enum Key {
     Delete,
     F(u8),
     CtrlR,
-    CtrlS,
     CtrlD,
     CtrlF,
     CtrlB,
     CtrlU,
-    CtrlX,
 }
 
 /// Translate a crossterm KeyEvent to a typed Key.
@@ -39,12 +37,10 @@ pub(crate) fn translate_key(key: KeyEvent) -> Option<Key> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         match key.code {
             KeyCode::Char('r') => return Some(Key::CtrlR),
-            KeyCode::Char('s') => return Some(Key::CtrlS),
             KeyCode::Char('d') => return Some(Key::CtrlD),
             KeyCode::Char('f') => return Some(Key::CtrlF),
             KeyCode::Char('b') => return Some(Key::CtrlB),
             KeyCode::Char('u') => return Some(Key::CtrlU),
-            KeyCode::Char('x') => return Some(Key::CtrlX),
             KeyCode::Char('c') => return Some(Key::Char('q')),
             _ => {}
         }

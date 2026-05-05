@@ -14,7 +14,7 @@ const STATIC_BOX_NAMES: &[&str] = &["cpu", "mem", "net", "proc", "disk"];
 
 /// Check if a box name is valid. Static boxes are checked by name,
 /// GPU boxes are validated by the `gpuN` pattern where N is a digit.
-fn is_valid_box_name(name: &str) -> bool {
+pub(crate) fn is_valid_box_name(name: &str) -> bool {
     if STATIC_BOX_NAMES.contains(&name) {
         return true;
     }
@@ -166,13 +166,9 @@ pub struct Config {
     )]
     pub log_level: LevelFilter,
     pub proc_filter: String,
-    pub presets: String,
     pub custom_gpu_names: [String; MAX_GPUS],
 
     // -- runtime-only (not serialized) --
-    /// Internal-only: the startup layout snapshot (not persisted).
-    #[serde(skip)]
-    pub initial_shown_boxes: Vec<String>,
     #[serde(skip)]
     conf_file: Option<PathBuf>,
 }
@@ -256,11 +252,9 @@ impl Default for Config {
             net_iface: "auto".to_string(),
             log_level: LevelFilter::WARN,
             proc_filter: String::new(),
-            presets: "cpu:0:default,proc:0:default cpu:0:default,mem:0:default,disk:0:default cpu:0:default,net:0:default,proc:0:default".to_string(),
             custom_gpu_names: Default::default(),
 
             // runtime-only
-            initial_shown_boxes: Vec::new(),
             conf_file: None,
         }
     }
@@ -299,7 +293,6 @@ impl Config {
         }
 
         // Preserve runtime-only fields across the load.
-        let saved_initial = std::mem::take(&mut self.initial_shown_boxes);
         let saved_conf = self.conf_file.take();
 
         match toml::from_str::<Config>(&content) {
@@ -309,13 +302,11 @@ impl Config {
             Err(e) => {
                 warnings.push(format!("Failed to parse config: {e}"));
                 // Restore runtime fields and return early.
-                self.initial_shown_boxes = saved_initial;
                 self.conf_file = saved_conf;
                 return warnings;
             }
         }
 
-        self.initial_shown_boxes = saved_initial;
         self.conf_file = saved_conf;
 
         warnings.append(&mut self.validate());
@@ -401,13 +392,7 @@ impl Config {
             &mut warnings,
         );
 
-        clamp_warn(
-            &mut self.current_preset,
-            0,
-            i64::MAX,
-            "current_preset",
-            &mut warnings,
-        );
+        self.clamp_current_preset();
 
         // The only remaining `validate_choice` call covers
         // `color_theme` — the single string-typed field with a
@@ -470,118 +455,31 @@ impl Config {
 
     /// Reset to defaults, preserving runtime-only fields.
     pub fn apply_defaults(&mut self) {
-        let saved_initial = std::mem::take(&mut self.initial_shown_boxes);
         let saved_conf = self.conf_file.take();
         *self = Self::default();
-        self.initial_shown_boxes = saved_initial;
         self.conf_file = saved_conf;
     }
 
-    /// Parse the presets config string into a list of preset strings.
-    /// Preset 0 is the startup layout stored in `initial_shown_boxes`.
-    pub fn preset_list(&self) -> Vec<String> {
-        let source = if self.initial_shown_boxes.is_empty() {
-            &self.shown_boxes
-        } else {
-            &self.initial_shown_boxes
-        };
-        let preset0 = source
-            .iter()
-            .map(|b| format!("{b}:0:default"))
-            .collect::<Vec<_>>()
-            .join(",");
-        let mut list = vec![preset0];
-
-        if !self.presets.is_empty() {
-            for preset in self.presets.split_whitespace() {
-                if !preset.is_empty() {
-                    list.push(preset.to_string());
-                }
-            }
+    /// Clamp `current_preset` to a valid index in
+    /// `crate::domain::preset::BUILTIN_PRESETS`. Out-of-range or
+    /// negative values fall back to preset 0. Called from
+    /// `validate()` so a stale TOML written by an older version of
+    /// rtop (with a different preset count) loads cleanly.
+    pub fn clamp_current_preset(&mut self) {
+        let max = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
+        if self.current_preset < 0 || self.current_preset >= max {
+            self.current_preset = 0;
         }
-        list
     }
 
-    /// Save the current layout as a new preset and return its index.
-    pub fn save_preset(&mut self) -> usize {
-        let cpu_bottom = if self.cpu_bottom { "1" } else { "0" };
-        let mem_below_net = if self.mem_below_net { "1" } else { "0" };
-        let proc_left = if self.proc_left { "1" } else { "0" };
-
-        let new_preset = self
-            .shown_boxes
-            .iter()
-            .map(|box_name| {
-                let pos = match box_name.as_str() {
-                    "cpu" => cpu_bottom,
-                    "mem" => mem_below_net,
-                    "proc" => proc_left,
-                    _ => "0",
-                };
-                format!("{box_name}:{pos}:default")
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let updated = if self.presets.is_empty() {
-            new_preset
-        } else {
-            format!("{} {new_preset}", self.presets)
-        };
-        self.presets = updated;
-        let idx = self.preset_list().len() - 1;
-        self.current_preset = idx as i64;
-        idx
-    }
-
-    /// Delete the preset at the given index. Index 0 (the default) cannot be deleted.
-    /// Returns true if a preset was deleted.
-    pub fn delete_preset(&mut self, index: usize) -> bool {
-        if index == 0 {
-            return false;
-        }
-        let presets_str = self.presets.clone();
-        let custom: Vec<&str> = presets_str.split_whitespace().collect();
-        let custom_idx = index - 1;
-        if custom_idx >= custom.len() {
-            return false;
-        }
-        let remaining: Vec<&str> = custom
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| *i != custom_idx)
-            .map(|(_, s)| *s)
-            .collect();
-        self.presets = remaining.join(" ");
-        let total = self.preset_list().len() as i64;
-        if self.current_preset >= total {
-            self.current_preset = total - 1;
-        }
-        true
-    }
-
-    /// Apply a preset string like "cpu:0:default,mem:0:default,net:0:default,proc:0:default".
-    /// Sets shown_boxes, cpu_bottom, mem_below_net, proc_left, and graph symbols.
-    pub fn apply_preset(&mut self, preset: &str) {
-        let mut boxes = Vec::new();
-        for part in preset.split(',') {
-            let vals: Vec<&str> = part.split(':').collect();
-            if vals.len() != 3 {
-                continue;
-            }
-            let box_name = vals[0];
-            let position = vals[1];
-
-            boxes.push(box_name.to_string());
-
-            match box_name {
-                "cpu" => self.cpu_bottom = position != "0",
-                "mem" => self.mem_below_net = position != "0",
-                "proc" => self.proc_left = position != "0",
-                _ => {}
-            }
-        }
-        self.shown_boxes = boxes;
+    /// Apply a preset's layout: overwrite `shown_boxes`,
+    /// `cpu_bottom`, `mem_below_net`, and `proc_left`. No other
+    /// Config field is touched.
+    pub fn apply_preset(&mut self, preset: &crate::domain::preset::Preset) {
+        self.shown_boxes = preset.boxes.iter().map(|s| (*s).to_string()).collect();
+        self.cpu_bottom = preset.cpu_bottom;
+        self.mem_below_net = preset.mem_below_net;
+        self.proc_left = preset.proc_left;
     }
 
     /// Toggle a box's visibility in shown_boxes.
@@ -674,7 +572,6 @@ pub enum ConfigKey {
     DisksFilter,
     LogLevel,
     ProcFilter,
-    Presets,
     CustomGpuName0,
     CustomGpuName1,
     CustomGpuName2,
@@ -753,7 +650,6 @@ impl ConfigKey {
             Self::DisksFilter => "disks_filter",
             Self::LogLevel => "log_level",
             Self::ProcFilter => "proc_filter",
-            Self::Presets => "presets",
             Self::CustomGpuName0 => "custom_gpu_name0",
             Self::CustomGpuName1 => "custom_gpu_name1",
             Self::CustomGpuName2 => "custom_gpu_name2",
@@ -818,7 +714,6 @@ impl ConfigKey {
             | Self::CustomCpuName
             | Self::DisksFilter
             | Self::ProcFilter
-            | Self::Presets
             | Self::CustomGpuName0
             | Self::CustomGpuName1
             | Self::CustomGpuName2
@@ -908,7 +803,6 @@ impl ConfigKey {
             "disks_filter" => Some(Self::DisksFilter),
             "log_level" => Some(Self::LogLevel),
             "proc_filter" => Some(Self::ProcFilter),
-            "presets" => Some(Self::Presets),
             "custom_gpu_name0" => Some(Self::CustomGpuName0),
             "custom_gpu_name1" => Some(Self::CustomGpuName1),
             "custom_gpu_name2" => Some(Self::CustomGpuName2),
@@ -992,7 +886,6 @@ impl ConfigKey {
             Self::DisksFilter => config.disks_filter.clone(),
             Self::LogLevel => config.log_level.to_string(),
             Self::ProcFilter => config.proc_filter.clone(),
-            Self::Presets => config.presets.clone(),
             Self::CustomGpuName0 => config.custom_gpu_names[0].clone(),
             Self::CustomGpuName1 => config.custom_gpu_names[1].clone(),
             Self::CustomGpuName2 => config.custom_gpu_names[2].clone(),
@@ -1112,7 +1005,6 @@ impl ConfigKey {
             Self::DisksFilter => config.disks_filter = value.to_string(),
             Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
             Self::ProcFilter => config.proc_filter = value.to_string(),
-            Self::Presets => config.presets = value.to_string(),
             Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
             Self::CustomGpuName1 => config.custom_gpu_names[1] = value.to_string(),
             Self::CustomGpuName2 => config.custom_gpu_names[2] = value.to_string(),
@@ -1409,72 +1301,77 @@ mod tests {
     }
 
     #[test]
-    fn preset_list_default_has_builtin_presets() {
-        let config = Config::new();
-        let list = config.preset_list();
-        assert_eq!(list.len(), 4);
-        assert!(list[0].contains("cpu:0:default"));
-    }
-
-    #[test]
-    fn preset_list_with_custom_presets() {
-        let mut config = Config::new();
-        config.presets = "cpu:0:default,proc:0:default cpu:1:braille,mem:0:default".to_string();
-        let list = config.preset_list();
-        assert_eq!(list.len(), 3);
-    }
-
-    #[test]
-    fn apply_preset_sets_shown_boxes() {
-        let mut config = Config::new();
-        config.apply_preset("cpu:0:default,proc:1:default");
-        assert_eq!(config.shown_boxes, vec!["cpu", "proc"]);
-        assert!(config.proc_left);
-    }
-
-    #[test]
-    fn apply_preset_cpu_bottom() {
-        let mut config = Config::new();
-        config.apply_preset("cpu:1:default,mem:0:default");
-        assert!(config.cpu_bottom);
-        assert!(!config.mem_below_net);
-    }
-
-    #[test]
     fn current_preset_default_is_zero() {
         let config = Config::new();
         assert_eq!(config.current_preset, 0);
     }
 
     #[test]
-    fn save_preset_appends_and_sets_current() {
+    fn apply_preset_overwrites_layout_fields() {
+        use crate::domain::preset::Preset;
         let mut config = Config::new();
-        config.presets = String::new();
-        config.shown_boxes = vec!["cpu".into(), "proc".into()];
-        config.proc_left = true;
-        let idx = config.save_preset();
-        assert!(idx > 0);
-        assert_eq!(config.current_preset, idx as i64);
-        let list = config.preset_list();
-        let last = &list[idx];
-        assert!(last.contains("cpu:0:default"));
-        assert!(last.contains("proc:1:default"));
+        config.shown_boxes = vec!["mem".into()];
+        config.cpu_bottom = false;
+        config.mem_below_net = false;
+        config.proc_left = false;
+
+        let preset = Preset {
+            name: "test",
+            boxes: &["cpu", "proc"],
+            cpu_bottom: true,
+            mem_below_net: true,
+            proc_left: true,
+        };
+        config.apply_preset(&preset);
+
+        assert_eq!(config.shown_boxes, vec!["cpu", "proc"]);
+        assert!(config.cpu_bottom);
+        assert!(config.mem_below_net);
+        assert!(config.proc_left);
     }
 
     #[test]
-    fn delete_preset_removes_custom() {
+    fn apply_preset_does_not_touch_other_fields() {
+        use crate::domain::preset::Preset;
         let mut config = Config::new();
-        config.presets = "cpu:0:default,proc:0:default mem:0:default,net:0:default".to_string();
-        let before = config.preset_list().len();
-        assert!(config.delete_preset(1));
-        let after = config.preset_list().len();
-        assert_eq!(after, before - 1);
+        config.update_ms = 5000;
+        config.proc_filter = "chrome".into();
+
+        let preset = Preset {
+            name: "test",
+            boxes: &["cpu"],
+            cpu_bottom: false,
+            mem_below_net: false,
+            proc_left: false,
+        };
+        config.apply_preset(&preset);
+
+        assert_eq!(config.update_ms, 5000);
+        assert_eq!(config.proc_filter, "chrome");
     }
 
     #[test]
-    fn delete_preset_zero_is_rejected() {
+    fn clamp_current_preset_keeps_in_range_value() {
         let mut config = Config::new();
-        assert!(!config.delete_preset(0));
+        config.current_preset = 1;
+        config.clamp_current_preset();
+        assert_eq!(config.current_preset, 1);
+    }
+
+    #[test]
+    fn clamp_current_preset_resets_negative_to_zero() {
+        let mut config = Config::new();
+        config.current_preset = -3;
+        config.clamp_current_preset();
+        assert_eq!(config.current_preset, 0);
+    }
+
+    #[test]
+    fn clamp_current_preset_resets_overflow_to_zero() {
+        let mut config = Config::new();
+        config.current_preset = crate::domain::preset::BUILTIN_PRESETS.len() as i64;
+        config.clamp_current_preset();
+        assert_eq!(config.current_preset, 0);
     }
 
     #[test]
@@ -1495,15 +1392,5 @@ mod tests {
         for key in keys {
             assert_eq!(ConfigKey::parse(key.name()), Some(key));
         }
-    }
-
-    #[test]
-    fn initial_shown_boxes_is_internal() {
-        let mut config = Config::new();
-        config.initial_shown_boxes = vec!["cpu".into(), "mem".into()];
-        assert_eq!(config.initial_shown_boxes, vec!["cpu", "mem"]);
-        // Should not appear in TOML output
-        let output = toml::to_string_pretty(&config).unwrap();
-        assert!(!output.contains("initial_shown_boxes"));
     }
 }

@@ -13,10 +13,6 @@ pub struct Cli {
     #[arg(short = 'f', long = "filter")]
     pub filter: Option<String>,
 
-    /// Start with preset (0-9).
-    #[arg(short = 'p', long = "preset", value_parser = clap::value_parser!(u32).range(0..=9))]
-    pub preset: Option<u32>,
-
     /// Update rate in milliseconds (minimum 100).
     #[arg(short = 'u', long = "update", value_parser = clap::value_parser!(u32).range(100..))]
     pub update_ms: Option<u32>,
@@ -35,7 +31,6 @@ mod tests {
         let cli = Cli::parse_from(["rtop"]);
         assert!(cli.config_file.is_none());
         assert!(cli.filter.is_none());
-        assert!(cli.preset.is_none());
         assert!(cli.update_ms.is_none());
     }
 
@@ -49,18 +44,6 @@ mod tests {
     fn parse_filter() {
         let cli = Cli::parse_from(["rtop", "-f", "chrome"]);
         assert_eq!(cli.filter.unwrap(), "chrome");
-    }
-
-    #[test]
-    fn parse_preset_valid() {
-        let cli = Cli::parse_from(["rtop", "-p", "5"]);
-        assert_eq!(cli.preset.unwrap(), 5);
-    }
-
-    #[test]
-    fn parse_preset_out_of_range_error() {
-        let result = Cli::try_parse_from(["rtop", "-p", "10"]);
-        assert!(result.is_err());
     }
 
     #[test]

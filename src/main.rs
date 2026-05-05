@@ -64,9 +64,6 @@ fn main() {
     if let Some(ref f) = cli.filter {
         config.proc_filter = f.clone();
     }
-    if let Some(p) = cli.preset {
-        config.current_preset = p as i64;
-    }
 
     let mut terminal = match term::Terminal::init(config.terminal_sync) {
         Ok(t) => t,

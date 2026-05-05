@@ -23,7 +23,7 @@ rtop is a resource monitor that shows CPU, memory, disk, network, GPU, and proce
 The UI design is based on [btop](https://github.com/aristocratos/btop) by aristocratos, reimagined in Rust with Windows-native data collection and several enhancements:
 
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
-- **Preset system** — save/cycle/delete layout presets with `Ctrl+S` / `p` / `Ctrl+X`
+- **Preset system** — cycle through curated layout presets with `p` / `P`
 - **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via PawnIO kernel driver
 - **Per-box dirty rendering** — only redraws what changed
@@ -59,8 +59,6 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `6`–`9` | Toggle GPU 0–3 |
 | `0` | Toggle GPU 4–7 |
 | `p` / `P` | Cycle presets forward/back |
-| `Ctrl+S` | Save current layout as preset |
-| `Ctrl+X` | Delete current preset |
 | `Ctrl+R` | Reload config from file |
 | `+` / `-` | Adjust update speed |
 | `f` / `/` | Filter processes |
@@ -206,7 +204,6 @@ Usage: rtop [OPTIONS]
 Options:
   -c, --config <FILE>     Path to config file
   -f, --filter <TEXT>     Initial process filter
-  -p, --preset <ID>       Start with a preset (0-9)
   -u, --update <MS>       Update interval in milliseconds (min 100)
       --default-config    Print default config and exit
   -h, --help              Print help

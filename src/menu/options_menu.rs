@@ -88,17 +88,6 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::Presets,
-        desc: &[
-            "Layout presets.",
-            "",
-            "Preset 0 is all boxes with default",
-            "settings. Max 9 presets.",
-            "",
-            "Format: \"box_name:P:G,box_name:P:G\"",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ShownBoxes,
         desc: &[
             "Visible boxes.",

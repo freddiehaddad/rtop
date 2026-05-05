@@ -97,84 +97,26 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
 // --- Presets ---
 
 fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
-    match *key {
-        Key::Char('p') => {
-            let presets = ctx.config.preset_list();
-            if !presets.is_empty() {
-                let cur = ctx.config.current_preset;
-                let next = if (cur + 1) >= presets.len() as i64 {
-                    0i64
-                } else {
-                    cur + 1
-                };
-                ctx.config.current_preset = next;
-                ctx.config.apply_preset(&presets[next as usize]);
-                sync_update_ms(ctx);
-                tracing::info!(
-                    subsystem = %crate::log::Subsystem::Input,
-                    action = "preset_cycle",
-                    preset = next,
-                    "preset action",
-                );
-                ctx.render.dirty |= Dirty::FULL;
-            }
-            Some(HandleResult::none())
-        }
-        Key::Char('P') => {
-            let presets = ctx.config.preset_list();
-            if !presets.is_empty() {
-                let cur = ctx.config.current_preset;
-                let next = if cur <= 0 {
-                    presets.len() as i64 - 1
-                } else {
-                    cur - 1
-                };
-                ctx.config.current_preset = next;
-                ctx.config.apply_preset(&presets[next as usize]);
-                sync_update_ms(ctx);
-                tracing::info!(
-                    subsystem = %crate::log::Subsystem::Input,
-                    action = "preset_cycle",
-                    preset = next,
-                    "preset action",
-                );
-                ctx.render.dirty |= Dirty::FULL;
-            }
-            Some(HandleResult::none())
-        }
-        Key::CtrlS => {
-            ctx.config.save_preset();
-            tracing::info!(
-                subsystem = %crate::log::Subsystem::Input,
-                action = "preset_save",
-                preset = ctx.config.current_preset,
-                "preset action",
-            );
-            ctx.render.dirty |= Dirty::CPU_BOX;
-            Some(HandleResult::none())
-        }
-        Key::CtrlX => {
-            let cur = ctx.config.current_preset;
-            if cur > 0 {
-                ctx.config.delete_preset(cur as usize);
-                let presets = ctx.config.preset_list();
-                let new_cur = ctx.config.current_preset;
-                if !presets.is_empty() && (new_cur as usize) < presets.len() {
-                    ctx.config.apply_preset(&presets[new_cur as usize]);
-                    sync_update_ms(ctx);
-                }
-                tracing::info!(
-                    subsystem = %crate::log::Subsystem::Input,
-                    action = "preset_delete",
-                    preset = cur,
-                    "preset action",
-                );
-                ctx.render.dirty |= Dirty::FULL;
-            }
-            Some(HandleResult::none())
-        }
-        _ => None,
-    }
+    use crate::domain::preset::BUILTIN_PRESETS;
+
+    let count = BUILTIN_PRESETS.len() as i64;
+    let next = match *key {
+        Key::Char('p') => (ctx.config.current_preset + 1).rem_euclid(count),
+        Key::Char('P') => (ctx.config.current_preset - 1).rem_euclid(count),
+        _ => return None,
+    };
+    ctx.config.current_preset = next;
+    ctx.config.apply_preset(&BUILTIN_PRESETS[next as usize]);
+    sync_update_ms(ctx);
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "preset_cycle",
+        preset = next,
+        name = BUILTIN_PRESETS[next as usize].name,
+        "preset action",
+    );
+    ctx.render.dirty |= Dirty::FULL;
+    Some(HandleResult::none())
 }
 
 // --- Config reload ---

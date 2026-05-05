@@ -663,7 +663,6 @@ fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Conf
     if auto_add_gpu_boxes(config, gpu_count) {
         state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
     }
-    config.initial_shown_boxes = config.shown_boxes.clone();
     state.startup.boxes_initialized = true;
 }
 

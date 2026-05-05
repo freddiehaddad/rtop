@@ -4,4 +4,5 @@ pub mod disk;
 pub mod gpu;
 pub mod memory;
 pub mod network;
+pub mod preset;
 pub mod process;

@@ -41,16 +41,6 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "Ctrl-S",
-        desc: "Save current layout as preset",
-        section: "Global",
-    },
-    Keybind {
-        key: "Ctrl-X",
-        desc: "Delete current preset",
-        section: "Global",
-    },
-    Keybind {
         key: "Ctrl-R",
         desc: "Reload config",
         section: "Global",
