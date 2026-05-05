@@ -726,7 +726,7 @@ mod tests {
         use crate::domain::disk::DisksFilter;
 
         let data = make_disk_data();
-        let filter = DisksFilter::parse("C:");
+        let filter = DisksFilter::parse(&["C:".to_string()]);
         let visible = filter.apply(&data.disks);
         assert_eq!(visible.len(), 1);
 
@@ -750,7 +750,7 @@ mod tests {
         use crate::domain::disk::DisksFilter;
 
         let data = make_disk_data();
-        let filter = DisksFilter::parse("!C:");
+        let filter = DisksFilter::parse(&["!C:".to_string()]);
         let visible = filter.apply(&data.disks);
         assert_eq!(visible.len(), 1);
 

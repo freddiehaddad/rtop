@@ -167,7 +167,7 @@ pub struct Config {
     pub temp_scale: TempScale,
     pub clock_format: String,
     pub custom_cpu_name: String,
-    pub disks_filter: String,
+    pub disks_filter: Vec<String>,
     pub net_iface: String,
     #[serde(
         with = "crate::log::serde_filter",
@@ -262,7 +262,7 @@ impl Default for Config {
             temp_scale: TempScale::Celsius,
             clock_format: "%X".to_string(),
             custom_cpu_name: String::new(),
-            disks_filter: String::new(),
+            disks_filter: Vec::new(),
             net_iface: "auto".to_string(),
             log_level: LevelFilter::WARN,
             proc_filter: String::new(),
@@ -433,21 +433,17 @@ impl Config {
         }
 
         // Validate disks_filter: surface invalid drive entries as
-        // warnings and strip them from the stored raw string so the
-        // saved config matches what the runtime actually uses.
+        // warnings and drop them in place so the saved config
+        // matches what the runtime actually uses.
         let filter = crate::domain::disk::DisksFilter::parse(&self.disks_filter);
         if !filter.invalid().is_empty() {
             warnings.push(format!(
                 "Invalid drive entry/entries in 'disks_filter': {}",
                 filter.invalid().join(", ")
             ));
-            let invalid_tokens = filter.invalid();
-            self.disks_filter = self
-                .disks_filter
-                .split_whitespace()
-                .filter(|tok| !invalid_tokens.iter().any(|inv| inv == *tok))
-                .collect::<Vec<_>>()
-                .join(" ");
+            let invalid_tokens = filter.invalid().to_vec();
+            self.disks_filter
+                .retain(|tok| !invalid_tokens.contains(tok));
         }
 
         warnings
@@ -975,7 +971,7 @@ impl ConfigKey {
             Self::TempScale => config.temp_scale.to_string(),
             Self::ClockFormat => config.clock_format.clone(),
             Self::CustomCpuName => config.custom_cpu_name.clone(),
-            Self::DisksFilter => config.disks_filter.clone(),
+            Self::DisksFilter => config.disks_filter.join(" "),
             Self::LogLevel => config.log_level.to_string(),
             Self::ProcFilter => config.proc_filter.clone(),
             Self::CustomGpuName0 => config.custom_gpu_names[0].clone(),
@@ -1094,7 +1090,9 @@ impl ConfigKey {
             Self::TempScale => config.temp_scale = value.parse().map_err(|_| err())?,
             Self::ClockFormat => config.clock_format = value.to_string(),
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
-            Self::DisksFilter => config.disks_filter = value.to_string(),
+            Self::DisksFilter => {
+                config.disks_filter = value.split_whitespace().map(str::to_string).collect();
+            }
             Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
             Self::ProcFilter => config.proc_filter = value.to_string(),
             Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
@@ -1335,19 +1333,28 @@ mod tests {
     #[test]
     fn validate_keeps_valid_disks_filter_unchanged() {
         let mut config = Config::new();
-        config.disks_filter = "C: !D:".to_string();
+        config.disks_filter = vec!["C:".into(), "!D:".into()];
         let warnings = config.validate();
         assert!(
             !warnings.iter().any(|w| w.contains("disks_filter")),
             "valid disks_filter should not warn, got: {warnings:?}"
         );
-        assert_eq!(config.disks_filter, "C: !D:");
+        assert_eq!(
+            config.disks_filter,
+            vec!["C:".to_string(), "!D:".to_string()]
+        );
     }
 
     #[test]
     fn validate_warns_and_strips_invalid_disks_filter_entries() {
         let mut config = Config::new();
-        config.disks_filter = "C: abc D: 3 !!".to_string();
+        config.disks_filter = vec![
+            "C:".into(),
+            "abc".into(),
+            "D:".into(),
+            "3".into(),
+            "!!".into(),
+        ];
         let warnings = config.validate();
         let disks_warning = warnings
             .iter()
@@ -1356,16 +1363,19 @@ mod tests {
         assert!(disks_warning.contains("abc"));
         assert!(disks_warning.contains('3'));
         assert!(disks_warning.contains("!!"));
-        assert_eq!(config.disks_filter, "C: D:");
+        assert_eq!(
+            config.disks_filter,
+            vec!["C:".to_string(), "D:".to_string()]
+        );
     }
 
     #[test]
     fn validate_empty_disks_filter_does_not_warn() {
         let mut config = Config::new();
-        config.disks_filter = String::new();
+        config.disks_filter = Vec::new();
         let warnings = config.validate();
         assert!(!warnings.iter().any(|w| w.contains("disks_filter")));
-        assert_eq!(config.disks_filter, "");
+        assert!(config.disks_filter.is_empty());
     }
 
     #[test]
