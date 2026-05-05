@@ -9,7 +9,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     match *key {
         Key::Escape => {
             ctx.overlay.set_menu_state(MenuState::None);
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Enter => {
             ctx.config.proc_filter = ctx.process.filter_text.clone();
@@ -22,14 +22,14 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 filter = %ctx.config.proc_filter,
                 "filter applied",
             );
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Backspace => {
             ctx.process.filter_text.pop();
             ctx.config.proc_filter = ctx.process.filter_text.clone();
             ctx.process.selected = 0;
             ctx.process.start = 0;
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Delete => {
             ctx.process.filter_text.clear();
@@ -41,14 +41,14 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 action = "filter_clear",
                 "filter cleared",
             );
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char(c) => {
             ctx.process.filter_text.push(c);
             ctx.config.proc_filter = ctx.process.filter_text.clone();
             ctx.process.selected = 0;
             ctx.process.start = 0;
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         _ => {}
     }

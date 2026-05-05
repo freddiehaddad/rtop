@@ -9,28 +9,28 @@
 //! `Config::current_preset` (the index into `BUILTIN_PRESETS` plus
 //! the trailing custom slot).
 
-use crate::domain::box_kind::BoxKind;
+use crate::domain::widget_kind::WidgetKind;
 
 /// Layout configuration for a single named preset.
 ///
-/// Each preset is a complete description of which boxes are shown
-/// and how the orientation-sensitive boxes are positioned. Cycling
+/// Each preset is a complete description of which widgets are shown
+/// and how the orientation-sensitive widgets are positioned. Cycling
 /// to a preset overwrites the live layout view returned by
-/// `Config::shown_boxes()` / `cpu_bottom()` / `mem_below_net()` /
+/// `Config::widgets()` / `cpu_bottom()` / `mem_below_net()` /
 /// `proc_left()`. Other Config fields are untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preset {
     /// Short human-readable label.
     pub name: &'static str,
-    /// Box kinds in display order.
-    pub boxes: &'static [BoxKind],
-    /// `true` to render the CPU box at the bottom of the screen
+    /// Widget kinds in display order.
+    pub widgets: &'static [WidgetKind],
+    /// `true` to render the CPU widget at the bottom of the screen
     /// instead of the top.
     pub cpu_bottom: bool,
-    /// `true` to position the memory box below the network box
+    /// `true` to position the memory widget below the network widget
     /// instead of above.
     pub mem_below_net: bool,
-    /// `true` to render the process box on the left side instead
+    /// `true` to render the process widget on the left side instead
     /// of the right.
     pub proc_left: bool,
 }
@@ -44,12 +44,12 @@ pub struct Preset {
 pub const BUILTIN_PRESETS: &[Preset] = &[
     Preset {
         name: "all",
-        boxes: &[
-            BoxKind::Cpu,
-            BoxKind::Mem,
-            BoxKind::Net,
-            BoxKind::Proc,
-            BoxKind::Disk,
+        widgets: &[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
         ],
         cpu_bottom: false,
         mem_below_net: false,
@@ -57,21 +57,21 @@ pub const BUILTIN_PRESETS: &[Preset] = &[
     },
     Preset {
         name: "cpu+proc",
-        boxes: &[BoxKind::Cpu, BoxKind::Proc],
+        widgets: &[WidgetKind::Cpu, WidgetKind::Proc],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
     },
     Preset {
         name: "cpu+mem+disk",
-        boxes: &[BoxKind::Cpu, BoxKind::Mem, BoxKind::Disk],
+        widgets: &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
     },
     Preset {
         name: "cpu+net+proc",
-        boxes: &[BoxKind::Cpu, BoxKind::Net, BoxKind::Proc],
+        widgets: &[WidgetKind::Cpu, WidgetKind::Net, WidgetKind::Proc],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
@@ -97,11 +97,11 @@ mod tests {
     }
 
     #[test]
-    fn builtin_presets_have_at_least_one_box() {
+    fn builtin_presets_have_at_least_one_widget() {
         for preset in BUILTIN_PRESETS {
             assert!(
-                !preset.boxes.is_empty(),
-                "preset '{}' must reference at least one box",
+                !preset.widgets.is_empty(),
+                "preset '{}' must reference at least one widget",
                 preset.name,
             );
         }
@@ -112,13 +112,13 @@ mod tests {
         let p = &BUILTIN_PRESETS[0];
         assert_eq!(p.name, "all");
         assert_eq!(
-            p.boxes,
+            p.widgets,
             &[
-                BoxKind::Cpu,
-                BoxKind::Mem,
-                BoxKind::Net,
-                BoxKind::Proc,
-                BoxKind::Disk,
+                WidgetKind::Cpu,
+                WidgetKind::Mem,
+                WidgetKind::Net,
+                WidgetKind::Proc,
+                WidgetKind::Disk,
             ]
         );
         assert!(!p.cpu_bottom);

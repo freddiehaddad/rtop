@@ -26,13 +26,13 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **Preset system** — cycle through curated layout presets with `p` / `P`
 - **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
 - **CPU temperature and power** via PawnIO kernel driver
-- **Per-box dirty rendering** — only redraws what changed
+- **Per-widget dirty rendering** — only redraws what changed
 - **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
 - **Per-widget update intervals** — each collector can run at its own speed
 - **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
 - **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
 - **Process following** — pin a process with `F` to auto-scroll across refreshes
-- **Clock display** — configurable clock in the CPU box
+- **Clock display** — configurable clock in the CPU widget
 - **Disk IO mode** — toggle between usage meters and throughput graphs
 
 ## Features
@@ -184,12 +184,12 @@ mem_update_ms = 0        # 0 = use global (2000ms)
 
 Set per-widget intervals via the options menu (each category tab has an update interval option) or in `rtop.toml`.
 
-### Visible Boxes
+### Visible Widgets
 
-Control which widgets are shown via the `shown_boxes` config:
+Control which widgets are shown via the `custom_widgets` config (used when the active preset is the custom one):
 
 ```toml
-shown_boxes = ["cpu", "mem", "net", "proc", "disk"]
+custom_widgets = ["cpu", "mem", "net", "proc", "disk", "gpu0"]
 ```
 
 Toggle widgets at runtime with the `1`–`9` and `0` keys.

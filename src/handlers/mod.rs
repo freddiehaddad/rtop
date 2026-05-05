@@ -152,7 +152,7 @@ impl InputContext<'_> {
 
 /// Redraw the underlying UI after closing a menu overlay.
 ///
-/// Clears the screen, renders all boxes, and optionally re-draws the
+/// Clears the screen, renders all widgets, and optionally re-draws the
 /// main menu if we're returning to it. Returns the output string.
 pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
     use crate::app::{RenderParams, render_all};
@@ -160,7 +160,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
     let mut out = String::new();
     if let Some(layout) = ctx.render.cached_layout.as_ref() {
         let params = RenderParams {
-            dirty: Dirty::ALL_BOXES,
+            dirty: Dirty::ALL_WIDGETS,
             layout,
             cpu: ctx.live.cpu.as_deref(),
             mem: ctx.live.mem.as_deref(),

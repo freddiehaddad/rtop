@@ -284,12 +284,12 @@ impl Theme {
             Some(c.graph_text),   // 6
             Some(c.meter_bg),     // 7
             Some(c.proc_tree_fg), // 8
-            Some(c.cpu_box),      // 9
-            Some(c.mem_box),      // 10
-            Some(c.net_box),      // 11
-            Some(c.proc_box),     // 12
-            Some(c.gpu_box),      // 13
-            Some(c.disk_box),     // 14
+            Some(c.cpu_widget),   // 9
+            Some(c.mem_widget),   // 10
+            Some(c.net_widget),   // 11
+            Some(c.proc_widget),  // 12
+            Some(c.gpu_widget),   // 13
+            Some(c.disk_widget),  // 14
             Some(c.help_box),     // 15
             Some(c.options_box),  // 16
             Some(c.followed_bg),  // 17

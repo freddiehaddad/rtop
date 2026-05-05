@@ -82,12 +82,12 @@ pub struct PaletteColors {
     pub graph_text: Rgb,
     pub meter_bg: Rgb,
     pub proc_tree_fg: Rgb,
-    pub cpu_box: Rgb,
-    pub mem_box: Rgb,
-    pub net_box: Rgb,
-    pub proc_box: Rgb,
-    pub gpu_box: Rgb,
-    pub disk_box: Rgb,
+    pub cpu_widget: Rgb,
+    pub mem_widget: Rgb,
+    pub net_widget: Rgb,
+    pub proc_widget: Rgb,
+    pub gpu_widget: Rgb,
+    pub disk_widget: Rgb,
     pub help_box: Rgb,
     pub options_box: Rgb,
     pub followed_bg: Rgb,
@@ -164,12 +164,12 @@ selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
-cpu_box = "#bd93f9"
-mem_box = "#50fa7b"
-net_box = "#ff5555"
-proc_box = "#8be9fd"
-gpu_box = "#f1fa8c"
-disk_box = "#ffb86c"
+cpu_widget = "#bd93f9"
+mem_widget = "#50fa7b"
+net_widget = "#ff5555"
+proc_widget = "#8be9fd"
+gpu_widget = "#f1fa8c"
+disk_widget = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
 proc_tree_fg = "#44475a"
@@ -279,12 +279,12 @@ selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
-cpu_box = "#bd93f9"
-mem_box = "#50fa7b"
-net_box = "#ff5555"
-proc_box = "#8be9fd"
-gpu_box = "#f1fa8c"
-disk_box = "#ffb86c"
+cpu_widget = "#bd93f9"
+mem_widget = "#50fa7b"
+net_widget = "#ff5555"
+proc_widget = "#8be9fd"
+gpu_widget = "#f1fa8c"
+disk_widget = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
 proc_tree_fg = "#44475a"

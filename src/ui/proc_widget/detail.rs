@@ -1,4 +1,4 @@
-use super::ProcBoxSettings;
+use super::ProcWidgetSettings;
 use super::rows::{display_proc_cpu, format_proc_memory};
 use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
@@ -23,14 +23,14 @@ pub(super) fn find_detailed_proc<'a>(
         .find(|proc| proc.pid == detailed_pid)
 }
 
-/// Draw the detailed process info panel at the top of the proc box.
+/// Draw the detailed process info panel at the top of the proc widget.
 pub(super) fn draw_detail_panel(
     proc: &ProcInfo,
     x: usize,
     y: usize,
     width: usize,
     rows: usize,
-    settings: &ProcBoxSettings,
+    settings: &ProcWidgetSettings,
     theme: &Theme,
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
@@ -147,7 +147,7 @@ fn draw_detail_header(
 
 fn detail_fields<'a>(
     proc: &ProcInfo,
-    settings: &ProcBoxSettings,
+    settings: &ProcWidgetSettings,
     fg: &'a str,
     hi: &'a str,
     proc_grad: &'a [String],
@@ -352,8 +352,8 @@ mod tests {
         ]
     }
 
-    fn make_settings() -> ProcBoxSettings {
-        ProcBoxSettings {
+    fn make_settings() -> ProcWidgetSettings {
+        ProcWidgetSettings {
             proc_per_core: true,
             core_count: 4,
             proc_mem_bytes: true,

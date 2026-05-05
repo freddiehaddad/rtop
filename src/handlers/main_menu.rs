@@ -17,7 +17,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 opened = false,
                 "menu transition",
             );
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
         }
         Key::Up | Key::ShiftTab => {
             if ctx.config.vim_keys && matches!(key, Key::Up) {

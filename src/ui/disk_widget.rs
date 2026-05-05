@@ -8,7 +8,7 @@ use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
-use super::BoxArea;
+use super::WidgetArea;
 
 // --- Layout constants ---
 
@@ -25,8 +25,8 @@ const MIN_METER_W: usize = 5;
 /// Minimum graph width in IO mode.
 const MIN_IO_GRAPH_W: usize = 3;
 
-/// Extracted settings for the disk box, decoupled from Config.
-pub struct DiskBoxSettings {
+/// Extracted settings for the disk widget, decoupled from Config.
+pub struct DiskWidgetSettings {
     pub graph_symbol: GraphMode,
     pub base_10: bool,
     pub show_io_stat: bool,
@@ -35,7 +35,7 @@ pub struct DiskBoxSettings {
     pub io_graph_combined: bool,
 }
 
-/// Draw the disk box into an ANSI string.
+/// Draw the disk widget into an ANSI string.
 ///
 /// `disks` is the post-filter slice of disks the caller wants rendered,
 /// in display order. Filtering (via `DisksFilter`) and the resulting
@@ -51,9 +51,9 @@ pub struct DiskBoxSettings {
 /// ╰────────────────────────────╯
 pub fn draw(
     disks: &[&DiskInfo],
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &DiskBoxSettings,
+    settings: &DiskWidgetSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -61,7 +61,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.color(tc::DISK_BOX);
+    let border_color = theme.color(tc::DISK_WIDGET);
     let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
@@ -81,7 +81,7 @@ pub fn draw(
         y,
         width,
         height,
-        line_color: box_color,
+        line_color: border_color,
         fill: true,
         title: "disks",
         title2: "",
@@ -91,7 +91,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "disks", x, y, box_color, title_color);
+    super::draw_status_inset(&mut buf, status, "disks", x, y, border_color, title_color);
 
     let mut row = 0;
 
@@ -280,7 +280,7 @@ struct PerfRowParams<'a> {
     row_y: usize,
     inner_w: usize,
     theme: &'a Theme,
-    settings: &'a DiskBoxSettings,
+    settings: &'a DiskWidgetSettings,
     read_grad: &'a [String],
     write_grad: &'a [String],
     busy_grad: &'a [String],
@@ -475,8 +475,8 @@ mod tests {
         }
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 40,
@@ -485,8 +485,8 @@ mod tests {
         }
     }
 
-    fn settings() -> DiskBoxSettings {
-        DiskBoxSettings {
+    fn settings() -> DiskWidgetSettings {
+        DiskWidgetSettings {
             graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: true,
@@ -578,7 +578,7 @@ mod tests {
         // (avail_grad) at used_percent. Pre-fix it was MAIN_FG while the
         // meter rendered in colour.
         let theme = Theme::default();
-        let area = BoxArea {
+        let area = WidgetArea {
             x: 1,
             y: 1,
             width: 40,
@@ -655,14 +655,14 @@ mod tests {
         // value cell. The value takes read_grad at the combined pct
         // (against the same max the graph row uses).
         let theme = Theme::default();
-        let area = BoxArea {
+        let area = WidgetArea {
             x: 1,
             y: 1,
             width: 60,
             height: 8,
             rounded: true,
         };
-        let s = DiskBoxSettings {
+        let s = DiskWidgetSettings {
             graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: false,

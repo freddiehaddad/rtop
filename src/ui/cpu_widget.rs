@@ -10,10 +10,10 @@ use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
-use super::BoxArea;
+use super::WidgetArea;
 
-/// Extracted settings for the CPU box, decoupled from Config.
-pub struct CpuBoxSettings<'a> {
+/// Extracted settings for the CPU widget, decoupled from Config.
+pub struct CpuWidgetSettings<'a> {
     pub graph_symbol: GraphMode,
     pub upper_source: CpuGraphSource,
     pub lower_source: CpuGraphSource,
@@ -34,9 +34,9 @@ pub struct CpuBoxSettings<'a> {
     pub clock_format: &'a str,
 }
 
-/// Label width for stats meter rows (matches GPU box).
+/// Label width for stats meter rows (matches GPU widget).
 const STATS_LABEL_W: usize = 6;
-/// Right-aligned value column width for stats meter rows (matches GPU box).
+/// Right-aligned value column width for stats meter rows (matches GPU widget).
 const STATS_VAL_W: usize = 10;
 /// Preferred number of core rows per column.
 const CORES_PER_COL: usize = 8;
@@ -159,7 +159,7 @@ impl CoreGridLayout {
     }
 }
 
-/// Draw the CPU box into an ANSI string.
+/// Draw the CPU widget into an ANSI string.
 ///
 /// Layout:
 /// ╭─┐¹cpu┌────────────────────────┬──────────────────┐Intel(R) Core(TM) i9-14900KF┌─╮
@@ -180,9 +180,9 @@ impl CoreGridLayout {
 /// ╰─┘menu└┘preset *0└┘─ 2000ms +└─┴─────────────────────────┘up 13d21:05└┘18:01:00└─╯
 pub fn draw(
     cpu: &CpuInfo,
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &CpuBoxSettings,
+    settings: &CpuWidgetSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -190,7 +190,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.color(tc::CPU_BOX);
+    let border_color = theme.color(tc::CPU_WIDGET);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
     let cpu_upper_gradient = theme.gradient(tc::GRAD_CPU_UPPER);
@@ -214,7 +214,7 @@ pub fn draw(
         y,
         width,
         height,
-        line_color: box_color,
+        line_color: border_color,
         fill: true,
         title: "cpu",
         title2: "",
@@ -224,7 +224,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "cpu", x, y, box_color, title_color);
+    super::draw_status_inset(&mut buf, status, "cpu", x, y, border_color, title_color);
 
     let core_count = cpu.core_percent.len();
     let inner_h = height.saturating_sub(2);
@@ -276,14 +276,14 @@ pub fn draw(
     if b_width > 0 {
         for row_i in 1..height.saturating_sub(1) {
             buf.mv(b_x + 1, y + 1 + row_i)
-                .color(box_color)
+                .color(border_color)
                 .text(symbols::V_LINE);
         }
         buf.mv(b_x + 1, y + 1)
-            .color(box_color)
+            .color(border_color)
             .text(symbols::DIV_UP);
         buf.mv(b_x + 1, y + height)
-            .color(box_color)
+            .color(border_color)
             .text(symbols::DIV_DOWN);
 
         // CPU name inset on the core panel top border (right-aligned)
@@ -298,7 +298,7 @@ pub fn draw(
                 let name_trunc = tools::uresize(name_display, max_name_w, false);
                 if !name_trunc.is_empty() {
                     let inset =
-                        box_drawing::title_inset(&name_trunc, box_color, title_color, false);
+                        box_drawing::title_inset(&name_trunc, border_color, title_color, false);
                     let inset_x = box_drawing::right_inset_x(
                         b_x + 1,
                         b_width,
@@ -410,7 +410,7 @@ pub fn draw(
                 let vis = box_drawing::inset_width(&up_text);
                 insets.push_str(&box_drawing::title_inset(
                     &up_text,
-                    box_color,
+                    border_color,
                     title_color,
                     true,
                 ));
@@ -423,7 +423,7 @@ pub fn draw(
             let vis = box_drawing::inset_width(&clock_str);
             insets.push_str(&box_drawing::title_inset(
                 &clock_str,
-                box_color,
+                border_color,
                 title_color,
                 true,
             ));
@@ -448,7 +448,7 @@ pub fn draw(
     buf.finish()
 }
 
-/// Geometry of the per-core panel within the CPU box.
+/// Geometry of the per-core panel within the CPU widget.
 struct CorePanelArea {
     x: usize,
     y: usize,
@@ -478,7 +478,7 @@ fn draw_core_panel(
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
-    let box_color = theme.color(tc::CPU_BOX);
+    let border_color = theme.color(tc::CPU_WIDGET);
     let cpu_gradient = theme.gradient(tc::GRAD_CPU_UPPER);
     let temp_gradient = theme.gradient(tc::GRAD_TEMP);
     let mut buf = AnsiBuffer::new();
@@ -625,27 +625,27 @@ fn draw_core_panel(
         let mid_dashes = width.saturating_sub(left_dashes + left_vis + hz_vis + 1);
         let mut divider = format!(
             "{}{}{}{}{}{}{}{}{}",
-            box_color,
+            border_color,
             symbols::DIV_LEFT,
             symbols::H_LINE.repeat(left_dashes),
             box_drawing::title_syms::TITLE_LEFT,
             title_color,
             section,
-            box_color,
+            border_color,
             box_drawing::title_syms::TITLE_RIGHT,
             symbols::H_LINE.repeat(mid_dashes),
         );
         if !hz_text.is_empty() {
             divider.push_str(&box_drawing::title_inset(
                 &hz_text,
-                box_color,
+                border_color,
                 title_color,
                 false,
             ));
-            divider.push_str(box_color);
+            divider.push_str(border_color);
             divider.push_str(symbols::H_LINE);
         }
-        divider.push_str(box_color);
+        divider.push_str(border_color);
         divider.push_str(symbols::DIV_RIGHT);
         buf.mv(panel.x + 1, divider_y).text(&divider);
     }
@@ -712,16 +712,17 @@ fn draw_bottom_hints(
     current_preset: i64,
     theme: &Theme,
 ) -> String {
-    let box_color = theme.color(tc::CPU_BOX);
+    let border_color = theme.color(tc::CPU_WIDGET);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
 
     let preset_label = format!("preset *{}", current_preset);
     let rate_label = format!("{}ms", update_ms);
-    let menu_inset = box_drawing::keybind_inset("menu", box_color, hi, title_color, true);
-    let preset_inset = box_drawing::keybind_inset(&preset_label, box_color, hi, title_color, true);
+    let menu_inset = box_drawing::keybind_inset("menu", border_color, hi, title_color, true);
+    let preset_inset =
+        box_drawing::keybind_inset(&preset_label, border_color, hi, title_color, true);
     let rate_text = format!("─ {}{} {}+", title_color, rate_label, hi);
-    let rate_inset = box_drawing::title_inset(&rate_text, box_color, hi, true);
+    let rate_inset = box_drawing::title_inset(&rate_text, border_color, hi, true);
     let hints = format!("{}{}{}", menu_inset, preset_inset, rate_inset);
 
     let mut buf = AnsiBuffer::new();
@@ -776,8 +777,8 @@ mod tests {
         cpu
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 80,
@@ -786,8 +787,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> CpuBoxSettings<'static> {
-        CpuBoxSettings {
+    fn make_settings() -> CpuWidgetSettings<'static> {
+        CpuWidgetSettings {
             graph_symbol: GraphMode::Braille,
             upper_source: CpuGraphSource::User,
             lower_source: CpuGraphSource::System,
@@ -1045,7 +1046,7 @@ mod tests {
     fn stats_panel_labels_use_main_fg() {
         // Body label rule: CPU/Temp/Watts/Load meter labels render in
         // MAIN_FG, not TITLE. Pre-shift these were TITLE, which made them
-        // look identical to box title insets and section dividers; the
+        // look identical to widget title insets and section dividers; the
         // shift creates a clean two-tier visual hierarchy.
         let theme = Theme::default();
         let mut settings = make_settings();

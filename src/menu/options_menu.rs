@@ -88,12 +88,12 @@ pub const GENERAL: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::ShownBoxes,
+        key: ConfigKey::Widgets,
         desc: &[
-            "Visible boxes.",
+            "Visible widgets.",
             "",
-            "Available: \"cpu mem net proc disk\".",
-            "Separate values with whitespace.",
+            "Available: cpu, mem, net, proc, disk,",
+            "gpu0..gpu7. Separate with whitespace.",
         ],
     },
     OptDef {
@@ -109,7 +109,7 @@ pub const GENERAL: &[OptDef] = &[
     },
     OptDef {
         key: ConfigKey::RoundedCorners,
-        desc: &["Rounded corners on boxes.", "", "True or False."],
+        desc: &["Rounded corners on widgets.", "", "True or False."],
     },
     OptDef {
         key: ConfigKey::TerminalSync,
@@ -135,7 +135,7 @@ pub const GENERAL: &[OptDef] = &[
         desc: &[
             "Clock display format.",
             "",
-            "Shown in the CPU box. Uses format",
+            "Shown in the CPU widget. Uses format",
             "specifiers: %H, %M, %S, %X.",
             "",
             "Empty string to disable.",
@@ -189,9 +189,9 @@ pub const CPU: &[OptDef] = &[
     OptDef {
         key: ConfigKey::CpuBottom,
         desc: &[
-            "CPU box at bottom.",
+            "CPU widget at bottom.",
             "",
-            "Show the CPU box at the bottom of",
+            "Show the CPU widget at the bottom of",
             "the screen instead of the top.",
         ],
     },
@@ -237,7 +237,7 @@ pub const CPU: &[OptDef] = &[
             "",
             "Disable the lower CPU graph and",
             "expand the upper graph to full",
-            "box height.",
+            "widget height.",
         ],
     },
     OptDef {
@@ -246,7 +246,7 @@ pub const CPU: &[OptDef] = &[
             "CPU temperature monitoring.",
             "",
             "Enable temperature reporting in",
-            "the CPU box.",
+            "the CPU widget.",
         ],
     },
     OptDef {
@@ -291,7 +291,7 @@ pub const CPU: &[OptDef] = &[
         desc: &[
             "System uptime display.",
             "",
-            "Show system uptime in the CPU box.",
+            "Show system uptime in the CPU widget.",
         ],
     },
     OptDef {
@@ -299,7 +299,7 @@ pub const CPU: &[OptDef] = &[
         desc: &[
             "CPU power consumption.",
             "",
-            "Show wattage in the CPU box.",
+            "Show wattage in the CPU widget.",
             "Requires LibreHardwareMonitor.",
         ],
     },
@@ -319,10 +319,10 @@ pub const MEM: &[OptDef] = &[
     OptDef {
         key: ConfigKey::MemBelowNet,
         desc: &[
-            "Memory box below network.",
+            "Memory widget below network.",
             "",
-            "Position the memory box below the",
-            "network box instead of above.",
+            "Position the memory widget below the",
+            "network widget instead of above.",
         ],
     },
     OptDef {
@@ -330,7 +330,7 @@ pub const MEM: &[OptDef] = &[
         desc: &[
             "Swap memory display.",
             "",
-            "Show swap usage in the memory box.",
+            "Show swap usage in the memory widget.",
         ],
     },
     OptDef {
@@ -410,9 +410,9 @@ pub const PROC: &[OptDef] = &[
     OptDef {
         key: ConfigKey::ProcLeft,
         desc: &[
-            "Process box on left.",
+            "Process widget on left.",
             "",
-            "Show the process box on the left",
+            "Show the process widget on the left",
             "side of the screen.",
         ],
     },

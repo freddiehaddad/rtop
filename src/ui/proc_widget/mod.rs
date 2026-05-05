@@ -13,15 +13,15 @@ use crate::theme_keys as tc;
 
 use self::borders::{BottomBorderParams, draw_bottom_border, draw_top_border};
 use self::detail::{draw_detail_panel, find_detailed_proc};
-use self::layout::{ProcBoxLayout, SortState};
+use self::layout::{ProcWidgetLayout, SortState};
 use self::rows::{ProcessRowsParams, draw_rows};
 
-use super::{BoxArea, ProcView};
+use super::{ProcView, WidgetArea};
 
 pub(crate) use layout::visible_row_count;
 
-/// Process box display settings derived from the current config and snapshot.
-pub struct ProcBoxSettings {
+/// Process widget display settings derived from the current config and snapshot.
+pub struct ProcWidgetSettings {
     pub proc_per_core: bool,
     pub core_count: usize,
     pub proc_mem_bytes: bool,
@@ -31,7 +31,7 @@ pub struct ProcBoxSettings {
     pub base_10: bool,
 }
 
-/// Draw the process list box into an ANSI string matching btop's layout.
+/// Draw the process list widget into an ANSI string matching btop's layout.
 ///
 /// Layout:
 /// ╭─ proc ───────────────────────────────────╮
@@ -40,18 +40,18 @@ pub struct ProcBoxSettings {
 /// │ 5678   code.exe              8.1   0.9G  │
 /// │ ...                                      │
 /// ╰──────────────────────── 25/350 ──────────╯
-/// Draw the process list box with sort indicator on the active column.
+/// Draw the process list widget with sort indicator on the active column.
 pub fn draw(
     procs: &[ProcInfo],
     entries: &[ProcDisplayEntry],
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &ProcBoxSettings,
+    settings: &ProcWidgetSettings,
     view: &ProcView,
     status: &CollectStatus,
 ) -> String {
     let colors = ProcColors::from_theme(theme);
-    let layout = ProcBoxLayout::calculate(area, view);
+    let layout = ProcWidgetLayout::calculate(area, view);
     let mut buf = AnsiBuffer::new();
 
     draw_frame(&mut buf, area, &colors, status);
@@ -93,7 +93,7 @@ pub fn draw(
 }
 
 struct ProcColors<'a> {
-    box_color: &'a str,
+    border_color: &'a str,
     fg: &'a str,
     title_color: &'a str,
     hi: &'a str,
@@ -108,7 +108,7 @@ struct ProcColors<'a> {
 impl<'a> ProcColors<'a> {
     fn from_theme(theme: &'a Theme) -> Self {
         Self {
-            box_color: theme.color(tc::PROC_BOX),
+            border_color: theme.color(tc::PROC_WIDGET),
             fg: theme.color(tc::MAIN_FG),
             title_color: theme.color(tc::TITLE),
             hi: theme.color(tc::HI_FG),
@@ -125,15 +125,15 @@ impl<'a> ProcColors<'a> {
 struct DetailSectionParams<'a> {
     procs: &'a [ProcInfo],
     entries: &'a [ProcDisplayEntry],
-    layout: &'a ProcBoxLayout,
+    layout: &'a ProcWidgetLayout,
     detailed_pid: u32,
-    settings: &'a ProcBoxSettings,
+    settings: &'a ProcWidgetSettings,
     theme: &'a Theme,
 }
 
 fn draw_frame(
     buf: &mut AnsiBuffer,
-    area: &BoxArea,
+    area: &WidgetArea,
     colors: &ProcColors<'_>,
     status: &CollectStatus,
 ) {
@@ -142,7 +142,7 @@ fn draw_frame(
         y: area.y,
         width: area.width,
         height: area.height,
-        line_color: colors.box_color,
+        line_color: colors.border_color,
         fill: true,
         title: "proc",
         title2: "",
@@ -158,7 +158,7 @@ fn draw_frame(
         "proc",
         area.x,
         area.y,
-        colors.box_color,
+        colors.border_color,
         colors.title_color,
     );
 }
@@ -183,9 +183,9 @@ fn draw_detail_section(buf: &mut AnsiBuffer, params: &DetailSectionParams<'_>) {
 
 fn draw_header(
     buf: &mut AnsiBuffer,
-    layout: &ProcBoxLayout,
+    layout: &ProcWidgetLayout,
     view: &ProcView,
-    settings: &ProcBoxSettings,
+    settings: &ProcWidgetSettings,
     colors: &ProcColors<'_>,
 ) {
     let sort = SortState::new(view);
@@ -276,7 +276,7 @@ fn draw_header(
         .reset();
 }
 
-fn mem_header_label(settings: &ProcBoxSettings) -> &'static str {
+fn mem_header_label(settings: &ProcWidgetSettings) -> &'static str {
     if settings.proc_mem_bytes {
         "Mem"
     } else {
@@ -284,26 +284,31 @@ fn mem_header_label(settings: &ProcBoxSettings) -> &'static str {
     }
 }
 
-fn draw_dividers(buf: &mut AnsiBuffer, layout: &ProcBoxLayout, colors: &ProcColors<'_>) {
-    draw_divider_at(buf, layout, layout.divider_y, colors.box_color);
+fn draw_dividers(buf: &mut AnsiBuffer, layout: &ProcWidgetLayout, colors: &ProcColors<'_>) {
+    draw_divider_at(buf, layout, layout.divider_y, colors.border_color);
     if let Some(detail_divider_y) = layout.detail_divider_y {
-        draw_divider_at(buf, layout, detail_divider_y, colors.box_color);
+        draw_divider_at(buf, layout, detail_divider_y, colors.border_color);
     }
 }
 
-fn draw_divider_at(buf: &mut AnsiBuffer, layout: &ProcBoxLayout, row_y: usize, box_color: &str) {
+fn draw_divider_at(
+    buf: &mut AnsiBuffer,
+    layout: &ProcWidgetLayout,
+    row_y: usize,
+    border_color: &str,
+) {
     buf.mv(layout.x + 1, row_y)
-        .color(box_color)
+        .color(border_color)
         .text(symbols::DIV_LEFT)
-        .color(box_color)
+        .color(border_color)
         .text(&symbols::H_LINE.repeat(layout.width.saturating_sub(2)))
-        .color(box_color)
+        .color(border_color)
         .text(symbols::DIV_RIGHT);
 }
 
 fn draw_proc_borders(
     buf: &mut AnsiBuffer,
-    layout: &ProcBoxLayout,
+    layout: &ProcWidgetLayout,
     view: &ProcView,
     entry_count: usize,
     theme: &Theme,
@@ -439,8 +444,8 @@ mod tests {
             .collect()
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 80,
@@ -465,8 +470,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> ProcBoxSettings {
-        ProcBoxSettings {
+    fn make_settings() -> ProcWidgetSettings {
+        ProcWidgetSettings {
             proc_per_core: true,
             core_count: 4,
             proc_mem_bytes: true,
@@ -547,7 +552,7 @@ mod tests {
             &make_view(),
             &CollectStatus::Ok,
         );
-        let narrow_area = BoxArea {
+        let narrow_area = WidgetArea {
             width: 50,
             ..make_area()
         };
@@ -603,7 +608,7 @@ mod tests {
     fn process_rows_fill_last_line_above_bottom_border() {
         let procs = make_numbered_procs(4);
         let entries = make_entries_for(&procs);
-        let area = BoxArea {
+        let area = WidgetArea {
             x: 1,
             y: 1,
             width: 80,
@@ -671,7 +676,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &ProcBoxSettings {
+            &ProcWidgetSettings {
                 proc_per_core: false,
                 core_count: 4,
                 ..make_settings()
@@ -700,7 +705,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &ProcBoxSettings {
+            &ProcWidgetSettings {
                 proc_mem_bytes: false,
                 total_mem: 1024 * 1024 * 1024,
                 ..make_settings()
@@ -730,7 +735,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &ProcBoxSettings {
+            &ProcWidgetSettings {
                 proc_gradient: false,
                 ..make_settings()
             },
@@ -742,7 +747,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &ProcBoxSettings {
+            &ProcWidgetSettings {
                 proc_colors: false,
                 ..make_settings()
             },
@@ -809,10 +814,10 @@ mod tests {
     #[test]
     fn following_chip_does_not_break_count_inset_in_narrow_box() {
         // Regression guard against chip width math drifting: with a narrow
-        // proc box and a large process count, both the chip and the right-
+        // proc widget and a large process count, both the chip and the right-
         // aligned count must still render and not collide.
         let theme = Theme::default();
-        let area = BoxArea {
+        let area = WidgetArea {
             x: 1,
             y: 1,
             width: 60,
@@ -835,12 +840,12 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("following"),
-            "narrow box should still render the following chip"
+            "narrow widget should still render the following chip"
         );
         // 4-row content area (height 8 - 4 overhead) shows 4 of 50 procs.
         assert!(
             plain.contains("4/50"),
-            "narrow box should still render the count '4/50'"
+            "narrow widget should still render the count '4/50'"
         );
     }
 

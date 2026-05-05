@@ -7,15 +7,15 @@ use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
-use super::BoxArea;
+use super::WidgetArea;
 
-/// Extracted settings for the memory box, decoupled from Config.
-pub struct MemBoxSettings {
+/// Extracted settings for the memory widget, decoupled from Config.
+pub struct MemWidgetSettings {
     pub show_swap: bool,
     pub base_10: bool,
 }
 
-/// Draw the memory box into an ANSI string.
+/// Draw the memory widget into an ANSI string.
 ///
 /// Layout:
 /// ╭─ mem ──────────────────────╮
@@ -29,9 +29,9 @@ pub struct MemBoxSettings {
 /// ╰────────────────────────────╯
 pub fn draw(
     mem: &MemInfo,
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &MemBoxSettings,
+    settings: &MemWidgetSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -39,7 +39,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.color(tc::MEM_BOX);
+    let border_color = theme.color(tc::MEM_WIDGET);
     let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
@@ -56,7 +56,7 @@ pub fn draw(
         y,
         width,
         height,
-        line_color: box_color,
+        line_color: border_color,
         fill: true,
         title: "mem",
         title2: "",
@@ -66,13 +66,13 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "mem", x, y, box_color, title_color);
+    super::draw_status_inset(&mut buf, status, "mem", x, y, border_color, title_color);
 
     let total_bytes = mem.stats.used + mem.stats.available;
 
     // Total memory inset on top border (like CPU frequency)
     let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, settings.base_10);
-    let inset = box_drawing::title_inset(&total_str, box_color, title_color, false);
+    let inset = box_drawing::title_inset(&total_str, border_color, title_color, false);
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
 
@@ -253,8 +253,8 @@ mod tests {
         }
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 40,
@@ -269,7 +269,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: true,
                 base_10: false,
             },
@@ -285,7 +285,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: true,
                 base_10: false,
             },
@@ -301,7 +301,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: true,
                 base_10: false,
             },
@@ -320,7 +320,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: false,
                 base_10: false,
             },
@@ -346,7 +346,7 @@ mod tests {
             &info,
             &make_area(),
             &theme,
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: true,
                 base_10: false,
             },
@@ -370,7 +370,7 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &theme,
-            &MemBoxSettings {
+            &MemWidgetSettings {
                 show_swap: true,
                 base_10: false,
             },

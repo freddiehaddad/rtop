@@ -52,7 +52,7 @@ pub const KEYBINDS: &[Keybind] = &[
     },
     Keybind {
         key: "1-5",
-        desc: "Toggle box (cpu/mem/net/proc/disk)",
+        desc: "Toggle widget (cpu/mem/net/proc/disk)",
         section: "Global",
     },
     Keybind {

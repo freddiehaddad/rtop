@@ -18,7 +18,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                 "menu transition",
             );
             if return_to == MenuState::None {
-                ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+                ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
             }
             return HandleResult::redraw();
         }

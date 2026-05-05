@@ -12,7 +12,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     // Any other key disarms and is consumed (no further action).
     if ctx.process.armed_terminate.is_some() && !matches!(key, Key::Char('t') | Key::Char('T')) {
         ctx.process.armed_terminate = None;
-        ctx.render.dirty |= Dirty::PROC_BOX;
+        ctx.render.dirty |= Dirty::PROC_WIDGET;
         return HandleResult::none();
     }
 
@@ -27,7 +27,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     }
     handle_process_nav(key, ctx);
     handle_process_keys(key, ctx);
-    handle_box_toggles(key, ctx);
+    handle_widget_toggles(key, ctx);
     handle_network(key, ctx);
     handle_update_rate(key, ctx);
     HandleResult::none()
@@ -166,69 +166,69 @@ fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
     match *key {
         Key::Up if ctx.process.selected > 0 => {
             ctx.process.selected -= 1;
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('k') if vim && ctx.process.selected > 0 => {
             ctx.process.selected -= 1;
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Down => {
             let count = ctx.process.entries.len();
             if ctx.process.selected + 1 < count {
                 ctx.process.selected += 1;
-                ctx.render.dirty |= Dirty::PROC_BOX;
+                ctx.render.dirty |= Dirty::PROC_WIDGET;
             }
         }
         Key::Char('j') if vim => {
             let count = ctx.process.entries.len();
             if ctx.process.selected + 1 < count {
                 ctx.process.selected += 1;
-                ctx.render.dirty |= Dirty::PROC_BOX;
+                ctx.render.dirty |= Dirty::PROC_WIDGET;
             }
         }
         Key::PageUp | Key::CtrlB if !matches!(key, Key::CtrlB) || vim => {
             let page = ctx.th.saturating_sub(10);
             ctx.process.selected = ctx.process.selected.saturating_sub(page);
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::PageDown | Key::CtrlF if !matches!(key, Key::CtrlF) || vim => {
             let page = ctx.th.saturating_sub(10);
             let count = ctx.process.entries.len();
             ctx.process.selected = (ctx.process.selected + page).min(count.saturating_sub(1));
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::CtrlD if vim => {
             let page = ctx.th.saturating_sub(10);
             let half = page / 2;
             let count = ctx.process.entries.len();
             ctx.process.selected = (ctx.process.selected + half).min(count.saturating_sub(1));
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::CtrlU if vim => {
             let page = ctx.th.saturating_sub(10);
             let half = page / 2;
             ctx.process.selected = ctx.process.selected.saturating_sub(half);
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Home => {
             ctx.process.selected = 0;
             ctx.process.start = 0;
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('g') if vim => {
             ctx.process.selected = 0;
             ctx.process.start = 0;
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::End => {
             let count = ctx.process.entries.len();
             ctx.process.selected = count.saturating_sub(1);
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('G') if vim => {
             let count = ctx.process.entries.len();
             ctx.process.selected = count.saturating_sub(1);
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         _ => {}
     }
@@ -241,23 +241,23 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
         Key::Char('f') | Key::Char('/') => {
             ctx.overlay.set_menu_state(MenuState::Filter);
             ctx.process.filter_text = ctx.config.proc_filter.clone();
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('e') => {
             ctx.config.proc_tree = !ctx.config.proc_tree;
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('r') => {
             ctx.config.proc_reversed = !ctx.config.proc_reversed;
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('c') => {
             ctx.config.proc_per_core = !ctx.config.proc_per_core;
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('i') => {
             ctx.config.io_mode = !ctx.config.io_mode;
-            ctx.render.dirty |= Dirty::DISK_BOX;
+            ctx.render.dirty |= Dirty::DISK_WIDGET;
         }
         Key::Left => {
             let current = ctx.config.proc_sorting;
@@ -271,7 +271,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
                 idx - 1
             };
             ctx.config.proc_sorting = ProcSort::ALL[new_idx];
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Right => {
             let current = ctx.config.proc_sorting;
@@ -281,7 +281,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
                 .expect("config.proc_sorting must always be a known ProcSort variant");
             let new_idx = (idx + 1) % ProcSort::ALL.len();
             ctx.config.proc_sorting = ProcSort::ALL[new_idx];
-            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('t') => {
             if let Some((armed_pid, _, false)) = ctx.process.armed_terminate {
@@ -296,7 +296,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             } else if let Some((pid, name)) = ctx.selected_proc_info() {
                 ctx.process.armed_terminate = Some((pid, name.to_string(), false));
             }
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('T') => {
             if let Some((armed_pid, _, true)) = ctx.process.armed_terminate {
@@ -311,7 +311,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             } else if let Some((pid, name)) = ctx.selected_proc_info() {
                 ctx.process.armed_terminate = Some((pid, name.to_string(), true));
             }
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('F') if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
@@ -321,7 +321,7 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
                     ctx.process.followed_pid = pid;
                 }
             }
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Enter if ctx.process.selected < ctx.process.entries.len() => {
             if let Some(pid) = ctx.selected_proc_pid() {
@@ -333,29 +333,29 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
                     ctx.process.detailed_pid = pid;
                 }
             }
-            ctx.render.dirty |= Dirty::PROC_BOX;
+            ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         _ => {}
     }
 }
 
-// --- Box visibility toggles ---
+// --- Widget visibility toggles ---
 
-fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
-    use crate::domain::box_kind::BoxKind;
+fn handle_widget_toggles(key: &Key, ctx: &mut InputContext) {
+    use crate::domain::widget_kind::WidgetKind;
 
-    let kind: BoxKind = match *key {
+    let kind: WidgetKind = match *key {
         Key::Char(c @ '1'..='9') => {
             let digit = (c as u8) - b'0';
             match digit {
-                crate::ui::CPU_KEY => BoxKind::Cpu,
-                crate::ui::MEM_KEY => BoxKind::Mem,
-                crate::ui::NET_KEY => BoxKind::Net,
-                crate::ui::PROC_KEY => BoxKind::Proc,
-                crate::ui::DISK_KEY => BoxKind::Disk,
+                crate::ui::CPU_KEY => WidgetKind::Cpu,
+                crate::ui::MEM_KEY => WidgetKind::Mem,
+                crate::ui::NET_KEY => WidgetKind::Net,
+                crate::ui::PROC_KEY => WidgetKind::Proc,
+                crate::ui::DISK_KEY => WidgetKind::Disk,
                 d if d >= crate::ui::GPU_KEY_BASE => {
                     let gpu_idx = (d - crate::ui::GPU_KEY_BASE) as usize;
-                    let Some(gpu_kind) = BoxKind::gpu(gpu_idx) else {
+                    let Some(gpu_kind) = WidgetKind::gpu(gpu_idx) else {
                         return;
                     };
                     gpu_kind
@@ -368,31 +368,31 @@ fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
             // (indices 4..MAX_GPUS) as a single batch action so users
             // with many GPUs can collapse them quickly.
             for i in 4..crate::config::MAX_GPUS {
-                if let Some(gpu_kind) = BoxKind::gpu(i) {
-                    ctx.config.toggle_box(gpu_kind);
+                if let Some(gpu_kind) = WidgetKind::gpu(i) {
+                    ctx.config.toggle_widget(gpu_kind);
                 }
             }
             tracing::info!(
                 subsystem = %crate::log::Subsystem::Input,
-                action = "box_toggle",
-                r#box = "gpu_extras",
-                "box visibility toggled",
+                action = "widget_toggle",
+                r#widget = "gpu_extras",
+                "widget visibility toggled",
             );
-            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
             return;
         }
         _ => return,
     };
-    ctx.config.toggle_box(kind);
-    let shown = ctx.config.shown_boxes().contains(&kind);
+    ctx.config.toggle_widget(kind);
+    let shown = ctx.config.widgets().contains(&kind);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
-        action = "box_toggle",
-        r#box = %kind,
+        action = "widget_toggle",
+        r#widget = %kind,
         shown,
-        "box visibility toggled",
+        "widget visibility toggled",
     );
-    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
 }
 
 // --- Network ---
@@ -407,7 +407,7 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
                 iface = %ctx.network.selected_iface,
                 "network interface switched",
             );
-            ctx.render.dirty |= Dirty::NET_BOX;
+            ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('n') if ctx.live.net.as_ref().is_some_and(|n| !n.nets.is_empty()) => {
             cycle_net_iface(ctx, 1);
@@ -417,20 +417,20 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
                 iface = %ctx.network.selected_iface,
                 "network interface switched",
             );
-            ctx.render.dirty |= Dirty::NET_BOX;
+            ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('a') => {
             ctx.config.net_auto = !ctx.config.net_auto;
-            ctx.render.dirty |= Dirty::NET_BOX;
+            ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('y') => {
             ctx.config.net_sync = !ctx.config.net_sync;
-            ctx.render.dirty |= Dirty::NET_BOX;
+            ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('z') if !ctx.network.selected_iface.is_empty() => {
             ctx.manager
                 .reset_net_totals(ctx.network.selected_iface.clone());
-            ctx.render.dirty |= Dirty::NET_BOX;
+            ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         _ => {}
     }
@@ -459,7 +459,7 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
         update_ms = new_ms,
         "update interval changed",
     );
-    ctx.render.dirty |= Dirty::CPU_BOX;
+    ctx.render.dirty |= Dirty::CPU_WIDGET;
 }
 
 // --- Helpers ---

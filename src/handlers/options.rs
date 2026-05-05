@@ -16,7 +16,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             let return_to = ctx.overlay.menu_return_to;
             ctx.overlay.set_menu_state(return_to);
             if return_to == MenuState::None {
-                ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+                ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
             }
             return HandleResult::redraw();
         }

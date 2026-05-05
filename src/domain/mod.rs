@@ -1,4 +1,3 @@
-pub mod box_kind;
 pub mod config_enums;
 pub mod cpu;
 pub mod disk;
@@ -7,3 +6,4 @@ pub mod memory;
 pub mod network;
 pub mod preset;
 pub mod process;
+pub mod widget_kind;

@@ -4,7 +4,7 @@ use crate::input;
 ///
 /// All event sources (input thread, collector threads) send through
 /// a single `mpsc::Sender<AppEvent>` channel. The main loop blocks
-/// on the receiver, processes events, and renders dirty boxes.
+/// on the receiver, processes events, and renders dirty widgets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppEvent {
     /// A key was pressed (from input thread).

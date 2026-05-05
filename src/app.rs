@@ -20,7 +20,7 @@ use std::time::Instant;
 /// - Collector threads: per-subsystem ready notifications
 ///
 /// The loop blocks on `rx.recv()` (zero CPU when idle), drains all
-/// queued events, then renders any dirty boxes in one frame.
+/// queued events, then renders any dirty widgets in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     let mut manager = runner::CollectorManager::start(config.update_ms as u64, event_tx.clone());
@@ -112,7 +112,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             }
         }
 
-        // Render dirty boxes.
+        // Render dirty widgets.
         if state.overlay.render_ui() && !state.render.dirty.is_empty() {
             execute_dirty_work(&mut state, config, size);
             write_dirty_frame(&mut state, config, terminal, theme);
@@ -176,7 +176,7 @@ impl RenderState {
     }
 
     pub(crate) fn mark_resize(&mut self) {
-        self.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        self.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
     }
 
     pub(crate) fn clear_dirty(&mut self) {
@@ -191,9 +191,9 @@ pub(crate) struct LiveData {
     pub(crate) net: Option<Arc<runner::NetSnapshot>>,
     pub(crate) gpu: Option<Arc<runner::GpuSnapshot>>,
     pub(crate) proc_data: Option<Arc<runner::ProcSnapshot>>,
-    /// Cached core count for proc box (stable hardware constant).
+    /// Cached core count for proc widget (stable hardware constant).
     pub(crate) core_count: usize,
-    /// Cached total physical memory for proc box (stable hardware constant).
+    /// Cached total physical memory for proc widget (stable hardware constant).
     pub(crate) total_mem: u64,
 }
 
@@ -242,7 +242,7 @@ impl LiveData {
 /// Count the disks that pass the user's `disks_filter`.
 ///
 /// Used by both layout sizing (`calculate_layout` and `LayoutHints`) and
-/// dirty-flag change detection so the disk box height tracks the
+/// dirty-flag change detection so the disk widget height tracks the
 /// post-filter row count, not the raw drive count. Returns 0 when no
 /// disk snapshot is available.
 fn filtered_disk_count(disk: Option<&runner::DiskSnapshot>, config: &config::Config) -> usize {
@@ -471,7 +471,7 @@ impl NetworkViewState {
         if nets.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
-                *dirty |= Dirty::NET_BOX;
+                *dirty |= Dirty::NET_WIDGET;
             }
             return;
         }
@@ -483,13 +483,13 @@ impl NetworkViewState {
             && nets.iter().any(|n| n.name == preferred)
         {
             self.selected_iface = preferred.to_string();
-            *dirty |= Dirty::NET_BOX;
+            *dirty |= Dirty::NET_WIDGET;
             return;
         }
 
         if self.selected_iface.is_empty() || !nets.iter().any(|n| n.name == self.selected_iface) {
             self.selected_iface = nets[0].name.clone();
-            *dirty |= Dirty::NET_BOX;
+            *dirty |= Dirty::NET_WIDGET;
         }
     }
 }
@@ -570,7 +570,7 @@ fn pull_subsystem_data(
         state.live.core_count = snap.info.core_count;
         state.live.cpu = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::CPU_BOX;
+            state.render.dirty |= Dirty::CPU_WIDGET;
         }
     }
     if ready.mem
@@ -583,7 +583,7 @@ fn pull_subsystem_data(
             .saturating_add(snap.info.stats.available);
         state.live.mem = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::MEM_BOX;
+            state.render.dirty |= Dirty::MEM_WIDGET;
         }
     }
     if ready.disk
@@ -591,7 +591,7 @@ fn pull_subsystem_data(
     {
         state.live.disk = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::DISK_BOX;
+            state.render.dirty |= Dirty::DISK_WIDGET;
         }
     }
     if ready.net
@@ -599,7 +599,7 @@ fn pull_subsystem_data(
     {
         state.live.net = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::NET_BOX;
+            state.render.dirty |= Dirty::NET_WIDGET;
         }
     }
     if ready.gpu
@@ -607,7 +607,7 @@ fn pull_subsystem_data(
     {
         state.live.gpu = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::GPU_BOX;
+            state.render.dirty |= Dirty::GPU_WIDGET;
         }
     }
     if ready.proc_data
@@ -618,7 +618,7 @@ fn pull_subsystem_data(
             .update_stale_procs(&snap.procs, config.keep_dead_proc_usage);
         state.live.proc_data = Some(snap);
         if render_ui {
-            state.render.dirty |= Dirty::PROC_BOX | Dirty::PROC_LIST;
+            state.render.dirty |= Dirty::PROC_WIDGET | Dirty::PROC_LIST;
         }
     }
 
@@ -629,7 +629,7 @@ fn pull_subsystem_data(
         .last_layout_hints
         .is_none_or(|hints| hints != new_hints)
     {
-        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
     }
     state.render.last_layout_hints = Some(new_hints);
 
@@ -675,7 +675,8 @@ fn render_if_dirty_small(
     theme: &theme::Theme,
     size: TerminalSize,
 ) {
-    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
+    if state.render.dirty.contains(Dirty::LAYOUT)
+        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
     {
         let output = style_terminal_output(&render_too_small(size, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {
@@ -710,7 +711,8 @@ fn render_if_dirty_waiting(
     theme: &theme::Theme,
     size: TerminalSize,
 ) {
-    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.dirty.intersects(Dirty::ALL_BOXES)
+    if state.render.dirty.contains(Dirty::LAYOUT)
+        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
     {
         let output =
             style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
@@ -748,13 +750,13 @@ fn calculate_layout(
     let cpu = live.cpu.as_ref();
     let has_temp = config.check_temp && cpu.is_some_and(|c| !c.info.temp.is_empty());
     let has_watts = config.show_cpu_watts && cpu.is_some_and(|c| c.info.cpu_watts.is_some());
-    let stats_rows = ui::cpu_box::stats_row_count(has_temp, has_watts);
+    let stats_rows = ui::cpu_widget::stats_row_count(has_temp, has_watts);
     let cpu_panel_overhead = stats_rows + 2; // stats + load detail row + section divider
 
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        shown_boxes: config.shown_boxes(),
+        widgets: config.widgets(),
         cpu_bottom: config.cpu_bottom(),
         mem_below_net: config.mem_below_net(),
         proc_left: config.proc_left(),
@@ -953,12 +955,12 @@ fn save_config_on_exit(config: &config::Config) {
 
 fn clamp_proc_selection(
     count: usize,
-    box_height: usize,
+    widget_height: usize,
     detail_rows: usize,
     selected: &mut usize,
     start: &mut usize,
 ) {
-    let max_visible = ui::proc_box::visible_row_count(box_height, detail_rows);
+    let max_visible = ui::proc_widget::visible_row_count(widget_height, detail_rows);
     if count == 0 {
         *selected = 0;
         *start = 0;
@@ -979,7 +981,7 @@ fn clamp_proc_selection(
     }
 }
 
-/// Parameters for rendering the UI boxes.
+/// Parameters for rendering the UI widgets.
 pub(crate) struct RenderParams<'a> {
     pub(crate) dirty: Dirty,
     pub(crate) layout: &'a draw::layout::Layout,
@@ -1004,10 +1006,10 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) armed_terminate: Option<(&'a str, bool)>,
 }
 
-/// Render UI boxes into an ANSI output string.
+/// Render UI widgets into an ANSI output string.
 ///
-/// Only renders boxes whose corresponding dirty flag is set.
-/// Pass `Dirty::ALL_BOXES` to render everything.
+/// Only renders widgets whose corresponding dirty flag is set.
+/// Pass `Dirty::ALL_WIDGETS` to render everything.
 pub(crate) fn render_all(
     params: &RenderParams,
     proc_selected: &mut usize,
@@ -1022,12 +1024,12 @@ pub(crate) fn render_all(
     let is_filtering = params.is_filtering;
     let mut output = String::new();
 
-    if dirty.intersects(Dirty::CPU_BOX)
+    if dirty.intersects(Dirty::CPU_WIDGET)
         && let Some(ref cpu_dim) = layout.cpu
         && let Some(cpu) = params.cpu
     {
-        let area = ui::BoxArea::from_dim(cpu_dim, rounded);
-        let cpu_settings = ui::cpu_box::CpuBoxSettings {
+        let area = ui::WidgetArea::from_dim(cpu_dim, rounded);
+        let cpu_settings = ui::cpu_widget::CpuWidgetSettings {
             graph_symbol: crate::draw::graph::GraphMode::from_config(
                 config.graph_symbol_cpu,
                 config.graph_symbol,
@@ -1050,7 +1052,7 @@ pub(crate) fn render_all(
             cpu_max_watts: cpu.info.cpu_max_watts,
             clock_format: &config.clock_format,
         };
-        output.push_str(&ui::cpu_box::draw(
+        output.push_str(&ui::cpu_widget::draw(
             &cpu.info,
             &area,
             theme,
@@ -1059,24 +1061,24 @@ pub(crate) fn render_all(
         ));
     }
 
-    if dirty.intersects(Dirty::GPU_BOX)
+    if dirty.intersects(Dirty::GPU_WIDGET)
         && let Some(gpu) = params.gpu
     {
         for (gi, gpu_dim) in layout.gpu.iter().enumerate() {
             if gi < gpu.gpus.len() {
-                let area = ui::BoxArea::from_dim(gpu_dim, rounded);
+                let area = ui::WidgetArea::from_dim(gpu_dim, rounded);
                 let custom_name = config
                     .custom_gpu_names
                     .get(gi)
                     .map(String::as_str)
                     .unwrap_or("");
-                let gpu_settings = ui::gpu_box::GpuBoxSettings {
+                let gpu_settings = ui::gpu_widget::GpuWidgetSettings {
                     index: gi,
                     temp_scale: config.temp_scale,
                     custom_name,
                     base_10: config.base_10_sizes,
                 };
-                output.push_str(&ui::gpu_box::draw(
+                output.push_str(&ui::gpu_widget::draw(
                     &gpu.gpus[gi],
                     &area,
                     theme,
@@ -1087,16 +1089,16 @@ pub(crate) fn render_all(
         }
     }
 
-    if dirty.intersects(Dirty::MEM_BOX)
+    if dirty.intersects(Dirty::MEM_WIDGET)
         && let Some(ref mem_dim) = layout.mem
         && let Some(mem) = params.mem
     {
-        let area = ui::BoxArea::from_dim(mem_dim, rounded);
-        output.push_str(&ui::mem_box::draw(
+        let area = ui::WidgetArea::from_dim(mem_dim, rounded);
+        output.push_str(&ui::mem_widget::draw(
             &mem.info,
             &area,
             theme,
-            &ui::mem_box::MemBoxSettings {
+            &ui::mem_widget::MemWidgetSettings {
                 show_swap: config.show_swap,
                 base_10: config.base_10_sizes,
             },
@@ -1104,12 +1106,12 @@ pub(crate) fn render_all(
         ));
     }
 
-    if dirty.intersects(Dirty::DISK_BOX)
+    if dirty.intersects(Dirty::DISK_WIDGET)
         && let Some(ref disk_dim) = layout.disk
         && let Some(disk) = params.disk
     {
-        let area = ui::BoxArea::from_dim(disk_dim, rounded);
-        let disk_settings = ui::disk_box::DiskBoxSettings {
+        let area = ui::WidgetArea::from_dim(disk_dim, rounded);
+        let disk_settings = ui::disk_widget::DiskWidgetSettings {
             graph_symbol: crate::draw::graph::GraphMode::from_config(
                 config.graph_symbol_disk,
                 config.graph_symbol,
@@ -1122,7 +1124,7 @@ pub(crate) fn render_all(
         };
         let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
         let visible = filter.apply(&disk.info.disks);
-        output.push_str(&ui::disk_box::draw(
+        output.push_str(&ui::disk_widget::draw(
             &visible,
             &area,
             theme,
@@ -1131,7 +1133,7 @@ pub(crate) fn render_all(
         ));
     }
 
-    if dirty.intersects(Dirty::NET_BOX)
+    if dirty.intersects(Dirty::NET_WIDGET)
         && let Some(ref net_dim) = layout.net
         && let Some(net) = params.net
     {
@@ -1142,8 +1144,8 @@ pub(crate) fn render_all(
             .iter()
             .find(|n| n.name == iface)
             .unwrap_or(&default_net);
-        let area = ui::BoxArea::from_dim(net_dim, rounded);
-        let net_settings = ui::net_box::NetBoxSettings {
+        let area = ui::WidgetArea::from_dim(net_dim, rounded);
+        let net_settings = ui::net_widget::NetWidgetSettings {
             iface,
             auto_scale: config.net_auto,
             sync_scale: config.net_sync,
@@ -1156,7 +1158,7 @@ pub(crate) fn render_all(
             swap_dl_ul: config.swap_upload_download,
             base_10: config.base_10_sizes,
         };
-        output.push_str(&ui::net_box::draw(
+        output.push_str(&ui::net_widget::draw(
             net_info,
             &area,
             theme,
@@ -1165,8 +1167,8 @@ pub(crate) fn render_all(
         ));
     }
 
-    if dirty.intersects(Dirty::PROC_BOX)
-        && let Some(ref proc_dim) = layout.proc_box
+    if dirty.intersects(Dirty::PROC_WIDGET)
+        && let Some(ref proc_dim) = layout.proc_widget
         && let Some(proc_snap) = params.proc_data
     {
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
@@ -1188,7 +1190,7 @@ pub(crate) fn render_all(
         let reversed = config.proc_reversed;
         let tree_mode = config.proc_tree;
         let pf = &config.proc_filter;
-        let area = ui::BoxArea::from_dim(proc_dim, rounded);
+        let area = ui::WidgetArea::from_dim(proc_dim, rounded);
         let view = ui::ProcView {
             start: *proc_start,
             selected: *proc_selected,
@@ -1206,7 +1208,7 @@ pub(crate) fn render_all(
                 .unwrap_or(""),
             armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
         };
-        let proc_settings = ui::proc_box::ProcBoxSettings {
+        let proc_settings = ui::proc_widget::ProcWidgetSettings {
             proc_per_core: config.proc_per_core,
             core_count: params.core_count,
             proc_mem_bytes: config.proc_mem_bytes,
@@ -1215,7 +1217,7 @@ pub(crate) fn render_all(
             proc_gradient: config.proc_gradient,
             base_10: config.base_10_sizes,
         };
-        output.push_str(&ui::proc_box::draw(
+        output.push_str(&ui::proc_widget::draw(
             procs,
             entries,
             &area,
@@ -1274,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_resize_sets_layout_and_all_boxes() {
+    fn mark_resize_sets_layout_and_all_widgets() {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
         state.render.clear_dirty();
@@ -1282,7 +1284,7 @@ mod tests {
         state.render.mark_resize();
 
         assert!(state.render.dirty.contains(Dirty::LAYOUT));
-        assert!(state.render.dirty.contains(Dirty::ALL_BOXES));
+        assert!(state.render.dirty.contains(Dirty::ALL_WIDGETS));
     }
 
     #[test]
@@ -1307,7 +1309,7 @@ mod tests {
         reconcile_selected_iface(&mut state, &config);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
-        assert!(state.render.dirty.contains(Dirty::NET_BOX));
+        assert!(state.render.dirty.contains(Dirty::NET_WIDGET));
     }
 
     #[test]

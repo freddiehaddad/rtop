@@ -1,4 +1,4 @@
-use crate::ui::{BoxArea, ProcView};
+use crate::ui::{ProcView, WidgetArea};
 
 // Process list column widths.
 const COL_PID: usize = 7;
@@ -18,13 +18,13 @@ const MAX_DETAIL_ROWS: usize = 8;
 /// Height overhead when the detail panel is active: header + divider + detail
 /// divider + bottom border + spacing rows.
 const DETAIL_OVERHEAD: usize = 6;
-/// Row overhead subtracted from box height: header(1) + column header(1) +
+/// Row overhead subtracted from widget height: header(1) + column header(1) +
 /// header divider(1) + bottom border(1).
-const BOX_ROW_OVERHEAD: usize = 4;
+const WIDGET_ROW_OVERHEAD: usize = 4;
 
 /// Rows available for process entries between the header divider and bottom border.
-pub(crate) fn visible_row_count(box_height: usize, detail_rows: usize) -> usize {
-    box_height.saturating_sub(detail_rows + BOX_ROW_OVERHEAD)
+pub(crate) fn visible_row_count(widget_height: usize, detail_rows: usize) -> usize {
+    widget_height.saturating_sub(detail_rows + WIDGET_ROW_OVERHEAD)
 }
 
 pub(super) struct ProcColumns {
@@ -78,7 +78,7 @@ impl ProcColumns {
     }
 }
 
-pub(super) struct ProcBoxLayout {
+pub(super) struct ProcWidgetLayout {
     pub(super) x: usize,
     pub(super) y: usize,
     pub(super) width: usize,
@@ -94,8 +94,8 @@ pub(super) struct ProcBoxLayout {
     pub(super) columns: ProcColumns,
 }
 
-impl ProcBoxLayout {
-    pub(super) fn calculate(area: &BoxArea, view: &ProcView) -> Self {
+impl ProcWidgetLayout {
+    pub(super) fn calculate(area: &WidgetArea, view: &ProcView) -> Self {
         let inner_w = area.width.saturating_sub(4);
         let detail_rows = if view.detailed_pid > 0 {
             MAX_DETAIL_ROWS.min(area.height.saturating_sub(DETAIL_OVERHEAD))

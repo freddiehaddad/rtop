@@ -1,44 +1,44 @@
-/// Dimensions and position of a UI box.
+/// Dimensions and position of a UI widget.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BoxDimensions {
+pub struct WidgetDimensions {
     pub x: usize,
     pub y: usize,
     pub width: usize,
     pub height: usize,
 }
 
-/// Complete layout of all UI boxes.
+/// Complete layout of all UI widgets.
 #[derive(Debug, Clone, Default)]
 pub struct Layout {
-    pub cpu: Option<BoxDimensions>,
-    pub mem: Option<BoxDimensions>,
-    pub disk: Option<BoxDimensions>,
-    pub net: Option<BoxDimensions>,
-    pub proc_box: Option<BoxDimensions>,
-    pub gpu: Vec<BoxDimensions>,
+    pub cpu: Option<WidgetDimensions>,
+    pub mem: Option<WidgetDimensions>,
+    pub disk: Option<WidgetDimensions>,
+    pub net: Option<WidgetDimensions>,
+    pub proc_widget: Option<WidgetDimensions>,
+    pub gpu: Vec<WidgetDimensions>,
 }
 
-/// Minimum box dimensions (matching btop).
+/// Minimum widget dimensions (matching btop).
 pub const MIN_CPU_HEIGHT: usize = 8;
-/// Minimum width for the memory box.
+/// Minimum width for the memory widget.
 pub const MIN_MEM_WIDTH: usize = 36;
-/// Minimum height for the network box.
+/// Minimum height for the network widget.
 pub const MIN_NET_HEIGHT: usize = 6;
-/// Minimum width for the network box.
+/// Minimum width for the network widget.
 pub const MIN_NET_WIDTH: usize = 20;
-/// Minimum width for the process box.
+/// Minimum width for the process widget.
 pub const MIN_PROC_WIDTH: usize = 44;
-/// Minimum height for a GPU box (5 content rows + 2 borders).
+/// Minimum height for a GPU widget (5 content rows + 2 borders).
 pub const MIN_GPU_HEIGHT: usize = 7;
-/// Minimum height for the disk box.
+/// Minimum height for the disk widget.
 pub const MIN_DISK_HEIGHT: usize = 4;
-/// Percentage of terminal width allocated to the proc box (right column).
+/// Percentage of terminal width allocated to the proc widget (right column).
 const PROC_WIDTH_PCT: usize = 60;
 
 /// Minimum terminal width for the default layout (left column + proc column).
 ///
 /// Derived from: `MIN_MEM_WIDTH (36) + MIN_PROC_WIDTH (44) = 80`.
-/// When both a left-column box (mem/net/disk) and proc are visible, the
+/// When both a left-column widget (mem/net/disk) and proc are visible, the
 /// terminal must be wide enough for both columns.
 pub const MIN_TERM_WIDTH: usize = MIN_MEM_WIDTH + MIN_PROC_WIDTH;
 
@@ -46,14 +46,14 @@ pub const MIN_TERM_WIDTH: usize = MIN_MEM_WIDTH + MIN_PROC_WIDTH;
 ///
 /// Derived from: `MIN_CPU_HEIGHT (8) + MIN_NET_HEIGHT (6) + MIN_DISK_HEIGHT (4) = 18`.
 /// This is the smallest height that can fit cpu (top) plus the shortest
-/// combination of left-column boxes beneath it.
+/// combination of left-column widgets beneath it.
 pub const MIN_TERM_HEIGHT: usize = MIN_CPU_HEIGHT + MIN_NET_HEIGHT + MIN_DISK_HEIGHT;
 
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
     pub term_width: usize,
     pub term_height: usize,
-    pub shown_boxes: &'a [crate::domain::box_kind::BoxKind],
+    pub widgets: &'a [crate::domain::widget_kind::WidgetKind],
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
@@ -67,28 +67,28 @@ pub struct LayoutConfig<'a> {
     pub cpu_panel_overhead: usize,
 }
 
-/// Calculate box sizes and positions based on terminal dimensions and config.
+/// Calculate widget sizes and positions based on terminal dimensions and config.
 pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
-    use crate::domain::box_kind::BoxKind;
+    use crate::domain::widget_kind::WidgetKind;
 
     let term_width = cfg.term_width;
     let term_height = cfg.term_height;
-    let shown_boxes = cfg.shown_boxes;
+    let widgets = cfg.widgets;
     let cpu_bottom = cfg.cpu_bottom;
     let mem_below_net = cfg.mem_below_net;
     let proc_left = cfg.proc_left;
     let core_count = cfg.core_count;
     let gpu_count = cfg.gpu_count;
-    let has_cpu = shown_boxes.contains(&BoxKind::Cpu);
-    let has_mem = shown_boxes.contains(&BoxKind::Mem);
-    let has_net = shown_boxes.contains(&BoxKind::Net);
-    let has_proc = shown_boxes.contains(&BoxKind::Proc);
-    let has_disk = shown_boxes.contains(&BoxKind::Disk);
+    let has_cpu = widgets.contains(&WidgetKind::Cpu);
+    let has_mem = widgets.contains(&WidgetKind::Mem);
+    let has_net = widgets.contains(&WidgetKind::Net);
+    let has_proc = widgets.contains(&WidgetKind::Proc);
+    let has_disk = widgets.contains(&WidgetKind::Disk);
 
-    // Count how many gpu boxes are shown
+    // Count how many gpu widgets are shown
     let gpu_count_shown = (0..gpu_count)
-        .filter_map(BoxKind::gpu)
-        .filter(|kind| shown_boxes.contains(kind))
+        .filter_map(WidgetKind::gpu)
+        .filter(|kind| widgets.contains(kind))
         .count();
 
     let mut layout = Layout::default();
@@ -97,13 +97,13 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         return layout;
     }
 
-    // GPU boxes — each takes MIN_GPU_HEIGHT, placed in the left column
+    // GPU widgets — each takes MIN_GPU_HEIGHT, placed in the left column
     let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
 
-    // CPU box height: core grid rows + panel overhead + 2 border rows.
+    // CPU widget height: core grid rows + panel overhead + 2 border rows.
     let cpu_height = if has_cpu {
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
-        let (core_rows, _) = crate::ui::cpu_box::core_grid_shape(core_count);
+        let (core_rows, _) = crate::ui::cpu_widget::core_grid_shape(core_count);
         (core_rows + cfg.cpu_panel_overhead + 2).clamp(MIN_CPU_HEIGHT, max_h)
     } else {
         0
@@ -112,11 +112,11 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Top section is CPU only (GPU moves to left column)
     let top_section = cpu_height;
 
-    // Whether there are any left-column boxes (now includes GPU)
+    // Whether there are any left-column widgets (now includes GPU)
     let has_gpu = gpu_count_shown > 0;
     let has_left = has_mem || has_net || has_disk || has_gpu;
 
-    // Proc box width (right side, ~55% — or full width if no left-column boxes)
+    // Proc widget width (right side, ~55% — or full width if no left-column widgets)
     let proc_width = if has_proc {
         if has_left {
             (term_width * PROC_WIDTH_PCT / 100)
@@ -180,7 +180,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     };
 
     if has_cpu {
-        layout.cpu = Some(BoxDimensions {
+        layout.cpu = Some(WidgetDimensions {
             x: 0,
             y: cpu_y,
             width: term_width,
@@ -192,10 +192,10 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let left_y_start = if cpu_bottom { 0 } else { top_section };
     let left_x = if proc_left { proc_width } else { 0 };
 
-    // GPU boxes in the left column, above mem
+    // GPU widgets in the left column, above mem
     let gpu_start_y = left_y_start;
     for i in 0..gpu_count_shown {
-        layout.gpu.push(BoxDimensions {
+        layout.gpu.push(WidgetDimensions {
             x: left_x,
             y: gpu_start_y + i * MIN_GPU_HEIGHT,
             width: left_width.max(MIN_MEM_WIDTH),
@@ -214,7 +214,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     };
 
     if has_mem {
-        layout.mem = Some(BoxDimensions {
+        layout.mem = Some(WidgetDimensions {
             x: left_x,
             y: mem_y,
             width: left_width.max(MIN_MEM_WIDTH),
@@ -223,7 +223,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     }
 
     if has_net {
-        layout.net = Some(BoxDimensions {
+        layout.net = Some(WidgetDimensions {
             x: left_x,
             y: net_y,
             width: left_width.max(MIN_NET_WIDTH),
@@ -231,10 +231,10 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         });
     }
 
-    // Disk box — below mem+net in the left column
+    // Disk widget — below mem+net in the left column
     if has_disk {
         let disk_y = left_content_y + mem_height + net_height;
-        layout.disk = Some(BoxDimensions {
+        layout.disk = Some(WidgetDimensions {
             x: left_x,
             y: disk_y,
             width: left_width.max(MIN_MEM_WIDTH),
@@ -245,7 +245,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // PROC position
     if has_proc {
         let proc_x = if proc_left { 0 } else { left_width };
-        layout.proc_box = Some(BoxDimensions {
+        layout.proc_widget = Some(WidgetDimensions {
             x: proc_x,
             y: left_y_start,
             width: proc_width,
@@ -259,17 +259,17 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::box_kind::BoxKind;
+    use crate::domain::widget_kind::WidgetKind;
 
-    fn boxes(kinds: &[BoxKind]) -> Vec<BoxKind> {
+    fn widgets(kinds: &[WidgetKind]) -> Vec<WidgetKind> {
         kinds.to_vec()
     }
 
-    fn lc(tw: usize, th: usize, shown: &[BoxKind]) -> LayoutConfig<'_> {
+    fn lc(tw: usize, th: usize, shown: &[WidgetKind]) -> LayoutConfig<'_> {
         LayoutConfig {
             term_width: tw,
             term_height: th,
-            shown_boxes: shown,
+            widgets: shown,
             cpu_bottom: false,
             mem_below_net: false,
             proc_left: false,
@@ -282,8 +282,13 @@ mod tests {
     }
 
     #[test]
-    fn calc_sizes_all_boxes_shown() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
+    fn calc_sizes_all_widgets_shown() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+        ]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 8,
             ..lc(120, 40, &b)
@@ -291,30 +296,30 @@ mod tests {
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_some());
         assert!(layout.net.is_some());
-        assert!(layout.proc_box.is_some());
+        assert!(layout.proc_widget.is_some());
     }
 
     #[test]
     fn calc_sizes_cpu_only() {
-        let b = boxes(&[BoxKind::Cpu]);
+        let b = widgets(&[WidgetKind::Cpu]);
         let layout = calc_sizes(&lc(80, 24, &b));
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_none());
         assert!(layout.net.is_none());
-        assert!(layout.proc_box.is_none());
+        assert!(layout.proc_widget.is_none());
     }
 
     #[test]
     fn calc_sizes_proc_only() {
-        let b = boxes(&[BoxKind::Proc]);
+        let b = widgets(&[WidgetKind::Proc]);
         let layout = calc_sizes(&lc(80, 24, &b));
-        assert!(layout.proc_box.is_some());
+        assert!(layout.proc_widget.is_some());
         assert!(layout.cpu.is_none());
     }
 
     #[test]
     fn calc_sizes_cpu_bottom() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem]);
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem]);
         let layout_top = calc_sizes(&lc(80, 40, &b));
         let layout_bot = calc_sizes(&LayoutConfig {
             cpu_bottom: true,
@@ -325,19 +330,24 @@ mod tests {
 
     #[test]
     fn calc_sizes_proc_left() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+        ]);
         let layout = calc_sizes(&LayoutConfig {
             proc_left: true,
             ..lc(120, 40, &b)
         });
-        let proc_x = layout.proc_box.as_ref().unwrap().x;
+        let proc_x = layout.proc_widget.as_ref().unwrap().x;
         let mem_x = layout.mem.as_ref().unwrap().x;
         assert!(proc_x < mem_x); // proc on left, mem on right
     }
 
     #[test]
     fn calc_sizes_mem_below_net() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net]);
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Net]);
         let layout_above = calc_sizes(&lc(80, 40, &b));
         let layout_below = calc_sizes(&LayoutConfig {
             mem_below_net: true,
@@ -349,18 +359,28 @@ mod tests {
 
     #[test]
     fn calc_sizes_minimum_terminal_size() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+        ]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 2,
             ..lc(10, 5, &b)
         });
-        // Should not panic, boxes may have 0-size or be missing
+        // Should not panic, widgets may have 0-size or be missing
         let _ = layout;
     }
 
     #[test]
     fn calc_sizes_respects_minimum_dimensions() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+        ]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 16,
             ..lc(200, 60, &b)
@@ -369,25 +389,25 @@ mod tests {
             assert!(mem.width >= MIN_MEM_WIDTH);
             assert!(mem.height >= 6); // minimum: 4 rows + 2 borders
         }
-        if let Some(proc_b) = &layout.proc_box {
+        if let Some(proc_b) = &layout.proc_widget {
             assert!(proc_b.width >= MIN_PROC_WIDTH);
         }
     }
 
     #[test]
-    fn calc_sizes_disk_box_when_shown() {
-        let b = boxes(&[
-            BoxKind::Cpu,
-            BoxKind::Mem,
-            BoxKind::Net,
-            BoxKind::Proc,
-            BoxKind::Disk,
+    fn calc_sizes_disk_widget_when_shown() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
         ]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 8,
             ..lc(120, 50, &b)
         });
-        assert!(layout.disk.is_some(), "disk box should be present");
+        assert!(layout.disk.is_some(), "disk widget should be present");
         let disk = layout.disk.as_ref().unwrap();
         assert!(disk.height >= 2 * 2 + 2);
         // Disk should be below mem and net in the left column
@@ -397,9 +417,14 @@ mod tests {
     }
 
     #[test]
-    fn calc_sizes_no_disk_box_when_hidden() {
-        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
+    fn calc_sizes_no_disk_widget_when_hidden() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+        ]);
         let layout = calc_sizes(&lc(120, 50, &b));
-        assert!(layout.disk.is_none(), "disk box should be absent");
+        assert!(layout.disk.is_none(), "disk widget should be absent");
     }
 }

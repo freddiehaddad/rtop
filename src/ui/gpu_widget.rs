@@ -8,10 +8,10 @@ use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
-use super::BoxArea;
+use super::WidgetArea;
 
-/// Extracted settings for the GPU box, decoupled from Config.
-pub struct GpuBoxSettings<'a> {
+/// Extracted settings for the GPU widget, decoupled from Config.
+pub struct GpuWidgetSettings<'a> {
     pub index: usize,
     pub temp_scale: TempScale,
     pub custom_name: &'a str,
@@ -32,7 +32,7 @@ fn fmt_clock(mhz: u32) -> String {
     }
 }
 
-/// Draw the GPU box into an ANSI string.
+/// Draw the GPU widget into an ANSI string.
 ///
 /// Layout (5 content rows):
 /// ╭─┐⁵gpu0┌────────────── NVIDIA GeForce RTX 4080 SUPER ╮
@@ -44,9 +44,9 @@ fn fmt_clock(mhz: u32) -> String {
 /// ╰──────────────────────────────────────────────────────╯
 pub fn draw(
     gpu: &GpuInfo,
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &GpuBoxSettings,
+    settings: &GpuWidgetSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -54,7 +54,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.color(tc::GPU_BOX);
+    let border_color = theme.color(tc::GPU_WIDGET);
     let fg = theme.color(tc::MAIN_FG);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
@@ -74,7 +74,7 @@ pub fn draw(
         y,
         width,
         height,
-        line_color: box_color,
+        line_color: border_color,
         fill: true,
         title: &title,
         title2: "",
@@ -84,7 +84,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, &title, x, y, box_color, title_color);
+    super::draw_status_inset(&mut buf, status, &title, x, y, border_color, title_color);
 
     let inner_w = width.saturating_sub(4);
     let inner_h = height.saturating_sub(2);
@@ -102,7 +102,7 @@ pub fn draw(
     let max_name_w = inner_w.saturating_sub(title.len() + 6);
     let name_trunc: String = name_display.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
-        let inset = box_drawing::title_inset(&name_trunc, box_color, title_color, false);
+        let inset = box_drawing::title_inset(&name_trunc, border_color, title_color, false);
         let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
         buf.mv(inset_x, y + 1).text(&inset);
     }
@@ -253,8 +253,8 @@ mod tests {
         }
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 60,
@@ -263,8 +263,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> GpuBoxSettings<'static> {
-        GpuBoxSettings {
+    fn make_settings() -> GpuWidgetSettings<'static> {
+        GpuWidgetSettings {
             index: 0,
             temp_scale: TempScale::Celsius,
             custom_name: "",

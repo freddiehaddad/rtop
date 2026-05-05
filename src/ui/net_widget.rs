@@ -7,7 +7,7 @@ use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
-use super::BoxArea;
+use super::WidgetArea;
 
 /// Format link speed in bits/sec to a human-readable string (e.g. "1 Gbps", "100 Mbps").
 fn format_link_speed(bps: u64) -> String {
@@ -22,8 +22,8 @@ fn format_link_speed(bps: u64) -> String {
     }
 }
 
-/// Extracted settings for the network box, decoupled from Config.
-pub struct NetBoxSettings<'a> {
+/// Extracted settings for the network widget, decoupled from Config.
+pub struct NetWidgetSettings<'a> {
     pub iface: &'a str,
     pub auto_scale: bool,
     pub sync_scale: bool,
@@ -34,7 +34,7 @@ pub struct NetBoxSettings<'a> {
     pub base_10: bool,
 }
 
-/// Draw the network box into an ANSI string matching btop's layout.
+/// Draw the network widget into an ANSI string matching btop's layout.
 ///
 /// Layout:
 /// ╭─┐³net┌───────────────────────────────────────────────────────────┐1 Gbps┌─╮
@@ -53,9 +53,9 @@ pub struct NetBoxSettings<'a> {
 /// ╰─┘sync└┘auto└┘zero└┘←b Ethernet n→└────────────────────────────────────────╯
 pub fn draw(
     net: &NetInfo,
-    area: &BoxArea,
+    area: &WidgetArea,
     theme: &Theme,
-    settings: &NetBoxSettings,
+    settings: &NetWidgetSettings,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -63,7 +63,7 @@ pub fn draw(
     let width = area.width;
     let height = area.height;
     let rounded = area.rounded;
-    let box_color = theme.color(tc::NET_BOX);
+    let border_color = theme.color(tc::NET_WIDGET);
     let title_color = theme.color(tc::TITLE);
     let dl_grad = theme.gradient(tc::GRAD_DOWNLOAD);
     let ul_grad = theme.gradient(tc::GRAD_UPLOAD);
@@ -75,7 +75,7 @@ pub fn draw(
         y,
         width,
         height,
-        line_color: box_color,
+        line_color: border_color,
         fill: true,
         title: "net",
         title2: "",
@@ -85,7 +85,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "net", x, y, box_color, title_color);
+    super::draw_status_inset(&mut buf, status, "net", x, y, border_color, title_color);
 
     let graph_width = width.saturating_sub(2);
     let inner_h = height.saturating_sub(2);
@@ -213,7 +213,7 @@ pub fn draw(
     // Link speed inset on top right border
     if net.link_speed > 0 {
         let speed_str = format_link_speed(net.link_speed);
-        let inset = box_drawing::title_inset(&speed_str, box_color, title_color, false);
+        let inset = box_drawing::title_inset(&speed_str, border_color, title_color, false);
         let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&speed_str));
         buf.mv(inset_x, y + 1).text(&inset);
     }
@@ -222,11 +222,11 @@ pub fn draw(
     let bottom_y = y + height;
     let iface_display = tools::uresize(settings.iface, 15, false);
 
-    let sync_inset = box_drawing::keybind_inset("sync", box_color, hi, title_color, true);
-    let auto_inset = box_drawing::keybind_inset("auto", box_color, hi, title_color, true);
-    let zero_inset = box_drawing::keybind_inset("zero", box_color, hi, title_color, true);
+    let sync_inset = box_drawing::keybind_inset("sync", border_color, hi, title_color, true);
+    let auto_inset = box_drawing::keybind_inset("auto", border_color, hi, title_color, true);
+    let zero_inset = box_drawing::keybind_inset("zero", border_color, hi, title_color, true);
     let iface_text = format!("←b {}{} {}n→", title_color, iface_display, hi);
-    let iface_inset = box_drawing::title_inset(&iface_text, box_color, hi, true);
+    let iface_inset = box_drawing::title_inset(&iface_text, border_color, hi, true);
 
     let mut bx = x + 3;
     buf.mv(bx, bottom_y).text(&sync_inset);
@@ -291,8 +291,8 @@ mod tests {
         }
     }
 
-    fn make_area() -> BoxArea {
-        BoxArea {
+    fn make_area() -> WidgetArea {
+        WidgetArea {
             x: 1,
             y: 1,
             width: 60,
@@ -301,8 +301,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> NetBoxSettings<'static> {
-        NetBoxSettings {
+    fn make_settings() -> NetWidgetSettings<'static> {
+        NetWidgetSettings {
             iface: "Ethernet",
             auto_scale: true,
             sync_scale: false,
