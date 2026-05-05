@@ -14,21 +14,18 @@ use super::WidgetArea;
 
 /// Right-aligned value column width for normal mode ("274G/1.6T" = up to 10 chars).
 const USAGE_VAL_W: usize = 10;
-/// Right-aligned value column for IO separate read/write rows
-/// (1 space + max 7 chars, e.g. "1023B/s").
-const IO_VAL_W: usize = 8;
 /// Right-aligned value column for IO combined rows
 /// (1 space + max "R1023B/s W1023B/s" = 18 chars).
 const IO_COMBINED_VAL_W: usize = 19;
 /// Right-aligned width for a shortened per-second speed value in
-/// the combined perf-row mode. `floating_humanizer(_, shorten=true,
-/// _, _, true, _)` returns at most 6 characters (e.g. `0.0B/s`,
-/// `999K/s`); the `+1` guarantees at least one leading space
-/// between the `R`/`W` letter and the value, mirroring the `B`
-/// column's `max_pct_width + 1` rjust target. Without this fixed
-/// width the graphs visually shift when the speed value's
-/// character count changes.
-const IO_PERF_SPEED_W: usize = 7;
+/// the IO display modes (perf-row mode and IO separate-row mode).
+/// `floating_humanizer(_, shorten=true, _, _, true, _)` returns at
+/// most 6 characters (e.g. `0.0B/s`, `999K/s`); the `+1` guarantees
+/// at least one leading space between the `R`/`W` letter and the
+/// value, mirroring the `B` column's `max_pct_width + 1` rjust
+/// target. Without this fixed width the graphs visually shift when
+/// the speed value's character count changes.
+const IO_SPEED_W: usize = 7;
 /// Minimum graph/meter width.
 const MIN_METER_W: usize = 5;
 /// Minimum graph width in IO mode.
@@ -51,13 +48,23 @@ pub struct DiskWidgetSettings {
 /// height sizing happen at the call site so the renderer stays a pure
 /// function of (data, settings, theme).
 ///
-/// Layout:
-/// ╭─ disks ────────────────────╮
-/// │ C: NTFS ■■■■■■■░░ 233G/465G│
-/// │ R 42M/s ⣀⣤⣶ W 8M/s ⣀ B 12% │
-/// │ D: NTFS ■■■░░░░░ 1.2T/3.6T│
-/// │ R 0B/s  ⣀⣀⣀ W 0B/s  ⣀ B 0% │
-/// ╰────────────────────────────╯
+/// Layout (default, `show_io_stat=true`, `io_mode=false`):
+/// ╭─┐⁵disks┌─────────────────────────────────────────────────────────╮
+/// │ C: NTFS ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■ 286G/1.6T │
+/// │ R 0.0B/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ W  52K/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ B   0% │
+/// │ S: NTFS ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■ 83G/1024G │
+/// │ R 0.0B/s ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ W 0.0B/s ⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣠⣄ B   0% │
+/// ╰──────────────────────────────────────────────────────────────────╯
+///
+/// IO mode (`io_mode=true`, `io_graph_combined=false`): each disk
+/// becomes two rows, one per direction. The R/W letter sits on the
+/// right next to the speed value (matching the perf-row column
+/// order); the graph fills the variable space between drive label
+/// and letter.
+/// ╭─┐⁵disks┌─────────────────────────────────────────────────────────╮
+/// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ R 0.0B/s │
+/// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀ W 0.0B/s │
+/// ╰──────────────────────────────────────────────────────────────────╯
 pub fn draw(
     disks: &[&DiskInfo],
     area: &WidgetArea,
@@ -176,11 +183,19 @@ pub fn draw(
                     .text(&tools::rjust(&value, IO_COMBINED_VAL_W, false));
                 row += 1;
             } else {
-                // Separate read and write graph rows
-                let label_r = format!("{} R ", disk.name);
-                let label_r_len = tools::ulen(&label_r, false);
+                // Separate read and write graph rows. The R/W
+                // letter sits on the right next to the speed value
+                // (matching the perf-row column order); the graph
+                // fills the variable space between drive label and
+                // ` R`/` W` letter. The 2-char gap (one trailing
+                // space after the drive label, one leading space
+                // before the letter) provides visual separation.
+                let label = format!("{} ", disk.name);
+                let label_len = tools::ulen(&label, false);
+                // Right column: " R" or " W" (2 chars) + rjust(speed, IO_SPEED_W).
+                let value_col_w = 2 + IO_SPEED_W;
                 let graph_w = inner_w
-                    .saturating_sub(label_r_len + IO_VAL_W)
+                    .saturating_sub(label_len + value_col_w)
                     .max(MIN_IO_GRAPH_W);
 
                 // Read row
@@ -202,10 +217,12 @@ pub fn draw(
                     .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
                     .color(fg)
-                    .text(&label_r)
+                    .text(&label)
                     .text(&rg_row)
+                    .color(fg)
+                    .text(" R")
                     .color(gradient_color(read_grad, read_pct))
-                    .text(&tools::rjust(&speed_r, IO_VAL_W, false));
+                    .text(&tools::rjust(&speed_r, IO_SPEED_W, false));
                 row += 1;
 
                 if row >= inner_h {
@@ -213,7 +230,6 @@ pub fn draw(
                 }
 
                 // Write row
-                let label_w = format!("{} W ", disk.name);
                 let speed_w = tools::floating_humanizer(
                     disk.write_bytes_per_sec,
                     true,
@@ -232,10 +248,12 @@ pub fn draw(
                     .min(100) as i32;
                 buf.mv(content_x, y + 2 + row)
                     .color(fg)
-                    .text(&label_w)
+                    .text(&label)
                     .text(&wg_row)
+                    .color(fg)
+                    .text(" W")
                     .color(gradient_color(write_grad, write_pct))
-                    .text(&tools::rjust(&speed_w, IO_VAL_W, false));
+                    .text(&tools::rjust(&speed_w, IO_SPEED_W, false));
                 row += 1;
             }
         } else {
@@ -321,9 +339,9 @@ fn draw_perf_row(
     // Constant column widths so the graph never shifts when the
     // speed-string width changes. Mirrors the `B` column pattern:
     // letter + rjust(value, max_value_width + 1) — the +1 inside
-    // IO_PERF_SPEED_W guarantees at least one leading space.
-    let read_w = 1 + IO_PERF_SPEED_W;
-    let write_w = 1 + IO_PERF_SPEED_W;
+    // IO_SPEED_W guarantees at least one leading space.
+    let read_w = 1 + IO_SPEED_W;
+    let write_w = 1 + IO_SPEED_W;
     let fixed_left = read_w + write_w + 4; // labels plus spaces around the two graphs
     let graph_total = left_w.saturating_sub(fixed_left);
     let read_graph_w = graph_total / 2;
@@ -340,7 +358,7 @@ fn draw_perf_row(
         .color(fg)
         .text("R")
         .color(read_color)
-        .text(&tools::rjust(&read_speed, IO_PERF_SPEED_W, false));
+        .text(&tools::rjust(&read_speed, IO_SPEED_W, false));
     col += read_w;
 
     if read_graph_w > 0 {
@@ -388,7 +406,7 @@ fn draw_perf_row(
     buf.color(fg)
         .text("W")
         .color(write_color)
-        .text(&tools::rjust(&write_speed, IO_PERF_SPEED_W, false));
+        .text(&tools::rjust(&write_speed, IO_SPEED_W, false));
 
     if available_write_graph_w > 0 {
         buf.text(" ");
@@ -639,7 +657,7 @@ mod tests {
 
         // read_history is tiny ints; current = 42 MB/s dwarfs them; so
         // visible_graph_max = current → pct = 100. Expected: "  42M/s"
-        // ("42M/s" is 5 chars, rjusted to IO_PERF_SPEED_W = 7 yields
+        // ("42M/s" is 5 chars, rjusted to IO_SPEED_W = 7 yields
         // 2 leading spaces).
         let expected_r = format!("{}{}", read_grad[100], "  42M/s");
         assert!(
@@ -667,7 +685,7 @@ mod tests {
     fn perf_row_graph_position_constant_across_speed_widths() {
         // Regression: pre-fix, the R/W graphs would shift by one column
         // when the speed-string width changed (e.g. "30K/s" 5 chars vs
-        // "0.0B/s" 6 chars). After the rjust-to-IO_PERF_SPEED_W fix the
+        // "0.0B/s" 6 chars). After the rjust-to-IO_SPEED_W fix the
         // R, W, and B letters land at the same column on every row.
         let theme = Theme::default();
         let data = DiskData {
@@ -763,6 +781,100 @@ mod tests {
             b_positions[0] - w_positions[0],
             b_positions[1] - w_positions[1],
             "B column must be at the same offset from W on every row"
+        );
+    }
+
+    #[test]
+    fn io_separate_rows_position_constant_across_speed_widths() {
+        // Regression: in IO separate-row mode (toggled with `i`),
+        // the R/W letter and speed value live on the right edge of
+        // each row. They must stay at fixed columns regardless of
+        // the speed-string width — the same property the perf-row
+        // mode delivers via the IO_SPEED_W rjust.
+        let theme = Theme::default();
+        let area = WidgetArea {
+            x: 1,
+            y: 1,
+            width: 60,
+            height: 12,
+            rounded: true,
+        };
+        let s = DiskWidgetSettings {
+            graph_symbol: GraphMode::Braille,
+            base_10: false,
+            show_io_stat: false,
+            io_mode: true,
+            disk_io_mode: false,
+            io_graph_combined: false,
+        };
+        let data = DiskData {
+            disks: vec![
+                // Read = 30 KiB/s -> "30K/s" (5 chars) ; write = 0 -> "0.0B/s" (6 chars)
+                DiskInfo {
+                    name: "X:".into(),
+                    fstype: "NTFS".into(),
+                    total: 100 * GIB,
+                    used: 50 * GIB,
+                    used_percent: 50,
+                    read_bytes_per_sec: 30 * 1024,
+                    write_bytes_per_sec: 0,
+                    read_top: 100 * 1024,
+                    write_top: 1,
+                    busy_percent: 0,
+                    read_history: [0, 30, 0, 30, 0].into_iter().collect(),
+                    write_history: [0; 5].into_iter().collect(),
+                },
+                // Read = 0 -> "0.0B/s" (6 chars) ; write = 200 -> "200B/s" (6 chars)
+                DiskInfo {
+                    name: "Y:".into(),
+                    fstype: "NTFS".into(),
+                    total: 100 * GIB,
+                    used: 25 * GIB,
+                    used_percent: 25,
+                    read_bytes_per_sec: 0,
+                    write_bytes_per_sec: 200,
+                    read_top: 1,
+                    write_top: 1,
+                    busy_percent: 0,
+                    read_history: [0; 5].into_iter().collect(),
+                    write_history: [0, 0, 0, 0, 200].into_iter().collect(),
+                },
+            ],
+        };
+        let output = draw(&all_disks(&data), &area, &theme, &s, &CollectStatus::Ok);
+        let plain = strip_ansi(&output);
+
+        // Each disk renders two rows in IO separate mode: one " R "
+        // and one " W " (note the leading space — the layout is
+        // `label graph " R" rjust(speed)`). With two disks we expect
+        // 2 of each.
+        let r_positions: Vec<usize> = plain.match_indices(" R ").map(|(i, _)| i).collect();
+        let w_positions: Vec<usize> = plain.match_indices(" W ").map(|(i, _)| i).collect();
+        assert_eq!(
+            r_positions.len(),
+            2,
+            "expected 2 ' R ' labels (one per disk), got {}: {:?}",
+            r_positions.len(),
+            r_positions
+        );
+        assert_eq!(
+            w_positions.len(),
+            2,
+            "expected 2 ' W ' labels (one per disk), got {}: {:?}",
+            w_positions.len(),
+            w_positions
+        );
+
+        // The R-to-W and consecutive-row-to-row distances depend on
+        // the row width (constant) and rjust-padded speed columns
+        // (also constant via IO_SPEED_W), so they must be identical
+        // across disks. A regression in the rjust target would
+        // manifest as mismatched distances.
+        assert_eq!(
+            w_positions[0] - r_positions[0],
+            w_positions[1] - r_positions[1],
+            "W must be at the same offset from R on every disk \
+             (regression: the row width or speed-column width drifted)"
         );
     }
 
