@@ -92,7 +92,7 @@ const CORE_GRAPH_MIN: usize = 3;
 const CORE_COL_GAP: usize = 1;
 
 /// Count how many stats rows will be rendered for a given data state.
-pub fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
+fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
     let mut n = 2; // CPU + Load (always)
     if has_temp {
         n += 1;
@@ -101,6 +101,21 @@ pub fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
         n += 1;
     }
     n
+}
+
+/// Preferred intrinsic height for the CPU widget given the snapshot
+/// hints, in rows (including borders). The layout engine clamps this
+/// to `[MIN_CPU_HEIGHT, term_height/3]` when placing the widget.
+///
+/// Formula: `core_rows + stats_rows + 2 (load detail row + section
+/// divider) + 2 (top + bottom borders)`. The widget owns this
+/// formula so the layout engine no longer needs to know about
+/// `core_grid_shape` or `stats_row_count`.
+pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
+    let (core_rows, _) = core_grid_shape(hints.core_count);
+    let stats_rows = stats_row_count(hints.has_cpu_temp, hints.has_cpu_watts);
+    let panel_overhead = stats_rows + 2; // load detail row + section divider
+    core_rows + panel_overhead + 2 // + top/bottom borders
 }
 
 /// Compute the y-axis maximum for a CPU graph row.
@@ -148,9 +163,11 @@ pub struct CoreGridLayout {
 
 /// Core grid shape: (rows_per_column, columns) for a given core count.
 ///
-/// Shared by the layout engine (for height sizing) and the core panel
-/// renderer (for drawing). This is the single source of truth.
-pub(crate) fn core_grid_shape(core_count: usize) -> (usize, usize) {
+/// Shared by the height sizing in [`preferred_height`] and the
+/// core panel renderer (for drawing). This is the single source of
+/// truth — the layout engine queries `preferred_height` rather than
+/// reaching into this function directly.
+fn core_grid_shape(core_count: usize) -> (usize, usize) {
     match core_count {
         0 => (0, 0),
         1..=8 => (core_count, 1),

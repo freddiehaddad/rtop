@@ -26,6 +26,16 @@ pub(crate) fn build_settings(config: &crate::config::Config) -> MemWidgetSetting
     }
 }
 
+/// Preferred intrinsic height for the memory widget given the
+/// snapshot hints, in rows (including borders).
+///
+/// 4 base rows (Used / Avail / Cached / Free) + 1 swap row when
+/// swap is user-visible + 2 borders.
+pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
+    let content = 4 + if hints.has_swap { 1 } else { 0 };
+    content + 2 // + top/bottom borders
+}
+
 /// Draw the memory widget into an ANSI string.
 ///
 /// Layout:

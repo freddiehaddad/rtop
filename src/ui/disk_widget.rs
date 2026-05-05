@@ -56,6 +56,16 @@ pub(crate) fn build_settings(config: &crate::config::Config) -> DiskWidgetSettin
     }
 }
 
+/// Preferred intrinsic height for the disk widget given the
+/// snapshot hints, in rows (including borders).
+///
+/// 2 rows per disk (capacity meter + IO row) + 2 borders, with a
+/// floor of [`crate::draw::layout::MIN_DISK_HEIGHT`].
+pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
+    let content_rows = hints.disk_count * 2;
+    (content_rows + 2).max(crate::draw::layout::MIN_DISK_HEIGHT)
+}
+
 /// Draw the disk widget into an ANSI string.
 ///
 /// `disks` is the post-filter slice of disks the caller wants rendered,

@@ -10,6 +10,25 @@ pub struct WidgetDimensions {
     pub height: usize,
 }
 
+/// Snapshot-derived sizing inputs that widgets and the layout
+/// engine consult when computing per-widget heights.
+///
+/// Built once per frame from `LiveData` + the current `Config`,
+/// reused for both layout-change detection (in
+/// `app::pull_subsystem_data`) and the actual `calc_sizes` call.
+/// Each field is the *user-visible* derived value: `has_swap`
+/// already accounts for `config.show_swap`, `disk_count` is the
+/// post-`disks_filter` count, etc.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LayoutHints {
+    pub core_count: usize,
+    pub gpu_count: usize,
+    pub disk_count: usize,
+    pub has_swap: bool,
+    pub has_cpu_temp: bool,
+    pub has_cpu_watts: bool,
+}
+
 /// Complete layout of all UI widgets.
 ///
 /// Widget dimensions are stored keyed by [`WidgetKind`]. GPU widget
@@ -74,14 +93,10 @@ pub struct LayoutConfig<'a> {
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
-    pub core_count: usize,
-    pub gpu_count: usize,
-    /// Number of disks to display (drives content height).
-    pub disk_count: usize,
-    /// Whether swap is active (adds 3 rows to mem height).
-    pub has_swap: bool,
-    /// CPU core panel overhead rows (stats meters + load detail + divider).
-    pub cpu_panel_overhead: usize,
+    /// Snapshot-derived sizing inputs (core_count, disk_count,
+    /// has_swap, …) that widgets consume via their per-widget
+    /// `preferred_height` helpers.
+    pub hints: LayoutHints,
 }
 
 /// Calculate widget sizes and positions based on terminal dimensions and config.
@@ -92,8 +107,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let cpu_bottom = cfg.cpu_bottom;
     let mem_below_net = cfg.mem_below_net;
     let proc_left = cfg.proc_left;
-    let core_count = cfg.core_count;
-    let gpu_count = cfg.gpu_count;
+    let hints = &cfg.hints;
     let has_cpu = widgets.contains(&WidgetKind::Cpu);
     let has_mem = widgets.contains(&WidgetKind::Mem);
     let has_net = widgets.contains(&WidgetKind::Net);
@@ -106,7 +120,7 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // placement order — GPU widgets are placed top-to-bottom in their
     // index order, but each placement carries its true `n`.
     let gpu_indices_shown: Vec<u8> = (0..MAX_GPUS as u8)
-        .filter(|n| (*n as usize) < gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
+        .filter(|n| (*n as usize) < hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
         .collect();
     let gpu_count_shown = gpu_indices_shown.len();
 
@@ -116,14 +130,15 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         return layout;
     }
 
-    // GPU widgets — each takes MIN_GPU_HEIGHT, placed in the left column
-    let total_gpu_height = gpu_count_shown * MIN_GPU_HEIGHT;
+    // GPU widgets — fixed height per device (queried from the widget itself).
+    let gpu_unit_height = crate::ui::gpu_widget::preferred_height();
+    let total_gpu_height = gpu_count_shown * gpu_unit_height;
 
-    // CPU widget height: core grid rows + panel overhead + 2 border rows.
+    // CPU widget height: widget computes its preferred intrinsic
+    // height; layout clamps it against `[MIN_CPU_HEIGHT, term_height/3]`.
     let cpu_height = if has_cpu {
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
-        let (core_rows, _) = crate::ui::cpu_widget::core_grid_shape(core_count);
-        (core_rows + cfg.cpu_panel_overhead + 2).clamp(MIN_CPU_HEIGHT, max_h)
+        crate::ui::cpu_widget::preferred_height(hints).clamp(MIN_CPU_HEIGHT, max_h)
     } else {
         0
     };
@@ -163,10 +178,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     // Reserve GPU height in left column
     let gpu_height_total = if has_gpu { total_gpu_height } else { 0 };
 
-    // Reserve disk height if visible — capacity + IO row per disk, plus borders
+    // Disk widget — preferred height comes from the widget itself.
     let disk_height = if has_disk {
-        let content_rows = cfg.disk_count * 2;
-        (content_rows + 2).max(MIN_DISK_HEIGHT)
+        crate::ui::disk_widget::preferred_height(hints)
     } else {
         0
     };
@@ -174,9 +188,8 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         .saturating_sub(disk_height)
         .saturating_sub(gpu_height_total);
 
-    // MEM height: 4 base rows + 3 if swap active + 2 borders
-    let mem_content = 4 + if cfg.has_swap { 1 } else { 0 };
-    let mem_fixed = mem_content + 2;
+    // MEM preferred height comes from the widget itself.
+    let mem_fixed = crate::ui::mem_widget::preferred_height(hints);
 
     // MEM and NET heights from the remaining left column space
     let (mem_height, net_height) = if has_mem && has_net {
@@ -226,9 +239,9 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
             WidgetKind::Gpu(*n),
             WidgetDimensions {
                 x: left_x,
-                y: gpu_start_y + placement_i * MIN_GPU_HEIGHT,
+                y: gpu_start_y + placement_i * gpu_unit_height,
                 width: left_width.max(MIN_MEM_WIDTH),
-                height: MIN_GPU_HEIGHT,
+                height: gpu_unit_height,
             },
         );
     }
@@ -315,12 +328,30 @@ mod tests {
             cpu_bottom: false,
             mem_below_net: false,
             proc_left: false,
-            core_count: 4,
-            gpu_count: 0,
-            disk_count: 2,
-            has_swap: false,
-            cpu_panel_overhead: 4, // 2 stats + load detail + divider
+            hints: LayoutHints {
+                core_count: 4,
+                gpu_count: 0,
+                disk_count: 2,
+                has_swap: false,
+                has_cpu_temp: false,
+                has_cpu_watts: false,
+            },
         }
+    }
+
+    /// Build a `LayoutConfig` from `lc(...)` and apply a hints
+    /// override callback. Avoids the verbose
+    /// `LayoutConfig { hints: LayoutHints { ..lc(...).hints }, ... }`
+    /// at every test site.
+    fn lc_with_hints(
+        tw: usize,
+        th: usize,
+        shown: &[WidgetKind],
+        f: impl FnOnce(&mut LayoutHints),
+    ) -> LayoutConfig<'_> {
+        let mut cfg = lc(tw, th, shown);
+        f(&mut cfg.hints);
+        cfg
     }
 
     #[test]
@@ -331,10 +362,7 @@ mod tests {
             WidgetKind::Net,
             WidgetKind::Proc,
         ]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 8,
-            ..lc(120, 40, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(120, 40, &b, |h| h.core_count = 8));
         assert!(layout.dims_for(WidgetKind::Cpu).is_some());
         assert!(layout.dims_for(WidgetKind::Mem).is_some());
         assert!(layout.dims_for(WidgetKind::Net).is_some());
@@ -416,10 +444,7 @@ mod tests {
             WidgetKind::Net,
             WidgetKind::Proc,
         ]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 2,
-            ..lc(10, 5, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(10, 5, &b, |h| h.core_count = 2));
         // Should not panic, widgets may have 0-size or be missing
         let _ = layout;
     }
@@ -432,10 +457,7 @@ mod tests {
             WidgetKind::Net,
             WidgetKind::Proc,
         ]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 16,
-            ..lc(200, 60, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(200, 60, &b, |h| h.core_count = 16));
         if let Some(mem) = layout.dims_for(WidgetKind::Mem) {
             assert!(mem.width >= MIN_MEM_WIDTH);
             assert!(mem.height >= 6); // minimum: 4 rows + 2 borders
@@ -454,10 +476,7 @@ mod tests {
             WidgetKind::Proc,
             WidgetKind::Disk,
         ]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 8,
-            ..lc(120, 50, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(120, 50, &b, |h| h.core_count = 8));
         let disk = layout
             .dims_for(WidgetKind::Disk)
             .expect("disk widget should be present");
@@ -499,11 +518,10 @@ mod tests {
     #[test]
     fn calc_sizes_sparse_gpu_layout_preserves_indices() {
         let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(1), WidgetKind::Gpu(3)]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 8,
-            gpu_count: 4,
-            ..lc(120, 50, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(120, 50, &b, |h| {
+            h.core_count = 8;
+            h.gpu_count = 4;
+        }));
 
         assert!(
             layout.dims_for(WidgetKind::Gpu(0)).is_none(),
@@ -535,11 +553,10 @@ mod tests {
     fn calc_sizes_skips_gpu_indices_beyond_detected_count() {
         // Enabled in widget list but no such device — must not be laid out.
         let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(0), WidgetKind::Gpu(5)]);
-        let layout = calc_sizes(&LayoutConfig {
-            core_count: 8,
-            gpu_count: 1,
-            ..lc(120, 50, &b)
-        });
+        let layout = calc_sizes(&lc_with_hints(120, 50, &b, |h| {
+            h.core_count = 8;
+            h.gpu_count = 1;
+        }));
         assert!(layout.dims_for(WidgetKind::Gpu(0)).is_some());
         assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
     }

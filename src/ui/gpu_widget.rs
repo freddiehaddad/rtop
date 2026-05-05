@@ -43,6 +43,14 @@ pub(crate) fn build_settings(
     }
 }
 
+/// Preferred intrinsic height for a GPU widget instance, in rows
+/// (including borders). Fixed regardless of the snapshot — every
+/// GPU widget is exactly [`crate::draw::layout::MIN_GPU_HEIGHT`]
+/// tall.
+pub fn preferred_height() -> usize {
+    crate::draw::layout::MIN_GPU_HEIGHT
+}
+
 /// Format bytes into a short human-readable string (e.g., "10.8G").
 fn fmt_bytes(bytes: u64, base10: bool) -> String {
     tools::floating_humanizer(bytes, true, 0, false, false, base10)

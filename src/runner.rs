@@ -59,20 +59,6 @@ pub(crate) struct ProcSnapshot {
 }
 
 // ---------------------------------------------------------------------------
-// Layout hints (derived from hardware constants across subsystems)
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct LayoutHints {
-    pub(crate) core_count: usize,
-    pub(crate) gpu_count: usize,
-    pub(crate) disk_count: usize,
-    pub(crate) has_swap: bool,
-    pub(crate) has_cpu_temp: bool,
-    pub(crate) has_cpu_watts: bool,
-}
-
-// ---------------------------------------------------------------------------
 // LatestSlot<T> — generic per-subsystem shared slot with coalescing
 // ---------------------------------------------------------------------------
 
@@ -540,16 +526,5 @@ mod tests {
         };
         assert_eq!(snap.info.core_count, 0);
         assert_eq!(snap.status, CollectStatus::Ok);
-    }
-
-    #[test]
-    fn layout_hints_default() {
-        let hints = LayoutHints::default();
-        assert_eq!(hints.core_count, 0);
-        assert_eq!(hints.gpu_count, 0);
-        assert_eq!(hints.disk_count, 0);
-        assert!(!hints.has_swap);
-        assert!(!hints.has_cpu_temp);
-        assert!(!hints.has_cpu_watts);
     }
 }

@@ -147,7 +147,7 @@ impl RuntimeState {
 pub(crate) struct RenderState {
     pub(crate) dirty: Dirty,
     pub(crate) cached_layout: Option<draw::layout::Layout>,
-    pub(crate) last_layout_hints: Option<runner::LayoutHints>,
+    pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
 }
 
 impl RenderState {
@@ -205,20 +205,23 @@ impl LiveData {
             && self.proc_data.is_some()
     }
 
-    fn layout_hints(&self, config: &config::Config) -> runner::LayoutHints {
-        runner::LayoutHints {
+    fn layout_hints(&self, config: &config::Config) -> draw::layout::LayoutHints {
+        draw::layout::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
             disk_count: filtered_disk_count(self.disk.as_deref(), config),
-            has_swap: self
-                .mem
-                .as_ref()
-                .is_some_and(|m| m.info.stats.swap_total > 0),
-            has_cpu_temp: self.cpu.as_ref().is_some_and(|c| !c.info.temp.is_empty()),
-            has_cpu_watts: self
-                .cpu
-                .as_ref()
-                .is_some_and(|c| c.info.cpu_watts.is_some()),
+            has_swap: config.show_swap
+                && self
+                    .mem
+                    .as_ref()
+                    .is_some_and(|m| m.info.stats.swap_total > 0),
+            has_cpu_temp: config.check_temp
+                && self.cpu.as_ref().is_some_and(|c| !c.info.temp.is_empty()),
+            has_cpu_watts: config.show_cpu_watts
+                && self
+                    .cpu
+                    .as_ref()
+                    .is_some_and(|c| c.info.cpu_watts.is_some()),
         }
     }
 }
@@ -782,14 +785,7 @@ fn calculate_layout(
     live: &LiveData,
     size: TerminalSize,
 ) -> draw::layout::Layout {
-    let cpu = live.cpu.as_ref();
-    let has_temp = config.check_temp && cpu.is_some_and(|c| !c.info.temp.is_empty());
-    let has_watts = config.show_cpu_watts && cpu.is_some_and(|c| c.info.cpu_watts.is_some());
-    let stats_rows = ui::cpu_widget::stats_row_count(has_temp, has_watts);
-    let cpu_panel_overhead = stats_rows + 2; // stats + load detail row + section divider
-
     let layout = config.layout();
-
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
@@ -797,15 +793,7 @@ fn calculate_layout(
         cpu_bottom: layout.cpu_bottom,
         mem_below_net: layout.mem_below_net,
         proc_left: layout.proc_left,
-        core_count: live.core_count,
-        gpu_count: live.gpu.as_ref().map_or(0, |g| g.gpus.len()),
-        disk_count: filtered_disk_count(live.disk.as_deref(), config),
-        has_swap: config.show_swap
-            && live
-                .mem
-                .as_ref()
-                .is_some_and(|m| m.info.stats.swap_total > 0),
-        cpu_panel_overhead,
+        hints: live.layout_hints(config),
     })
 }
 
