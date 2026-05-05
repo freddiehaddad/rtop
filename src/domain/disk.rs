@@ -6,9 +6,9 @@ use std::collections::VecDeque;
 /// array (e.g. `disks_filter = ["C:", "!D:"]`). A bare entry
 /// (`"C:"`) joins the include allow-list; an entry prefixed with
 /// `!` (`"!C:"`) joins the exclude deny-list. Drive selectors are
-/// case-insensitive and the trailing colon is optional, so `"c"`,
-/// `"C"`, `"c:"`, and `"C:"` are equivalent and all normalise to
-/// `"C:"`.
+/// case-insensitive but the trailing colon is mandatory: `"c:"`
+/// and `"C:"` both normalise to `"C:"`, while `"c"` or `"C"` are
+/// rejected as invalid.
 ///
 /// Match semantics:
 ///
@@ -20,11 +20,10 @@ use std::collections::VecDeque;
 /// - When `include` is empty but `exclude` is non-empty, every disk
 ///   except those in `exclude` passes (deny-list semantics).
 ///
-/// Invalid entries — anything that is neither a single ASCII letter nor
-/// a single ASCII letter followed by `:`, optionally with a leading
-/// `!` — are captured in `invalid` for warning surfaces. They are
-/// silently ignored at match time so a malformed user input never
-/// causes false matches.
+/// Invalid entries — anything that is not a single ASCII letter
+/// followed by `:`, optionally with a leading `!` — are captured in
+/// `invalid` for warning surfaces. They are silently ignored at
+/// match time so a malformed user input never causes false matches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DisksFilter {
     include: Vec<String>,

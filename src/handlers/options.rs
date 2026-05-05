@@ -237,18 +237,12 @@ fn apply_option_change(
     match kind {
         menu::options_menu::OptKind::Bool => {
             opt_key.toggle_bool(ctx.config);
-            ctx.runtime.rounded = ctx.config.rounded_corners;
             tracing::info!(
                 subsystem = %crate::log::Subsystem::Input,
                 action = "option_toggle",
                 option = opt_key.name(),
                 "option toggled",
             );
-            if opt_key == ConfigKey::ThemeBackground {
-                extra_ops.push(TerminalOp::Raw(
-                    ctx.theme.base_style(ctx.config.theme_background),
-                ));
-            }
         }
         menu::options_menu::OptKind::Int => {
             menu::options_menu::step_int(opt_key, ctx.config, dir);
@@ -259,37 +253,6 @@ fn apply_option_change(
                 value = opt_key.get_int(ctx.config),
                 "option stepped",
             );
-            match opt_key {
-                ConfigKey::UpdateMs => {
-                    ctx.runtime.update_ms = ctx.config.update_ms as u64;
-                    sync_all_intervals(ctx);
-                }
-                ConfigKey::CpuUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
-                    ctx.manager.set_cpu_interval(ms);
-                }
-                ConfigKey::MemUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
-                    ctx.manager.set_mem_interval(ms);
-                }
-                ConfigKey::DiskUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
-                    ctx.manager.set_disk_interval(ms);
-                }
-                ConfigKey::NetUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
-                    ctx.manager.set_net_interval(ms);
-                }
-                ConfigKey::GpuUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
-                    ctx.manager.set_gpu_interval(ms);
-                }
-                ConfigKey::ProcUpdateMs => {
-                    let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
-                    ctx.manager.set_proc_interval(ms);
-                }
-                _ => {}
-            }
         }
         menu::options_menu::OptKind::Browsable => {
             menu::options_menu::cycle_browsable(opt_key, ctx.config, dir as i32);
@@ -299,17 +262,98 @@ fn apply_option_change(
                 option = opt_key.name(),
                 "option cycled",
             );
-            if opt_key == ConfigKey::ColorTheme {
-                let name = ctx.config.color_theme.clone();
-                *ctx.theme = theme::Theme::from_name(&name);
-                let base = ctx.theme.base_style(ctx.config.theme_background);
-                extra_ops.push(TerminalOp::Raw(base));
-            } else if opt_key == ConfigKey::LogLevel {
-                crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
-            }
         }
         menu::options_menu::OptKind::StringVal => {
-            // No inline editing yet — strings shown read-only
+            // Direct typed entry is the inline-editor's job, not the
+            // arrow-step path; nothing to do here.
         }
+    }
+    apply_post_change_effects(opt_key, ctx, extra_ops);
+}
+
+/// Apply live side-effects and dirty flags after `key` has changed.
+///
+/// Called from both the arrow-step path (`apply_option_change`) and
+/// the inline-editor commit path. Centralising the logic guarantees
+/// both paths produce the same observable behaviour.
+///
+/// Live side-effects (collector intervals, theme reload, log level,
+/// runtime caches, terminal base-style writes) take effect immediately.
+///
+/// Dirty flags: the menu-close handler already sets
+/// `Dirty::LAYOUT | Dirty::ALL_WIDGETS` on every path back to
+/// `MenuState::None`, so this helper only needs to set
+/// `Dirty::PROC_LIST` when the change affects the process display
+/// list — without it the proc widget would render the old list with
+/// the new sort/filter applied to it.
+pub(crate) fn apply_post_change_effects(
+    key: ConfigKey,
+    ctx: &mut InputContext,
+    extra_ops: &mut Vec<TerminalOp>,
+) {
+    match key {
+        ConfigKey::ColorTheme => {
+            let name = ctx.config.color_theme.clone();
+            *ctx.theme = theme::Theme::from_name(&name);
+            extra_ops.push(TerminalOp::Raw(
+                ctx.theme.base_style(ctx.config.theme_background),
+            ));
+        }
+        ConfigKey::ThemeBackground => {
+            extra_ops.push(TerminalOp::Raw(
+                ctx.theme.base_style(ctx.config.theme_background),
+            ));
+        }
+        ConfigKey::RoundedCorners => {
+            ctx.runtime.rounded = ctx.config.rounded_corners;
+        }
+        ConfigKey::LogLevel => {
+            crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
+        }
+        ConfigKey::UpdateMs => {
+            ctx.runtime.update_ms = ctx.config.update_ms as u64;
+            sync_all_intervals(ctx);
+        }
+        ConfigKey::CpuUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
+            ctx.manager.set_cpu_interval(ms);
+        }
+        ConfigKey::MemUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
+            ctx.manager.set_mem_interval(ms);
+        }
+        ConfigKey::DiskUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
+            ctx.manager.set_disk_interval(ms);
+        }
+        ConfigKey::NetUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
+            ctx.manager.set_net_interval(ms);
+        }
+        ConfigKey::GpuUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
+            ctx.manager.set_gpu_interval(ms);
+        }
+        ConfigKey::ProcUpdateMs => {
+            let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
+            ctx.manager.set_proc_interval(ms);
+        }
+        _ => {}
+    }
+
+    if matches!(
+        key,
+        ConfigKey::ProcFilter
+            | ConfigKey::ProcSorting
+            | ConfigKey::ProcReversed
+            | ConfigKey::ProcTree
+            | ConfigKey::ProcAggregate
+            | ConfigKey::KeepDeadProcUsage
+            | ConfigKey::ProcMemBytes
+            | ConfigKey::ProcGradient
+            | ConfigKey::ProcColors
+            | ConfigKey::ProcPerCore
+    ) {
+        ctx.render.dirty |= Dirty::PROC_LIST;
     }
 }
