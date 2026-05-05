@@ -149,9 +149,7 @@ pub struct Config {
     pub shown_boxes: Vec<String>,
     pub graph_symbol: GraphSymbol,
     pub graph_symbol_cpu: GraphSymbol,
-    pub graph_symbol_gpu: GraphSymbol,
     pub graph_symbol_net: GraphSymbol,
-    pub graph_symbol_proc: GraphSymbol,
     pub graph_symbol_disk: GraphSymbol,
     pub proc_sorting: ProcSort,
     pub cpu_graph_upper: CpuGraphSource,
@@ -161,7 +159,6 @@ pub struct Config {
     pub clock_format: String,
     pub custom_cpu_name: String,
     pub disks_filter: String,
-    pub io_graph_speeds: String,
     pub net_iface: String,
     #[serde(
         with = "crate::log::serde_filter",
@@ -246,9 +243,7 @@ impl Default for Config {
             ],
             graph_symbol: GraphSymbol::Braille,
             graph_symbol_cpu: GraphSymbol::Default,
-            graph_symbol_gpu: GraphSymbol::Default,
             graph_symbol_net: GraphSymbol::Default,
-            graph_symbol_proc: GraphSymbol::Default,
             graph_symbol_disk: GraphSymbol::Default,
             proc_sorting: ProcSort::CpuLazy,
             cpu_graph_upper: CpuGraphSource::User,
@@ -258,7 +253,6 @@ impl Default for Config {
             clock_format: "%X".to_string(),
             custom_cpu_name: String::new(),
             disks_filter: String::new(),
-            io_graph_speeds: String::new(),
             net_iface: "auto".to_string(),
             log_level: LevelFilter::WARN,
             proc_filter: String::new(),
@@ -650,9 +644,7 @@ pub enum ConfigKey {
     ShownBoxes,
     GraphSymbol,
     GraphSymbolCpu,
-    GraphSymbolGpu,
     GraphSymbolNet,
-    GraphSymbolProc,
     GraphSymbolDisk,
     ProcSorting,
     CpuGraphUpper,
@@ -662,7 +654,6 @@ pub enum ConfigKey {
     ClockFormat,
     CustomCpuName,
     DisksFilter,
-    IoGraphSpeeds,
     LogLevel,
     ProcFilter,
     Presets,
@@ -732,9 +723,7 @@ impl ConfigKey {
             Self::ShownBoxes => "shown_boxes",
             Self::GraphSymbol => "graph_symbol",
             Self::GraphSymbolCpu => "graph_symbol_cpu",
-            Self::GraphSymbolGpu => "graph_symbol_gpu",
             Self::GraphSymbolNet => "graph_symbol_net",
-            Self::GraphSymbolProc => "graph_symbol_proc",
             Self::GraphSymbolDisk => "graph_symbol_disk",
             Self::ProcSorting => "proc_sorting",
             Self::CpuGraphUpper => "cpu_graph_upper",
@@ -744,7 +733,6 @@ impl ConfigKey {
             Self::ClockFormat => "clock_format",
             Self::CustomCpuName => "custom_cpu_name",
             Self::DisksFilter => "disks_filter",
-            Self::IoGraphSpeeds => "io_graph_speeds",
             Self::LogLevel => "log_level",
             Self::ProcFilter => "proc_filter",
             Self::Presets => "presets",
@@ -811,7 +799,6 @@ impl ConfigKey {
             | Self::ClockFormat
             | Self::CustomCpuName
             | Self::DisksFilter
-            | Self::IoGraphSpeeds
             | Self::ProcFilter
             | Self::Presets
             | Self::CustomGpuName0
@@ -825,9 +812,7 @@ impl ConfigKey {
 
             Self::GraphSymbol
             | Self::GraphSymbolCpu
-            | Self::GraphSymbolGpu
             | Self::GraphSymbolNet
-            | Self::GraphSymbolProc
             | Self::GraphSymbolDisk
             | Self::ProcSorting
             | Self::CpuGraphUpper
@@ -893,9 +878,7 @@ impl ConfigKey {
             "shown_boxes" => Some(Self::ShownBoxes),
             "graph_symbol" => Some(Self::GraphSymbol),
             "graph_symbol_cpu" => Some(Self::GraphSymbolCpu),
-            "graph_symbol_gpu" => Some(Self::GraphSymbolGpu),
             "graph_symbol_net" => Some(Self::GraphSymbolNet),
-            "graph_symbol_proc" => Some(Self::GraphSymbolProc),
             "graph_symbol_disk" => Some(Self::GraphSymbolDisk),
             "proc_sorting" => Some(Self::ProcSorting),
             "cpu_graph_upper" => Some(Self::CpuGraphUpper),
@@ -905,7 +888,6 @@ impl ConfigKey {
             "clock_format" => Some(Self::ClockFormat),
             "custom_cpu_name" => Some(Self::CustomCpuName),
             "disks_filter" => Some(Self::DisksFilter),
-            "io_graph_speeds" => Some(Self::IoGraphSpeeds),
             "log_level" => Some(Self::LogLevel),
             "proc_filter" => Some(Self::ProcFilter),
             "presets" => Some(Self::Presets),
@@ -980,9 +962,7 @@ impl ConfigKey {
             Self::ShownBoxes => config.shown_boxes.join(" "),
             Self::GraphSymbol => config.graph_symbol.to_string(),
             Self::GraphSymbolCpu => config.graph_symbol_cpu.to_string(),
-            Self::GraphSymbolGpu => config.graph_symbol_gpu.to_string(),
             Self::GraphSymbolNet => config.graph_symbol_net.to_string(),
-            Self::GraphSymbolProc => config.graph_symbol_proc.to_string(),
             Self::GraphSymbolDisk => config.graph_symbol_disk.to_string(),
             Self::ProcSorting => config.proc_sorting.to_string(),
             Self::CpuGraphUpper => config.cpu_graph_upper.to_string(),
@@ -992,7 +972,6 @@ impl ConfigKey {
             Self::ClockFormat => config.clock_format.clone(),
             Self::CustomCpuName => config.custom_cpu_name.clone(),
             Self::DisksFilter => config.disks_filter.clone(),
-            Self::IoGraphSpeeds => config.io_graph_speeds.clone(),
             Self::LogLevel => config.log_level.to_string(),
             Self::ProcFilter => config.proc_filter.clone(),
             Self::Presets => config.presets.clone(),
@@ -1103,9 +1082,7 @@ impl ConfigKey {
             Self::ColorTheme => config.color_theme = value.to_string(),
             Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolGpu => config.graph_symbol_gpu = value.parse().map_err(|_| err())?,
             Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolProc => config.graph_symbol_proc = value.parse().map_err(|_| err())?,
             Self::GraphSymbolDisk => config.graph_symbol_disk = value.parse().map_err(|_| err())?,
             Self::ProcSorting => config.proc_sorting = value.parse().map_err(|_| err())?,
             Self::CpuGraphUpper => config.cpu_graph_upper = value.parse().map_err(|_| err())?,
@@ -1115,7 +1092,6 @@ impl ConfigKey {
             Self::ClockFormat => config.clock_format = value.to_string(),
             Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
             Self::DisksFilter => config.disks_filter = value.to_string(),
-            Self::IoGraphSpeeds => config.io_graph_speeds = value.to_string(),
             Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
             Self::ProcFilter => config.proc_filter = value.to_string(),
             Self::Presets => config.presets = value.to_string(),
@@ -1142,9 +1118,7 @@ impl ConfigKey {
             Self::ColorTheme => Some(crate::theme::THEME_NAMES),
             Self::GraphSymbol
             | Self::GraphSymbolCpu
-            | Self::GraphSymbolGpu
             | Self::GraphSymbolNet
-            | Self::GraphSymbolProc
             | Self::GraphSymbolDisk => Some(GraphSymbol::NAMES),
             Self::CpuGraphUpper | Self::CpuGraphLower => Some(CpuGraphSource::NAMES),
             Self::TempScale => Some(TempScale::NAMES),

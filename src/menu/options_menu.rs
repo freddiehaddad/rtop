@@ -428,14 +428,6 @@ pub const PROC: &[OptDef] = &[
         ],
     },
     OptDef {
-        key: ConfigKey::GraphSymbolProc,
-        desc: &[
-            "Process graph symbol.",
-            "",
-            "\"default\", \"braille\", or \"block\".",
-        ],
-    },
-    OptDef {
         key: ConfigKey::ProcSorting,
         desc: &[
             "Process sort column.",
@@ -537,14 +529,6 @@ pub const PROC: &[OptDef] = &[
 
 /// Options in the "gpu" category.
 pub const GPU: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::GraphSymbolGpu,
-        desc: &[
-            "GPU graph symbol.",
-            "",
-            "\"default\", \"braille\", or \"block\".",
-        ],
-    },
     OptDef {
         key: ConfigKey::CustomGpuName0,
         desc: &[
@@ -664,16 +648,6 @@ pub const DISK: &[OptDef] = &[
             "",
             "Merge read and write into a single",
             "graph. Only applies in IO mode.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoGraphSpeeds,
-        desc: &[
-            "IO graph speed scale.",
-            "",
-            "Set the speed in MiB/s that equals",
-            "100% on IO graphs.",
-            "Default: 100 MiB/s.",
         ],
     },
     OptDef {
