@@ -223,11 +223,11 @@ impl LiveData {
             && self.proc_data.is_some()
     }
 
-    fn layout_hints(&self) -> runner::LayoutHints {
+    fn layout_hints(&self, config: &config::Config) -> runner::LayoutHints {
         runner::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
-            disk_count: self.disk.as_ref().map_or(0, |d| d.info.disks.len()),
+            disk_count: filtered_disk_count(self.disk.as_deref(), config),
             has_swap: self
                 .mem
                 .as_ref()
@@ -239,6 +239,23 @@ impl LiveData {
                 .is_some_and(|c| c.info.cpu_watts.is_some()),
         }
     }
+}
+
+/// Count the disks that pass the user's `disks_filter`.
+///
+/// Used by both layout sizing (`calculate_layout` and `LayoutHints`) and
+/// dirty-flag change detection so the disk box height tracks the
+/// post-filter row count, not the raw drive count. Returns 0 when no
+/// disk snapshot is available.
+fn filtered_disk_count(disk: Option<&runner::DiskSnapshot>, config: &config::Config) -> usize {
+    let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
+    disk.map_or(0, |d| {
+        d.info
+            .disks
+            .iter()
+            .filter(|info| filter.matches(&info.name))
+            .count()
+    })
 }
 
 pub(crate) struct OverlayState {
@@ -620,7 +637,7 @@ fn pull_subsystem_data(
     }
 
     // Check layout hints for changes.
-    let new_hints = state.live.layout_hints();
+    let new_hints = state.live.layout_hints(config);
     if state
         .render
         .last_layout_hints
@@ -790,7 +807,7 @@ fn calculate_layout(
         proc_left: config.proc_left,
         core_count: live.core_count,
         gpu_count: live.gpu.as_ref().map_or(0, |g| g.gpus.len()),
-        disk_count: live.disk.as_ref().map_or(0, |d| d.info.disks.len()),
+        disk_count: filtered_disk_count(live.disk.as_deref(), config),
         has_swap: config.show_swap
             && live
                 .mem
@@ -1150,8 +1167,10 @@ pub(crate) fn render_all(
             disk_io_mode: config.disk_io_mode,
             io_graph_combined: config.io_graph_combined,
         };
+        let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
+        let visible = filter.apply(&disk.info.disks);
         output.push_str(&ui::disk_box::draw(
-            &disk.info,
+            &visible,
             &area,
             theme,
             &disk_settings,

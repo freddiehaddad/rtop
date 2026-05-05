@@ -437,6 +437,24 @@ impl Config {
             self.shown_boxes.retain(|b| is_valid_box_name(b));
         }
 
+        // Validate disks_filter: surface invalid drive entries as
+        // warnings and strip them from the stored raw string so the
+        // saved config matches what the runtime actually uses.
+        let filter = crate::domain::disk::DisksFilter::parse(&self.disks_filter);
+        if !filter.invalid().is_empty() {
+            warnings.push(format!(
+                "Invalid drive entry/entries in 'disks_filter': {}",
+                filter.invalid().join(", ")
+            ));
+            let invalid_tokens = filter.invalid();
+            self.disks_filter = self
+                .disks_filter
+                .split_whitespace()
+                .filter(|tok| !invalid_tokens.iter().any(|inv| inv == *tok))
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
+
         warnings
     }
 
@@ -1320,6 +1338,42 @@ mod tests {
         assert_eq!(config.update_ms, 100);
         assert_eq!(config.net_download, 0);
         assert!(warnings.len() >= 2);
+    }
+
+    #[test]
+    fn validate_keeps_valid_disks_filter_unchanged() {
+        let mut config = Config::new();
+        config.disks_filter = "C: !D:".to_string();
+        let warnings = config.validate();
+        assert!(
+            !warnings.iter().any(|w| w.contains("disks_filter")),
+            "valid disks_filter should not warn, got: {warnings:?}"
+        );
+        assert_eq!(config.disks_filter, "C: !D:");
+    }
+
+    #[test]
+    fn validate_warns_and_strips_invalid_disks_filter_entries() {
+        let mut config = Config::new();
+        config.disks_filter = "C: abc D: 3 !!".to_string();
+        let warnings = config.validate();
+        let disks_warning = warnings
+            .iter()
+            .find(|w| w.contains("disks_filter"))
+            .expect("validate must surface a disks_filter warning");
+        assert!(disks_warning.contains("abc"));
+        assert!(disks_warning.contains('3'));
+        assert!(disks_warning.contains("!!"));
+        assert_eq!(config.disks_filter, "C: D:");
+    }
+
+    #[test]
+    fn validate_empty_disks_filter_does_not_warn() {
+        let mut config = Config::new();
+        config.disks_filter = String::new();
+        let warnings = config.validate();
+        assert!(!warnings.iter().any(|w| w.contains("disks_filter")));
+        assert_eq!(config.disks_filter, "");
     }
 
     #[test]

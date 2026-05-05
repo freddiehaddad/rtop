@@ -1,5 +1,5 @@
 use crate::collect::CollectStatus;
-use crate::domain::disk::DiskData;
+use crate::domain::disk::DiskInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::graph::{Graph, GraphMode};
@@ -37,6 +37,11 @@ pub struct DiskBoxSettings {
 
 /// Draw the disk box into an ANSI string.
 ///
+/// `disks` is the post-filter slice of disks the caller wants rendered,
+/// in display order. Filtering (via `DisksFilter`) and the resulting
+/// height sizing happen at the call site so the renderer stays a pure
+/// function of (data, settings, theme).
+///
 /// Layout:
 /// ╭─ disks ────────────────────╮
 /// │ C: NTFS ■■■■■■■░░ 233G/465G│
@@ -45,7 +50,7 @@ pub struct DiskBoxSettings {
 /// │ R 0B/s  ⣀⣀⣀ W 0B/s  ⣀ B 0% │
 /// ╰────────────────────────────╯
 pub fn draw(
-    disks: &DiskData,
+    disks: &[&DiskInfo],
     area: &BoxArea,
     theme: &Theme,
     settings: &DiskBoxSettings,
@@ -92,7 +97,7 @@ pub fn draw(
 
     let io_view = settings.io_mode || settings.disk_io_mode;
 
-    for disk in &disks.disks {
+    for disk in disks {
         if row >= inner_h {
             break;
         }
@@ -411,7 +416,7 @@ fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, cu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::disk::DiskInfo;
+    use crate::domain::disk::{DiskData, DiskInfo};
     use crate::draw::graph::GraphMode;
 
     fn strip_ansi(s: &str) -> String {
@@ -491,10 +496,19 @@ mod tests {
         }
     }
 
+    /// Borrow every disk in the test fixture into the `&[&DiskInfo]`
+    /// shape that `draw` consumes after filtering. Production callers
+    /// build the same shape via `DisksFilter::apply`; tests want the
+    /// unfiltered set.
+    fn all_disks(data: &DiskData) -> Vec<&DiskInfo> {
+        data.disks.iter().collect()
+    }
+
     #[test]
     fn draw_contains_disks_title() {
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &Theme::default(),
             &settings(),
@@ -509,8 +523,9 @@ mod tests {
 
     #[test]
     fn draw_contains_drive_letters() {
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &Theme::default(),
             &settings(),
@@ -523,8 +538,9 @@ mod tests {
 
     #[test]
     fn draw_contains_filesystem_type() {
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &Theme::default(),
             &settings(),
@@ -539,8 +555,9 @@ mod tests {
 
     #[test]
     fn draw_contains_disk_perf_labels() {
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &Theme::default(),
             &settings(),
@@ -568,8 +585,9 @@ mod tests {
             height: 12,
             rounded: true,
         };
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &area,
             &theme,
             &settings(),
@@ -596,8 +614,9 @@ mod tests {
         // pct of the row's graph max (visible_graph_max), not lifetime
         // peaks. Busy was already gradient. Pre-fix only busy was coloured.
         let theme = Theme::default();
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &theme,
             &settings(),
@@ -651,7 +670,8 @@ mod tests {
             disk_io_mode: false,
             io_graph_combined: true,
         };
-        let output = draw(&make_disk_data(), &area, &theme, &s, &CollectStatus::Ok);
+        let data = make_disk_data();
+        let output = draw(&all_disks(&data), &area, &theme, &s, &CollectStatus::Ok);
         let read_grad = theme.gradient(tc::GRAD_DISK_READ);
         // C: r = 42 MB/s, w = 8 MB/s → combined 50 MB/s, max from current
         // ≥ history window → pct = 100. Combined value text: "R42M/s W8.0M/s".
@@ -669,8 +689,9 @@ mod tests {
         // Body label rule: drive labels (C: NTFS) and perf row labels (R, W,
         // B) render in MAIN_FG. Pre-shift these were TITLE.
         let theme = Theme::default();
+        let data = make_disk_data();
         let output = draw(
-            &make_disk_data(),
+            &all_disks(&data),
             &make_area(),
             &theme,
             &settings(),
@@ -694,5 +715,57 @@ mod tests {
             output.contains(&format!("{fg}B")),
             "perf row 'B' label should be preceded by MAIN_FG"
         );
+    }
+
+    #[test]
+    fn draw_with_disks_filter_renders_only_matching_drives() {
+        // End-to-end: the same code path the app uses — parse the user's
+        // disks_filter, apply it to the live disk list, hand the borrowed
+        // result to draw. The renderer must show only the matching drives
+        // and no ghost rows for filtered-out drives.
+        use crate::domain::disk::DisksFilter;
+
+        let data = make_disk_data();
+        let filter = DisksFilter::parse("C:");
+        let visible = filter.apply(&data.disks);
+        assert_eq!(visible.len(), 1);
+
+        let output = draw(
+            &visible,
+            &make_area(),
+            &Theme::default(),
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(plain.contains("C:"), "C: row should be rendered");
+        assert!(
+            !plain.contains("D: NTFS"),
+            "D: row must not be rendered when filter excludes it"
+        );
+    }
+
+    #[test]
+    fn draw_with_exclude_filter_hides_listed_drives() {
+        use crate::domain::disk::DisksFilter;
+
+        let data = make_disk_data();
+        let filter = DisksFilter::parse("!C:");
+        let visible = filter.apply(&data.disks);
+        assert_eq!(visible.len(), 1);
+
+        let output = draw(
+            &visible,
+            &make_area(),
+            &Theme::default(),
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            !plain.contains("C: NTFS"),
+            "C: row must not be rendered when excluded"
+        );
+        assert!(plain.contains("D:"), "D: row should be rendered");
     }
 }

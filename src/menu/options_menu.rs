@@ -666,6 +666,7 @@ pub const DISK: &[OptDef] = &[
             "",
             "Filter which disks are shown.",
             "Use drive letters (e.g. \"C:\").",
+            "Prefix with ! to exclude.",
             "Separate with whitespace.",
         ],
     },
