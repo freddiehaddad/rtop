@@ -20,6 +20,15 @@ const IO_VAL_W: usize = 8;
 /// Right-aligned value column for IO combined rows
 /// (1 space + max "R1023B/s W1023B/s" = 18 chars).
 const IO_COMBINED_VAL_W: usize = 19;
+/// Right-aligned width for a shortened per-second speed value in
+/// the combined perf-row mode. `floating_humanizer(_, shorten=true,
+/// _, _, true, _)` returns at most 6 characters (e.g. `0.0B/s`,
+/// `999K/s`); the `+1` guarantees at least one leading space
+/// between the `R`/`W` letter and the value, mirroring the `B`
+/// column's `max_pct_width + 1` rjust target. Without this fixed
+/// width the graphs visually shift when the speed value's
+/// character count changes.
+const IO_PERF_SPEED_W: usize = 7;
 /// Minimum graph/meter width.
 const MIN_METER_W: usize = 5;
 /// Minimum graph width in IO mode.
@@ -304,15 +313,17 @@ fn draw_perf_row(
         tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, base_10);
     let write_speed =
         tools::floating_humanizer(disk.write_bytes_per_sec, true, 0, false, true, base_10);
-    let read_label = format!("R {read_speed}");
-    let write_label = format!("W {write_speed}");
     let busy = disk.busy_percent.clamp(0, 100);
     let busy_w: usize = 6; // "B" + 5-char right-justified value
     let busy_x = x + width.saturating_sub(busy_w);
     let left_w = width.saturating_sub(busy_w);
 
-    let read_w = tools::ulen(&read_label, false);
-    let write_w = tools::ulen(&write_label, false);
+    // Constant column widths so the graph never shifts when the
+    // speed-string width changes. Mirrors the `B` column pattern:
+    // letter + rjust(value, max_value_width + 1) — the +1 inside
+    // IO_PERF_SPEED_W guarantees at least one leading space.
+    let read_w = 1 + IO_PERF_SPEED_W;
+    let write_w = 1 + IO_PERF_SPEED_W;
     let fixed_left = read_w + write_w + 4; // labels plus spaces around the two graphs
     let graph_total = left_w.saturating_sub(fixed_left);
     let read_graph_w = graph_total / 2;
@@ -329,7 +340,7 @@ fn draw_perf_row(
         .color(fg)
         .text("R")
         .color(read_color)
-        .text(&format!(" {read_speed}"));
+        .text(&tools::rjust(&read_speed, IO_PERF_SPEED_W, false));
     col += read_w;
 
     if read_graph_w > 0 {
@@ -377,7 +388,7 @@ fn draw_perf_row(
     buf.color(fg)
         .text("W")
         .color(write_color)
-        .text(&format!(" {write_speed}"));
+        .text(&tools::rjust(&write_speed, IO_PERF_SPEED_W, false));
 
     if available_write_graph_w > 0 {
         buf.text(" ");
@@ -627,14 +638,17 @@ mod tests {
         let busy_grad = theme.gradient(tc::GRAD_DISK_BUSY);
 
         // read_history is tiny ints; current = 42 MB/s dwarfs them; so
-        // visible_graph_max = current → pct = 100. Expected: " 42M/s".
-        let expected_r = format!("{}{}", read_grad[100], " 42M/s");
+        // visible_graph_max = current → pct = 100. Expected: "  42M/s"
+        // ("42M/s" is 5 chars, rjusted to IO_PERF_SPEED_W = 7 yields
+        // 2 leading spaces).
+        let expected_r = format!("{}{}", read_grad[100], "  42M/s");
         assert!(
             output.contains(&expected_r),
-            "perf-row R speed should be GRAD_DISK_READ[100] adjacent to ' 42M/s'"
+            "perf-row R speed should be GRAD_DISK_READ[100] adjacent to '  42M/s'"
         );
 
         // Same logic for W — current 8 MB/s dominates the history window.
+        // "8.0M/s" is 6 chars, rjusted to 7 yields 1 leading space.
         let expected_w = format!("{}{}", write_grad[100], " 8.0M/s");
         assert!(
             output.contains(&expected_w),
@@ -646,6 +660,109 @@ mod tests {
         assert!(
             output.contains(&expected_b),
             "busy value should be GRAD_DISK_BUSY[12] adjacent to '  12%'"
+        );
+    }
+
+    #[test]
+    fn perf_row_graph_position_constant_across_speed_widths() {
+        // Regression: pre-fix, the R/W graphs would shift by one column
+        // when the speed-string width changed (e.g. "30K/s" 5 chars vs
+        // "0.0B/s" 6 chars). After the rjust-to-IO_PERF_SPEED_W fix the
+        // R, W, and B letters land at the same column on every row.
+        let theme = Theme::default();
+        let data = DiskData {
+            disks: vec![
+                // Row 1: speeds that would render as 5-char raw strings
+                // ("30K/s", "8.0M/s") — wait, "8.0M/s" is 6 chars. Let
+                // us pick widths deliberately:
+                //   read = 30 KiB/s -> "30K/s" (5 chars)
+                //   write = 0       -> "0.0B/s" (6 chars)
+                DiskInfo {
+                    name: "X:".into(),
+                    fstype: "NTFS".into(),
+                    total: 100 * GIB,
+                    used: 50 * GIB,
+                    used_percent: 50,
+                    read_bytes_per_sec: 30 * 1024,
+                    write_bytes_per_sec: 0,
+                    read_top: 100 * 1024,
+                    write_top: 1,
+                    busy_percent: 0,
+                    read_history: [0, 30, 0, 30, 0].into_iter().collect(),
+                    write_history: [0; 5].into_iter().collect(),
+                },
+                // Row 2: both speeds are 6-char raw strings.
+                DiskInfo {
+                    name: "Y:".into(),
+                    fstype: "NTFS".into(),
+                    total: 100 * GIB,
+                    used: 25 * GIB,
+                    used_percent: 25,
+                    read_bytes_per_sec: 0,
+                    write_bytes_per_sec: 0,
+                    read_top: 1,
+                    write_top: 1,
+                    busy_percent: 0,
+                    read_history: [0; 5].into_iter().collect(),
+                    write_history: [0; 5].into_iter().collect(),
+                },
+            ],
+        };
+        let output = draw(
+            &all_disks(&data),
+            &make_area(),
+            &theme,
+            &settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+
+        // strip_ansi drops the term::mv positioning codes so the
+        // rendered chunks concatenate; we cannot rely on `lines()`.
+        // Instead, find all R/W/B labels in the flat output and
+        // assert the R→W and W→B distances are identical across the
+        // two perf rows. Those distances depend only on the layout
+        // constants (`fixed_left`, `read_graph_w`, `write_graph_w`),
+        // not on the speed values — so the regression of "W graph
+        // shifts when speed width changes" would manifest as
+        // mismatched distances. The "R "/"W "/"B " patterns are
+        // unique to the perf-row labels for the test fixture's drive
+        // names ("X:", "Y:") which contain no R/W/B characters.
+        let r_positions: Vec<usize> = plain.match_indices("R ").map(|(i, _)| i).collect();
+        let w_positions: Vec<usize> = plain.match_indices("W ").map(|(i, _)| i).collect();
+        let b_positions: Vec<usize> = plain.match_indices("B ").map(|(i, _)| i).collect();
+        assert_eq!(
+            r_positions.len(),
+            2,
+            "expected 2 'R ' labels (one per disk), got {}: {:?}",
+            r_positions.len(),
+            r_positions
+        );
+        assert_eq!(
+            w_positions.len(),
+            2,
+            "expected 2 'W ' labels, got {}: {:?}",
+            w_positions.len(),
+            w_positions
+        );
+        assert_eq!(
+            b_positions.len(),
+            2,
+            "expected 2 'B ' labels, got {}: {:?}",
+            b_positions.len(),
+            b_positions
+        );
+        assert_eq!(
+            w_positions[0] - r_positions[0],
+            w_positions[1] - r_positions[1],
+            "W column must be at the same offset from R on every row \
+             (regression: pre-fix this shifted by one when the speed \
+             string changed width)"
+        );
+        assert_eq!(
+            b_positions[0] - w_positions[0],
+            b_positions[1] - w_positions[1],
+            "B column must be at the same offset from W on every row"
         );
     }
 
