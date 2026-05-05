@@ -28,6 +28,25 @@ pub enum Key {
     CtrlU,
 }
 
+impl Key {
+    /// Return `Some(c)` if this key represents a typed character.
+    ///
+    /// Bridges the gap between [`Key::Char`] and the standalone
+    /// [`Key::Space`] variant for text-input handlers. The input
+    /// layer normalises `KeyCode::Char(' ')` to [`Key::Space`] so
+    /// other handlers can treat space as a command (e.g. "step
+    /// right" in the options menu); without this helper, a
+    /// text-input handler that only matched `Key::Char(_)` would
+    /// silently drop spaces from its buffer.
+    pub fn typed_char(self) -> Option<char> {
+        match self {
+            Key::Char(c) => Some(c),
+            Key::Space => Some(' '),
+            _ => None,
+        }
+    }
+}
+
 /// Translate a crossterm KeyEvent to a typed Key.
 pub(crate) fn translate_key(key: KeyEvent) -> Option<Key> {
     if key.kind != KeyEventKind::Press {
@@ -157,5 +176,51 @@ mod tests {
             translate_key(make_key(KeyCode::Backspace, KeyModifiers::NONE)),
             Some(Key::Backspace)
         );
+    }
+
+    #[test]
+    fn typed_char_returns_char_for_char_variant() {
+        assert_eq!(Key::Char('a').typed_char(), Some('a'));
+        assert_eq!(Key::Char('1').typed_char(), Some('1'));
+        assert_eq!(Key::Char('!').typed_char(), Some('!'));
+        assert_eq!(Key::Char('🦀').typed_char(), Some('🦀'));
+    }
+
+    #[test]
+    fn typed_char_returns_space_for_space_variant() {
+        // Regression: KeyCode::Char(' ') normalises to Key::Space
+        // in translate_key. Text-input handlers that only matched
+        // Key::Char would silently drop spaces; typed_char closes
+        // that gap.
+        assert_eq!(Key::Space.typed_char(), Some(' '));
+    }
+
+    #[test]
+    fn typed_char_returns_none_for_command_keys() {
+        for key in [
+            Key::Escape,
+            Key::Enter,
+            Key::Backspace,
+            Key::Tab,
+            Key::ShiftTab,
+            Key::Up,
+            Key::Down,
+            Key::Left,
+            Key::Right,
+            Key::Home,
+            Key::End,
+            Key::PageUp,
+            Key::PageDown,
+            Key::Insert,
+            Key::Delete,
+            Key::F(1),
+            Key::CtrlR,
+            Key::CtrlD,
+            Key::CtrlF,
+            Key::CtrlB,
+            Key::CtrlU,
+        ] {
+            assert_eq!(key.typed_char(), None, "{:?} must not be a typed char", key);
+        }
     }
 }

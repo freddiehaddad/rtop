@@ -159,15 +159,17 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         Key::Right => mutate(ctx, OptionEditState::move_right),
         Key::Home => mutate(ctx, OptionEditState::move_home),
         Key::End => mutate(ctx, OptionEditState::move_end),
-        // Space is its own enum variant (not Key::Char(' ')); it
-        // must be routed through the same insert path so widget
-        // lists and disk filters can be typed.
-        Key::Space => insert(ctx, ' '),
-        Key::Char(c) => insert(ctx, c),
+        // Any key that maps to a typed character (regular Char or
+        // the standalone Space variant) is inserted into the
+        // buffer. See `Key::typed_char` for the bridge that
+        // prevents Space from silently being dropped.
         // Tab, PageUp, PageDown, function keys etc. are intentionally
         // ignored: silently switching categories on Tab could surprise
         // a user who has an invalid buffer but has not yet noticed.
-        _ => HandleResult::none(),
+        other => match other.typed_char() {
+            Some(c) => insert(ctx, c),
+            None => HandleResult::none(),
+        },
     }
 }
 
