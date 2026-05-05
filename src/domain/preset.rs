@@ -3,28 +3,27 @@
 //!
 //! Presets are read-only and ship with rtop. There is no runtime
 //! "save preset" or "delete preset" — users who need a different
-//! layout edit `shown_boxes` and the position bools in `rtop.toml`
-//! directly. The only preset state persisted across runs is
-//! `Config::current_preset` (the index into `BUILTIN_PRESETS`),
-//! which is bumped each time the user cycles.
+//! layout edit the `custom_*` fields in `rtop.toml` directly or
+//! cycle to the custom preset (index `BUILTIN_PRESETS.len()`).
+//! The only preset state persisted across runs is
+//! `Config::current_preset` (the index into `BUILTIN_PRESETS` plus
+//! the trailing custom slot).
+
+use crate::domain::box_kind::BoxKind;
 
 /// Layout configuration for a single named preset.
 ///
 /// Each preset is a complete description of which boxes are shown
 /// and how the orientation-sensitive boxes are positioned. Cycling
-/// to a preset overwrites `Config::shown_boxes`, `cpu_bottom`,
-/// `mem_below_net`, and `proc_left`. Other Config fields are
-/// untouched.
+/// to a preset overwrites the live layout view returned by
+/// `Config::shown_boxes()` / `cpu_bottom()` / `mem_below_net()` /
+/// `proc_left()`. Other Config fields are untouched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preset {
-    /// Short human-readable label, shown in the CPU box's preset
-    /// indicator inset (e.g. `preset *cpu+proc`).
+    /// Short human-readable label.
     pub name: &'static str,
-    /// Box names in display order. Each entry must satisfy
-    /// `crate::config::is_valid_box_name` (asserted at startup
-    /// via the `builtin_presets_only_reference_valid_boxes`
-    /// test).
-    pub boxes: &'static [&'static str],
+    /// Box kinds in display order.
+    pub boxes: &'static [BoxKind],
     /// `true` to render the CPU box at the bottom of the screen
     /// instead of the top.
     pub cpu_bottom: bool,
@@ -39,32 +38,40 @@ pub struct Preset {
 /// All presets that ship with rtop, in cycle order.
 ///
 /// Index 0 is the launch default when `Config::current_preset` is
-/// unset, out of range, or invalid.
+/// unset, out of range, or invalid. Index `BUILTIN_PRESETS.len()`
+/// represents the user's mutable "custom" preset, whose layout is
+/// stored in `Config::custom_*` fields rather than here.
 pub const BUILTIN_PRESETS: &[Preset] = &[
     Preset {
+        name: "all",
+        boxes: &[
+            BoxKind::Cpu,
+            BoxKind::Mem,
+            BoxKind::Net,
+            BoxKind::Proc,
+            BoxKind::Disk,
+        ],
+        cpu_bottom: false,
+        mem_below_net: false,
+        proc_left: false,
+    },
+    Preset {
         name: "cpu+proc",
-        boxes: &["cpu", "proc"],
+        boxes: &[BoxKind::Cpu, BoxKind::Proc],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
     },
     Preset {
         name: "cpu+mem+disk",
-        boxes: &["cpu", "mem", "disk"],
+        boxes: &[BoxKind::Cpu, BoxKind::Mem, BoxKind::Disk],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
     },
     Preset {
         name: "cpu+net+proc",
-        boxes: &["cpu", "net", "proc"],
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-    },
-    Preset {
-        name: "all",
-        boxes: &["cpu", "mem", "net", "proc", "disk"],
+        boxes: &[BoxKind::Cpu, BoxKind::Net, BoxKind::Proc],
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
@@ -101,16 +108,21 @@ mod tests {
     }
 
     #[test]
-    fn builtin_presets_only_reference_valid_boxes() {
-        for preset in BUILTIN_PRESETS {
-            for box_name in preset.boxes {
-                assert!(
-                    crate::config::is_valid_box_name(box_name),
-                    "preset '{}' references invalid box name '{}'",
-                    preset.name,
-                    box_name,
-                );
-            }
-        }
+    fn builtin_preset_zero_is_all_widgets() {
+        let p = &BUILTIN_PRESETS[0];
+        assert_eq!(p.name, "all");
+        assert_eq!(
+            p.boxes,
+            &[
+                BoxKind::Cpu,
+                BoxKind::Mem,
+                BoxKind::Net,
+                BoxKind::Proc,
+                BoxKind::Disk,
+            ]
+        );
+        assert!(!p.cpu_bottom);
+        assert!(!p.mem_below_net);
+        assert!(!p.proc_left);
     }
 }

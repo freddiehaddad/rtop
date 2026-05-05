@@ -53,7 +53,7 @@ pub const MIN_TERM_HEIGHT: usize = MIN_CPU_HEIGHT + MIN_NET_HEIGHT + MIN_DISK_HE
 pub struct LayoutConfig<'a> {
     pub term_width: usize,
     pub term_height: usize,
-    pub shown_boxes: &'a [String],
+    pub shown_boxes: &'a [crate::domain::box_kind::BoxKind],
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
@@ -69,6 +69,8 @@ pub struct LayoutConfig<'a> {
 
 /// Calculate box sizes and positions based on terminal dimensions and config.
 pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
+    use crate::domain::box_kind::BoxKind;
+
     let term_width = cfg.term_width;
     let term_height = cfg.term_height;
     let shown_boxes = cfg.shown_boxes;
@@ -77,15 +79,16 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let proc_left = cfg.proc_left;
     let core_count = cfg.core_count;
     let gpu_count = cfg.gpu_count;
-    let has_cpu = shown_boxes.iter().any(|b| b == "cpu");
-    let has_mem = shown_boxes.iter().any(|b| b == "mem");
-    let has_net = shown_boxes.iter().any(|b| b == "net");
-    let has_proc = shown_boxes.iter().any(|b| b == "proc");
-    let has_disk = shown_boxes.iter().any(|b| b == "disk");
+    let has_cpu = shown_boxes.contains(&BoxKind::Cpu);
+    let has_mem = shown_boxes.contains(&BoxKind::Mem);
+    let has_net = shown_boxes.contains(&BoxKind::Net);
+    let has_proc = shown_boxes.contains(&BoxKind::Proc);
+    let has_disk = shown_boxes.contains(&BoxKind::Disk);
 
     // Count how many gpu boxes are shown
     let gpu_count_shown = (0..gpu_count)
-        .filter(|i| shown_boxes.iter().any(|b| b == &format!("gpu{i}")))
+        .filter_map(BoxKind::gpu)
+        .filter(|kind| shown_boxes.contains(kind))
         .count();
 
     let mut layout = Layout::default();
@@ -256,12 +259,13 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::box_kind::BoxKind;
 
-    fn boxes(names: &[&str]) -> Vec<String> {
-        names.iter().map(|s| s.to_string()).collect()
+    fn boxes(kinds: &[BoxKind]) -> Vec<BoxKind> {
+        kinds.to_vec()
     }
 
-    fn lc(tw: usize, th: usize, shown: &[String]) -> LayoutConfig<'_> {
+    fn lc(tw: usize, th: usize, shown: &[BoxKind]) -> LayoutConfig<'_> {
         LayoutConfig {
             term_width: tw,
             term_height: th,
@@ -279,7 +283,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_all_boxes_shown() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 8,
             ..lc(120, 40, &b)
@@ -292,7 +296,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_cpu_only() {
-        let b = boxes(&["cpu"]);
+        let b = boxes(&[BoxKind::Cpu]);
         let layout = calc_sizes(&lc(80, 24, &b));
         assert!(layout.cpu.is_some());
         assert!(layout.mem.is_none());
@@ -302,7 +306,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_proc_only() {
-        let b = boxes(&["proc"]);
+        let b = boxes(&[BoxKind::Proc]);
         let layout = calc_sizes(&lc(80, 24, &b));
         assert!(layout.proc_box.is_some());
         assert!(layout.cpu.is_none());
@@ -310,7 +314,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_cpu_bottom() {
-        let b = boxes(&["cpu", "mem"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem]);
         let layout_top = calc_sizes(&lc(80, 40, &b));
         let layout_bot = calc_sizes(&LayoutConfig {
             cpu_bottom: true,
@@ -321,7 +325,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_proc_left() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
         let layout = calc_sizes(&LayoutConfig {
             proc_left: true,
             ..lc(120, 40, &b)
@@ -333,7 +337,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_mem_below_net() {
-        let b = boxes(&["cpu", "mem", "net"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net]);
         let layout_above = calc_sizes(&lc(80, 40, &b));
         let layout_below = calc_sizes(&LayoutConfig {
             mem_below_net: true,
@@ -345,7 +349,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_minimum_terminal_size() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 2,
             ..lc(10, 5, &b)
@@ -356,7 +360,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_respects_minimum_dimensions() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 16,
             ..lc(200, 60, &b)
@@ -372,7 +376,13 @@ mod tests {
 
     #[test]
     fn calc_sizes_disk_box_when_shown() {
-        let b = boxes(&["cpu", "mem", "net", "proc", "disk"]);
+        let b = boxes(&[
+            BoxKind::Cpu,
+            BoxKind::Mem,
+            BoxKind::Net,
+            BoxKind::Proc,
+            BoxKind::Disk,
+        ]);
         let layout = calc_sizes(&LayoutConfig {
             core_count: 8,
             ..lc(120, 50, &b)
@@ -388,7 +398,7 @@ mod tests {
 
     #[test]
     fn calc_sizes_no_disk_box_when_hidden() {
-        let b = boxes(&["cpu", "mem", "net", "proc"]);
+        let b = boxes(&[BoxKind::Cpu, BoxKind::Mem, BoxKind::Net, BoxKind::Proc]);
         let layout = calc_sizes(&lc(120, 50, &b));
         assert!(layout.disk.is_none(), "disk box should be absent");
     }

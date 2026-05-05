@@ -97,22 +97,17 @@ fn handle_quit_and_menus(key: &Key, ctx: &mut InputContext) -> Option<HandleResu
 // --- Presets ---
 
 fn handle_presets(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
-    use crate::domain::preset::BUILTIN_PRESETS;
-
-    let count = BUILTIN_PRESETS.len() as i64;
-    let next = match *key {
-        Key::Char('p') => (ctx.config.current_preset + 1).rem_euclid(count),
-        Key::Char('P') => (ctx.config.current_preset - 1).rem_euclid(count),
+    let delta = match *key {
+        Key::Char('p') => 1,
+        Key::Char('P') => -1,
         _ => return None,
     };
-    ctx.config.current_preset = next;
-    ctx.config.apply_preset(&BUILTIN_PRESETS[next as usize]);
+    ctx.config.cycle_preset(delta);
     sync_update_ms(ctx);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "preset_cycle",
-        preset = next,
-        name = BUILTIN_PRESETS[next as usize].name,
+        preset = ctx.config.current_preset,
         "preset action",
     );
     ctx.render.dirty |= Dirty::FULL;
@@ -347,52 +342,53 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
 // --- Box visibility toggles ---
 
 fn handle_box_toggles(key: &Key, ctx: &mut InputContext) {
-    let box_name: String = match *key {
+    use crate::domain::box_kind::BoxKind;
+
+    let kind: BoxKind = match *key {
         Key::Char(c @ '1'..='9') => {
             let digit = (c as u8) - b'0';
             match digit {
-                crate::ui::CPU_KEY => {
-                    ctx.config.toggle_box("cpu");
-                    "cpu".into()
-                }
-                crate::ui::MEM_KEY => {
-                    ctx.config.toggle_box("mem");
-                    "mem".into()
-                }
-                crate::ui::NET_KEY => {
-                    ctx.config.toggle_box("net");
-                    "net".into()
-                }
-                crate::ui::PROC_KEY => {
-                    ctx.config.toggle_box("proc");
-                    "proc".into()
-                }
-                crate::ui::DISK_KEY => {
-                    ctx.config.toggle_box("disk");
-                    "disk".into()
-                }
+                crate::ui::CPU_KEY => BoxKind::Cpu,
+                crate::ui::MEM_KEY => BoxKind::Mem,
+                crate::ui::NET_KEY => BoxKind::Net,
+                crate::ui::PROC_KEY => BoxKind::Proc,
+                crate::ui::DISK_KEY => BoxKind::Disk,
                 d if d >= crate::ui::GPU_KEY_BASE => {
                     let gpu_idx = (d - crate::ui::GPU_KEY_BASE) as usize;
-                    let name = format!("gpu{gpu_idx}");
-                    ctx.config.toggle_box(&name);
-                    name
+                    let Some(gpu_kind) = BoxKind::gpu(gpu_idx) else {
+                        return;
+                    };
+                    gpu_kind
                 }
                 _ => return,
             }
         }
         Key::Char('0') => {
+            // The `0` key toggles the second half of GPU slots
+            // (indices 4..MAX_GPUS) as a single batch action so users
+            // with many GPUs can collapse them quickly.
             for i in 4..crate::config::MAX_GPUS {
-                ctx.config.toggle_box(&format!("gpu{i}"));
+                if let Some(gpu_kind) = BoxKind::gpu(i) {
+                    ctx.config.toggle_box(gpu_kind);
+                }
             }
-            "gpu_extras".into()
+            tracing::info!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "box_toggle",
+                r#box = "gpu_extras",
+                "box visibility toggled",
+            );
+            ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
+            return;
         }
         _ => return,
     };
-    let shown = ctx.config.shown_boxes.iter().any(|b| b == &box_name);
+    ctx.config.toggle_box(kind);
+    let shown = ctx.config.shown_boxes().contains(&kind);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "box_toggle",
-        r#box = %box_name,
+        r#box = %kind,
         shown,
         "box visibility toggled",
     );

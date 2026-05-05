@@ -1,3 +1,4 @@
+pub mod box_kind;
 pub mod config_enums;
 pub mod cpu;
 pub mod disk;

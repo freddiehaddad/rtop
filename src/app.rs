@@ -131,7 +131,6 @@ struct AppState {
     overlay: OverlayState,
     process: ProcessViewState,
     network: NetworkViewState,
-    startup: StartupState,
 }
 
 impl AppState {
@@ -143,7 +142,6 @@ impl AppState {
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
-            startup: StartupState::new(),
         }
     }
 }
@@ -496,18 +494,6 @@ impl NetworkViewState {
     }
 }
 
-struct StartupState {
-    boxes_initialized: bool,
-}
-
-impl StartupState {
-    fn new() -> Self {
-        Self {
-            boxes_initialized: false,
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct TerminalSize {
     width: usize,
@@ -647,39 +633,7 @@ fn pull_subsystem_data(
     }
     state.render.last_layout_hints = Some(new_hints);
 
-    apply_startup_snapshot_config(state, config);
     reconcile_selected_iface(state, config);
-}
-
-fn apply_startup_snapshot_config(state: &mut AppState, config: &mut config::Config) {
-    if state.startup.boxes_initialized {
-        return;
-    }
-    let gpu_count = state.live.gpu.as_ref().map_or(0, |g| g.gpus.len());
-    if gpu_count == 0 {
-        return;
-    }
-
-    if auto_add_gpu_boxes(config, gpu_count) {
-        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_BOXES;
-    }
-    state.startup.boxes_initialized = true;
-}
-
-fn auto_add_gpu_boxes(config: &mut config::Config, gpu_count: usize) -> bool {
-    if gpu_count == 0 {
-        return false;
-    }
-
-    let mut changed = false;
-    for i in 0..gpu_count {
-        let name = format!("gpu{i}");
-        if !config.shown_boxes.iter().any(|b| b == &name) {
-            config.shown_boxes.push(name);
-            changed = true;
-        }
-    }
-    changed
 }
 
 fn reconcile_selected_iface(state: &mut AppState, config: &config::Config) {
@@ -800,10 +754,10 @@ fn calculate_layout(
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        shown_boxes: &config.shown_boxes,
-        cpu_bottom: config.cpu_bottom,
-        mem_below_net: config.mem_below_net,
-        proc_left: config.proc_left,
+        shown_boxes: config.shown_boxes(),
+        cpu_bottom: config.cpu_bottom(),
+        mem_below_net: config.mem_below_net(),
+        proc_left: config.proc_left(),
         core_count: live.core_count,
         gpu_count: live.gpu.as_ref().map_or(0, |g| g.gpus.len()),
         disk_count: filtered_disk_count(live.disk.as_deref(), config),
@@ -1329,27 +1283,6 @@ mod tests {
 
         assert!(state.render.dirty.contains(Dirty::LAYOUT));
         assert!(state.render.dirty.contains(Dirty::ALL_BOXES));
-    }
-
-    #[test]
-    fn auto_add_gpu_boxes_adds_missing_boxes() {
-        let mut config = config::Config::new();
-        config.shown_boxes = vec!["cpu".into(), "mem".into(), "proc".into()];
-
-        assert!(auto_add_gpu_boxes(&mut config, 2));
-        assert_eq!(
-            config.shown_boxes,
-            vec!["cpu", "mem", "proc", "gpu0", "gpu1"]
-        );
-    }
-
-    #[test]
-    fn auto_add_gpu_boxes_ignores_existing_boxes() {
-        let mut config = config::Config::new();
-        config.shown_boxes = vec!["cpu".into(), "mem".into(), "proc".into(), "gpu0".into()];
-
-        assert!(!auto_add_gpu_boxes(&mut config, 1));
-        assert_eq!(config.shown_boxes, vec!["cpu", "mem", "proc", "gpu0"]);
     }
 
     #[test]
