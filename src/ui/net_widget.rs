@@ -34,6 +34,27 @@ pub struct NetWidgetSettings<'a> {
     pub base_10: bool,
 }
 
+/// Build [`NetWidgetSettings`] from the current [`Config`] and the
+/// currently-selected interface name.
+///
+/// Co-locates per-widget settings derivation with the widget itself
+/// so adding a network-widget setting is a one-file change.
+pub(crate) fn build_settings<'a>(
+    config: &'a crate::config::Config,
+    iface: &'a str,
+) -> NetWidgetSettings<'a> {
+    NetWidgetSettings {
+        iface,
+        auto_scale: config.net_auto,
+        sync_scale: config.net_sync,
+        max_download: config.net_download,
+        max_upload: config.net_upload,
+        graph_symbol: GraphMode::from_config(config.graph_symbol_net, config.graph_symbol),
+        swap_dl_ul: config.swap_upload_download,
+        base_10: config.base_10_sizes,
+    }
+}
+
 /// Draw the network widget into an ANSI string matching btop's layout.
 ///
 /// Layout:

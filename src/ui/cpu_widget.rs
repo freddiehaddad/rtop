@@ -43,6 +43,39 @@ pub struct CpuWidgetSettings<'a> {
     pub clock_format: &'a str,
 }
 
+/// Build [`CpuWidgetSettings`] from the current [`Config`], the
+/// CPU snapshot, and the effective frame interval.
+///
+/// Co-locates per-widget settings derivation with the widget itself
+/// so adding a CPU-widget setting is a one-file change.
+pub(crate) fn build_settings<'a>(
+    config: &'a crate::config::Config,
+    cpu_info: &'a CpuInfo,
+    update_ms: u64,
+) -> CpuWidgetSettings<'a> {
+    CpuWidgetSettings {
+        graph_symbol: GraphMode::from_config(config.graph_symbol_cpu, config.graph_symbol),
+        upper_source: config.cpu_graph_upper,
+        lower_source: config.cpu_graph_lower,
+        check_temp: config.check_temp,
+        show_coretemp: config.show_coretemp,
+        temp_scale: config.temp_scale,
+        single_graph: config.cpu_single_graph,
+        auto_scale: config.cpu_auto_scale,
+        update_ms,
+        preset_name: config.preset.active().name(),
+        invert_lower: config.cpu_invert_lower,
+        show_cpu_freq: config.show_cpu_freq,
+        show_uptime: config.show_uptime,
+        cpu_name: &cpu_info.cpu_name,
+        custom_cpu_name: &config.custom_cpu_name,
+        show_cpu_watts: config.show_cpu_watts,
+        cpu_watts: cpu_info.cpu_watts,
+        cpu_max_watts: cpu_info.cpu_max_watts,
+        clock_format: &config.clock_format,
+    }
+}
+
 /// Label width for stats meter rows (matches GPU widget).
 const STATS_LABEL_W: usize = 6;
 /// Right-aligned value column width for stats meter rows (matches GPU widget).

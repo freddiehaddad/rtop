@@ -15,6 +15,17 @@ pub struct MemWidgetSettings {
     pub base_10: bool,
 }
 
+/// Build [`MemWidgetSettings`] from the current [`Config`].
+///
+/// Co-locates per-widget settings derivation with the widget itself
+/// so adding a memory-widget setting is a one-file change.
+pub(crate) fn build_settings(config: &crate::config::Config) -> MemWidgetSettings {
+    MemWidgetSettings {
+        show_swap: config.show_swap,
+        base_10: config.base_10_sizes,
+    }
+}
+
 /// Draw the memory widget into an ANSI string.
 ///
 /// Layout:

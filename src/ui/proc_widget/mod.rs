@@ -31,6 +31,27 @@ pub struct ProcWidgetSettings {
     pub base_10: bool,
 }
 
+/// Build [`ProcWidgetSettings`] from the current [`Config`] and the
+/// hardware-derived `core_count` / `total_mem` snapshot constants.
+///
+/// Co-locates per-widget settings derivation with the widget itself
+/// so adding a process-widget setting is a one-file change.
+pub(crate) fn build_settings(
+    config: &crate::config::Config,
+    core_count: usize,
+    total_mem: u64,
+) -> ProcWidgetSettings {
+    ProcWidgetSettings {
+        proc_per_core: config.proc_per_core,
+        core_count,
+        proc_mem_bytes: config.proc_mem_bytes,
+        total_mem,
+        proc_colors: config.proc_colors,
+        proc_gradient: config.proc_gradient,
+        base_10: config.base_10_sizes,
+    }
+}
+
 /// Draw the process list widget into an ANSI string matching btop's layout.
 ///
 /// Layout:

@@ -1067,30 +1067,7 @@ pub(crate) fn render_all(
         && let Some(cpu) = params.cpu
     {
         let area = ui::WidgetArea::from_dim(cpu_dim, rounded);
-        let cpu_settings = ui::cpu_widget::CpuWidgetSettings {
-            graph_symbol: crate::draw::graph::GraphMode::from_config(
-                config.graph_symbol_cpu,
-                config.graph_symbol,
-            ),
-            upper_source: config.cpu_graph_upper,
-            lower_source: config.cpu_graph_lower,
-            check_temp: config.check_temp,
-            show_coretemp: config.show_coretemp,
-            temp_scale: config.temp_scale,
-            single_graph: config.cpu_single_graph,
-            auto_scale: config.cpu_auto_scale,
-            update_ms,
-            preset_name: config.preset.active().name(),
-            invert_lower: config.cpu_invert_lower,
-            show_cpu_freq: config.show_cpu_freq,
-            show_uptime: config.show_uptime,
-            cpu_name: &cpu.info.cpu_name,
-            custom_cpu_name: &config.custom_cpu_name,
-            show_cpu_watts: config.show_cpu_watts,
-            cpu_watts: cpu.info.cpu_watts,
-            cpu_max_watts: cpu.info.cpu_max_watts,
-            clock_format: &config.clock_format,
-        };
+        let cpu_settings = ui::cpu_widget::build_settings(config, &cpu.info, update_ms);
         output.push_str(&ui::cpu_widget::draw(
             &cpu.info,
             &area,
@@ -1118,17 +1095,7 @@ pub(crate) fn render_all(
                 continue;
             };
             let area = ui::WidgetArea::from_dim(gpu_dim, rounded);
-            let custom_name = config
-                .custom_gpu_names
-                .get(n)
-                .map(String::as_str)
-                .unwrap_or("");
-            let gpu_settings = ui::gpu_widget::GpuWidgetSettings {
-                index: n,
-                temp_scale: config.temp_scale,
-                custom_name,
-                base_10: config.base_10_sizes,
-            };
+            let gpu_settings = ui::gpu_widget::build_settings(config, n);
             output.push_str(&ui::gpu_widget::draw(
                 gpu_info,
                 &area,
@@ -1148,10 +1115,7 @@ pub(crate) fn render_all(
             &mem.info,
             &area,
             theme,
-            &ui::mem_widget::MemWidgetSettings {
-                show_swap: config.show_swap,
-                base_10: config.base_10_sizes,
-            },
+            &ui::mem_widget::build_settings(config),
             &mem.status,
         ));
     }
@@ -1161,17 +1125,7 @@ pub(crate) fn render_all(
         && let Some(disk) = params.disk
     {
         let area = ui::WidgetArea::from_dim(disk_dim, rounded);
-        let disk_settings = ui::disk_widget::DiskWidgetSettings {
-            graph_symbol: crate::draw::graph::GraphMode::from_config(
-                config.graph_symbol_disk,
-                config.graph_symbol,
-            ),
-            base_10: config.base_10_sizes,
-            show_io_stat: config.show_io_stat,
-            io_mode: config.io_mode,
-            disk_io_mode: config.disk_io_mode,
-            io_graph_combined: config.io_graph_combined,
-        };
+        let disk_settings = ui::disk_widget::build_settings(config);
         let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
         let visible = filter.apply(&disk.info.disks);
         output.push_str(&ui::disk_widget::draw(
@@ -1195,19 +1149,7 @@ pub(crate) fn render_all(
             .find(|n| n.name == iface)
             .unwrap_or(&default_net);
         let area = ui::WidgetArea::from_dim(net_dim, rounded);
-        let net_settings = ui::net_widget::NetWidgetSettings {
-            iface,
-            auto_scale: config.net_auto,
-            sync_scale: config.net_sync,
-            max_download: config.net_download,
-            max_upload: config.net_upload,
-            graph_symbol: crate::draw::graph::GraphMode::from_config(
-                config.graph_symbol_net,
-                config.graph_symbol,
-            ),
-            swap_dl_ul: config.swap_upload_download,
-            base_10: config.base_10_sizes,
-        };
+        let net_settings = ui::net_widget::build_settings(config, iface);
         output.push_str(&ui::net_widget::draw(
             net_info,
             &area,
@@ -1258,15 +1200,8 @@ pub(crate) fn render_all(
                 .unwrap_or(""),
             armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
         };
-        let proc_settings = ui::proc_widget::ProcWidgetSettings {
-            proc_per_core: config.proc_per_core,
-            core_count: params.core_count,
-            proc_mem_bytes: config.proc_mem_bytes,
-            total_mem: params.total_mem,
-            proc_colors: config.proc_colors,
-            proc_gradient: config.proc_gradient,
-            base_10: config.base_10_sizes,
-        };
+        let proc_settings =
+            ui::proc_widget::build_settings(config, params.core_count, params.total_mem);
         output.push_str(&ui::proc_widget::draw(
             procs,
             entries,

@@ -18,6 +18,31 @@ pub struct GpuWidgetSettings<'a> {
     pub base_10: bool,
 }
 
+/// Build [`GpuWidgetSettings`] for the given GPU `index` from the
+/// current [`Config`].
+///
+/// `index` is the actual `n` from `WidgetKind::Gpu(n)` — used to
+/// look up the user-supplied custom name from
+/// `config.custom_gpu_names[index]`. Co-locates per-widget settings
+/// derivation with the widget itself so adding a GPU-widget setting
+/// is a one-file change.
+pub(crate) fn build_settings(
+    config: &crate::config::Config,
+    index: usize,
+) -> GpuWidgetSettings<'_> {
+    let custom_name = config
+        .custom_gpu_names
+        .get(index)
+        .map(String::as_str)
+        .unwrap_or("");
+    GpuWidgetSettings {
+        index,
+        temp_scale: config.temp_scale,
+        custom_name,
+        base_10: config.base_10_sizes,
+    }
+}
+
 /// Format bytes into a short human-readable string (e.g., "10.8G").
 fn fmt_bytes(bytes: u64, base10: bool) -> String {
     tools::floating_humanizer(bytes, true, 0, false, false, base10)

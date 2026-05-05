@@ -41,6 +41,21 @@ pub struct DiskWidgetSettings {
     pub io_graph_combined: bool,
 }
 
+/// Build [`DiskWidgetSettings`] from the current [`Config`].
+///
+/// Co-locates per-widget settings derivation with the widget itself
+/// so adding a disk-widget setting is a one-file change.
+pub(crate) fn build_settings(config: &crate::config::Config) -> DiskWidgetSettings {
+    DiskWidgetSettings {
+        graph_symbol: GraphMode::from_config(config.graph_symbol_disk, config.graph_symbol),
+        base_10: config.base_10_sizes,
+        show_io_stat: config.show_io_stat,
+        io_mode: config.io_mode,
+        disk_io_mode: config.disk_io_mode,
+        io_graph_combined: config.io_graph_combined,
+    }
+}
+
 /// Draw the disk widget into an ANSI string.
 ///
 /// `disks` is the post-filter slice of disks the caller wants rendered,
