@@ -562,495 +562,263 @@ impl Config {
 }
 
 // ---------------------------------------------------------------------------
-// ConfigKey — flat enum with one variant per config field
+// ConfigKey — declarative schema
 // ---------------------------------------------------------------------------
+//
+// `ConfigKey` is a flat enum identifying every config field. The
+// previous shape of this file kept eight parallel hand-maintained
+// match arms (`name`, `kind`, `parse`, `get_display`, `toggle_bool`,
+// `get_int`, `set_int`, plus the enum itself). Adding or renaming a
+// key meant editing every one of them in lockstep.
+//
+// `config_schema!` collapses those eight mirrors into one declarative
+// table. Each entry binds:
+//   * the enum variant
+//   * the TOML/snake_case name
+//   * the value kind (`Bool` / `Int` / `Enum` / `String`)
+//   * the access shape (how the value is read/written on `Config`)
+//
+// Access shapes:
+//   * `field $f`                 — direct `config.$f`
+//   * `layout $g, $setter`       — bool that lives in `config.layout()`
+//   * `joined_vec $f`            — `Vec<String>` displayed as a
+//                                  whitespace-joined string
+//   * `array $f [$i]`            — fixed-array element at index `$i`
+//   * `virtual_widgets`          — the `widgets` virtual key, derived
+//                                  from `config.layout().widgets`
+//
+// The macro emits the enum and the eight previously hand-mirrored
+// methods. `set_string`, `validate_string`, `parse_int`,
+// `int_bounds_message`, `parse_widgets`, `parse_disks_filter`, and
+// `choice_values` stay hand-written below — they carry per-shape
+// error handling and validation logic that does not benefit from
+// being declarative.
+//
+// `Config`, `Default for Config`, and `validate()` are also
+// hand-written; the struct field list carries serde attributes
+// (`#[serde(rename = "...")]`, `#[serde(with = "...")]`, `#[serde(skip)]`)
+// and the existing schema includes virtual keys (`ProcLeft`,
+// `CpuBottom`, `MemBelowNet`, `Widgets`) without 1:1 struct fields.
+// Folding those into the macro would cost more clarity than it would
+// save.
 
-/// A flat enum identifying every config field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ConfigKey {
-    // -- bool variants --
-    ThemeBackground,
-    RoundedCorners,
-    ProcReversed,
-    ProcTree,
-    ProcColors,
-    ProcGradient,
-    ProcPerCore,
-    ProcMemBytes,
-    ProcLeft,
+macro_rules! config_schema {
+    (
+        $( $variant:ident => $name:literal : $kind:ident { $($shape:tt)* } ),* $(,)?
+    ) => {
+        /// A flat enum identifying every config field.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum ConfigKey { $( $variant ),* }
 
-    ProcAggregate,
-    KeepDeadProcUsage,
-    CpuInvertLower,
-    CpuSingleGraph,
-    CpuAutoScale,
-    CpuBottom,
-    ShowUptime,
-    ShowCpuWatts,
-    CheckTemp,
-    ShowCoretemp,
-    ShowCpuFreq,
-    MemBelowNet,
-    ShowSwap,
+        impl ConfigKey {
+            /// Returns the TOML field name (snake_case).
+            pub fn name(self) -> &'static str {
+                match self { $( Self::$variant => $name, )* }
+            }
 
-    ShowIoStat,
-    IoMode,
-    IoGraphCombined,
-    SwapUploadDownload,
-    Base10Sizes,
-    NetAuto,
-    NetSync,
+            /// Returns the kind of value this key holds.
+            pub fn kind(self) -> KeyKind {
+                match self { $( Self::$variant => KeyKind::$kind, )* }
+            }
 
-    VimKeys,
-    BackgroundUpdate,
-    TerminalSync,
-    SaveConfigOnExit,
+            /// Parse a TOML field name into a `ConfigKey`.
+            #[cfg(test)]
+            pub fn parse(name: &str) -> Option<Self> {
+                match name {
+                    $( $name => Some(Self::$variant), )*
+                    _ => None,
+                }
+            }
 
-    DiskIoMode,
+            /// Returns a display string for the value of this key in
+            /// the given config.
+            pub fn get_display(self, config: &Config) -> String {
+                match self {
+                    $( Self::$variant => config_schema!(@display $kind config $($shape)*), )*
+                }
+            }
 
-    // -- int variants --
-    UpdateMs,
-    CpuUpdateMs,
-    MemUpdateMs,
-    DiskUpdateMs,
-    NetUpdateMs,
-    GpuUpdateMs,
-    ProcUpdateMs,
-    NetDownload,
-    NetUpload,
+            /// Toggle the boolean field.
+            ///
+            /// Panics on non-bool keys: this is a programmer error
+            /// (the caller must dispatch on `kind()` first).
+            pub fn toggle_bool(self, config: &mut Config) {
+                match self {
+                    $( Self::$variant => config_schema!(@toggle self $kind config $($shape)*), )*
+                }
+            }
 
-    // -- string variants --
-    ColorTheme,
-    Widgets,
-    GraphSymbol,
-    GraphSymbolCpu,
-    GraphSymbolNet,
-    GraphSymbolDisk,
-    ProcSorting,
-    CpuGraphUpper,
-    CpuGraphLower,
+            /// Get an integer value.
+            ///
+            /// Panics on non-int keys: this is a programmer error
+            /// (the caller must dispatch on `kind()` first).
+            pub fn get_int(self, config: &Config) -> i64 {
+                match self {
+                    $( Self::$variant => config_schema!(@get_int self $kind config $($shape)*), )*
+                }
+            }
 
-    TempScale,
-    ClockFormat,
-    CustomCpuName,
-    DisksFilter,
-    LogLevel,
-    ProcFilter,
-    CustomGpuName0,
-    CustomGpuName1,
-    CustomGpuName2,
-    CustomGpuName3,
-    CustomGpuName4,
-    CustomGpuName5,
-    CustomGpuName6,
-    CustomGpuName7,
+            /// Set an integer value. No clamping — caller should call
+            /// `validate()`.
+            ///
+            /// Panics on non-int keys: this is a programmer error
+            /// (the caller must dispatch on `kind()` first).
+            pub fn set_int(self, config: &mut Config, value: i64) {
+                match self {
+                    $( Self::$variant => config_schema!(@set_int self $kind config value $($shape)*), )*
+                }
+            }
+        }
+    };
+
+    // === @display: kind config <shape> -> String ===
+    (@display Bool $cfg:ident field $f:ident) => { bool_display($cfg.$f) };
+    (@display Bool $cfg:ident layout $g:ident, $_setter:ident) => { bool_display($cfg.layout().$g) };
+    (@display Int $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
+    (@display Enum $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
+    (@display String $cfg:ident field $f:ident) => { $cfg.$f.clone() };
+    (@display String $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
+    (@display String $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
+    (@display String $cfg:ident virtual_widgets) => {
+        $cfg.layout()
+            .widgets
+            .iter()
+            .map(WidgetKind::to_string)
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+
+    // === @toggle: only Bool variants do anything; others panic ===
+    (@toggle $self:ident Bool $cfg:ident field $f:ident) => { $cfg.$f = !$cfg.$f };
+    (@toggle $self:ident Bool $cfg:ident layout $g:ident, $s:ident) => { $cfg.$s(!$cfg.layout().$g) };
+    (@toggle $self:ident Int $cfg:ident $($_:tt)*) => {
+        panic!("toggle_bool called on non-bool key '{}'", $self.name())
+    };
+    (@toggle $self:ident Enum $cfg:ident $($_:tt)*) => {
+        panic!("toggle_bool called on non-bool key '{}'", $self.name())
+    };
+    (@toggle $self:ident String $cfg:ident $($_:tt)*) => {
+        panic!("toggle_bool called on non-bool key '{}'", $self.name())
+    };
+
+    // === @get_int: only Int kind returns a value; others panic ===
+    (@get_int $self:ident Int $cfg:ident field $f:ident) => { $cfg.$f };
+    (@get_int $self:ident Bool $cfg:ident $($_:tt)*) => {
+        panic!("get_int called on non-int key '{}'", $self.name())
+    };
+    (@get_int $self:ident Enum $cfg:ident $($_:tt)*) => {
+        panic!("get_int called on non-int key '{}'", $self.name())
+    };
+    (@get_int $self:ident String $cfg:ident $($_:tt)*) => {
+        panic!("get_int called on non-int key '{}'", $self.name())
+    };
+
+    // === @set_int: only Int kind writes; others panic ===
+    (@set_int $self:ident Int $cfg:ident $val:ident field $f:ident) => { $cfg.$f = $val };
+    (@set_int $self:ident Bool $cfg:ident $val:ident $($_:tt)*) => {
+        panic!("set_int called on non-int key '{}'", $self.name())
+    };
+    (@set_int $self:ident Enum $cfg:ident $val:ident $($_:tt)*) => {
+        panic!("set_int called on non-int key '{}'", $self.name())
+    };
+    (@set_int $self:ident String $cfg:ident $val:ident $($_:tt)*) => {
+        panic!("set_int called on non-int key '{}'", $self.name())
+    };
 }
 
+config_schema! {
+    // -- bool, direct field --
+    ThemeBackground    => "theme_background"     : Bool   { field theme_background },
+    RoundedCorners     => "rounded_corners"      : Bool   { field rounded_corners },
+    ProcReversed       => "proc_reversed"        : Bool   { field proc_reversed },
+    ProcTree           => "proc_tree"            : Bool   { field proc_tree },
+    ProcColors         => "proc_colors"          : Bool   { field proc_colors },
+    ProcGradient       => "proc_gradient"        : Bool   { field proc_gradient },
+    ProcPerCore        => "proc_per_core"        : Bool   { field proc_per_core },
+    ProcMemBytes       => "proc_mem_bytes"       : Bool   { field proc_mem_bytes },
+    ProcAggregate      => "proc_aggregate"       : Bool   { field proc_aggregate },
+    KeepDeadProcUsage  => "keep_dead_proc_usage" : Bool   { field keep_dead_proc_usage },
+    CpuInvertLower     => "cpu_invert_lower"     : Bool   { field cpu_invert_lower },
+    CpuSingleGraph     => "cpu_single_graph"     : Bool   { field cpu_single_graph },
+    CpuAutoScale       => "cpu_auto_scale"       : Bool   { field cpu_auto_scale },
+    ShowUptime         => "show_uptime"          : Bool   { field show_uptime },
+    ShowCpuWatts       => "show_cpu_watts"       : Bool   { field show_cpu_watts },
+    CheckTemp          => "check_temp"           : Bool   { field check_temp },
+    ShowCoretemp       => "show_coretemp"        : Bool   { field show_coretemp },
+    ShowCpuFreq        => "show_cpu_freq"        : Bool   { field show_cpu_freq },
+    ShowSwap           => "show_swap"            : Bool   { field show_swap },
+    ShowIoStat         => "show_io_stat"         : Bool   { field show_io_stat },
+    IoMode             => "io_mode"              : Bool   { field io_mode },
+    IoGraphCombined    => "io_graph_combined"    : Bool   { field io_graph_combined },
+    SwapUploadDownload => "swap_upload_download" : Bool   { field swap_upload_download },
+    Base10Sizes        => "base_10_sizes"        : Bool   { field base_10_sizes },
+    NetAuto            => "net_auto"             : Bool   { field net_auto },
+    NetSync            => "net_sync"             : Bool   { field net_sync },
+    VimKeys            => "vim_keys"             : Bool   { field vim_keys },
+    BackgroundUpdate   => "background_update"    : Bool   { field background_update },
+    TerminalSync       => "terminal_sync"        : Bool   { field terminal_sync },
+    SaveConfigOnExit   => "save_config_on_exit"  : Bool   { field save_config_on_exit },
+    DiskIoMode         => "disk_io_mode"         : Bool   { field disk_io_mode },
+
+    // -- bool, layout-virtual --
+    ProcLeft           => "proc_left"            : Bool   { layout proc_left, set_proc_left },
+    CpuBottom          => "cpu_bottom"           : Bool   { layout cpu_bottom, set_cpu_bottom },
+    MemBelowNet        => "mem_below_net"        : Bool   { layout mem_below_net, set_mem_below_net },
+
+    // -- int, direct field --
+    UpdateMs           => "update_ms"            : Int    { field update_ms },
+    CpuUpdateMs        => "cpu_update_ms"        : Int    { field cpu_update_ms },
+    MemUpdateMs        => "mem_update_ms"        : Int    { field mem_update_ms },
+    DiskUpdateMs       => "disk_update_ms"       : Int    { field disk_update_ms },
+    NetUpdateMs        => "net_update_ms"        : Int    { field net_update_ms },
+    GpuUpdateMs        => "gpu_update_ms"        : Int    { field gpu_update_ms },
+    ProcUpdateMs       => "proc_update_ms"       : Int    { field proc_update_ms },
+    NetDownload        => "net_download"         : Int    { field net_download },
+    NetUpload          => "net_upload"           : Int    { field net_upload },
+
+    // -- string, direct field (free-form or constrained via choice_values) --
+    ColorTheme         => "color_theme"          : String { field color_theme },
+    ClockFormat        => "clock_format"         : String { field clock_format },
+    CustomCpuName      => "custom_cpu_name"      : String { field custom_cpu_name },
+    ProcFilter         => "proc_filter"          : String { field proc_filter },
+
+    // -- string, joined Vec<String> --
+    DisksFilter        => "disks_filter"         : String { joined_vec disks_filter },
+
+    // -- string, layout-virtual --
+    Widgets            => "widgets"              : String { virtual_widgets },
+
+    // -- string, fixed-array element --
+    CustomGpuName0     => "custom_gpu_name0"     : String { array custom_gpu_names[0] },
+    CustomGpuName1     => "custom_gpu_name1"     : String { array custom_gpu_names[1] },
+    CustomGpuName2     => "custom_gpu_name2"     : String { array custom_gpu_names[2] },
+    CustomGpuName3     => "custom_gpu_name3"     : String { array custom_gpu_names[3] },
+    CustomGpuName4     => "custom_gpu_name4"     : String { array custom_gpu_names[4] },
+    CustomGpuName5     => "custom_gpu_name5"     : String { array custom_gpu_names[5] },
+    CustomGpuName6     => "custom_gpu_name6"     : String { array custom_gpu_names[6] },
+    CustomGpuName7     => "custom_gpu_name7"     : String { array custom_gpu_names[7] },
+
+    // -- enum (typed enum field, browsable via choice_values) --
+    GraphSymbol        => "graph_symbol"         : Enum   { field graph_symbol },
+    GraphSymbolCpu     => "graph_symbol_cpu"     : Enum   { field graph_symbol_cpu },
+    GraphSymbolNet     => "graph_symbol_net"     : Enum   { field graph_symbol_net },
+    GraphSymbolDisk    => "graph_symbol_disk"    : Enum   { field graph_symbol_disk },
+    ProcSorting        => "proc_sorting"         : Enum   { field proc_sorting },
+    CpuGraphUpper      => "cpu_graph_upper"      : Enum   { field cpu_graph_upper },
+    CpuGraphLower      => "cpu_graph_lower"      : Enum   { field cpu_graph_lower },
+    TempScale          => "temp_scale"           : Enum   { field temp_scale },
+    LogLevel           => "log_level"            : Enum   { field log_level },
+}
+
+// ---------------------------------------------------------------------------
+// ConfigKey — hand-written impls
+// ---------------------------------------------------------------------------
+//
+// Methods below carry per-key validation logic, error handling, or
+// shape-specific parsing that does not fit the declarative table
+// above. Each one is intentionally hand-written.
+
 impl ConfigKey {
-    /// Returns the TOML field name (snake_case).
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::ThemeBackground => "theme_background",
-            Self::RoundedCorners => "rounded_corners",
-            Self::ProcReversed => "proc_reversed",
-            Self::ProcTree => "proc_tree",
-            Self::ProcColors => "proc_colors",
-            Self::ProcGradient => "proc_gradient",
-            Self::ProcPerCore => "proc_per_core",
-            Self::ProcMemBytes => "proc_mem_bytes",
-            Self::ProcLeft => "proc_left",
-
-            Self::ProcAggregate => "proc_aggregate",
-            Self::KeepDeadProcUsage => "keep_dead_proc_usage",
-            Self::CpuInvertLower => "cpu_invert_lower",
-            Self::CpuSingleGraph => "cpu_single_graph",
-            Self::CpuAutoScale => "cpu_auto_scale",
-            Self::CpuBottom => "cpu_bottom",
-            Self::ShowUptime => "show_uptime",
-            Self::ShowCpuWatts => "show_cpu_watts",
-            Self::CheckTemp => "check_temp",
-            Self::ShowCoretemp => "show_coretemp",
-            Self::ShowCpuFreq => "show_cpu_freq",
-            Self::MemBelowNet => "mem_below_net",
-            Self::ShowSwap => "show_swap",
-
-            Self::ShowIoStat => "show_io_stat",
-            Self::IoMode => "io_mode",
-            Self::IoGraphCombined => "io_graph_combined",
-            Self::SwapUploadDownload => "swap_upload_download",
-            Self::Base10Sizes => "base_10_sizes",
-            Self::NetAuto => "net_auto",
-            Self::NetSync => "net_sync",
-
-            Self::VimKeys => "vim_keys",
-            Self::BackgroundUpdate => "background_update",
-            Self::TerminalSync => "terminal_sync",
-            Self::SaveConfigOnExit => "save_config_on_exit",
-
-            Self::DiskIoMode => "disk_io_mode",
-
-            Self::UpdateMs => "update_ms",
-            Self::CpuUpdateMs => "cpu_update_ms",
-            Self::MemUpdateMs => "mem_update_ms",
-            Self::DiskUpdateMs => "disk_update_ms",
-            Self::NetUpdateMs => "net_update_ms",
-            Self::GpuUpdateMs => "gpu_update_ms",
-            Self::ProcUpdateMs => "proc_update_ms",
-            Self::NetDownload => "net_download",
-            Self::NetUpload => "net_upload",
-
-            Self::ColorTheme => "color_theme",
-            Self::Widgets => "widgets",
-            Self::GraphSymbol => "graph_symbol",
-            Self::GraphSymbolCpu => "graph_symbol_cpu",
-            Self::GraphSymbolNet => "graph_symbol_net",
-            Self::GraphSymbolDisk => "graph_symbol_disk",
-            Self::ProcSorting => "proc_sorting",
-            Self::CpuGraphUpper => "cpu_graph_upper",
-            Self::CpuGraphLower => "cpu_graph_lower",
-
-            Self::TempScale => "temp_scale",
-            Self::ClockFormat => "clock_format",
-            Self::CustomCpuName => "custom_cpu_name",
-            Self::DisksFilter => "disks_filter",
-            Self::LogLevel => "log_level",
-            Self::ProcFilter => "proc_filter",
-            Self::CustomGpuName0 => "custom_gpu_name0",
-            Self::CustomGpuName1 => "custom_gpu_name1",
-            Self::CustomGpuName2 => "custom_gpu_name2",
-            Self::CustomGpuName3 => "custom_gpu_name3",
-            Self::CustomGpuName4 => "custom_gpu_name4",
-            Self::CustomGpuName5 => "custom_gpu_name5",
-            Self::CustomGpuName6 => "custom_gpu_name6",
-            Self::CustomGpuName7 => "custom_gpu_name7",
-        }
-    }
-
-    /// Returns the kind of value this key holds.
-    pub fn kind(self) -> KeyKind {
-        match self {
-            Self::ThemeBackground
-            | Self::RoundedCorners
-            | Self::ProcReversed
-            | Self::ProcTree
-            | Self::ProcColors
-            | Self::ProcGradient
-            | Self::ProcPerCore
-            | Self::ProcMemBytes
-            | Self::ProcLeft
-            | Self::ProcAggregate
-            | Self::KeepDeadProcUsage
-            | Self::CpuInvertLower
-            | Self::CpuSingleGraph
-            | Self::CpuAutoScale
-            | Self::CpuBottom
-            | Self::ShowUptime
-            | Self::ShowCpuWatts
-            | Self::CheckTemp
-            | Self::ShowCoretemp
-            | Self::ShowCpuFreq
-            | Self::MemBelowNet
-            | Self::ShowSwap
-            | Self::ShowIoStat
-            | Self::IoMode
-            | Self::IoGraphCombined
-            | Self::SwapUploadDownload
-            | Self::Base10Sizes
-            | Self::NetAuto
-            | Self::NetSync
-            | Self::VimKeys
-            | Self::BackgroundUpdate
-            | Self::TerminalSync
-            | Self::SaveConfigOnExit
-            | Self::DiskIoMode => KeyKind::Bool,
-
-            Self::UpdateMs
-            | Self::CpuUpdateMs
-            | Self::MemUpdateMs
-            | Self::DiskUpdateMs
-            | Self::NetUpdateMs
-            | Self::GpuUpdateMs
-            | Self::ProcUpdateMs
-            | Self::NetDownload
-            | Self::NetUpload => KeyKind::Int,
-
-            Self::ColorTheme
-            | Self::Widgets
-            | Self::ClockFormat
-            | Self::CustomCpuName
-            | Self::DisksFilter
-            | Self::ProcFilter
-            | Self::CustomGpuName0
-            | Self::CustomGpuName1
-            | Self::CustomGpuName2
-            | Self::CustomGpuName3
-            | Self::CustomGpuName4
-            | Self::CustomGpuName5
-            | Self::CustomGpuName6
-            | Self::CustomGpuName7 => KeyKind::String,
-
-            Self::GraphSymbol
-            | Self::GraphSymbolCpu
-            | Self::GraphSymbolNet
-            | Self::GraphSymbolDisk
-            | Self::ProcSorting
-            | Self::CpuGraphUpper
-            | Self::CpuGraphLower
-            | Self::TempScale
-            | Self::LogLevel => KeyKind::Enum,
-        }
-    }
-
-    /// Parse a TOML field name into a ConfigKey.
-    #[cfg(test)]
-    pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "theme_background" => Some(Self::ThemeBackground),
-            "rounded_corners" => Some(Self::RoundedCorners),
-            "proc_reversed" => Some(Self::ProcReversed),
-            "proc_tree" => Some(Self::ProcTree),
-            "proc_colors" => Some(Self::ProcColors),
-            "proc_gradient" => Some(Self::ProcGradient),
-            "proc_per_core" => Some(Self::ProcPerCore),
-            "proc_mem_bytes" => Some(Self::ProcMemBytes),
-            "proc_left" => Some(Self::ProcLeft),
-
-            "proc_aggregate" => Some(Self::ProcAggregate),
-            "keep_dead_proc_usage" => Some(Self::KeepDeadProcUsage),
-            "cpu_invert_lower" => Some(Self::CpuInvertLower),
-            "cpu_single_graph" => Some(Self::CpuSingleGraph),
-            "cpu_auto_scale" => Some(Self::CpuAutoScale),
-            "cpu_bottom" => Some(Self::CpuBottom),
-            "show_uptime" => Some(Self::ShowUptime),
-            "show_cpu_watts" => Some(Self::ShowCpuWatts),
-            "check_temp" => Some(Self::CheckTemp),
-            "show_coretemp" => Some(Self::ShowCoretemp),
-            "show_cpu_freq" => Some(Self::ShowCpuFreq),
-            "mem_below_net" => Some(Self::MemBelowNet),
-            "show_swap" => Some(Self::ShowSwap),
-
-            "show_io_stat" => Some(Self::ShowIoStat),
-            "io_mode" => Some(Self::IoMode),
-            "io_graph_combined" => Some(Self::IoGraphCombined),
-            "swap_upload_download" => Some(Self::SwapUploadDownload),
-            "base_10_sizes" => Some(Self::Base10Sizes),
-            "net_auto" => Some(Self::NetAuto),
-            "net_sync" => Some(Self::NetSync),
-
-            "vim_keys" => Some(Self::VimKeys),
-            "background_update" => Some(Self::BackgroundUpdate),
-            "terminal_sync" => Some(Self::TerminalSync),
-            "save_config_on_exit" => Some(Self::SaveConfigOnExit),
-
-            "disk_io_mode" => Some(Self::DiskIoMode),
-
-            "update_ms" => Some(Self::UpdateMs),
-            "cpu_update_ms" => Some(Self::CpuUpdateMs),
-            "mem_update_ms" => Some(Self::MemUpdateMs),
-            "disk_update_ms" => Some(Self::DiskUpdateMs),
-            "net_update_ms" => Some(Self::NetUpdateMs),
-            "gpu_update_ms" => Some(Self::GpuUpdateMs),
-            "proc_update_ms" => Some(Self::ProcUpdateMs),
-            "net_download" => Some(Self::NetDownload),
-            "net_upload" => Some(Self::NetUpload),
-
-            "color_theme" => Some(Self::ColorTheme),
-            "widgets" => Some(Self::Widgets),
-            "graph_symbol" => Some(Self::GraphSymbol),
-            "graph_symbol_cpu" => Some(Self::GraphSymbolCpu),
-            "graph_symbol_net" => Some(Self::GraphSymbolNet),
-            "graph_symbol_disk" => Some(Self::GraphSymbolDisk),
-            "proc_sorting" => Some(Self::ProcSorting),
-            "cpu_graph_upper" => Some(Self::CpuGraphUpper),
-            "cpu_graph_lower" => Some(Self::CpuGraphLower),
-
-            "temp_scale" => Some(Self::TempScale),
-            "clock_format" => Some(Self::ClockFormat),
-            "custom_cpu_name" => Some(Self::CustomCpuName),
-            "disks_filter" => Some(Self::DisksFilter),
-            "log_level" => Some(Self::LogLevel),
-            "proc_filter" => Some(Self::ProcFilter),
-            "custom_gpu_name0" => Some(Self::CustomGpuName0),
-            "custom_gpu_name1" => Some(Self::CustomGpuName1),
-            "custom_gpu_name2" => Some(Self::CustomGpuName2),
-            "custom_gpu_name3" => Some(Self::CustomGpuName3),
-            "custom_gpu_name4" => Some(Self::CustomGpuName4),
-            "custom_gpu_name5" => Some(Self::CustomGpuName5),
-            "custom_gpu_name6" => Some(Self::CustomGpuName6),
-            "custom_gpu_name7" => Some(Self::CustomGpuName7),
-
-            _ => None,
-        }
-    }
-
-    /// Returns a display string for the value of this key in the given config.
-    pub fn get_display(self, config: &Config) -> String {
-        match self {
-            // bools
-            Self::ThemeBackground => bool_display(config.theme_background),
-            Self::RoundedCorners => bool_display(config.rounded_corners),
-            Self::ProcReversed => bool_display(config.proc_reversed),
-            Self::ProcTree => bool_display(config.proc_tree),
-            Self::ProcColors => bool_display(config.proc_colors),
-            Self::ProcGradient => bool_display(config.proc_gradient),
-            Self::ProcPerCore => bool_display(config.proc_per_core),
-            Self::ProcMemBytes => bool_display(config.proc_mem_bytes),
-            Self::ProcLeft => bool_display(config.layout().proc_left),
-
-            Self::ProcAggregate => bool_display(config.proc_aggregate),
-            Self::KeepDeadProcUsage => bool_display(config.keep_dead_proc_usage),
-            Self::CpuInvertLower => bool_display(config.cpu_invert_lower),
-            Self::CpuSingleGraph => bool_display(config.cpu_single_graph),
-            Self::CpuAutoScale => bool_display(config.cpu_auto_scale),
-            Self::CpuBottom => bool_display(config.layout().cpu_bottom),
-            Self::ShowUptime => bool_display(config.show_uptime),
-            Self::ShowCpuWatts => bool_display(config.show_cpu_watts),
-            Self::CheckTemp => bool_display(config.check_temp),
-            Self::ShowCoretemp => bool_display(config.show_coretemp),
-            Self::ShowCpuFreq => bool_display(config.show_cpu_freq),
-            Self::MemBelowNet => bool_display(config.layout().mem_below_net),
-            Self::ShowSwap => bool_display(config.show_swap),
-
-            Self::ShowIoStat => bool_display(config.show_io_stat),
-            Self::IoMode => bool_display(config.io_mode),
-            Self::IoGraphCombined => bool_display(config.io_graph_combined),
-            Self::SwapUploadDownload => bool_display(config.swap_upload_download),
-            Self::Base10Sizes => bool_display(config.base_10_sizes),
-            Self::NetAuto => bool_display(config.net_auto),
-            Self::NetSync => bool_display(config.net_sync),
-
-            Self::VimKeys => bool_display(config.vim_keys),
-            Self::BackgroundUpdate => bool_display(config.background_update),
-            Self::TerminalSync => bool_display(config.terminal_sync),
-            Self::SaveConfigOnExit => bool_display(config.save_config_on_exit),
-
-            Self::DiskIoMode => bool_display(config.disk_io_mode),
-
-            // ints
-            Self::UpdateMs => config.update_ms.to_string(),
-            Self::CpuUpdateMs => config.cpu_update_ms.to_string(),
-            Self::MemUpdateMs => config.mem_update_ms.to_string(),
-            Self::DiskUpdateMs => config.disk_update_ms.to_string(),
-            Self::NetUpdateMs => config.net_update_ms.to_string(),
-            Self::GpuUpdateMs => config.gpu_update_ms.to_string(),
-            Self::ProcUpdateMs => config.proc_update_ms.to_string(),
-            Self::NetDownload => config.net_download.to_string(),
-            Self::NetUpload => config.net_upload.to_string(),
-
-            // strings
-            Self::ColorTheme => config.color_theme.clone(),
-            Self::Widgets => config
-                .layout()
-                .widgets
-                .iter()
-                .map(WidgetKind::to_string)
-                .collect::<Vec<_>>()
-                .join(" "),
-            Self::GraphSymbol => config.graph_symbol.to_string(),
-            Self::GraphSymbolCpu => config.graph_symbol_cpu.to_string(),
-            Self::GraphSymbolNet => config.graph_symbol_net.to_string(),
-            Self::GraphSymbolDisk => config.graph_symbol_disk.to_string(),
-            Self::ProcSorting => config.proc_sorting.to_string(),
-            Self::CpuGraphUpper => config.cpu_graph_upper.to_string(),
-            Self::CpuGraphLower => config.cpu_graph_lower.to_string(),
-
-            Self::TempScale => config.temp_scale.to_string(),
-            Self::ClockFormat => config.clock_format.clone(),
-            Self::CustomCpuName => config.custom_cpu_name.clone(),
-            Self::DisksFilter => config.disks_filter.join(" "),
-            Self::LogLevel => config.log_level.to_string(),
-            Self::ProcFilter => config.proc_filter.clone(),
-            Self::CustomGpuName0 => config.custom_gpu_names[0].clone(),
-            Self::CustomGpuName1 => config.custom_gpu_names[1].clone(),
-            Self::CustomGpuName2 => config.custom_gpu_names[2].clone(),
-            Self::CustomGpuName3 => config.custom_gpu_names[3].clone(),
-            Self::CustomGpuName4 => config.custom_gpu_names[4].clone(),
-            Self::CustomGpuName5 => config.custom_gpu_names[5].clone(),
-            Self::CustomGpuName6 => config.custom_gpu_names[6].clone(),
-            Self::CustomGpuName7 => config.custom_gpu_names[7].clone(),
-        }
-    }
-
-    /// Toggle the boolean field. Panics on non-bool keys.
-    pub fn toggle_bool(self, config: &mut Config) {
-        match self {
-            Self::ThemeBackground => config.theme_background = !config.theme_background,
-            Self::RoundedCorners => config.rounded_corners = !config.rounded_corners,
-            Self::ProcReversed => config.proc_reversed = !config.proc_reversed,
-            Self::ProcTree => config.proc_tree = !config.proc_tree,
-            Self::ProcColors => config.proc_colors = !config.proc_colors,
-            Self::ProcGradient => config.proc_gradient = !config.proc_gradient,
-            Self::ProcPerCore => config.proc_per_core = !config.proc_per_core,
-            Self::ProcMemBytes => config.proc_mem_bytes = !config.proc_mem_bytes,
-            Self::ProcLeft => config.set_proc_left(!config.layout().proc_left),
-
-            Self::ProcAggregate => config.proc_aggregate = !config.proc_aggregate,
-            Self::KeepDeadProcUsage => config.keep_dead_proc_usage = !config.keep_dead_proc_usage,
-            Self::CpuInvertLower => config.cpu_invert_lower = !config.cpu_invert_lower,
-            Self::CpuSingleGraph => config.cpu_single_graph = !config.cpu_single_graph,
-            Self::CpuAutoScale => config.cpu_auto_scale = !config.cpu_auto_scale,
-            Self::CpuBottom => config.set_cpu_bottom(!config.layout().cpu_bottom),
-            Self::ShowUptime => config.show_uptime = !config.show_uptime,
-            Self::ShowCpuWatts => config.show_cpu_watts = !config.show_cpu_watts,
-            Self::CheckTemp => config.check_temp = !config.check_temp,
-            Self::ShowCoretemp => config.show_coretemp = !config.show_coretemp,
-            Self::ShowCpuFreq => config.show_cpu_freq = !config.show_cpu_freq,
-            Self::MemBelowNet => config.set_mem_below_net(!config.layout().mem_below_net),
-            Self::ShowSwap => config.show_swap = !config.show_swap,
-
-            Self::ShowIoStat => config.show_io_stat = !config.show_io_stat,
-            Self::IoMode => config.io_mode = !config.io_mode,
-            Self::IoGraphCombined => config.io_graph_combined = !config.io_graph_combined,
-            Self::SwapUploadDownload => {
-                config.swap_upload_download = !config.swap_upload_download;
-            }
-            Self::Base10Sizes => config.base_10_sizes = !config.base_10_sizes,
-            Self::NetAuto => config.net_auto = !config.net_auto,
-            Self::NetSync => config.net_sync = !config.net_sync,
-
-            Self::VimKeys => config.vim_keys = !config.vim_keys,
-            Self::BackgroundUpdate => config.background_update = !config.background_update,
-            Self::TerminalSync => config.terminal_sync = !config.terminal_sync,
-            Self::SaveConfigOnExit => config.save_config_on_exit = !config.save_config_on_exit,
-
-            Self::DiskIoMode => config.disk_io_mode = !config.disk_io_mode,
-            _ => panic!("toggle_bool called on non-bool key '{}'", self.name()),
-        }
-    }
-
-    /// Get an integer value. Panics on non-int keys.
-    pub fn get_int(self, config: &Config) -> i64 {
-        match self {
-            Self::UpdateMs => config.update_ms,
-            Self::CpuUpdateMs => config.cpu_update_ms,
-            Self::MemUpdateMs => config.mem_update_ms,
-            Self::DiskUpdateMs => config.disk_update_ms,
-            Self::NetUpdateMs => config.net_update_ms,
-            Self::GpuUpdateMs => config.gpu_update_ms,
-            Self::ProcUpdateMs => config.proc_update_ms,
-            Self::NetDownload => config.net_download,
-            Self::NetUpload => config.net_upload,
-            _ => panic!("get_int called on non-int key '{}'", self.name()),
-        }
-    }
-
-    /// Set an integer value. No clamping — caller should call validate().
-    /// Panics on non-int keys.
-    pub fn set_int(self, config: &mut Config, value: i64) {
-        match self {
-            Self::UpdateMs => config.update_ms = value,
-            Self::CpuUpdateMs => config.cpu_update_ms = value,
-            Self::MemUpdateMs => config.mem_update_ms = value,
-            Self::DiskUpdateMs => config.disk_update_ms = value,
-            Self::NetUpdateMs => config.net_update_ms = value,
-            Self::GpuUpdateMs => config.gpu_update_ms = value,
-            Self::ProcUpdateMs => config.proc_update_ms = value,
-            Self::NetDownload => config.net_download = value,
-            Self::NetUpload => config.net_upload = value,
-            _ => panic!("set_int called on non-int key '{}'", self.name()),
-        }
-    }
-
     /// Set a value from its canonical string form.
     ///
     /// Returns `Err(SetStringError)` if `value` does not parse for
