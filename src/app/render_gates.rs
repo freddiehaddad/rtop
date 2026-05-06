@@ -1,29 +1,34 @@
 //! Pre-render gates: messages shown when the terminal is too small
-//! to fit any layout, or while waiting for the first data snapshot
-//! from every collector.
+//! to fit the active layout, or while waiting for the first data
+//! snapshot from every collector.
 //!
 //! Both gates short-circuit the normal render path in `app::run`.
 //! They share the same dirty-flag entry condition (LAYOUT or any
 //! widget dirty bit) so the message redraws on resize and on first
 //! tick but is otherwise idle.
+//!
+//! The "too small" threshold is **dynamic**: it's the minimum size
+//! at which the user's active widget set + hardware (core count,
+//! GPU count, disk count, swap, temps, watts) fits without
+//! truncation. Computed each frame in `app::run` via
+//! `draw::layout::min_terminal_size` and passed in here.
 
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::AppState;
 use crate::config;
 use crate::dirty::Dirty;
-use crate::draw;
 use crate::term;
 use crate::theme;
 use crate::theme_keys as tc;
 
-pub(crate) fn is_too_small(size: TerminalSize) -> bool {
-    size.width < draw::layout::MIN_TERM_WIDTH || size.height < draw::layout::MIN_TERM_HEIGHT
+pub(crate) fn is_too_small(size: TerminalSize, min_size: (usize, usize)) -> bool {
+    let (min_w, min_h) = min_size;
+    size.width < min_w || size.height < min_h
 }
 
-fn render_too_small(size: TerminalSize, theme: &theme::Theme) -> String {
-    let min_w = draw::layout::MIN_TERM_WIDTH;
-    let min_h = draw::layout::MIN_TERM_HEIGHT;
+fn render_too_small(size: TerminalSize, min_size: (usize, usize), theme: &theme::Theme) -> String {
+    let (min_w, min_h) = min_size;
     let msg = format!(
         "Terminal too small ({}x{}). Need {}x{}.",
         size.width, size.height, min_w, min_h
@@ -46,11 +51,12 @@ pub(crate) fn render_if_dirty_small(
     terminal: &mut term::Terminal,
     theme: &theme::Theme,
     size: TerminalSize,
+    min_size: (usize, usize),
 ) {
     if state.render.dirty.contains(Dirty::LAYOUT)
         || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
     {
-        let output = style_terminal_output(&render_too_small(size, theme), config, theme);
+        let output = style_terminal_output(&render_too_small(size, min_size, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {
             tracing::warn!(
                 subsystem = %crate::log::Subsystem::Terminal,
@@ -104,19 +110,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn terminal_size_checks_minimum_dimensions() {
-        assert!(is_too_small(TerminalSize {
-            width: draw::layout::MIN_TERM_WIDTH - 1,
-            height: draw::layout::MIN_TERM_HEIGHT,
-        }));
-        assert!(is_too_small(TerminalSize {
-            width: draw::layout::MIN_TERM_WIDTH,
-            height: draw::layout::MIN_TERM_HEIGHT - 1,
-        }));
-        assert!(!is_too_small(TerminalSize {
-            width: draw::layout::MIN_TERM_WIDTH,
-            height: draw::layout::MIN_TERM_HEIGHT,
-        }));
+    fn is_too_small_compares_against_passed_minimum() {
+        let min = (100, 30);
+        assert!(is_too_small(
+            TerminalSize {
+                width: 99,
+                height: 30,
+            },
+            min,
+        ));
+        assert!(is_too_small(
+            TerminalSize {
+                width: 100,
+                height: 29,
+            },
+            min,
+        ));
+        assert!(!is_too_small(
+            TerminalSize {
+                width: 100,
+                height: 30,
+            },
+            min,
+        ));
     }
 
     #[test]
@@ -126,14 +142,11 @@ mod tests {
                 width: 40,
                 height: 10,
             },
+            (150, 48),
             &theme::Theme::new(),
         );
 
         assert!(out.contains("Terminal too small (40x10)."));
-        assert!(out.contains(&format!(
-            "Need {}x{}.",
-            draw::layout::MIN_TERM_WIDTH,
-            draw::layout::MIN_TERM_HEIGHT
-        )));
+        assert!(out.contains("Need 150x48."));
     }
 }

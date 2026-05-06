@@ -76,22 +76,106 @@ pub const MIN_PROC_WIDTH: usize = 44;
 pub const MIN_GPU_HEIGHT: usize = 7;
 /// Minimum height for the disk widget.
 pub const MIN_DISK_HEIGHT: usize = 4;
+/// Minimum height for the proc widget.
+///
+/// Used as the floor for the proc column when computing the
+/// minimum terminal size. Real placement gives proc whatever space
+/// remains after CPU and the left column; this is just the smallest
+/// value at which the header + a few rows are still legible.
+pub const MIN_PROC_HEIGHT: usize = 8;
 /// Percentage of terminal width allocated to the proc widget (right column).
 const PROC_WIDTH_PCT: usize = 60;
 
-/// Minimum terminal width for the default layout (left column + proc column).
+/// Smallest terminal size at which the active layout fits without
+/// truncation, given the current widget set and snapshot hints.
 ///
-/// Derived from: `MIN_MEM_WIDTH (36) + MIN_PROC_WIDTH (44) = 80`.
-/// When both a left-column widget (mem/net/disk) and proc are visible, the
-/// terminal must be wide enough for both columns.
-pub const MIN_TERM_WIDTH: usize = MIN_MEM_WIDTH + MIN_PROC_WIDTH;
+/// Width is derived from the proc/left column split (`proc_width =
+/// term_width * PROC_WIDTH_PCT / 100` with a `MIN_PROC_WIDTH`
+/// floor; the left column gets the remainder with a `MIN_MEM_WIDTH`
+/// floor). Height is derived from the per-widget `preferred_height`
+/// helpers: `cpu_pref + max(left_column_pref, proc_pref)`. The CPU
+/// widget is also constrained by `term_height/3`, so we additionally
+/// require `term_height >= 3 * cpu_pref` to let the CPU widget reach
+/// its preferred height.
+///
+/// The returned size is exactly what the user would see in the
+/// "Terminal too small" message, and the value used by the
+/// `is_too_small` gate in the event loop.
+pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
+    let widgets = cfg.widgets;
+    let hints = &cfg.hints;
+    let has_cpu = widgets.contains(&WidgetKind::Cpu);
+    let has_mem = widgets.contains(&WidgetKind::Mem);
+    let has_net = widgets.contains(&WidgetKind::Net);
+    let has_proc = widgets.contains(&WidgetKind::Proc);
+    let has_disk = widgets.contains(&WidgetKind::Disk);
+    let gpu_count_shown = (0..MAX_GPUS as u8)
+        .filter(|n| (*n as usize) < hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
+        .count();
+    let has_gpu = gpu_count_shown > 0;
+    let has_left = has_mem || has_net || has_disk || has_gpu;
 
-/// Minimum terminal height for the default layout.
-///
-/// Derived from: `MIN_CPU_HEIGHT (8) + MIN_NET_HEIGHT (6) + MIN_DISK_HEIGHT (4) = 18`.
-/// This is the smallest height that can fit cpu (top) plus the shortest
-/// combination of left-column widgets beneath it.
-pub const MIN_TERM_HEIGHT: usize = MIN_CPU_HEIGHT + MIN_NET_HEIGHT + MIN_DISK_HEIGHT;
+    // ----------------------------------------------------------------
+    // Width
+    // ----------------------------------------------------------------
+    // Widest widget that lives in the left column (mem floor
+    // dominates for mem/disk/gpu; net floor only matters when net
+    // is the sole left-column widget).
+    let left_min_width = if has_mem || has_disk || has_gpu {
+        MIN_MEM_WIDTH
+    } else if has_net {
+        MIN_NET_WIDTH
+    } else {
+        0
+    };
+
+    let min_width = if has_proc && has_left {
+        // Both columns must fit at their own minimums simultaneously
+        // under the PROC_WIDTH_PCT split. Solve for the smallest
+        // term_width that satisfies both:
+        //   term_width * PROC_WIDTH_PCT / 100 >= MIN_PROC_WIDTH
+        //   term_width - term_width * PROC_WIDTH_PCT / 100 >= left_min_width
+        let from_proc = (MIN_PROC_WIDTH * 100).div_ceil(PROC_WIDTH_PCT);
+        let from_left = (left_min_width * 100).div_ceil(100 - PROC_WIDTH_PCT);
+        from_proc.max(from_left)
+    } else if has_proc {
+        MIN_PROC_WIDTH
+    } else {
+        left_min_width
+    };
+
+    // ----------------------------------------------------------------
+    // Height
+    // ----------------------------------------------------------------
+    let cpu_pref = if has_cpu {
+        crate::ui::cpu_widget::preferred_height(hints).max(MIN_CPU_HEIGHT)
+    } else {
+        0
+    };
+    let gpu_height_total = gpu_count_shown * crate::ui::gpu_widget::preferred_height();
+    let mem_pref = if has_mem {
+        crate::ui::mem_widget::preferred_height(hints)
+    } else {
+        0
+    };
+    let net_pref = if has_net { MIN_NET_HEIGHT } else { 0 };
+    let disk_pref = if has_disk {
+        crate::ui::disk_widget::preferred_height(hints)
+    } else {
+        0
+    };
+    let left_pref = gpu_height_total + mem_pref + net_pref + disk_pref;
+    let proc_pref = if has_proc { MIN_PROC_HEIGHT } else { 0 };
+
+    let layout_height = cpu_pref + left_pref.max(proc_pref);
+    // CPU is clamped to term_height / 3 in `calc_sizes`, so to let
+    // the CPU widget reach its preferred height the terminal must
+    // also be at least three times that preferred height.
+    let cpu_clamp_height = if has_cpu { 3 * cpu_pref } else { 0 };
+    let min_height = layout_height.max(cpu_clamp_height);
+
+    (min_width, min_height)
+}
 
 /// Configuration for layout calculation.
 pub struct LayoutConfig<'a> {
@@ -568,5 +652,96 @@ mod tests {
         }));
         assert!(layout.dims_for(WidgetKind::Gpu(0)).is_some());
         assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
+    }
+
+    // ----------------------------------------------------------------
+    // min_terminal_size
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn min_terminal_size_proc_only_uses_proc_minimums() {
+        let b = widgets(&[WidgetKind::Proc]);
+        let (w, h) = min_terminal_size(&lc(0, 0, &b));
+        assert_eq!(w, MIN_PROC_WIDTH);
+        assert_eq!(h, MIN_PROC_HEIGHT);
+    }
+
+    #[test]
+    fn min_terminal_size_left_only_uses_widest_left_widget() {
+        // Only net is in the left column -> width floor is MIN_NET_WIDTH.
+        let b = widgets(&[WidgetKind::Net]);
+        let (w, _) = min_terminal_size(&lc(0, 0, &b));
+        assert_eq!(w, MIN_NET_WIDTH);
+
+        // Mem in the left column -> MIN_MEM_WIDTH (the dominant floor).
+        let b = widgets(&[WidgetKind::Mem, WidgetKind::Net]);
+        let (w, _) = min_terminal_size(&lc(0, 0, &b));
+        assert_eq!(w, MIN_MEM_WIDTH);
+    }
+
+    #[test]
+    fn min_terminal_size_two_columns_satisfies_pct_split() {
+        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
+        let (w, _) = min_terminal_size(&lc(0, 0, &b));
+        // 60/40 split must give proc >= MIN_PROC_WIDTH and left >= MIN_MEM_WIDTH.
+        assert!(w * PROC_WIDTH_PCT / 100 >= MIN_PROC_WIDTH);
+        assert!(w - w * PROC_WIDTH_PCT / 100 >= MIN_MEM_WIDTH);
+    }
+
+    #[test]
+    fn min_terminal_size_height_sums_left_column_widgets() {
+        // CPU + Mem + Net + Disk in default layout. Height must fit
+        // CPU's preferred height plus the sum of left-column
+        // preferred heights.
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Disk,
+            WidgetKind::Proc,
+        ]);
+        let cfg = lc_with_hints(0, 0, &b, |h| {
+            h.core_count = 4;
+            h.disk_count = 1;
+            h.disk_rows_per_unit = 2;
+        });
+        let (_, height) = min_terminal_size(&cfg);
+        let cpu_pref = crate::ui::cpu_widget::preferred_height(&cfg.hints);
+        let left = crate::ui::mem_widget::preferred_height(&cfg.hints)
+            + MIN_NET_HEIGHT
+            + crate::ui::disk_widget::preferred_height(&cfg.hints);
+        // Must satisfy both the layout sum and the cpu/3 clamp.
+        assert!(height >= cpu_pref + left);
+        assert!(height >= 3 * cpu_pref);
+    }
+
+    #[test]
+    fn min_terminal_size_grows_with_more_disks_and_gpus() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Disk,
+            WidgetKind::Gpu(0),
+            WidgetKind::Proc,
+        ]);
+        let small = min_terminal_size(&lc_with_hints(0, 0, &b, |h| {
+            h.core_count = 4;
+            h.disk_count = 1;
+            h.gpu_count = 1;
+            h.disk_rows_per_unit = 2;
+        }));
+        let large = min_terminal_size(&lc_with_hints(0, 0, &b, |h| {
+            h.core_count = 32;
+            h.disk_count = 4;
+            h.gpu_count = 1;
+            h.has_cpu_temp = true;
+            h.has_cpu_watts = true;
+            h.disk_rows_per_unit = 2;
+        }));
+        assert!(
+            large.1 > small.1,
+            "more cores/disks/temps should require taller terminal: small={small:?}, large={large:?}",
+        );
     }
 }

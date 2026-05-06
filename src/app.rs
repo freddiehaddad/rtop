@@ -100,9 +100,25 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         let render_ui = config.background_update || state.overlay.render_ui();
         pull::pull_subsystem_data(&mut state, config, &manager, render_ui, &ready);
 
+        // Required terminal size for the active layout, derived per
+        // frame from the active widget set + hardware-derived hints
+        // (core count, gpu count, disk count, swap, temps, watts).
+        let layout = config.layout();
+        let min_size = crate::draw::layout::min_terminal_size(&crate::draw::layout::LayoutConfig {
+            term_width: size.width,
+            term_height: size.height,
+            widgets: layout.widgets,
+            cpu_bottom: layout.cpu_bottom,
+            mem_below_net: layout.mem_below_net,
+            proc_left: layout.proc_left,
+            hints: state.live.layout_hints(config),
+        });
+
         // Handle too-small terminal: render message, only accept quit.
-        if render_gates::is_too_small(size) {
-            render_gates::render_if_dirty_small(&mut state, config, terminal, theme, size);
+        if render_gates::is_too_small(size, min_size) {
+            render_gates::render_if_dirty_small(
+                &mut state, config, terminal, theme, size, min_size,
+            );
             if keys.contains(&input::Key::Char('q')) {
                 break;
             }
