@@ -239,12 +239,19 @@ pub fn draw(
         buf.mv(inset_x, y + 1).text(&inset);
     }
 
-    // Bottom border: sync, auto, zero, interface selector
+    // Bottom border: sync, auto, zero, interface selector.
+    // sync/auto append `*` when active (mirrors disk's `io*` and
+    // proc's `tre*e` convention for binary toggles). zero is a
+    // momentary action and never has a marker.
     let bottom_y = y + height;
     let iface_display = tools::uresize(settings.iface, 15, false);
 
-    let sync_inset = box_drawing::keybind_inset("sync", border_color, hi, title_color, true);
-    let auto_inset = box_drawing::keybind_inset("auto", border_color, hi, title_color, true);
+    let sync_marker = if net_sync { "*" } else { "" };
+    let auto_marker = if net_auto { "*" } else { "" };
+    let sync_text = format!("{hi}s{title_color}ync{sync_marker}");
+    let auto_text = format!("{hi}a{title_color}uto{auto_marker}");
+    let sync_inset = box_drawing::title_inset(&sync_text, border_color, title_color, true);
+    let auto_inset = box_drawing::title_inset(&auto_text, border_color, title_color, true);
     let zero_inset = box_drawing::keybind_inset("zero", border_color, hi, title_color, true);
     let iface_text = format!(
         "← {}b{} {} {}n{} →",
@@ -254,9 +261,9 @@ pub fn draw(
 
     let mut bx = x + 3;
     buf.mv(bx, bottom_y).text(&sync_inset);
-    bx += box_drawing::inset_width("sync");
+    bx += box_drawing::inset_width(&format!("sync{sync_marker}"));
     buf.mv(bx, bottom_y).text(&auto_inset);
-    bx += box_drawing::inset_width("auto");
+    bx += box_drawing::inset_width(&format!("auto{auto_marker}"));
     buf.mv(bx, bottom_y).text(&zero_inset);
     bx += box_drawing::inset_width("zero");
     buf.mv(bx, bottom_y).text(&iface_inset);
@@ -434,5 +441,90 @@ mod tests {
             output.contains(&format!("{title} →")),
             "leading space + right arrow should render in TITLE colour"
         );
+    }
+
+    #[test]
+    fn sync_auto_insets_have_no_marker_when_inactive() {
+        // Mirror of disk_widget's io_inset_inactive_has_no_star_marker:
+        // when both auto and sync are off, neither inset should show a `*`.
+        let mut s = make_settings();
+        s.auto_scale = false;
+        s.sync_scale = false;
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &Theme::default(),
+            &s,
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            !plain.contains("sync*"),
+            "no '*' marker should appear next to 'sync' when sync is inactive",
+        );
+        assert!(
+            !plain.contains("auto*"),
+            "no '*' marker should appear next to 'auto' when auto is inactive",
+        );
+    }
+
+    #[test]
+    fn sync_inset_appends_star_marker_when_active() {
+        // Mirror of disk_widget's io_inset_active_appends_star_marker.
+        let mut s = make_settings();
+        s.sync_scale = true;
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &Theme::default(),
+            &s,
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("sync*"),
+            "visible text should contain 'sync*' when sync_scale is on",
+        );
+    }
+
+    #[test]
+    fn auto_inset_appends_star_marker_when_active() {
+        let mut s = make_settings();
+        s.auto_scale = true;
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &Theme::default(),
+            &s,
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("auto*"),
+            "visible text should contain 'auto*' when auto_scale is on",
+        );
+    }
+
+    #[test]
+    fn zero_inset_never_shows_marker() {
+        // `z` is a momentary action (resets totals); it has no
+        // toggle state, so the `zero` inset must never grow a `*`.
+        for (auto, sync) in [(false, false), (true, false), (false, true), (true, true)] {
+            let mut s = make_settings();
+            s.auto_scale = auto;
+            s.sync_scale = sync;
+            let output = draw(
+                &make_net_info(),
+                &make_area(),
+                &Theme::default(),
+                &s,
+                &CollectStatus::Ok,
+            );
+            let plain = strip_ansi(&output);
+            assert!(
+                !plain.contains("zero*"),
+                "zero inset must never show a '*' marker (auto={auto} sync={sync})",
+            );
+        }
     }
 }
