@@ -111,6 +111,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             cpu_bottom: layout.cpu_bottom,
             mem_below_net: layout.mem_below_net,
             proc_left: layout.proc_left,
+            stack_vertical: layout.stack_vertical,
             hints: state.live.layout_hints(config),
         });
 

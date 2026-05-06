@@ -60,6 +60,13 @@ struct PresetData {
     cpu_bottom: bool,
     mem_below_net: bool,
     proc_left: bool,
+    /// `true` collapses the layout into a single full-width column.
+    /// Left-column widgets stack at their preferred heights from the
+    /// top; proc (when present) absorbs the remaining height at the
+    /// bottom. Used for presets whose widgets have small intrinsic
+    /// heights and would otherwise stretch to fill an oversized
+    /// column in the default 2-column layout.
+    stack_vertical: bool,
 }
 
 /// Widget list for the `all` builtin: every widget rtop knows
@@ -119,6 +126,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: false,
     },
     PresetData {
         name: "cpu+proc",
@@ -126,6 +134,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: false,
     },
     PresetData {
         name: "mem+proc",
@@ -133,6 +142,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: true,
     },
     PresetData {
         name: "disk+proc",
@@ -140,6 +150,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: true,
     },
     PresetData {
         name: "cpu+net+proc",
@@ -147,6 +158,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: false,
     },
     PresetData {
         name: "cpu+gpu+proc",
@@ -154,6 +166,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: true,
     },
     PresetData {
         name: "cpu+mem+disk",
@@ -161,6 +174,7 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         cpu_bottom: false,
         mem_below_net: false,
         proc_left: false,
+        stack_vertical: true,
     },
 ];
 
@@ -210,6 +224,13 @@ impl BuiltinPreset {
     /// `true` to render the process widget on the left.
     pub fn proc_left(self) -> bool {
         self.data().proc_left
+    }
+
+    /// `true` collapses the layout into a single full-width column —
+    /// left-column widgets at preferred heights, proc absorbs slack
+    /// at the bottom. See [`PresetData::stack_vertical`].
+    pub fn stack_vertical(self) -> bool {
+        self.data().stack_vertical
     }
 
     /// Resolve a preset by its canonical [`Self::name`].
@@ -392,6 +413,10 @@ pub struct CustomLayout {
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
+    /// Mirrors [`PresetData::stack_vertical`] for custom layouts.
+    /// Defaults to `false` (the standard 2-column layout) so old
+    /// configs without the field continue to work.
+    pub stack_vertical: bool,
 }
 
 impl Default for CustomLayout {
@@ -416,6 +441,7 @@ impl Default for CustomLayout {
             cpu_bottom: false,
             mem_below_net: false,
             proc_left: false,
+            stack_vertical: false,
         }
     }
 }
@@ -435,6 +461,7 @@ pub struct ActiveLayout<'a> {
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
+    pub stack_vertical: bool,
 }
 
 #[cfg(test)]
@@ -693,6 +720,7 @@ mod tests {
             cpu_bottom: true,
             mem_below_net: false,
             proc_left: true,
+            stack_vertical: true,
         };
         let value = toml::Value::try_from(&layout).unwrap();
         let loaded: CustomLayout = value.try_into().unwrap();
@@ -703,5 +731,6 @@ mod tests {
         assert!(loaded.cpu_bottom);
         assert!(!loaded.mem_below_net);
         assert!(loaded.proc_left);
+        assert!(loaded.stack_vertical);
     }
 }

@@ -464,6 +464,7 @@ impl Config {
                     cpu_bottom: b.cpu_bottom(),
                     mem_below_net: b.mem_below_net(),
                     proc_left: b.proc_left(),
+                    stack_vertical: b.stack_vertical(),
                 }
             }
             crate::domain::preset::ActivePreset::Custom => crate::domain::preset::ActiveLayout {
@@ -471,6 +472,7 @@ impl Config {
                 cpu_bottom: self.custom.cpu_bottom,
                 mem_below_net: self.custom.mem_below_net,
                 proc_left: self.custom.proc_left,
+                stack_vertical: self.custom.stack_vertical,
             },
         }
     }
@@ -554,6 +556,7 @@ impl Config {
                 cpu_bottom: b.cpu_bottom(),
                 mem_below_net: b.mem_below_net(),
                 proc_left: b.proc_left(),
+                stack_vertical: b.stack_vertical(),
             };
             self.preset.set(crate::domain::preset::ActivePreset::Custom);
         }

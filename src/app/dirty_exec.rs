@@ -76,6 +76,7 @@ fn calculate_layout(
         cpu_bottom: layout.cpu_bottom,
         mem_below_net: layout.mem_below_net,
         proc_left: layout.proc_left,
+        stack_vertical: layout.stack_vertical,
         hints: live.layout_hints(config),
     })
 }

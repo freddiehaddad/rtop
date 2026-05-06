@@ -105,6 +105,9 @@ pub struct LayoutPlan {
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
+    /// `true` collapses the layout into a single full-width column.
+    /// See [`LayoutConfig::stack_vertical`].
+    pub stack_vertical: bool,
 }
 
 /// Widgets that live in the left column, in stack order (gpus on
@@ -148,6 +151,7 @@ impl From<&LayoutConfig<'_>> for LayoutPlan {
             cpu_bottom: cfg.cpu_bottom,
             mem_below_net: cfg.mem_below_net,
             proc_left: cfg.proc_left,
+            stack_vertical: cfg.stack_vertical,
         }
     }
 }
@@ -186,7 +190,16 @@ fn min_width_for(plan: &LayoutPlan) -> usize {
         0
     };
 
-    let layout_min_width = if plan.has_proc && !left.is_empty() {
+    let layout_min_width = if plan.stack_vertical && !left.is_empty() {
+        // Vertical-stack: both proc and the left column take the
+        // full terminal width, so the minimum is just the wider of
+        // the two floors. No PROC_WIDTH_PCT split.
+        if plan.has_proc {
+            left_min_width.max(MIN_PROC_WIDTH)
+        } else {
+            left_min_width
+        }
+    } else if plan.has_proc && !left.is_empty() {
         // Both columns must fit at their own minimums simultaneously
         // under the PROC_WIDTH_PCT split. Solve for the smallest
         // term_width that satisfies both:
@@ -224,7 +237,13 @@ fn min_height_for(plan: &LayoutPlan) -> usize {
     let left_pref = left_column_preferred_height(plan);
     let proc_pref = if plan.has_proc { MIN_PROC_HEIGHT } else { 0 };
 
-    let layout_height = cpu_pref + left_pref.max(proc_pref);
+    let layout_height = if plan.stack_vertical && !plan.left_column.is_empty() {
+        // Vertical-stack: left widgets sit above proc, summed heights.
+        cpu_pref + left_pref + proc_pref
+    } else {
+        // 2-column: left column and proc share the bottom region.
+        cpu_pref + left_pref.max(proc_pref)
+    };
     // CPU is clamped to term_height / 3 in `calc_sizes`, so to let
     // the CPU widget reach its preferred height the terminal must
     // also be at least three times that preferred height.
@@ -258,6 +277,11 @@ pub struct LayoutConfig<'a> {
     pub cpu_bottom: bool,
     pub mem_below_net: bool,
     pub proc_left: bool,
+    /// `true` collapses the layout into a single full-width column —
+    /// left-column widgets at preferred heights stacked from the
+    /// top, proc absorbs slack at the bottom. See
+    /// [`crate::domain::preset::PresetData::stack_vertical`].
+    pub stack_vertical: bool,
     /// Snapshot-derived sizing inputs (core_count, disk_count,
     /// has_swap, …) that widgets consume via their per-widget
     /// `preferred_height` helpers.
@@ -333,6 +357,20 @@ struct ColumnSplit {
 
 fn split_columns(plan: &LayoutPlan, term_width: usize) -> ColumnSplit {
     let has_left = !plan.left_column.is_empty();
+
+    // Vertical-stack mode: collapse the two columns into one
+    // full-width column. Both the left widgets and proc render
+    // at `x = 0` with the full terminal width; the vertical
+    // stacking happens inside `place_left_column` and `place_proc`.
+    if plan.stack_vertical && has_left {
+        return ColumnSplit {
+            proc_x: 0,
+            proc_width: if plan.has_proc { term_width } else { 0 },
+            left_x: 0,
+            left_width: term_width,
+        };
+    }
+
     let proc_width = if plan.has_proc {
         if has_left {
             (term_width * PROC_WIDTH_PCT / 100)
@@ -408,30 +446,44 @@ fn place_left_column(plan: &LayoutPlan, c: &ColumnSplit, v: &VerticalSplit, layo
         );
     }
 
-    // Disk gets its preferred height; mem and net split the rest.
     let after_gpu_height = v.bottom_height.saturating_sub(total_gpu_height);
     let disk_height = if left.has_disk {
         crate::ui::disk_widget::preferred_height(&plan.hints)
     } else {
         0
     };
-    let mem_net_budget = after_gpu_height.saturating_sub(disk_height);
-
     let mem_pref = if left.has_mem {
         crate::ui::mem_widget::preferred_height(&plan.hints)
     } else {
         0
     };
-    let (mem_height, net_height) = if left.has_mem && left.has_net {
-        let mh = mem_pref.min(mem_net_budget);
-        let nh = mem_net_budget.saturating_sub(mh).max(MIN_NET_HEIGHT);
-        (mh, nh)
-    } else if left.has_mem {
-        (mem_net_budget, 0)
-    } else if left.has_net {
-        (0, mem_net_budget)
+
+    let (mem_height, net_height) = if plan.stack_vertical {
+        // Vertical-stack: every left-column widget gets its
+        // preferred height. Net (when present) keeps its
+        // `MIN_NET_HEIGHT` floor since it has no preferred height
+        // of its own. Slack stays for proc to absorb in `place_proc`.
+        let net_height = if left.has_net { MIN_NET_HEIGHT } else { 0 };
+        (mem_pref, net_height)
     } else {
-        (0, 0)
+        // 2-column mode: disk gets preferred height, mem and net
+        // share the remaining left-column height. When net is
+        // absent the lone widget (mem) inherits the entire budget
+        // — the source of the "single mem widget stretches to
+        // fill the column" behaviour the vertical-stack mode
+        // sidesteps.
+        let mem_net_budget = after_gpu_height.saturating_sub(disk_height);
+        if left.has_mem && left.has_net {
+            let mh = mem_pref.min(mem_net_budget);
+            let nh = mem_net_budget.saturating_sub(mh).max(MIN_NET_HEIGHT);
+            (mh, nh)
+        } else if left.has_mem {
+            (mem_net_budget, 0)
+        } else if left.has_net {
+            (0, mem_net_budget)
+        } else {
+            (0, 0)
+        }
     };
 
     let mem_net_top_y = v.bottom_y + total_gpu_height;
@@ -481,13 +533,26 @@ fn place_proc(plan: &LayoutPlan, c: &ColumnSplit, v: &VerticalSplit, layout: &mu
     if !plan.has_proc {
         return;
     }
+    let (proc_y, proc_height) = if plan.stack_vertical && !plan.left_column.is_empty() {
+        // Vertical-stack: proc sits below the stacked left-column
+        // widgets and absorbs whatever bottom-region height is left.
+        // The widget-height choices in `place_left_column`'s
+        // `stack_vertical` branch mirror `left_column_preferred_height`
+        // exactly, so it's the right value to subtract here.
+        let consumed = left_column_preferred_height(plan);
+        let proc_y = v.bottom_y + consumed.min(v.bottom_height);
+        let proc_height = v.bottom_height.saturating_sub(consumed);
+        (proc_y, proc_height)
+    } else {
+        (v.bottom_y, v.bottom_height)
+    };
     layout.set(
         WidgetKind::Proc,
         WidgetDimensions {
             x: c.proc_x,
-            y: v.bottom_y,
+            y: proc_y,
             width: c.proc_width,
-            height: v.bottom_height,
+            height: proc_height,
         },
     );
 }
@@ -509,6 +574,7 @@ mod tests {
             cpu_bottom: false,
             mem_below_net: false,
             proc_left: false,
+            stack_vertical: false,
             hints: LayoutHints {
                 core_count: 4,
                 gpu_count: 0,
@@ -887,5 +953,177 @@ mod tests {
         let b = widgets(&[WidgetKind::Cpu, WidgetKind::Proc]);
         let plan = LayoutPlan::from(&lc(120, 40, &b));
         assert!(plan.left_column.is_empty());
+    }
+
+    // ----------------------------------------------------------------
+    // stack_vertical layout
+    // ----------------------------------------------------------------
+
+    fn lc_stacked<'a>(tw: usize, th: usize, shown: &'a [WidgetKind]) -> LayoutConfig<'a> {
+        LayoutConfig {
+            stack_vertical: true,
+            ..lc(tw, th, shown)
+        }
+    }
+
+    #[test]
+    fn stack_vertical_mem_proc_stacks_proc_below_mem_full_width() {
+        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
+        let layout = calc_sizes(&lc_stacked(120, 40, &b));
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        // Mem at top, full width, preferred height.
+        let mem_pref = crate::ui::mem_widget::preferred_height(&LayoutHints::default());
+        assert_eq!(mem.x, 0);
+        assert_eq!(mem.y, 0);
+        assert_eq!(mem.width, 120);
+        assert_eq!(mem.height, mem_pref);
+        // Proc immediately below mem, full width, fills the rest.
+        assert_eq!(proc.x, 0);
+        assert_eq!(proc.y, mem_pref);
+        assert_eq!(proc.width, 120);
+        assert_eq!(proc.height, 40 - mem_pref);
+    }
+
+    #[test]
+    fn stack_vertical_disk_proc_stacks_proc_below_disk_full_width() {
+        let b = widgets(&[WidgetKind::Disk, WidgetKind::Proc]);
+        let cfg = lc_with_hints(120, 40, &b, |h| {
+            h.disk_count = 2;
+            h.disk_rows_per_unit = 2;
+        });
+        let cfg = LayoutConfig {
+            stack_vertical: true,
+            ..cfg
+        };
+        let layout = calc_sizes(&cfg);
+        let disk = layout.dims_for(WidgetKind::Disk).expect("disk placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        let disk_pref = crate::ui::disk_widget::preferred_height(&cfg.hints);
+        assert_eq!(disk.x, 0);
+        assert_eq!(disk.y, 0);
+        assert_eq!(disk.width, 120);
+        assert_eq!(disk.height, disk_pref);
+        assert_eq!(proc.x, 0);
+        assert_eq!(proc.y, disk_pref);
+        assert_eq!(proc.width, 120);
+        assert_eq!(proc.height, 40 - disk_pref);
+    }
+
+    #[test]
+    fn stack_vertical_cpu_mem_disk_no_proc_stacks_under_cpu() {
+        // Without proc, mem and disk render at preferred heights
+        // beneath cpu; the remaining space is intentionally empty.
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk]);
+        let cfg = lc_with_hints(120, 60, &b, |h| {
+            h.core_count = 8;
+            h.disk_count = 2;
+            h.disk_rows_per_unit = 2;
+        });
+        let cfg = LayoutConfig {
+            stack_vertical: true,
+            ..cfg
+        };
+        let layout = calc_sizes(&cfg);
+        let cpu = layout.dims_for(WidgetKind::Cpu).expect("cpu placed");
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let disk = layout.dims_for(WidgetKind::Disk).expect("disk placed");
+        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
+        let disk_pref = crate::ui::disk_widget::preferred_height(&cfg.hints);
+        // Full-width column, all three at preferred heights.
+        assert_eq!(cpu.x, 0);
+        assert_eq!(cpu.y, 0);
+        assert_eq!(cpu.width, 120);
+        assert_eq!(mem.x, 0);
+        assert_eq!(mem.y, cpu.height);
+        assert_eq!(mem.width, 120);
+        assert_eq!(mem.height, mem_pref);
+        assert_eq!(disk.x, 0);
+        assert_eq!(disk.y, cpu.height + mem_pref);
+        assert_eq!(disk.width, 120);
+        assert_eq!(disk.height, disk_pref);
+    }
+
+    #[test]
+    fn stack_vertical_cpu_gpu_proc_stacks_each_gpu_at_preferred_height() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Gpu(0),
+            WidgetKind::Gpu(1),
+            WidgetKind::Proc,
+        ]);
+        let cfg = lc_with_hints(160, 60, &b, |h| {
+            h.core_count = 8;
+            h.gpu_count = 2;
+        });
+        let cfg = LayoutConfig {
+            stack_vertical: true,
+            ..cfg
+        };
+        let layout = calc_sizes(&cfg);
+        let gpu_pref = crate::ui::gpu_widget::preferred_height();
+        let cpu = layout.dims_for(WidgetKind::Cpu).unwrap();
+        let g0 = layout.dims_for(WidgetKind::Gpu(0)).unwrap();
+        let g1 = layout.dims_for(WidgetKind::Gpu(1)).unwrap();
+        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
+        // Cpu top, both gpus stacked beneath at preferred heights, proc fills rest.
+        assert_eq!(cpu.x, 0);
+        assert_eq!(cpu.width, 160);
+        assert_eq!(g0.x, 0);
+        assert_eq!(g0.y, cpu.height);
+        assert_eq!(g0.width, 160);
+        assert_eq!(g0.height, gpu_pref);
+        assert_eq!(g1.x, 0);
+        assert_eq!(g1.y, cpu.height + gpu_pref);
+        assert_eq!(g1.height, gpu_pref);
+        assert_eq!(proc.x, 0);
+        assert_eq!(proc.y, cpu.height + 2 * gpu_pref);
+        assert_eq!(proc.width, 160);
+        assert_eq!(proc.height, 60 - cpu.height - 2 * gpu_pref);
+    }
+
+    #[test]
+    fn stack_vertical_min_terminal_size_uses_max_floor_not_pct_split() {
+        // Vertical-stack: width is just the wider of the two floors.
+        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
+        let (w_stacked, _) = min_terminal_size(&lc_stacked(0, 0, &b));
+        // Mem floor (MIN_MEM_WIDTH) and proc floor (MIN_PROC_WIDTH) — proc wins.
+        assert_eq!(w_stacked, MIN_PROC_WIDTH);
+
+        // 2-column equivalent uses the percent split formula and is wider.
+        let (w_split, _) = min_terminal_size(&lc(0, 0, &b));
+        assert!(
+            w_split > w_stacked,
+            "2-column split should be wider than stacked (split={w_split}, stacked={w_stacked})",
+        );
+    }
+
+    #[test]
+    fn stack_vertical_min_terminal_size_height_sums_left_plus_proc() {
+        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
+        let cfg = lc_stacked(0, 0, &b);
+        let plan = LayoutPlan::from(&cfg);
+        let (_, h) = min_terminal_size(&cfg);
+        let mem_pref = crate::ui::mem_widget::preferred_height(&plan.hints);
+        // Stacked: cpu_pref(0) + mem_pref + proc_min.
+        assert_eq!(h, mem_pref + MIN_PROC_HEIGHT);
+    }
+}
+
+#[cfg(test)]
+mod preset_flag_tests {
+    use crate::domain::preset::BuiltinPreset;
+
+    #[test]
+    fn stack_vertical_set_only_on_intended_presets() {
+        let stacked: Vec<&'static str> = BuiltinPreset::ALL
+            .iter()
+            .filter(|p| p.stack_vertical())
+            .map(|p| p.name())
+            .collect();
+        assert_eq!(
+            stacked,
+            vec!["mem+proc", "disk+proc", "cpu+gpu+proc", "cpu+mem+disk"]
+        );
     }
 }
