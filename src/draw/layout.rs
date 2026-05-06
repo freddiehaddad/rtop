@@ -86,6 +86,72 @@ pub const MIN_PROC_HEIGHT: usize = 8;
 /// Percentage of terminal width allocated to the proc widget (right column).
 const PROC_WIDTH_PCT: usize = 60;
 
+/// Resolved per-frame description of which widgets land in which
+/// region of the screen.
+///
+/// `LayoutPlan::from(&LayoutConfig)` walks the widget list and
+/// orientation flags exactly once. Both [`calc_sizes`] (which
+/// computes pixel-perfect dimensions) and [`min_terminal_size`]
+/// (which computes the smallest terminal that can fit those
+/// dimensions) consume the plan, so the "what goes where" knowledge
+/// lives in one place.
+#[derive(Debug, Clone)]
+pub struct LayoutPlan {
+    pub term_size: (usize, usize),
+    pub hints: LayoutHints,
+    pub has_cpu: bool,
+    pub has_proc: bool,
+    pub left_column: LeftColumn,
+    pub cpu_bottom: bool,
+    pub mem_below_net: bool,
+    pub proc_left: bool,
+}
+
+/// Widgets that live in the left column, in stack order (gpus on
+/// top, then mem/net per `mem_below_net`, then disk on the bottom).
+#[derive(Debug, Clone, Default)]
+pub struct LeftColumn {
+    /// Detected GPU indices to render this frame, preserving
+    /// `WidgetKind::Gpu(n)` identity. Sparse (e.g. only `gpu1`
+    /// enabled) is supported end-to-end so the renderer pulls the
+    /// right device data for each slot.
+    pub gpu_indices: Vec<u8>,
+    pub has_mem: bool,
+    pub has_net: bool,
+    pub has_disk: bool,
+}
+
+impl LeftColumn {
+    pub fn is_empty(&self) -> bool {
+        self.gpu_indices.is_empty() && !self.has_mem && !self.has_net && !self.has_disk
+    }
+}
+
+impl From<&LayoutConfig<'_>> for LayoutPlan {
+    fn from(cfg: &LayoutConfig<'_>) -> Self {
+        let widgets = cfg.widgets;
+        let hints = cfg.hints;
+        let gpu_indices: Vec<u8> = (0..MAX_GPUS as u8)
+            .filter(|n| (*n as usize) < hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
+            .collect();
+        Self {
+            term_size: (cfg.term_width, cfg.term_height),
+            hints,
+            has_cpu: widgets.contains(&WidgetKind::Cpu),
+            has_proc: widgets.contains(&WidgetKind::Proc),
+            left_column: LeftColumn {
+                gpu_indices,
+                has_mem: widgets.contains(&WidgetKind::Mem),
+                has_net: widgets.contains(&WidgetKind::Net),
+                has_disk: widgets.contains(&WidgetKind::Disk),
+            },
+            cpu_bottom: cfg.cpu_bottom,
+            mem_below_net: cfg.mem_below_net,
+            proc_left: cfg.proc_left,
+        }
+    }
+}
+
 /// Smallest terminal size at which the active layout fits without
 /// truncation, given the current widget set and snapshot hints.
 ///
@@ -102,34 +168,25 @@ const PROC_WIDTH_PCT: usize = 60;
 /// "Terminal too small" message, and the value used by the
 /// `is_too_small` gate in the event loop.
 pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
-    let widgets = cfg.widgets;
-    let hints = &cfg.hints;
-    let has_cpu = widgets.contains(&WidgetKind::Cpu);
-    let has_mem = widgets.contains(&WidgetKind::Mem);
-    let has_net = widgets.contains(&WidgetKind::Net);
-    let has_proc = widgets.contains(&WidgetKind::Proc);
-    let has_disk = widgets.contains(&WidgetKind::Disk);
-    let gpu_count_shown = (0..MAX_GPUS as u8)
-        .filter(|n| (*n as usize) < hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
-        .count();
-    let has_gpu = gpu_count_shown > 0;
-    let has_left = has_mem || has_net || has_disk || has_gpu;
+    let plan = LayoutPlan::from(cfg);
+    (min_width_for(&plan), min_height_for(&plan))
+}
 
-    // ----------------------------------------------------------------
-    // Width
-    // ----------------------------------------------------------------
+/// Smallest terminal width that fits the columns described by `plan`.
+fn min_width_for(plan: &LayoutPlan) -> usize {
+    let left = &plan.left_column;
     // Widest widget that lives in the left column (mem floor
     // dominates for mem/disk/gpu; net floor only matters when net
     // is the sole left-column widget).
-    let left_min_width = if has_mem || has_disk || has_gpu {
+    let left_min_width = if left.has_mem || left.has_disk || !left.gpu_indices.is_empty() {
         MIN_MEM_WIDTH
-    } else if has_net {
+    } else if left.has_net {
         MIN_NET_WIDTH
     } else {
         0
     };
 
-    let layout_min_width = if has_proc && has_left {
+    let layout_min_width = if plan.has_proc && !left.is_empty() {
         // Both columns must fit at their own minimums simultaneously
         // under the PROC_WIDTH_PCT split. Solve for the smallest
         // term_width that satisfies both:
@@ -138,7 +195,7 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
         let from_proc = (MIN_PROC_WIDTH * 100).div_ceil(PROC_WIDTH_PCT);
         let from_left = (left_min_width * 100).div_ceil(100 - PROC_WIDTH_PCT);
         from_proc.max(from_left)
-    } else if has_proc {
+    } else if plan.has_proc {
         MIN_PROC_WIDTH
     } else {
         left_min_width
@@ -149,44 +206,48 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
     // `Minimal` core-panel tier — label + percent only — for the
     // detected core count). On many-core machines this dominates
     // the column-split minimum.
-    let cpu_min_width = if has_cpu {
-        crate::ui::cpu_widget::min_width(hints)
+    let cpu_min_width = if plan.has_cpu {
+        crate::ui::cpu_widget::min_width(&plan.hints)
     } else {
         0
     };
-    let min_width = layout_min_width.max(cpu_min_width);
+    layout_min_width.max(cpu_min_width)
+}
 
-    // ----------------------------------------------------------------
-    // Height
-    // ----------------------------------------------------------------
-    let cpu_pref = if has_cpu {
-        crate::ui::cpu_widget::preferred_height(hints).max(MIN_CPU_HEIGHT)
+/// Smallest terminal height that fits the rows described by `plan`.
+fn min_height_for(plan: &LayoutPlan) -> usize {
+    let cpu_pref = if plan.has_cpu {
+        crate::ui::cpu_widget::preferred_height(&plan.hints).max(MIN_CPU_HEIGHT)
     } else {
         0
     };
-    let gpu_height_total = gpu_count_shown * crate::ui::gpu_widget::preferred_height();
-    let mem_pref = if has_mem {
-        crate::ui::mem_widget::preferred_height(hints)
-    } else {
-        0
-    };
-    let net_pref = if has_net { MIN_NET_HEIGHT } else { 0 };
-    let disk_pref = if has_disk {
-        crate::ui::disk_widget::preferred_height(hints)
-    } else {
-        0
-    };
-    let left_pref = gpu_height_total + mem_pref + net_pref + disk_pref;
-    let proc_pref = if has_proc { MIN_PROC_HEIGHT } else { 0 };
+    let left_pref = left_column_preferred_height(plan);
+    let proc_pref = if plan.has_proc { MIN_PROC_HEIGHT } else { 0 };
 
     let layout_height = cpu_pref + left_pref.max(proc_pref);
     // CPU is clamped to term_height / 3 in `calc_sizes`, so to let
     // the CPU widget reach its preferred height the terminal must
     // also be at least three times that preferred height.
-    let cpu_clamp_height = if has_cpu { 3 * cpu_pref } else { 0 };
-    let min_height = layout_height.max(cpu_clamp_height);
+    let cpu_clamp_height = if plan.has_cpu { 3 * cpu_pref } else { 0 };
+    layout_height.max(cpu_clamp_height)
+}
 
-    (min_width, min_height)
+/// Sum of preferred heights of every widget in the left column.
+fn left_column_preferred_height(plan: &LayoutPlan) -> usize {
+    let left = &plan.left_column;
+    let gpu_total = left.gpu_indices.len() * crate::ui::gpu_widget::preferred_height();
+    let mem = if left.has_mem {
+        crate::ui::mem_widget::preferred_height(&plan.hints)
+    } else {
+        0
+    };
+    let net = if left.has_net { MIN_NET_HEIGHT } else { 0 };
+    let disk = if left.has_disk {
+        crate::ui::disk_widget::preferred_height(&plan.hints)
+    } else {
+        0
+    };
+    gpu_total + mem + net + disk
 }
 
 /// Configuration for layout calculation.
@@ -204,58 +265,75 @@ pub struct LayoutConfig<'a> {
 }
 
 /// Calculate widget sizes and positions based on terminal dimensions and config.
+///
+/// Walks the active widget set into a [`LayoutPlan`] (single source
+/// of truth for "what goes where"), then dispatches to placement
+/// helpers that own one region each. The same `LayoutPlan` shape
+/// drives [`min_terminal_size`].
 pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
-    let term_width = cfg.term_width;
-    let term_height = cfg.term_height;
-    let widgets = cfg.widgets;
-    let cpu_bottom = cfg.cpu_bottom;
-    let mem_below_net = cfg.mem_below_net;
-    let proc_left = cfg.proc_left;
-    let hints = &cfg.hints;
-    let has_cpu = widgets.contains(&WidgetKind::Cpu);
-    let has_mem = widgets.contains(&WidgetKind::Mem);
-    let has_net = widgets.contains(&WidgetKind::Net);
-    let has_proc = widgets.contains(&WidgetKind::Proc);
-    let has_disk = widgets.contains(&WidgetKind::Disk);
-
-    // Collect the actual GPU indices to render this frame, preserving
-    // identity. Filter against `gpu_count` (devices detected) and the
-    // user's widget list. The order in this Vec is the layout
-    // placement order — GPU widgets are placed top-to-bottom in their
-    // index order, but each placement carries its true `n`.
-    let gpu_indices_shown: Vec<u8> = (0..MAX_GPUS as u8)
-        .filter(|n| (*n as usize) < hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
-        .collect();
-    let gpu_count_shown = gpu_indices_shown.len();
-
+    let plan = LayoutPlan::from(cfg);
     let mut layout = Layout::default();
-
-    if term_width < 2 || term_height < 2 {
+    let (term_w, term_h) = plan.term_size;
+    if term_w < 2 || term_h < 2 {
         return layout;
     }
 
-    // GPU widgets — fixed height per device (queried from the widget itself).
-    let gpu_unit_height = crate::ui::gpu_widget::preferred_height();
-    let total_gpu_height = gpu_count_shown * gpu_unit_height;
+    let v = split_vertical(&plan, term_h);
+    let c = split_columns(&plan, term_w);
 
-    // CPU widget height: widget computes its preferred intrinsic
-    // height; layout clamps it against `[MIN_CPU_HEIGHT, term_height/3]`.
-    let cpu_height = if has_cpu {
+    place_cpu(&plan, term_w, &v, &mut layout);
+    place_left_column(&plan, &c, &v, &mut layout);
+    place_proc(&plan, &c, &v, &mut layout);
+
+    layout
+}
+
+/// Vertical split: where CPU sits and how much height the bottom
+/// region (left column + proc) gets.
+struct VerticalSplit {
+    cpu_y: usize,
+    cpu_height: usize,
+    /// First row of the bottom region (left column + proc).
+    bottom_y: usize,
+    /// Height of the bottom region.
+    bottom_height: usize,
+}
+
+fn split_vertical(plan: &LayoutPlan, term_height: usize) -> VerticalSplit {
+    let cpu_height = if plan.has_cpu {
         let max_h = (term_height / 3).max(MIN_CPU_HEIGHT);
-        crate::ui::cpu_widget::preferred_height(hints).clamp(MIN_CPU_HEIGHT, max_h)
+        crate::ui::cpu_widget::preferred_height(&plan.hints).clamp(MIN_CPU_HEIGHT, max_h)
     } else {
         0
     };
+    let cpu_y = if plan.cpu_bottom {
+        term_height.saturating_sub(cpu_height)
+    } else {
+        0
+    };
+    let bottom_y = if plan.cpu_bottom { 0 } else { cpu_height };
+    let bottom_height = term_height.saturating_sub(cpu_height);
+    VerticalSplit {
+        cpu_y,
+        cpu_height,
+        bottom_y,
+        bottom_height,
+    }
+}
 
-    // Top section is CPU only (GPU moves to left column)
-    let top_section = cpu_height;
+/// Horizontal split: x position and width of the proc column and
+/// the left column. Either may be zero-width if its contents are
+/// absent.
+struct ColumnSplit {
+    proc_x: usize,
+    proc_width: usize,
+    left_x: usize,
+    left_width: usize,
+}
 
-    // Whether there are any left-column widgets (now includes GPU)
-    let has_gpu = gpu_count_shown > 0;
-    let has_left = has_mem || has_net || has_disk || has_gpu;
-
-    // Proc widget width (right side, ~55% — or full width if no left-column widgets)
-    let proc_width = if has_proc {
+fn split_columns(plan: &LayoutPlan, term_width: usize) -> ColumnSplit {
+    let has_left = !plan.left_column.is_empty();
+    let proc_width = if plan.has_proc {
         if has_left {
             (term_width * PROC_WIDTH_PCT / 100)
                 .max(MIN_PROC_WIDTH)
@@ -266,153 +344,152 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     } else {
         0
     };
-
-    // Left column width (MEM + NET + DISK)
-    let left_width = if has_proc && has_left {
+    let left_width = if plan.has_proc && has_left {
         term_width - proc_width
     } else if has_left {
         term_width
     } else {
         0
     };
-
-    // Remaining height after CPU
-    let remaining_height = term_height.saturating_sub(top_section);
-
-    // Reserve GPU height in left column
-    let gpu_height_total = if has_gpu { total_gpu_height } else { 0 };
-
-    // Disk widget — preferred height comes from the widget itself.
-    let disk_height = if has_disk {
-        crate::ui::disk_widget::preferred_height(hints)
+    let (left_x, proc_x) = if plan.proc_left {
+        (proc_width, 0)
     } else {
-        0
+        (0, left_width)
     };
-    let left_remaining = remaining_height
-        .saturating_sub(disk_height)
-        .saturating_sub(gpu_height_total);
+    ColumnSplit {
+        proc_x,
+        proc_width,
+        left_x,
+        left_width,
+    }
+}
 
-    // MEM preferred height comes from the widget itself.
-    let mem_fixed = crate::ui::mem_widget::preferred_height(hints);
+fn place_cpu(plan: &LayoutPlan, term_width: usize, v: &VerticalSplit, layout: &mut Layout) {
+    if !plan.has_cpu {
+        return;
+    }
+    layout.set(
+        WidgetKind::Cpu,
+        WidgetDimensions {
+            x: 0,
+            y: v.cpu_y,
+            width: term_width,
+            height: v.cpu_height,
+        },
+    );
+}
 
-    // MEM and NET heights from the remaining left column space
-    let (mem_height, net_height) = if has_mem && has_net {
-        let mh = mem_fixed.min(left_remaining);
-        let nh = left_remaining.saturating_sub(mh).max(MIN_NET_HEIGHT);
-        (mh, nh)
-    } else if has_mem {
-        (left_remaining, 0)
-    } else if has_net {
-        (0, left_remaining)
-    } else {
-        (0, 0)
-    };
-
-    // CPU position
-    let cpu_y = if cpu_bottom {
-        term_height.saturating_sub(top_section)
-    } else {
-        0
-    };
-
-    if has_cpu {
-        layout.set(
-            WidgetKind::Cpu,
-            WidgetDimensions {
-                x: 0,
-                y: cpu_y,
-                width: term_width,
-                height: cpu_height,
-            },
-        );
+fn place_left_column(plan: &LayoutPlan, c: &ColumnSplit, v: &VerticalSplit, layout: &mut Layout) {
+    let left = &plan.left_column;
+    if left.is_empty() {
+        return;
     }
 
-    // Left column positioning
-    let left_y_start = if cpu_bottom { 0 } else { top_section };
-    let left_x = if proc_left { proc_width } else { 0 };
+    let mem_width = c.left_width.max(MIN_MEM_WIDTH);
+    let net_width = c.left_width.max(MIN_NET_WIDTH);
 
-    // GPU widgets in the left column, above mem. Each enabled GPU
-    // widget is keyed by its actual index `n` (from
+    // GPU widgets stack at the top of the left column. Each enabled
+    // GPU widget is keyed by its actual index `n` (from
     // `WidgetKind::Gpu(n)`); the `placement_i` only drives the
     // vertical position so widgets stack top-to-bottom in
     // declaration order without leaving gaps when a low-index GPU
     // is disabled.
-    let gpu_start_y = left_y_start;
-    for (placement_i, n) in gpu_indices_shown.iter().enumerate() {
+    let gpu_unit_height = crate::ui::gpu_widget::preferred_height();
+    let total_gpu_height = left.gpu_indices.len() * gpu_unit_height;
+    for (placement_i, n) in left.gpu_indices.iter().enumerate() {
         layout.set(
             WidgetKind::Gpu(*n),
             WidgetDimensions {
-                x: left_x,
-                y: gpu_start_y + placement_i * gpu_unit_height,
-                width: left_width.max(MIN_MEM_WIDTH),
+                x: c.left_x,
+                y: v.bottom_y + placement_i * gpu_unit_height,
+                width: mem_width,
                 height: gpu_unit_height,
             },
         );
     }
 
-    // Shift left column content below GPU
-    let left_content_y = left_y_start + gpu_height_total;
-
-    // MEM and NET positions (below GPU in left column)
-    let (mem_y, net_y) = if mem_below_net {
-        (left_content_y + net_height, left_content_y)
+    // Disk gets its preferred height; mem and net split the rest.
+    let after_gpu_height = v.bottom_height.saturating_sub(total_gpu_height);
+    let disk_height = if left.has_disk {
+        crate::ui::disk_widget::preferred_height(&plan.hints)
     } else {
-        (left_content_y, left_content_y + mem_height)
+        0
+    };
+    let mem_net_budget = after_gpu_height.saturating_sub(disk_height);
+
+    let mem_pref = if left.has_mem {
+        crate::ui::mem_widget::preferred_height(&plan.hints)
+    } else {
+        0
+    };
+    let (mem_height, net_height) = if left.has_mem && left.has_net {
+        let mh = mem_pref.min(mem_net_budget);
+        let nh = mem_net_budget.saturating_sub(mh).max(MIN_NET_HEIGHT);
+        (mh, nh)
+    } else if left.has_mem {
+        (mem_net_budget, 0)
+    } else if left.has_net {
+        (0, mem_net_budget)
+    } else {
+        (0, 0)
     };
 
-    if has_mem {
+    let mem_net_top_y = v.bottom_y + total_gpu_height;
+    let (mem_y, net_y) = if plan.mem_below_net {
+        (mem_net_top_y + net_height, mem_net_top_y)
+    } else {
+        (mem_net_top_y, mem_net_top_y + mem_height)
+    };
+
+    if left.has_mem {
         layout.set(
             WidgetKind::Mem,
             WidgetDimensions {
-                x: left_x,
+                x: c.left_x,
                 y: mem_y,
-                width: left_width.max(MIN_MEM_WIDTH),
+                width: mem_width,
                 height: mem_height,
             },
         );
     }
-
-    if has_net {
+    if left.has_net {
         layout.set(
             WidgetKind::Net,
             WidgetDimensions {
-                x: left_x,
+                x: c.left_x,
                 y: net_y,
-                width: left_width.max(MIN_NET_WIDTH),
+                width: net_width,
                 height: net_height,
             },
         );
     }
-
-    // Disk widget — below mem+net in the left column
-    if has_disk {
-        let disk_y = left_content_y + mem_height + net_height;
+    if left.has_disk {
+        let disk_y = mem_net_top_y + mem_height + net_height;
         layout.set(
             WidgetKind::Disk,
             WidgetDimensions {
-                x: left_x,
+                x: c.left_x,
                 y: disk_y,
-                width: left_width.max(MIN_MEM_WIDTH),
+                width: mem_width,
                 height: disk_height,
             },
         );
     }
+}
 
-    // PROC position
-    if has_proc {
-        let proc_x = if proc_left { 0 } else { left_width };
-        layout.set(
-            WidgetKind::Proc,
-            WidgetDimensions {
-                x: proc_x,
-                y: left_y_start,
-                width: proc_width,
-                height: remaining_height,
-            },
-        );
+fn place_proc(plan: &LayoutPlan, c: &ColumnSplit, v: &VerticalSplit, layout: &mut Layout) {
+    if !plan.has_proc {
+        return;
     }
-
-    layout
+    layout.set(
+        WidgetKind::Proc,
+        WidgetDimensions {
+            x: c.proc_x,
+            y: v.bottom_y,
+            width: c.proc_width,
+            height: v.bottom_height,
+        },
+    );
 }
 
 #[cfg(test)]
@@ -755,5 +832,60 @@ mod tests {
             large.1 > small.1,
             "more cores/disks/temps should require taller terminal: small={small:?}, large={large:?}",
         );
+    }
+
+    // ----------------------------------------------------------------
+    // LayoutPlan
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn layout_plan_captures_widget_set_and_orientation_flags() {
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
+        ]);
+        let mut cfg = lc_with_hints(120, 40, &b, |h| h.core_count = 8);
+        cfg.cpu_bottom = true;
+        cfg.mem_below_net = true;
+        cfg.proc_left = true;
+        let plan = LayoutPlan::from(&cfg);
+        assert!(plan.has_cpu);
+        assert!(plan.has_proc);
+        assert!(plan.left_column.has_mem);
+        assert!(plan.left_column.has_net);
+        assert!(plan.left_column.has_disk);
+        assert!(plan.left_column.gpu_indices.is_empty());
+        assert!(plan.cpu_bottom);
+        assert!(plan.mem_below_net);
+        assert!(plan.proc_left);
+        assert_eq!(plan.term_size, (120, 40));
+    }
+
+    #[test]
+    fn layout_plan_filters_gpus_against_detected_count() {
+        // gpu0, gpu1, gpu5 in widget list but only 2 devices detected
+        // → only gpu0 and gpu1 land in the plan.
+        let b = widgets(&[
+            WidgetKind::Cpu,
+            WidgetKind::Gpu(0),
+            WidgetKind::Gpu(1),
+            WidgetKind::Gpu(5),
+        ]);
+        let cfg = lc_with_hints(120, 40, &b, |h| {
+            h.core_count = 8;
+            h.gpu_count = 2;
+        });
+        let plan = LayoutPlan::from(&cfg);
+        assert_eq!(plan.left_column.gpu_indices, vec![0, 1]);
+    }
+
+    #[test]
+    fn layout_plan_left_column_is_empty_when_no_left_widgets_present() {
+        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Proc]);
+        let plan = LayoutPlan::from(&lc(120, 40, &b));
+        assert!(plan.left_column.is_empty());
     }
 }
