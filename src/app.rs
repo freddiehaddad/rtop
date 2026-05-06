@@ -773,6 +773,29 @@ fn execute_dirty_work(state: &mut AppState, config: &mut config::Config, size: T
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.cached_layout.is_none() {
         state.render.cached_layout = Some(calculate_layout(config, &state.live, size));
     }
+
+    // Pre-render normalisation: clamp the proc widget's view-state to
+    // the current entry count and widget dimensions. Done here (not
+    // inside render_all) so that the render path stays a pure
+    // function of (state, dirty) — `render_all` borrows `state.process`
+    // immutably alongside the rest of `RenderInputs`, and Unit 7's
+    // split-borrow workaround is no longer needed.
+    if let Some(layout) = state.render.cached_layout.as_ref()
+        && let Some(proc_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Proc)
+    {
+        let detail_rows = if state.process.detailed_pid > 0 {
+            8_usize.min(proc_dim.height.saturating_sub(6))
+        } else {
+            0
+        };
+        clamp_proc_selection(
+            state.process.entries.len(),
+            proc_dim.height,
+            detail_rows,
+            &mut state.process.selected,
+            &mut state.process.start,
+        );
+    }
 }
 
 fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
@@ -834,28 +857,16 @@ fn render_dirty_frame(
     let params = RenderInputs {
         layout,
         live: &state.live,
+        process: &state.process,
         network: &state.network,
         runtime: &state.runtime,
         config,
         theme,
         dirty: state.render.dirty,
         is_filtering: state.overlay.menu_state == MenuState::Filter,
-        proc_entries: &state.process.entries,
-        proc_display_procs: state.process.display_procs.as_deref(),
-        detailed_pid: state.process.detailed_pid,
-        followed_pid: state.process.followed_pid,
-        armed_terminate: state
-            .process
-            .armed_terminate
-            .as_ref()
-            .map(|(_, name, force)| (name.as_str(), *force)),
     }
     .build();
-    output.push_str(&render_all(
-        &params,
-        &mut state.process.selected,
-        &mut state.process.start,
-    ));
+    output.push_str(&render_all(&params));
     output
 }
 
@@ -1023,22 +1034,18 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) detailed_pid: u32,
     pub(crate) followed_pid: u32,
     pub(crate) armed_terminate: Option<(&'a str, bool)>,
+    pub(crate) proc_selected: usize,
+    pub(crate) proc_start: usize,
 }
 
 /// Inputs required to build a [`RenderParams`].
 ///
 /// Bundles the per-frame state borrows so the builder takes one
 /// argument instead of nine. Used by [`RenderInputs::build`].
-///
-/// Process state is currently split into individual field borrows
-/// (rather than a single `&ProcessViewState` borrow) so that the
-/// caller can still mutably borrow `state.process.selected` and
-/// `state.process.start` for `render_all` to clamp. Unit 8 will
-/// move the clamp out of the render path; this struct can then
-/// collapse to a single `process: &ProcessViewState` field.
 pub(crate) struct RenderInputs<'a> {
     pub(crate) layout: &'a draw::layout::Layout,
     pub(crate) live: &'a LiveData,
+    pub(crate) process: &'a ProcessViewState,
     pub(crate) network: &'a NetworkViewState,
     pub(crate) runtime: &'a RuntimeState,
     pub(crate) config: &'a config::Config,
@@ -1048,11 +1055,6 @@ pub(crate) struct RenderInputs<'a> {
     /// `true` while the user is in `MenuState::Filter` so the proc
     /// widget can show its inline filter prompt.
     pub(crate) is_filtering: bool,
-    pub(crate) proc_entries: &'a [ProcDisplayEntry],
-    pub(crate) proc_display_procs: Option<&'a [crate::domain::process::ProcInfo]>,
-    pub(crate) detailed_pid: u32,
-    pub(crate) followed_pid: u32,
-    pub(crate) armed_terminate: Option<(&'a str, bool)>,
 }
 
 impl<'a> RenderInputs<'a> {
@@ -1073,8 +1075,8 @@ impl<'a> RenderInputs<'a> {
             net: self.live.net.as_deref(),
             gpu: self.live.gpu.as_deref(),
             proc_data: self.live.proc_data.as_deref(),
-            proc_entries: self.proc_entries,
-            proc_display_procs: self.proc_display_procs,
+            proc_entries: &self.process.entries,
+            proc_display_procs: self.process.display_procs.as_deref(),
             selected_iface: self.network.selected_iface.as_str(),
             config: self.config,
             theme: self.theme,
@@ -1083,22 +1085,30 @@ impl<'a> RenderInputs<'a> {
             is_filtering: self.is_filtering,
             core_count: self.live.core_count,
             total_mem: self.live.total_mem,
-            detailed_pid: self.detailed_pid,
-            followed_pid: self.followed_pid,
-            armed_terminate: self.armed_terminate,
+            detailed_pid: self.process.detailed_pid,
+            followed_pid: self.process.followed_pid,
+            armed_terminate: self
+                .process
+                .armed_terminate
+                .as_ref()
+                .map(|(_, name, force)| (name.as_str(), *force)),
+            proc_selected: self.process.selected,
+            proc_start: self.process.start,
         }
     }
 }
 
 /// Render UI widgets into an ANSI output string.
 ///
+/// **Pure function** of `(params, params.layout, params.dirty)`.
+/// All view-state normalisation (proc-list rebuild, selection
+/// clamping, network-interface reconciliation) happens before this
+/// is called, in `pull_subsystem_data` or `execute_dirty_work`.
+/// No state mutation, no I/O.
+///
 /// Only renders widgets whose corresponding dirty flag is set.
 /// Pass `Dirty::ALL_WIDGETS` to render everything.
-pub(crate) fn render_all(
-    params: &RenderParams,
-    proc_selected: &mut usize,
-    proc_start: &mut usize,
-) -> String {
+pub(crate) fn render_all(params: &RenderParams) -> String {
     let dirty = params.dirty;
     let layout = params.layout;
     let config = params.config;
@@ -1212,26 +1222,14 @@ pub(crate) fn render_all(
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
         let entries = params.proc_entries;
         let detailed_pid = params.detailed_pid;
-        let detail_rows = if detailed_pid > 0 {
-            8_usize.min(proc_dim.height.saturating_sub(6))
-        } else {
-            0
-        };
-        clamp_proc_selection(
-            entries.len(),
-            proc_dim.height,
-            detail_rows,
-            proc_selected,
-            proc_start,
-        );
         let sort_by = config.proc_sorting;
         let reversed = config.proc_reversed;
         let tree_mode = config.proc_tree;
         let pf = &config.proc_filter;
         let area = ui::WidgetArea::from_dim(proc_dim, rounded);
         let view = ui::ProcView {
-            start: *proc_start,
-            selected: *proc_selected,
+            start: params.proc_start,
+            selected: params.proc_selected,
             sort_by,
             sort_reversed: reversed,
             tree_mode,

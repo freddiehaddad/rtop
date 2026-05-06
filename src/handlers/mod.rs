@@ -171,29 +171,17 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
         let params = RenderInputs {
             layout,
             live: ctx.live,
+            process: ctx.process,
             network: ctx.network,
             runtime: ctx.runtime,
             config: ctx.config,
             theme: ctx.theme,
             dirty: Dirty::ALL_WIDGETS,
             is_filtering: false,
-            proc_entries: &ctx.process.entries,
-            proc_display_procs: ctx.process.display_procs.as_deref(),
-            detailed_pid: ctx.process.detailed_pid,
-            followed_pid: ctx.process.followed_pid,
-            armed_terminate: ctx
-                .process
-                .armed_terminate
-                .as_ref()
-                .map(|(_, name, force)| (name.as_str(), *force)),
         }
         .build();
         out.push_str(term::CLEAR_SCREEN);
-        out.push_str(&render_all(
-            &params,
-            &mut ctx.process.selected,
-            &mut ctx.process.start,
-        ));
+        out.push_str(&render_all(&params));
         if ctx.overlay.menu_return_to == MenuState::Main {
             out.push_str(&crate::menu::main_menu::draw_with_selection(
                 ctx.tw,
