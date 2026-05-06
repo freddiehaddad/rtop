@@ -28,8 +28,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL)
 - **CPU temperature and power** via PawnIO kernel driver
 - **Per-widget dirty rendering** — only redraws what changed
-- **Per-widget refresh rates** — set how often each widget updates (e.g., CPU every 1 s, processes every 5 s)
-- **Idle when nothing's changing** — no background CPU between updates; the UI sleeps until a widget needs a redraw
+- **Per-widget refresh rates** — set individual update intervals for each widget
 - **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
 - **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
 - **Process following** — pin a process with `F` to auto-scroll across refreshes
@@ -80,7 +79,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 When **vim keys** are enabled (options → general):
 `h`/`j`/`k`/`l` for directional control, `g`/`G` for top/bottom of list, `Ctrl+F`/`Ctrl+B` for page scrolling, `Ctrl+D`/`Ctrl+U` for half-page scrolling.
 
-See the built-in help menu (`?`) for the complete list.
+See the built-in help menu (`?` / `F1`) for the complete list.
 
 ---
 
@@ -135,13 +134,13 @@ To see CPU temperature and power, launch rtop as Administrator (right-click `rto
 
 ## GPU Monitoring
 
-rtop detects GPUs from all three major vendors automatically at runtime. Unlike CPU temperature and power, GPU monitoring needs no extra software beyond the vendor's graphics driver and no elevation.
+rtop detects GPUs from all three major vendors automatically at runtime. For each detected device it reports **utilization, temperature, VRAM, power, and clocks**. Unlike CPU temperature and power, GPU monitoring needs no extra software beyond the vendor's graphics driver and no elevation.
 
-| Vendor | Supported GPUs | Metrics |
-|--------|---------------|---------|
-| **NVIDIA** | GeForce 600 series (Kepler) and newer | Utilization, temperature, VRAM, power, clocks |
-| **AMD** | Vega and newer (RX Vega, 5000, 6000, 7000, 9000 series) | Utilization, temperature, VRAM, power, clocks |
-| **Intel** | Arc discrete GPUs | Utilization, temperature, VRAM, power, clocks |
+| Vendor | Supported GPUs |
+|--------|---------------|
+| **NVIDIA** | GeForce 600 series (Kepler) and newer |
+| **AMD** | Vega and newer (RX Vega, 5000, 6000, 7000, 9000 series) |
+| **Intel** | Arc discrete GPUs |
 
 Up to 8 GPUs are supported. Mixed GPU systems show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
 
