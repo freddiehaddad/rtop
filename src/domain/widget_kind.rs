@@ -34,6 +34,26 @@ pub enum WidgetKind {
     Gpu(u8),
 }
 
+/// How a widget interacts with its enclosing container's slack along
+/// the major axis (vertical stack height; in a horizontal stack the
+/// major axis is width but no widget currently distinguishes there).
+///
+/// Lives on [`WidgetKind`] as an intrinsic property so the layout
+/// engine never asks "is this widget net?" or "is this widget proc?"
+/// to decide who absorbs leftover space. Adding a future widget only
+/// requires answering "Preferred or Fill?" once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WidgetSizing {
+    /// Widget renders at a fixed/preferred height derived from data
+    /// hints (core count, swap visibility, disk count, …). Surplus
+    /// space goes to `Fill` siblings (or stays empty if none).
+    Preferred,
+    /// Widget absorbs slack along the parent stack's axis. Has a
+    /// minimum height; otherwise grows to fill. Multiple `Fill`
+    /// siblings in one container share equally.
+    Fill,
+}
+
 impl WidgetKind {
     /// Materialise a `Gpu(n)` for the given index. Returns `None`
     /// if `n >= MAX_GPUS`.
@@ -44,7 +64,43 @@ impl WidgetKind {
             None
         }
     }
+
+    /// Intrinsic sizing classification — see [`WidgetSizing`].
+    ///
+    /// This is the **only** place the layout engine asks a widget
+    /// "do you have a fixed preferred height, or do you absorb slack?".
+    /// Adding a new widget kind requires answering this once; the
+    /// engine handles every distribution decision uniformly from there.
+    pub const fn sizing(self) -> WidgetSizing {
+        match self {
+            Self::Cpu | Self::Mem | Self::Disk | Self::Gpu(_) => WidgetSizing::Preferred,
+            Self::Net | Self::Proc => WidgetSizing::Fill,
+        }
+    }
 }
+
+// Compile-time invariants on the widget sizing classification. These
+// pin the contract documented on `WidgetKind::sizing` and double as
+// non-test production usages of the new types so clippy's dead-code
+// pass doesn't fire while subsequent commits wire `sizing()` into
+// the v2 layout engine.
+const _: () = {
+    assert!(matches!(WidgetKind::Cpu.sizing(), WidgetSizing::Preferred));
+    assert!(matches!(WidgetKind::Mem.sizing(), WidgetSizing::Preferred));
+    assert!(matches!(WidgetKind::Disk.sizing(), WidgetSizing::Preferred));
+    assert!(matches!(WidgetKind::Net.sizing(), WidgetSizing::Fill));
+    assert!(matches!(WidgetKind::Proc.sizing(), WidgetSizing::Fill));
+    // Every Gpu(N) is Preferred. Walk every supported index to
+    // catch any future divergence at compile time.
+    let mut n = 0;
+    while n < MAX_GPUS {
+        assert!(matches!(
+            WidgetKind::Gpu(n as u8).sizing(),
+            WidgetSizing::Preferred
+        ));
+        n += 1;
+    }
+};
 
 impl Display for WidgetKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -265,6 +321,34 @@ impl<T> PerWidget<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sizing_classifies_cpu_mem_disk_gpu_as_preferred() {
+        assert_eq!(WidgetKind::Cpu.sizing(), WidgetSizing::Preferred);
+        assert_eq!(WidgetKind::Mem.sizing(), WidgetSizing::Preferred);
+        assert_eq!(WidgetKind::Disk.sizing(), WidgetSizing::Preferred);
+        for n in 0..MAX_GPUS {
+            assert_eq!(
+                WidgetKind::Gpu(n as u8).sizing(),
+                WidgetSizing::Preferred,
+                "gpu{n} must be Preferred",
+            );
+        }
+    }
+
+    #[test]
+    fn sizing_classifies_net_and_proc_as_fill() {
+        assert_eq!(WidgetKind::Net.sizing(), WidgetSizing::Fill);
+        assert_eq!(WidgetKind::Proc.sizing(), WidgetSizing::Fill);
+    }
+
+    #[test]
+    fn sizing_is_const_callable() {
+        // Verify the const-ness so future callers can use sizing() in
+        // const contexts (e.g., compile-time validation tables).
+        const _PROC: WidgetSizing = WidgetKind::Proc.sizing();
+        const _CPU: WidgetSizing = WidgetKind::Cpu.sizing();
+    }
 
     #[test]
     fn display_round_trips_for_static_variants() {
