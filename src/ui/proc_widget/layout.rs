@@ -145,7 +145,7 @@ impl SortState {
             "pid" => self.sort_by == ProcSort::Pid,
             "name" => self.sort_by == ProcSort::Name,
             "command" => self.sort_by == ProcSort::Command,
-            "cpu" => matches!(self.sort_by, ProcSort::CpuLazy | ProcSort::CpuDirect),
+            "cpu" => matches!(self.sort_by, ProcSort::Cpu),
             "mem" | "memory" => self.sort_by == ProcSort::Memory,
             _ => false,
         }

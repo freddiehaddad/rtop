@@ -231,7 +231,7 @@ impl Default for Config {
             graph_symbol_cpu: GraphSymbol::Default,
             graph_symbol_net: GraphSymbol::Default,
             graph_symbol_disk: GraphSymbol::Default,
-            proc_sorting: ProcSort::CpuLazy,
+            proc_sorting: ProcSort::Cpu,
             cpu_graph_upper: CpuGraphSource::User,
             cpu_graph_lower: CpuGraphSource::System,
 
@@ -1133,9 +1133,9 @@ config_schema! {
     ProcSorting => "proc_sorting" : Enum { field proc_sorting } [
         "Process sort column.",
         "",
-        "\"pid\", \"name\", \"cpu lazy\",",
-        "\"cpu responsive\", \"mem\",",
-        "or \"threads\".",
+        "\"pid\", \"name\", \"command\",",
+        "\"threads\", \"user\", \"memory\",",
+        "or \"cpu\".",
     ],
     CpuGraphUpper => "cpu_graph_upper" : Enum { field cpu_graph_upper } [
         "Upper CPU graph source.",
@@ -1532,7 +1532,7 @@ mod tests {
         assert_eq!(config.update_ms, 2000);
         assert_eq!(config.color_theme, "default");
         assert_eq!(config.graph_symbol, GraphSymbol::Braille);
-        assert_eq!(config.proc_sorting, ProcSort::CpuLazy);
+        assert_eq!(config.proc_sorting, ProcSort::Cpu);
         // First-launch cursor lands on the custom preset so the
         // visible layout matches what's persisted in TOML.
         assert_eq!(

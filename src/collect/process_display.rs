@@ -22,8 +22,7 @@ pub enum ProcSort {
     User,
     Memory,
     #[default]
-    CpuLazy,
-    CpuDirect,
+    Cpu,
 }
 
 impl ProcSort {
@@ -34,20 +33,11 @@ impl ProcSort {
         ProcSort::Threads,
         ProcSort::User,
         ProcSort::Memory,
-        ProcSort::CpuLazy,
-        ProcSort::CpuDirect,
+        ProcSort::Cpu,
     ];
 
-    pub const NAMES: &'static [&'static str] = &[
-        "pid",
-        "name",
-        "command",
-        "threads",
-        "user",
-        "memory",
-        "cpu lazy",
-        "cpu direct",
-    ];
+    pub const NAMES: &'static [&'static str] =
+        &["pid", "name", "command", "threads", "user", "memory", "cpu"];
 
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -57,8 +47,7 @@ impl ProcSort {
             ProcSort::Threads => "threads",
             ProcSort::User => "user",
             ProcSort::Memory => "memory",
-            ProcSort::CpuLazy => "cpu lazy",
-            ProcSort::CpuDirect => "cpu direct",
+            ProcSort::Cpu => "cpu",
         }
     }
 }
@@ -323,7 +312,7 @@ fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: ProcSort) -> std::cmp::Ord
         ProcSort::Threads => a.threads.cmp(&b.threads),
         ProcSort::User => a.user.to_lowercase().cmp(&b.user.to_lowercase()),
         ProcSort::Memory => a.mem.cmp(&b.mem),
-        ProcSort::CpuDirect | ProcSort::CpuLazy => a
+        ProcSort::Cpu => a
             .cpu_p
             .partial_cmp(&b.cpu_p)
             .unwrap_or(std::cmp::Ordering::Equal),
@@ -409,7 +398,7 @@ mod tests {
             },
         ];
         let mut indices = vec![0, 1, 2];
-        sort_proc_indices(&mut indices, &procs, ProcSort::CpuLazy, false);
+        sort_proc_indices(&mut indices, &procs, ProcSort::Cpu, false);
         assert_eq!(procs[indices[0]].pid, 3);
         assert_eq!(procs[indices[2]].pid, 2);
     }
@@ -546,7 +535,7 @@ mod tests {
             },
         ];
 
-        let entries = build_proc_display_entries(&procs, ProcSort::CpuLazy, true, "", false, false);
+        let entries = build_proc_display_entries(&procs, ProcSort::Cpu, true, "", false, false);
 
         let pids: Vec<u32> = entries
             .iter()
