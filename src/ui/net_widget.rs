@@ -239,7 +239,8 @@ pub fn draw(
         buf.mv(inset_x, y + 1).text(&inset);
     }
 
-    // Bottom border: sync, auto, zero, interface selector.
+    // Bottom border: sync, auto, zero, interface selector (left side);
+    // cumulative totals (right side).
     // sync/auto append `*` when active (mirrors disk's `io*` and
     // proc's `tre*e` convention for binary toggles). zero is a
     // momentary action and never has a marker.
@@ -267,6 +268,38 @@ pub fn draw(
     buf.mv(bx, bottom_y).text(&zero_inset);
     bx += box_drawing::inset_width("zero");
     buf.mv(bx, bottom_y).text(&iface_inset);
+    bx += box_drawing::inset_width(&iface_text);
+
+    // Bottom-right: cumulative totals since last reset (the data
+    // that `z` operates on). Format `↓ 12.4G ↑ 3.1G`. Skipped when
+    // the bottom border doesn't have room without overlapping the
+    // left-side keybind/iface insets.
+    let dl_total = tools::floating_humanizer(
+        net.stat.download.displayed_total(),
+        true,
+        0,
+        false,
+        false,
+        base_10,
+    );
+    let ul_total = tools::floating_humanizer(
+        net.stat.upload.displayed_total(),
+        true,
+        0,
+        false,
+        false,
+        base_10,
+    );
+    let totals_text = format!("↓ {dl_total} ↑ {ul_total}");
+    let totals_vis = box_drawing::inset_width(&totals_text);
+    let totals_x = box_drawing::right_inset_x(x, width, totals_vis);
+    // Need at least one column of border between the iface inset's
+    // right edge and the totals inset's left edge so they read as
+    // separate elements rather than a continuous string.
+    if totals_x > bx {
+        let totals_inset = box_drawing::title_inset(&totals_text, border_color, title_color, true);
+        buf.mv(totals_x, bottom_y).text(&totals_inset);
+    }
 
     buf.finish()
 }
@@ -526,5 +559,86 @@ mod tests {
                 "zero inset must never show a '*' marker (auto={auto} sync={sync})",
             );
         }
+    }
+
+    /// Build a NetInfo whose displayed totals are exactly
+    /// `dl_total_bytes` / `ul_total_bytes`. Uses `last` only
+    /// (zero offset, zero rollover).
+    fn make_net_info_with_totals(dl_total_bytes: u64, ul_total_bytes: u64) -> NetInfo {
+        let mut info = make_net_info();
+        info.stat.download.last = dl_total_bytes;
+        info.stat.upload.last = ul_total_bytes;
+        info.stat.download.offset = 0;
+        info.stat.upload.offset = 0;
+        info
+    }
+
+    #[test]
+    fn totals_inset_renders_on_bottom_right_border() {
+        let info = make_net_info_with_totals(12 * 1024 * 1024 * 1024, 3 * 1024 * 1024 * 1024);
+        let output = draw(
+            &info,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        // Expected format: ↓ <dl> ↑ <ul>, in base-2 sizing.
+        assert!(
+            plain.contains("↓ 12.0G ↑ 3.00G")
+                || plain.contains("↓ 12.0G ↑ 3.0G")
+                || plain.contains("↓ 12G ↑ 3"),
+            "totals inset should appear with directional arrows; got: {plain}"
+        );
+    }
+
+    #[test]
+    fn totals_inset_uses_displayed_total_after_reset() {
+        // After `z`, offset == last + rollover, so displayed total
+        // is 0. Confirm the rendered inset reflects that, not raw
+        // `last`.
+        let mut info = make_net_info_with_totals(5_000_000, 7_000_000);
+        info.stat.download.offset = info.stat.download.last;
+        info.stat.upload.offset = info.stat.upload.last;
+        let output = draw(
+            &info,
+            &make_area(),
+            &Theme::default(),
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("↓ 0.0B ↑ 0.0B") || plain.contains("↓ 0B ↑ 0B"),
+            "displayed totals should be 0 after offset == last; got: {plain}"
+        );
+    }
+
+    #[test]
+    fn totals_inset_skipped_when_bottom_border_lacks_room() {
+        // A narrow widget where the four left-side insets +
+        // iface name leave no horizontal room on the bottom
+        // border for a totals inset must omit the totals rather
+        // than overlap.
+        let mut area = make_area();
+        area.width = 50;
+        let info = make_net_info_with_totals(1_000_000, 2_000_000);
+        let output = draw(
+            &info,
+            &area,
+            &Theme::default(),
+            &make_settings(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        // Down arrow + space + value would be present on a wider
+        // widget. With width=50 it should be absent. (The in-graph
+        // ▼ arrow uses a different glyph, so this check is unique
+        // to the border inset.)
+        assert!(
+            !plain.contains("↓ "),
+            "totals inset must be skipped when there is no room; got: {plain}"
+        );
     }
 }
