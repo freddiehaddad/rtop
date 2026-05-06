@@ -113,6 +113,21 @@ impl LiveData {
     }
 
     pub(crate) fn layout_hints(&self, config: &config::Config) -> draw::layout::LayoutHints {
+        // Disk widget rows-per-disk depends on which view is active:
+        //   * Usage view (default): 2 rows when `show_io_stat` adds
+        //     the inline read/write/busy row under each capacity
+        //     meter; 1 row otherwise.
+        //   * IO view (`io_mode` toggle or persistent
+        //     `disk_io_mode`): 2 rows for separate read+write
+        //     graphs; 1 row when `io_graph_combined` merges them.
+        let io_view = config.io_mode || config.disk_io_mode;
+        let disk_rows_per_unit = if io_view {
+            if config.io_graph_combined { 1 } else { 2 }
+        } else if config.show_io_stat {
+            2
+        } else {
+            1
+        };
         draw::layout::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
@@ -129,6 +144,7 @@ impl LiveData {
                     .cpu
                     .as_ref()
                     .is_some_and(|c| c.info.cpu_watts.is_some()),
+            disk_rows_per_unit,
         }
     }
 }
@@ -490,6 +506,37 @@ mod tests {
 
         state.overlay.menu_state = MenuState::Options;
         assert!(!state.overlay.render_ui());
+    }
+
+    #[test]
+    fn layout_hints_disk_rows_per_unit_covers_all_four_view_modes() {
+        let mut config = config::Config::new();
+        let state = AppState::new(&config, Instant::now());
+
+        // Usage view + show_io_stat on → 2 rows per disk.
+        config.io_mode = false;
+        config.disk_io_mode = false;
+        config.show_io_stat = true;
+        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
+
+        // Usage view + show_io_stat off → 1 row per disk.
+        config.show_io_stat = false;
+        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
+
+        // IO view + split graphs → 2 rows per disk regardless of show_io_stat.
+        config.io_mode = true;
+        config.io_graph_combined = false;
+        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
+
+        // IO view + combined graph → 1 row per disk.
+        config.io_graph_combined = true;
+        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
+
+        // Persistent disk_io_mode behaves the same as runtime io_mode.
+        config.io_mode = false;
+        config.disk_io_mode = true;
+        config.io_graph_combined = false;
+        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
     }
 
     #[test]

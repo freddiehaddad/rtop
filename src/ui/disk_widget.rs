@@ -59,10 +59,12 @@ pub(crate) fn build_settings(config: &crate::config::Config) -> DiskWidgetSettin
 /// Preferred intrinsic height for the disk widget given the
 /// snapshot hints, in rows (including borders).
 ///
-/// 2 rows per disk (capacity meter + IO row) + 2 borders, with a
-/// floor of [`crate::draw::layout::MIN_DISK_HEIGHT`].
+/// Each disk reserves [`hints.disk_rows_per_unit`] rows (1 for
+/// capacity-only or combined-IO; 2 for capacity-with-inline-IO or
+/// split-graph IO view). Plus 2 border rows, with a floor of
+/// [`crate::draw::layout::MIN_DISK_HEIGHT`].
 pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
-    let content_rows = hints.disk_count * 2;
+    let content_rows = hints.disk_count * hints.disk_rows_per_unit as usize;
     (content_rows + 2).max(crate::draw::layout::MIN_DISK_HEIGHT)
 }
 
@@ -481,6 +483,39 @@ mod tests {
     use super::*;
     use crate::domain::disk::{DiskData, DiskInfo};
     use crate::draw::graph::GraphMode;
+    use crate::draw::layout::{LayoutHints, MIN_DISK_HEIGHT};
+
+    #[test]
+    fn preferred_height_uses_two_rows_per_disk_when_io_stat_shown() {
+        let hints = LayoutHints {
+            disk_count: 3,
+            disk_rows_per_unit: 2,
+            ..Default::default()
+        };
+        // 3 disks * 2 rows + 2 borders = 8.
+        assert_eq!(preferred_height(&hints), 8);
+    }
+
+    #[test]
+    fn preferred_height_uses_one_row_per_disk_when_io_stat_hidden() {
+        let hints = LayoutHints {
+            disk_count: 3,
+            disk_rows_per_unit: 1,
+            ..Default::default()
+        };
+        // 3 disks * 1 row + 2 borders = 5, floored at MIN_DISK_HEIGHT.
+        assert_eq!(preferred_height(&hints), 5.max(MIN_DISK_HEIGHT));
+    }
+
+    #[test]
+    fn preferred_height_floors_at_min_disk_height() {
+        let hints = LayoutHints {
+            disk_count: 0,
+            disk_rows_per_unit: 2,
+            ..Default::default()
+        };
+        assert_eq!(preferred_height(&hints), MIN_DISK_HEIGHT);
+    }
 
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());

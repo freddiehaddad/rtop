@@ -27,6 +27,14 @@ pub struct LayoutHints {
     pub has_swap: bool,
     pub has_cpu_temp: bool,
     pub has_cpu_watts: bool,
+    /// Rows the disk widget reserves for each disk in the active
+    /// view. The disk widget renders either 1 row per disk
+    /// (capacity-only usage view, or combined IO graph) or 2 rows
+    /// (usage view with the inline IO stat row, or split-graph IO
+    /// view with separate read/write rows). Computed at the
+    /// `LiveData::layout_hints` boundary so the disk widget's
+    /// `preferred_height` doesn't have to peek at config flags.
+    pub disk_rows_per_unit: u8,
 }
 
 /// Complete layout of all UI widgets.
@@ -335,6 +343,7 @@ mod tests {
                 has_swap: false,
                 has_cpu_temp: false,
                 has_cpu_watts: false,
+                disk_rows_per_unit: 2,
             },
         }
     }
