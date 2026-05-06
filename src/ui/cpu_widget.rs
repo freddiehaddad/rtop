@@ -86,10 +86,15 @@ const CORES_PER_COL: usize = 8;
 const CORE_PCT_W: usize = 5;
 /// Width of the temperature field per core (" 100°C" with leading space), or 0 when hidden.
 const CORE_TEMP_W: usize = 6;
-/// Minimum width for the mini-graph per core.
+/// Minimum width for the mini-graph per core. Below this, the graph
+/// is dropped entirely (Compact / Minimal tiers).
 const CORE_GRAPH_MIN: usize = 3;
 /// Inter-column gap (1 space between columns).
 const CORE_COL_GAP: usize = 1;
+/// Structural overhead of the CPU widget around the core panel:
+/// 2 borders + 1 vertical divider + 1 cell of left padding + 1 cell
+/// of right padding inside the core panel.
+const CPU_STRUCTURAL_OVERHEAD: usize = 5;
 
 /// Count how many stats rows will be rendered for a given data state.
 fn stats_row_count(has_temp: bool, has_watts: bool) -> usize {
@@ -116,6 +121,31 @@ pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
     let stats_rows = stats_row_count(hints.has_cpu_temp, hints.has_cpu_watts);
     let panel_overhead = stats_rows + 2; // load detail row + section divider
     core_rows + panel_overhead + 2 // + top/bottom borders
+}
+
+/// Smallest total widget width at which the CPU widget can render
+/// the core panel at its **Minimal** tier (label + percent only, no
+/// per-core graph, no per-core temperature).
+///
+/// Below this threshold the widget cannot render the core panel,
+/// so the global "too small" gate in `min_terminal_size` should
+/// trigger and the user sees the standard "Terminal too small"
+/// message.
+///
+/// Formula: `cols * minimal_col_w + (cols - 1) * gap +
+/// CPU_STRUCTURAL_OVERHEAD`. The main graph is allowed to shrink
+/// to 0 at this threshold; widening the terminal further restores
+/// it (and unlocks the Compact / Comfortable tiers).
+pub fn min_width(hints: &crate::draw::layout::LayoutHints) -> usize {
+    let core_count = hints.core_count;
+    if core_count == 0 {
+        return CPU_STRUCTURAL_OVERHEAD;
+    }
+    let (_, cols) = core_grid_shape(core_count);
+    let label_w = CoreGridLayout::label_width(core_count);
+    let minimal_col_w = label_w + CORE_PCT_W;
+    let core_panel_inner = cols * minimal_col_w + cols.saturating_sub(1) * CORE_COL_GAP;
+    core_panel_inner + CPU_STRUCTURAL_OVERHEAD
 }
 
 /// Compute the y-axis maximum for a CPU graph row.
@@ -181,18 +211,62 @@ impl CoreGridLayout {
     ///
     /// `panel_inner_w` is the usable content width (already excludes
     /// the divider and 1-space padding on each side).
+    ///
+    /// The grid picks the highest tier that fits the per-column
+    /// budget:
+    /// * **Comfortable**: `label + graph + pct + temp` per column
+    ///   (where `temp` is included only when `show_coretemp` is on
+    ///   and the user enabled per-core temps).
+    /// * **Compact**: `label + pct + temp` per column — drops the
+    ///   per-core mini-graph.
+    /// * **Minimal**: `label + pct` per column — also drops the
+    ///   per-core temperature.
+    /// * **None** (`cols = 0`): the budget is too small for even the
+    ///   Minimal tier; the renderer skips the core panel entirely.
+    ///
+    /// `col_w` is set to *exactly* the chosen tier's width so the
+    /// renderer's column-offset arithmetic matches what gets drawn.
     pub fn new(core_count: usize, panel_inner_w: usize, show_coretemp: bool) -> Self {
         let (rows, cols) = core_grid_shape(core_count);
         let label_w = Self::label_width(core_count);
         let temp_w: usize = if show_coretemp { CORE_TEMP_W } else { 0 };
 
-        // Column width: label + graph + pct + temp. Gaps between columns
-        // are rendered during drawing, not baked into col_w.
+        // Per-column budget after subtracting inter-column gaps.
         let total_gaps = cols.saturating_sub(1) * CORE_COL_GAP;
-        let available_for_cells = panel_inner_w.saturating_sub(total_gaps);
-        let col_w = available_for_cells / cols.max(1);
-        let fixed_per_col = label_w + CORE_PCT_W + temp_w;
-        let graph_w = col_w.saturating_sub(fixed_per_col).max(CORE_GRAPH_MIN);
+        let avail = panel_inner_w.saturating_sub(total_gaps);
+        let col_budget = avail / cols.max(1);
+
+        // Pick the highest tier whose column width fits the budget.
+        let comfortable_min = label_w + CORE_GRAPH_MIN + CORE_PCT_W + temp_w;
+        let compact_min = label_w + CORE_PCT_W + temp_w;
+        let minimal_min = label_w + CORE_PCT_W;
+
+        let (graph_w, show_temp_used) = if col_budget >= comfortable_min {
+            // Comfortable: graph_w grows to fill any extra budget.
+            let graph_w = col_budget - (label_w + CORE_PCT_W + temp_w);
+            (graph_w, show_coretemp)
+        } else if show_coretemp && col_budget >= compact_min {
+            (0, true)
+        } else if col_budget >= minimal_min {
+            (0, false)
+        } else {
+            // Even Minimal doesn't fit. Signal "no core panel" so
+            // the renderer skips it. The "too small" gate in
+            // `min_terminal_size` should catch this case earlier
+            // for the active hardware, but we also gracefully
+            // degrade if the layout undershoots.
+            return Self {
+                rows: 0,
+                cols: 0,
+                col_w: 0,
+                label_w,
+                graph_w: 0,
+                show_temp: false,
+            };
+        };
+
+        let temp_w_used = if show_temp_used { CORE_TEMP_W } else { 0 };
+        let col_w = label_w + graph_w + CORE_PCT_W + temp_w_used;
 
         Self {
             rows,
@@ -200,7 +274,7 @@ impl CoreGridLayout {
             col_w,
             label_w,
             graph_w,
-            show_temp: show_coretemp,
+            show_temp: show_temp_used,
         }
     }
 
@@ -323,8 +397,27 @@ pub fn draw(
     let panel_content_overhead = stats_rows + 2;
 
     // --- Core panel sizing via CoreGridLayout ---
-    let grid = CoreGridLayout::new(core_count, width / 2, show_coretemp_flag);
-    let b_width = if core_count == 0 || width <= 20 {
+    //
+    // Half-and-half budget: the core panel gets up to `inner_usable
+    // / 2` so the main graph keeps roughly the other half. Within
+    // that budget `CoreGridLayout::new` picks the highest tier
+    // (Comfortable / Compact / Minimal) whose column width fits,
+    // and the per-core mini-graph (Comfortable only) expands into
+    // any leftover budget.
+    //
+    // If even the Minimal tier doesn't fit in half the inner width,
+    // retry with the full inner width — the core panel takes
+    // everything and the main graph collapses to zero. The global
+    // `min_terminal_size` gate triggers "Terminal too small"
+    // before this fallback fails outright.
+    let inner_usable = width.saturating_sub(CPU_STRUCTURAL_OVERHEAD);
+    let half_budget = inner_usable / 2;
+    let mut grid = CoreGridLayout::new(core_count, half_budget, show_coretemp_flag);
+    if grid.cols == 0 && core_count > 0 {
+        grid = CoreGridLayout::new(core_count, inner_usable, show_coretemp_flag);
+    }
+
+    let b_width = if grid.cols == 0 {
         0
     } else {
         // divider(1) + left_pad(1) + grid_content + right_pad(1)
@@ -829,7 +922,100 @@ fn draw_bottom_hints(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::draw::layout::LayoutHints;
     use std::collections::VecDeque;
+
+    #[test]
+    fn core_grid_layout_picks_comfortable_when_budget_is_ample() {
+        // 4 cores, 1 column, large budget — Comfortable wins, graph_w expands.
+        let g = CoreGridLayout::new(4, 80, true);
+        assert_eq!(g.cols, 1);
+        assert!(g.graph_w >= CORE_GRAPH_MIN);
+        assert!(g.show_temp);
+        assert_eq!(g.col_w, g.label_w + g.graph_w + CORE_PCT_W + CORE_TEMP_W);
+    }
+
+    #[test]
+    fn core_grid_layout_drops_graph_at_compact_tier() {
+        // 32 cores → 4 columns. Budget exactly fits Compact:
+        //   per-col = label(4) + pct(5) + temp(6) = 15
+        //   4 * 15 + 3 gaps = 63.
+        let g = CoreGridLayout::new(32, 63, true);
+        assert_eq!(g.cols, 4);
+        assert_eq!(g.graph_w, 0, "Compact tier drops the per-core graph");
+        assert!(g.show_temp, "Compact tier keeps the per-core temperature");
+        assert_eq!(g.col_w, 4 + CORE_PCT_W + CORE_TEMP_W);
+    }
+
+    #[test]
+    fn core_grid_layout_drops_temp_at_minimal_tier() {
+        // 32 cores → 4 columns. Budget exactly fits Minimal:
+        //   per-col = label(4) + pct(5) = 9
+        //   4 * 9 + 3 gaps = 39.
+        let g = CoreGridLayout::new(32, 39, true);
+        assert_eq!(g.cols, 4);
+        assert_eq!(g.graph_w, 0);
+        assert!(!g.show_temp, "Minimal tier drops the per-core temperature");
+        assert_eq!(g.col_w, 4 + CORE_PCT_W);
+    }
+
+    #[test]
+    fn core_grid_layout_returns_empty_when_below_minimal() {
+        // Budget can't fit even Minimal — grid signals "no panel".
+        let g = CoreGridLayout::new(32, 20, true);
+        assert_eq!(g.cols, 0);
+        assert_eq!(g.rows, 0);
+    }
+
+    #[test]
+    fn core_grid_layout_col_w_matches_actual_render_width() {
+        // Regression: col_w must equal the actual rendered cell width
+        // so the renderer's column-offset arithmetic doesn't overflow.
+        for &cores in &[1usize, 4, 8, 12, 16, 32, 64, 128] {
+            for &budget in &[10usize, 30, 50, 80, 120, 200] {
+                for &temp in &[false, true] {
+                    let g = CoreGridLayout::new(cores, budget, temp);
+                    if g.cols == 0 {
+                        continue;
+                    }
+                    let temp_w = if g.show_temp { CORE_TEMP_W } else { 0 };
+                    assert_eq!(
+                        g.col_w,
+                        g.label_w + g.graph_w + CORE_PCT_W + temp_w,
+                        "col_w mismatch for cores={cores}, budget={budget}, temp={temp}",
+                    );
+                    // Actual grid width must fit within the budget.
+                    assert!(
+                        g.grid_width() <= budget,
+                        "grid_width {} > budget {} for cores={cores}, temp={temp}",
+                        g.grid_width(),
+                        budget,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn min_width_grows_with_core_count() {
+        let mk = |cores| LayoutHints {
+            core_count: cores,
+            ..Default::default()
+        };
+        assert!(min_width(&mk(4)) < min_width(&mk(32)));
+        assert!(min_width(&mk(32)) < min_width(&mk(128)));
+    }
+
+    #[test]
+    fn min_width_for_32_cores_fits_minimal_tier_exactly() {
+        // 32 cores → 4 columns of (label=4, pct=5, gap=1) +
+        // structural overhead 5 = 4*9 + 3 + 5 = 44.
+        let hints = LayoutHints {
+            core_count: 32,
+            ..Default::default()
+        };
+        assert_eq!(min_width(&hints), 44);
+    }
 
     /// Strip ANSI escape codes so we can assert on visible text.
     fn strip_ansi(s: &str) -> String {

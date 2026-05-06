@@ -129,7 +129,7 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
         0
     };
 
-    let min_width = if has_proc && has_left {
+    let layout_min_width = if has_proc && has_left {
         // Both columns must fit at their own minimums simultaneously
         // under the PROC_WIDTH_PCT split. Solve for the smallest
         // term_width that satisfies both:
@@ -143,6 +143,18 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
     } else {
         left_min_width
     };
+
+    // The CPU widget always spans the full terminal width when
+    // present, so it must also fit at its own minimum (the
+    // `Minimal` core-panel tier — label + percent only — for the
+    // detected core count). On many-core machines this dominates
+    // the column-split minimum.
+    let cpu_min_width = if has_cpu {
+        crate::ui::cpu_widget::min_width(hints)
+    } else {
+        0
+    };
+    let min_width = layout_min_width.max(cpu_min_width);
 
     // ----------------------------------------------------------------
     // Height
