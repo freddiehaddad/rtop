@@ -274,7 +274,31 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
             ctx.config.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
+        Key::Char('h') if ctx.config.vim_keys => {
+            let current = ctx.config.proc_sorting;
+            let idx = ProcSort::ALL
+                .iter()
+                .position(|&s| s == current)
+                .expect("config.proc_sorting must always be a known ProcSort variant");
+            let new_idx = if idx == 0 {
+                ProcSort::ALL.len() - 1
+            } else {
+                idx - 1
+            };
+            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+        }
         Key::Right => {
+            let current = ctx.config.proc_sorting;
+            let idx = ProcSort::ALL
+                .iter()
+                .position(|&s| s == current)
+                .expect("config.proc_sorting must always be a known ProcSort variant");
+            let new_idx = (idx + 1) % ProcSort::ALL.len();
+            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+        }
+        Key::Char('l') if ctx.config.vim_keys => {
             let current = ctx.config.proc_sorting;
             let idx = ProcSort::ALL
                 .iter()
