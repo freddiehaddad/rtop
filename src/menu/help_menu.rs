@@ -158,27 +158,6 @@ pub const KEYBINDS: &[Keybind] = &[
         desc: "Reset network counters",
         section: "Network",
     },
-    // Filter mode
-    Keybind {
-        key: "Esc",
-        desc: "Cancel filter",
-        section: "Filter",
-    },
-    Keybind {
-        key: "Enter",
-        desc: "Apply filter",
-        section: "Filter",
-    },
-    Keybind {
-        key: "Backspace",
-        desc: "Delete character",
-        section: "Filter",
-    },
-    Keybind {
-        key: "Delete",
-        desc: "Clear filter",
-        section: "Filter",
-    },
 ];
 
 /// Draw the help menu centered on screen, populated from KEYBINDS.
@@ -265,7 +244,6 @@ mod tests {
         assert!(sections.contains(&"Process"), "missing Process section");
         assert!(sections.contains(&"Disk"), "missing Disk section");
         assert!(sections.contains(&"Network"), "missing Network section");
-        assert!(sections.contains(&"Filter"), "missing Filter section");
     }
 
     #[test]
