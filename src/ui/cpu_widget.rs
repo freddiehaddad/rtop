@@ -183,7 +183,9 @@ pub struct CoreGridLayout {
     /// Character width per column (label + graph + pct + temp + gap).
     /// The gap on the last column serves as right-side padding.
     pub col_w: usize,
-    /// Character width of the core label ("C0" = 2, "C31" = 3, "127" = 3).
+    /// Character width of the core label (`"0 "` = 2, `"31 "` = 3,
+    /// `"127 "` = 4) — digits in the largest index plus one trailing
+    /// space.
     pub label_w: usize,
     /// Character width of the mini-graph (flex element).
     pub graph_w: usize,
@@ -279,25 +281,30 @@ impl CoreGridLayout {
     }
 
     /// Label width based on core count.
+    ///
+    /// Width is `digits_in_max_index + 1 (trailing space)`. The
+    /// trailing space provides visual separation from the mini-graph.
     fn label_width(core_count: usize) -> usize {
-        if core_count >= 10 {
-            4 // "C01 " or "001 " (100+), includes trailing space
+        let max_idx = core_count.saturating_sub(1);
+        let digits = if max_idx >= 100 {
+            3
+        } else if max_idx >= 10 {
+            2
         } else {
-            3 // "C0 ", includes trailing space
-        }
+            1
+        };
+        digits + 1 // + trailing space
     }
 
     /// Format the label for a given core index.
+    ///
+    /// Indices are zero-padded to the width of the largest index
+    /// so columns line up. The `C` prefix shown by btop is omitted —
+    /// the section divider above the grid already labels the panel.
     pub fn format_label(&self, index: usize) -> String {
-        if self.label_w >= 4 {
-            if index >= 100 {
-                format!("{:03} ", index)
-            } else {
-                format!("C{:02} ", index)
-            }
-        } else {
-            format!("C{} ", index)
-        }
+        // label_w = digits + 1 (trailing space), so digits = label_w - 1.
+        let digits = self.label_w.saturating_sub(1);
+        format!("{:0width$} ", index, width = digits)
     }
 
     /// X position for a core in the given column, relative to content_x.
@@ -938,25 +945,25 @@ mod tests {
     #[test]
     fn core_grid_layout_drops_graph_at_compact_tier() {
         // 32 cores → 4 columns. Budget exactly fits Compact:
-        //   per-col = label(4) + pct(5) + temp(6) = 15
-        //   4 * 15 + 3 gaps = 63.
-        let g = CoreGridLayout::new(32, 63, true);
+        //   per-col = label(3) + pct(5) + temp(6) = 14
+        //   4 * 14 + 3 gaps = 59.
+        let g = CoreGridLayout::new(32, 59, true);
         assert_eq!(g.cols, 4);
         assert_eq!(g.graph_w, 0, "Compact tier drops the per-core graph");
         assert!(g.show_temp, "Compact tier keeps the per-core temperature");
-        assert_eq!(g.col_w, 4 + CORE_PCT_W + CORE_TEMP_W);
+        assert_eq!(g.col_w, 3 + CORE_PCT_W + CORE_TEMP_W);
     }
 
     #[test]
     fn core_grid_layout_drops_temp_at_minimal_tier() {
         // 32 cores → 4 columns. Budget exactly fits Minimal:
-        //   per-col = label(4) + pct(5) = 9
-        //   4 * 9 + 3 gaps = 39.
-        let g = CoreGridLayout::new(32, 39, true);
+        //   per-col = label(3) + pct(5) = 8
+        //   4 * 8 + 3 gaps = 35.
+        let g = CoreGridLayout::new(32, 35, true);
         assert_eq!(g.cols, 4);
         assert_eq!(g.graph_w, 0);
         assert!(!g.show_temp, "Minimal tier drops the per-core temperature");
-        assert_eq!(g.col_w, 4 + CORE_PCT_W);
+        assert_eq!(g.col_w, 3 + CORE_PCT_W);
     }
 
     #[test]
@@ -1008,15 +1015,44 @@ mod tests {
 
     #[test]
     fn min_width_for_32_cores_fits_minimal_tier_exactly() {
-        // 32 cores → 4 columns of (label=4, pct=5, gap=1) +
-        // structural overhead 5 = 4*9 + 3 + 5 = 44.
+        // 32 cores → 4 columns of (label=3, pct=5, gap=1) +
+        // structural overhead 5 = 4*8 + 3 + 5 = 40.
         let hints = LayoutHints {
             core_count: 32,
             ..Default::default()
         };
-        assert_eq!(min_width(&hints), 44);
+        assert_eq!(min_width(&hints), 40);
     }
 
+    #[test]
+    fn format_label_omits_c_prefix_and_zero_pads_to_max_index_width() {
+        // 32 cores → max index 31 → 2 digits → label_w = 3.
+        let g = CoreGridLayout::new(32, 80, false);
+        assert_eq!(g.label_w, 3);
+        assert_eq!(g.format_label(0), "00 ");
+        assert_eq!(g.format_label(7), "07 ");
+        assert_eq!(g.format_label(31), "31 ");
+    }
+
+    #[test]
+    fn format_label_widths_match_decade_tiers() {
+        // 1-9 cores → 1 digit → label_w = 2.
+        let g = CoreGridLayout::new(8, 80, false);
+        assert_eq!(g.label_w, 2);
+        assert_eq!(g.format_label(0), "0 ");
+        assert_eq!(g.format_label(7), "7 ");
+
+        // 10-99 cores → 2 digits → label_w = 3.
+        let g = CoreGridLayout::new(64, 200, false);
+        assert_eq!(g.label_w, 3);
+        assert_eq!(g.format_label(63), "63 ");
+
+        // 100+ cores → 3 digits → label_w = 4.
+        let g = CoreGridLayout::new(128, 200, false);
+        assert_eq!(g.label_w, 4);
+        assert_eq!(g.format_label(0), "000 ");
+        assert_eq!(g.format_label(127), "127 ");
+    }
     /// Strip ANSI escape codes so we can assert on visible text.
     fn strip_ansi(s: &str) -> String {
         let mut result = String::with_capacity(s.len());
