@@ -213,17 +213,19 @@ impl Default for Config {
             net_download: 100,
             net_upload: 100,
 
-            // Default to the custom preset so first-launch users
-            // see what their TOML actually says (the `[layout]`
-            // block below). Otherwise the cursor would lie.
-            preset: crate::domain::preset::PresetField::new(
-                crate::domain::preset::ActivePreset::Custom,
-            ),
+            // First-launch cursor lands on the `all` builtin so the
+            // very first `p` keypress visibly cycles to a different
+            // preset, and the cursor name matches the visible
+            // layout. Custom is reached by cycling all the way
+            // around or by editing the layout (toggle keys, options
+            // menu, or `shape` DSL string in `rtop.toml`), at which
+            // point the cursor auto-promotes.
+            preset: crate::domain::preset::PresetField::default(),
 
-            // First-launch custom layout: every widget rtop knows
-            // about (see `CustomLayout::default`). New GPUs plugged
-            // in later are picked up automatically because their
-            // index is already in the list.
+            // First-launch custom layout: a clone of the `all`
+            // preset's tree (see `CustomLayout::default`). The
+            // cursor is on `all` builtin by default so this slot is
+            // dormant until the user edits something.
             custom: CustomLayout::default(),
 
             // strings
@@ -1441,13 +1443,12 @@ mod tests {
         assert_eq!(config.color_theme, "default");
         assert_eq!(config.graph_symbol, GraphSymbol::Braille);
         assert_eq!(config.proc_sorting, ProcSort::Cpu);
-        // First-launch cursor lands on the custom preset so the
-        // visible layout matches what's persisted in TOML. Custom's
-        // default tree is the `all` preset's layout — the dashboard
-        // view straight away.
+        // First-launch cursor lands on the `all` builtin so the
+        // user's first `p` press visibly cycles to a different
+        // preset, and the cursor name matches the visible layout.
         assert_eq!(
             config.preset.active(),
-            crate::domain::preset::ActivePreset::Custom
+            crate::domain::preset::ActivePreset::Builtin(crate::domain::preset::BuiltinPreset::All)
         );
         assert_eq!(
             config.layout_spec(),
@@ -1516,7 +1517,9 @@ mod tests {
 
     #[test]
     fn toggle_widget_adds_when_missing() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
+        config.preset.set(ActivePreset::Custom);
         // Start from a controlled custom layout (Cpu + Mem only).
         config.custom.root = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
@@ -1529,7 +1532,9 @@ mod tests {
 
     #[test]
     fn toggle_widget_removes_when_present() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
+        config.preset.set(ActivePreset::Custom);
         config.custom.root = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
             Slot::Widget(WidgetKind::Mem),
@@ -1544,7 +1549,9 @@ mod tests {
     fn toggle_widget_does_not_empty_the_tree() {
         // Toggling off the only visible widget is a no-op — every
         // custom layout must contain at least one widget.
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
+        config.preset.set(ActivePreset::Custom);
         config.custom.root = Slot::Widget(WidgetKind::Cpu);
         config.toggle_widget(WidgetKind::Cpu);
         assert!(
@@ -1572,19 +1579,22 @@ mod tests {
 
     #[test]
     fn toggle_widget_on_custom_does_not_change_cursor() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        // Default cursor is custom.
+        // Cursor must be on Custom for this contract to hold —
+        // first-launch default is the `all` builtin.
+        config.preset.set(ActivePreset::Custom);
         let before = config.preset.active();
         config.toggle_widget(WidgetKind::Cpu);
         assert_eq!(config.preset.active(), before);
     }
 
     #[test]
-    fn preset_default_is_custom() {
+    fn preset_default_is_all_builtin() {
         let config = Config::new();
         assert_eq!(
             config.preset.active(),
-            crate::domain::preset::ActivePreset::Custom
+            crate::domain::preset::ActivePreset::Builtin(crate::domain::preset::BuiltinPreset::All)
         );
     }
 
@@ -1680,7 +1690,13 @@ mod tests {
 
     #[test]
     fn config_round_trips_custom_layout_through_toml() {
+        use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
+        // Pin the cursor to Custom so the live layout reads from
+        // custom.root after the round-trip — first-launch default
+        // is the `all` builtin, which would otherwise mask
+        // custom.root entirely.
+        config.preset.set(ActivePreset::Custom);
         config.custom.root = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
             Slot::Widget(WidgetKind::Mem),
@@ -1690,7 +1706,7 @@ mod tests {
 
         let mut loaded = Config::new();
         loaded.load(&tmp);
-        // Cursor on custom (default), so live should match custom.
+        assert_eq!(loaded.preset.active(), ActivePreset::Custom);
         assert_eq!(
             loaded.layout_spec(),
             Slot::VStack(vec![

@@ -180,11 +180,24 @@ fn cpu_gpu_proc_layout_spec() -> Slot {
 /// builtin in [`BuiltinPreset::ALL`] order, then `Custom`, then
 /// wraps. [`Self::CYCLE_LEN`] positions total
 /// (`BuiltinPreset::COUNT + 1`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+///
+/// First-launch default is [`BuiltinPreset::All`] (the dashboard
+/// view) so the very first `p` keypress visibly cycles to a
+/// different preset, and the cursor name matches what the user is
+/// looking at. Custom is reached by either cycling all the way
+/// around or by editing the layout (toggle keys, options menu, or
+/// `shape` DSL string in `rtop.toml`), at which point the cursor
+/// auto-promotes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActivePreset {
     Builtin(BuiltinPreset),
-    #[default]
     Custom,
+}
+
+impl Default for ActivePreset {
+    fn default() -> Self {
+        Self::Builtin(BuiltinPreset::All)
+    }
 }
 
 impl ActivePreset {
@@ -255,13 +268,6 @@ pub struct PresetField {
 }
 
 impl PresetField {
-    pub fn new(active: ActivePreset) -> Self {
-        Self {
-            active,
-            invalid: None,
-        }
-    }
-
     pub fn active(&self) -> ActivePreset {
         self.active
     }
@@ -562,8 +568,14 @@ mod tests {
     // -- ActivePreset --
 
     #[test]
-    fn active_preset_default_is_custom() {
-        assert_eq!(ActivePreset::default(), ActivePreset::Custom);
+    fn active_preset_default_is_all_builtin() {
+        // First-launch cursor lands on the `all` builtin so the
+        // user's first `p` press visibly cycles to a different
+        // preset, and the cursor name matches the visible layout.
+        assert_eq!(
+            ActivePreset::default(),
+            ActivePreset::Builtin(BuiltinPreset::All)
+        );
     }
 
     #[test]
@@ -625,11 +637,13 @@ mod tests {
     #[test]
     fn preset_field_serialises_as_canonical_name() {
         for &b in &BuiltinPreset::ALL {
-            let field = PresetField::new(ActivePreset::Builtin(b));
+            let mut field = PresetField::default();
+            field.set(ActivePreset::Builtin(b));
             let value = toml::Value::try_from(&field).unwrap();
             assert_eq!(value, toml::Value::String(b.name().to_string()));
         }
-        let field = PresetField::new(ActivePreset::Custom);
+        let mut field = PresetField::default();
+        field.set(ActivePreset::Custom);
         let value = toml::Value::try_from(&field).unwrap();
         assert_eq!(value, toml::Value::String("custom".to_string()));
     }
@@ -670,7 +684,8 @@ mod tests {
             .collect();
         cases.push(ActivePreset::Custom);
         for active in cases {
-            let field = PresetField::new(active);
+            let mut field = PresetField::default();
+            field.set(active);
             let serialised = toml::Value::try_from(&field).unwrap();
             let mut deserialised: PresetField = serialised.try_into().unwrap();
             assert_eq!(deserialised.active(), active);
