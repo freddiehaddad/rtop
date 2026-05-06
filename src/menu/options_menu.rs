@@ -60,7 +60,7 @@ pub const GENERAL: &[ConfigKey] = &[
     ConfigKey::ColorTheme,
     ConfigKey::ThemeBackground,
     ConfigKey::VimKeys,
-    ConfigKey::Widgets,
+    ConfigKey::Shape,
     ConfigKey::UpdateMs,
     ConfigKey::RoundedCorners,
     ConfigKey::TerminalSync,
@@ -74,7 +74,6 @@ pub const GENERAL: &[ConfigKey] = &[
 
 /// Options in the "cpu" category.
 pub const CPU: &[ConfigKey] = &[
-    ConfigKey::CpuBottom,
     ConfigKey::GraphSymbolCpu,
     ConfigKey::CpuGraphUpper,
     ConfigKey::CpuGraphLower,
@@ -92,11 +91,7 @@ pub const CPU: &[ConfigKey] = &[
 ];
 
 /// Options in the "mem" category.
-pub const MEM: &[ConfigKey] = &[
-    ConfigKey::MemBelowNet,
-    ConfigKey::ShowSwap,
-    ConfigKey::MemUpdateMs,
-];
+pub const MEM: &[ConfigKey] = &[ConfigKey::ShowSwap, ConfigKey::MemUpdateMs];
 
 /// Options in the "net" category.
 pub const NET: &[ConfigKey] = &[
@@ -111,7 +106,6 @@ pub const NET: &[ConfigKey] = &[
 
 /// Options in the "proc" category.
 pub const PROC: &[ConfigKey] = &[
-    ConfigKey::ProcLeft,
     ConfigKey::ProcSorting,
     ConfigKey::ProcReversed,
     ConfigKey::ProcTree,

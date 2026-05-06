@@ -409,7 +409,7 @@ fn handle_widget_toggles(key: &Key, ctx: &mut InputContext) {
         _ => return,
     };
     ctx.config.toggle_widget(kind);
-    let shown = ctx.config.layout().widgets.contains(&kind);
+    let shown = ctx.config.layout_spec().contains(kind);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "widget_toggle",

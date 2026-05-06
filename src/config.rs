@@ -1,7 +1,8 @@
 use crate::collect::process_display::ProcSort;
 use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
+use crate::domain::layout_spec::Slot;
 use crate::domain::preset::CustomLayout;
-use crate::domain::widget_kind::{WidgetKind, WidgetList};
+use crate::domain::widget_kind::WidgetKind;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -405,18 +406,6 @@ impl Config {
             ));
         }
 
-        // Surface deserialise-time parse failures from the custom
-        // layout's widget list. Bad strings are already dropped by
-        // WidgetList's deserialiser; we just need to fold the
-        // captured invalid entries into the warning list.
-        let invalid_widgets = self.custom.widgets.take_invalid();
-        if !invalid_widgets.is_empty() {
-            warnings.push(format!(
-                "Invalid widget name(s) in '[layout].widgets': {}",
-                invalid_widgets.join(", ")
-            ));
-        }
-
         // Validate disks_filter: surface invalid drive entries as
         // warnings and drop them in place so the saved config
         // matches what the runtime actually uses.
@@ -451,44 +440,14 @@ impl Config {
         self.conf_file = saved_conf;
     }
 
-    /// Borrowed view of the live layout. Builtins return a borrow
-    /// of their `&'static [WidgetKind]` and bool flags; the custom
-    /// preset returns a borrow of `self.custom`. No allocation per
-    /// call — the view is constructed by copy and the widget slice
-    /// is forwarded as-is.
-    pub fn layout(&self) -> crate::domain::preset::ActiveLayout<'_> {
-        match self.preset.active() {
-            crate::domain::preset::ActivePreset::Builtin(b) => {
-                crate::domain::preset::ActiveLayout {
-                    widgets: b.widgets(),
-                    cpu_bottom: b.cpu_bottom(),
-                    mem_below_net: b.mem_below_net(),
-                    proc_left: b.proc_left(),
-                    stack_vertical: b.stack_vertical(),
-                }
-            }
-            crate::domain::preset::ActivePreset::Custom => crate::domain::preset::ActiveLayout {
-                widgets: self.custom.widgets.as_slice(),
-                cpu_bottom: self.custom.cpu_bottom,
-                mem_below_net: self.custom.mem_below_net,
-                proc_left: self.custom.proc_left,
-                stack_vertical: self.custom.stack_vertical,
-            },
-        }
-    }
-
     /// Build the canonical [`Slot`] tree for the active preset.
-    /// Returns `None` for an empty custom layout (no widgets), in
-    /// which case callers should treat the layout as empty.
     ///
     /// Builtins return a static tree from
     /// [`crate::domain::preset::BuiltinPreset::layout_spec`]; the
-    /// custom preset converts its legacy widget-list +
-    /// orientation-flag fields via
-    /// [`crate::domain::preset::CustomLayout::layout_spec`].
-    pub fn layout_spec(&self) -> Option<crate::domain::layout_spec::Slot> {
+    /// custom preset returns a clone of its persisted root tree.
+    pub fn layout_spec(&self) -> Slot {
         match self.preset.active() {
-            crate::domain::preset::ActivePreset::Builtin(b) => Some(b.layout_spec()),
+            crate::domain::preset::ActivePreset::Builtin(b) => b.layout_spec(),
             crate::domain::preset::ActivePreset::Custom => self.custom.layout_spec(),
         }
     }
@@ -508,71 +467,57 @@ impl Config {
 
     /// Toggle a single widget on or off in the custom preset.
     /// Auto-promotes from a builtin preset to the custom one
-    /// (copying the active builtin's layout into custom first) so
-    /// the user's edit always lands somewhere persistent. Toggle
-    /// is always a real change (the kind is either added or
-    /// removed), so unlike the bool / widget-list setters there
-    /// is no no-op short-circuit.
+    /// (copying the active builtin's tree into custom first) so the
+    /// user's edit always lands somewhere persistent.
+    ///
+    /// Toggling **off** the only visible widget is a no-op — every
+    /// custom layout must contain at least one widget; users who want
+    /// a different layout entirely should edit `shape` directly.
     pub fn toggle_widget(&mut self, kind: WidgetKind) {
         let custom = self.promote_to_custom();
-        if !custom.widgets.remove_kind(kind) {
-            custom.widgets.push(kind);
+        if custom.root.contains(kind) {
+            // Remove. Skip if pruning would empty the tree.
+            if let Some(pruned) = custom.root.clone().pruned(kind) {
+                custom.root = pruned;
+            }
+        } else {
+            // Add. `append_widget` no-ops if the widget is already
+            // present (defensive — `contains` already gated us).
+            custom.root = custom.root.clone().append_widget(kind);
         }
     }
 
-    /// Replace the custom preset's widget list with `kinds`.
+    /// Replace the live layout's [`Slot`] tree with one parsed from
+    /// the DSL string `value`.
     ///
-    /// No-op if `kinds` already matches the live layout — preserves
-    /// the cursor on a builtin so an "edit" that doesn't actually
-    /// change anything doesn't surprise-promote. Otherwise
-    /// promotes-to-custom and writes the new list.
-    pub fn set_widgets(&mut self, kinds: Vec<WidgetKind>) {
-        if self.layout().widgets == kinds.as_slice() {
-            return;
+    /// No-op if the parsed tree equals the live tree — preserves the
+    /// cursor on a builtin so an "edit" that doesn't actually change
+    /// anything doesn't surprise-promote. Otherwise promotes-to-custom
+    /// and writes the new tree.
+    ///
+    /// Returns `Err` if the DSL fails to parse or fails post-parse
+    /// validation (duplicate widget kinds, etc.).
+    pub fn set_shape(
+        &mut self,
+        value: &str,
+    ) -> Result<(), crate::domain::layout_spec::SlotParseError> {
+        let next: Slot = value.parse()?;
+        if self.layout_spec() == next {
+            return Ok(());
         }
-        self.promote_to_custom().widgets = WidgetList::from_kinds(kinds);
-    }
-
-    /// Set `custom.cpu_bottom`. No-op if the live value already
-    /// equals `value` (preserves cursor on a builtin).
-    pub fn set_cpu_bottom(&mut self, value: bool) {
-        if self.layout().cpu_bottom == value {
-            return;
-        }
-        self.promote_to_custom().cpu_bottom = value;
-    }
-
-    /// Set `custom.mem_below_net`. No-op if the live value already
-    /// equals `value` (preserves cursor on a builtin).
-    pub fn set_mem_below_net(&mut self, value: bool) {
-        if self.layout().mem_below_net == value {
-            return;
-        }
-        self.promote_to_custom().mem_below_net = value;
-    }
-
-    /// Set `custom.proc_left`. No-op if the live value already
-    /// equals `value` (preserves cursor on a builtin).
-    pub fn set_proc_left(&mut self, value: bool) {
-        if self.layout().proc_left == value {
-            return;
-        }
-        self.promote_to_custom().proc_left = value;
+        self.promote_to_custom().root = next;
+        Ok(())
     }
 
     /// Move the cursor to `Custom`, copying the active builtin's
-    /// layout into `self.custom` on first promotion, and return a
-    /// mutable borrow of the custom slot. Already-on-Custom is a
-    /// no-op (no copy). Used by every layout-mutating setter so
-    /// that the user's edit always lands in the persistent slot.
+    /// [`Slot`] tree into `self.custom` on first promotion, and return
+    /// a mutable borrow of the custom slot. Already-on-Custom is a
+    /// no-op (no copy). Used by every layout-mutating operation so
+    /// the user's edit always lands in the persistent slot.
     fn promote_to_custom(&mut self) -> &mut CustomLayout {
         if let crate::domain::preset::ActivePreset::Builtin(b) = self.preset.active() {
             self.custom = CustomLayout {
-                widgets: WidgetList::from_kinds(b.widgets().iter().copied()),
-                cpu_bottom: b.cpu_bottom(),
-                mem_below_net: b.mem_below_net(),
-                proc_left: b.proc_left(),
-                stack_vertical: b.stack_vertical(),
+                root: b.layout_spec(),
             };
             self.preset.set(crate::domain::preset::ActivePreset::Custom);
         }
@@ -599,27 +544,25 @@ impl Config {
 //
 // Access shapes:
 //   * `field $f`                 — direct `config.$f`
-//   * `layout $g, $setter`       — bool that lives in `config.layout()`
 //   * `joined_vec $f`            — `Vec<String>` displayed as a
 //                                  whitespace-joined string
 //   * `array $f [$i]`            — fixed-array element at index `$i`
-//   * `virtual_widgets`          — the `widgets` virtual key, derived
-//                                  from `config.layout().widgets`
+//   * `shape`                    — the `shape` virtual key, derived
+//                                  from `config.layout_spec()` and
+//                                  written via `config.set_shape()`
 //
 // The macro emits the enum and the eight previously hand-mirrored
 // methods. `set_string`, `validate_string`, `parse_int`,
-// `int_bounds_message`, `parse_widgets`, `parse_disks_filter`, and
-// `choice_values` stay hand-written below — they carry per-shape
-// error handling and validation logic that does not benefit from
-// being declarative.
+// `int_bounds_message`, `parse_disks_filter`, and `choice_values`
+// stay hand-written below — they carry per-shape error handling and
+// validation logic that does not benefit from being declarative.
 //
 // `Config`, `Default for Config`, and `validate()` are also
 // hand-written; the struct field list carries serde attributes
 // (`#[serde(rename = "...")]`, `#[serde(with = "...")]`, `#[serde(skip)]`)
-// and the existing schema includes virtual keys (`ProcLeft`,
-// `CpuBottom`, `MemBelowNet`, `Widgets`) without 1:1 struct fields.
-// Folding those into the macro would cost more clarity than it would
-// save.
+// and the existing schema includes one virtual key (`Shape`) without
+// a 1:1 struct field. Folding that into the macro would cost more
+// clarity than it would save.
 
 macro_rules! config_schema {
     (
@@ -706,24 +649,15 @@ macro_rules! config_schema {
 
     // === @display: kind config <shape> -> String ===
     (@display Bool $cfg:ident field $f:ident) => { bool_display($cfg.$f) };
-    (@display Bool $cfg:ident layout $g:ident, $_setter:ident) => { bool_display($cfg.layout().$g) };
     (@display Int $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
     (@display Enum $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
     (@display String $cfg:ident field $f:ident) => { $cfg.$f.clone() };
     (@display String $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
     (@display String $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
-    (@display String $cfg:ident virtual_widgets) => {
-        $cfg.layout()
-            .widgets
-            .iter()
-            .map(WidgetKind::to_string)
-            .collect::<Vec<_>>()
-            .join(" ")
-    };
+    (@display String $cfg:ident shape) => { $cfg.layout_spec().to_string() };
 
     // === @toggle: only Bool variants do anything; others panic ===
     (@toggle $self:ident Bool $cfg:ident field $f:ident) => { $cfg.$f = !$cfg.$f };
-    (@toggle $self:ident Bool $cfg:ident layout $g:ident, $s:ident) => { $cfg.$s(!$cfg.layout().$g) };
     (@toggle $self:ident Int $cfg:ident $($_:tt)*) => {
         panic!("toggle_bool called on non-bool key '{}'", $self.name())
     };
@@ -951,26 +885,6 @@ config_schema! {
         "instead of usage meters.",
     ],
 
-    // -- bool, layout-virtual --
-    ProcLeft => "proc_left" : Bool { layout proc_left, set_proc_left } [
-        "Process widget on left.",
-        "",
-        "Show the process widget on the left",
-        "side of the screen.",
-    ],
-    CpuBottom => "cpu_bottom" : Bool { layout cpu_bottom, set_cpu_bottom } [
-        "CPU widget at bottom.",
-        "",
-        "Show the CPU widget at the bottom of",
-        "the screen instead of the top.",
-    ],
-    MemBelowNet => "mem_below_net" : Bool { layout mem_below_net, set_mem_below_net } [
-        "Memory widget below network.",
-        "",
-        "Position the memory widget below the",
-        "network widget instead of above.",
-    ],
-
     // -- int, direct field --
     UpdateMs => "update_ms" : Int { field update_ms } [
         "Update interval in milliseconds.",
@@ -1069,11 +983,14 @@ config_schema! {
     ],
 
     // -- string, layout-virtual --
-    Widgets => "widgets" : String { virtual_widgets } [
-        "Visible widgets.",
+    Shape => "shape" : String { shape } [
+        "Layout shape (DSL).",
         "",
-        "Available: cpu, mem, net, proc, disk,",
-        "gpu0..gpu7. Separate with whitespace.",
+        "Recursive composition of vstack(...)",
+        "and hstack(N:..., ...) wrappers around",
+        "widget names: cpu, mem, net, proc,",
+        "disk, gpu0..gpu7. Example:",
+        "vstack(cpu, hstack(40:mem, 60:proc))",
     ],
 
     // -- string, fixed-array element --
@@ -1211,9 +1128,8 @@ impl ConfigKey {
         };
         match self {
             Self::ColorTheme => config.color_theme = value.to_string(),
-            Self::Widgets => {
-                let kinds = Self::parse_widgets(value).map_err(|_| err())?;
-                config.set_widgets(kinds);
+            Self::Shape => {
+                config.set_shape(value).map_err(|_| err())?;
             }
             Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
             Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
@@ -1245,23 +1161,6 @@ impl ConfigKey {
             _ => return Err(err()),
         }
         Ok(())
-    }
-
-    /// Parse `value` as a whitespace-separated list of widget names.
-    ///
-    /// Used by both [`Self::set_string`] and [`Self::validate_string`]
-    /// for the [`Self::Widgets`] key. Returns a static error message
-    /// suitable for inline display in the options menu.
-    pub fn parse_widgets(value: &str) -> Result<Vec<WidgetKind>, &'static str> {
-        let kinds: Result<Vec<_>, _> = value
-            .split_whitespace()
-            .map(str::parse::<WidgetKind>)
-            .collect();
-        let kinds = kinds.map_err(|_| "invalid widget name")?;
-        if kinds.is_empty() {
-            return Err("at least one widget required");
-        }
-        Ok(kinds)
     }
 
     /// Parse `value` as a whitespace-separated list of drive filter
@@ -1333,7 +1232,10 @@ impl ConfigKey {
     /// only call [`Self::set_string`] when validation succeeds.
     pub fn validate_string(self, value: &str) -> Result<(), &'static str> {
         match self {
-            Self::Widgets => Self::parse_widgets(value).map(|_| ()),
+            Self::Shape => value
+                .parse::<Slot>()
+                .map(|_| ())
+                .map_err(|_| "invalid layout shape"),
             Self::DisksFilter => Self::parse_disks_filter(value).map(|_| ()),
             Self::ClockFormat
             | Self::CustomCpuName
@@ -1497,31 +1399,18 @@ mod tests {
     fn load_invalid_string_choice_resets_just_that_field() {
         // String-typed fields validated by `validate_choice` reset
         // the offending field and emit a per-field warning while
-        // the rest of the config loads normally. The `[layout]`
-        // table's widget list also strips invalid widget names with
-        // a warning.
+        // the rest of the config loads normally.
         let mut config = Config::new();
         let tmp = std::env::temp_dir().join("rtop_test_bad_string_values.toml");
-        fs::write(
-            &tmp,
-            "color_theme = \"foo\"\n[layout]\nwidgets = [\"cpu\", \"nope\"]\n",
-        )
-        .unwrap();
+        fs::write(&tmp, "color_theme = \"foo\"\n").unwrap();
         let warnings = config.load(&tmp);
-        assert_eq!(warnings.len(), 2);
+        assert_eq!(warnings.len(), 1);
         assert!(
             warnings
                 .iter()
                 .any(|w| w.contains("color_theme") && w.contains("foo"))
         );
-        assert!(
-            warnings
-                .iter()
-                .any(|w| w.contains("[layout].widgets") && w.contains("nope"))
-        );
         assert_eq!(config.color_theme, "default");
-        // After dropping invalid "nope", only "cpu" remains in custom.
-        assert_eq!(config.custom.widgets.as_slice(), &[WidgetKind::Cpu]);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1553,19 +1442,17 @@ mod tests {
         assert_eq!(config.graph_symbol, GraphSymbol::Braille);
         assert_eq!(config.proc_sorting, ProcSort::Cpu);
         // First-launch cursor lands on the custom preset so the
-        // visible layout matches what's persisted in TOML.
+        // visible layout matches what's persisted in TOML. Custom's
+        // default tree is the `all` preset's layout — the dashboard
+        // view straight away.
         assert_eq!(
             config.preset.active(),
             crate::domain::preset::ActivePreset::Custom
         );
-        // On the custom cursor, the live layout view is the
-        // custom widget list verbatim. Specific contents are covered
-        // by `custom_layout_default_includes_every_supported_widget`
-        // in `domain/preset.rs`.
-        assert_eq!(config.layout().widgets, config.custom.widgets.as_slice());
-        assert!(!config.layout().cpu_bottom);
-        assert!(!config.layout().mem_below_net);
-        assert!(!config.layout().proc_left);
+        assert_eq!(
+            config.layout_spec(),
+            crate::domain::preset::BuiltinPreset::All.layout_spec(),
+        );
     }
 
     #[test]
@@ -1630,49 +1517,57 @@ mod tests {
     #[test]
     fn toggle_widget_adds_when_missing() {
         let mut config = Config::new();
-        // Start from a controlled custom layout.
-        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
+        // Start from a controlled custom layout (Cpu + Mem only).
+        config.custom.root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Mem),
+        ]);
         config.toggle_widget(WidgetKind::Net);
-        assert!(config.layout().widgets.contains(&WidgetKind::Net));
-        assert!(config.custom.widgets.as_slice().contains(&WidgetKind::Net));
+        assert!(config.layout_spec().contains(WidgetKind::Net));
+        assert!(config.custom.root.contains(WidgetKind::Net));
     }
 
     #[test]
     fn toggle_widget_removes_when_present() {
         let mut config = Config::new();
-        config.custom.widgets =
-            WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Net]);
+        config.custom.root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Net),
+        ]);
         config.toggle_widget(WidgetKind::Net);
-        assert!(!config.layout().widgets.contains(&WidgetKind::Net));
-        assert!(!config.custom.widgets.as_slice().contains(&WidgetKind::Net));
+        assert!(!config.layout_spec().contains(WidgetKind::Net));
+        assert!(!config.custom.root.contains(WidgetKind::Net));
+    }
+
+    #[test]
+    fn toggle_widget_does_not_empty_the_tree() {
+        // Toggling off the only visible widget is a no-op — every
+        // custom layout must contain at least one widget.
+        let mut config = Config::new();
+        config.custom.root = Slot::Widget(WidgetKind::Cpu);
+        config.toggle_widget(WidgetKind::Cpu);
+        assert!(
+            config.custom.root.contains(WidgetKind::Cpu),
+            "single-widget tree must not be emptiable",
+        );
     }
 
     #[test]
     fn toggle_widget_on_builtin_promotes_to_custom() {
+        use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         // Move to a builtin ("all") explicitly.
-        config
-            .preset
-            .set(crate::domain::preset::ActivePreset::Builtin(
-                crate::domain::preset::BuiltinPreset::All,
-            ));
-        // Pre-conditions: live layout matches builtin "all" (which
-        // includes the 5 base widgets plus every supported GPU).
-        let all_widgets_len = 5 + MAX_GPUS;
-        assert_eq!(config.layout().widgets.len(), all_widgets_len);
-        assert!(config.layout().widgets.contains(&WidgetKind::Cpu));
+        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        // Pre-condition: live layout includes CPU.
+        assert!(config.layout_spec().contains(WidgetKind::Cpu));
 
         config.toggle_widget(WidgetKind::Cpu);
 
-        // Cursor switched to custom and custom captured the new
-        // (builtin minus cpu) layout.
-        assert_eq!(
-            config.preset.active(),
-            crate::domain::preset::ActivePreset::Custom
-        );
-        assert_eq!(config.custom.widgets.as_slice().len(), all_widgets_len - 1);
-        assert!(!config.custom.widgets.as_slice().contains(&WidgetKind::Cpu));
-        assert!(!config.layout().widgets.contains(&WidgetKind::Cpu));
+        // Cursor switched to custom and custom dropped CPU.
+        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert!(!config.custom.root.contains(WidgetKind::Cpu));
+        assert!(!config.layout_spec().contains(WidgetKind::Cpu));
     }
 
     #[test]
@@ -1716,37 +1611,38 @@ mod tests {
     fn cycle_preset_to_builtin_dispatches_to_builtin_layout() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Mem, WidgetKind::Proc]);
-        config.custom.cpu_bottom = true;
+        config.custom.root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
         config.preset.set(ActivePreset::Custom);
         // On custom, live = custom.
-        assert_eq!(
-            config.layout().widgets,
-            &[WidgetKind::Mem, WidgetKind::Proc]
-        );
-        assert!(config.layout().cpu_bottom);
+        assert_eq!(config.layout_spec(), config.custom.root);
 
         // Cycle to builtin "all". Live now reads from the builtin.
         config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        // Builtin "all" includes 5 base widgets + every supported GPU.
-        assert_eq!(config.layout().widgets.len(), 5 + MAX_GPUS);
-        assert!(config.layout().widgets.contains(&WidgetKind::Cpu));
-        assert!(config.layout().widgets.contains(&WidgetKind::Disk));
-        assert!(!config.layout().cpu_bottom);
+        assert_eq!(config.layout_spec(), BuiltinPreset::All.layout_spec());
+        assert!(config.layout_spec().contains(WidgetKind::Cpu));
+        assert!(config.layout_spec().contains(WidgetKind::Disk));
         // Custom storage is untouched by cycling.
         assert_eq!(
-            config.custom.widgets.as_slice(),
-            &[WidgetKind::Mem, WidgetKind::Proc]
+            config.custom.root,
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Mem),
+                Slot::Widget(WidgetKind::Proc),
+            ])
         );
-        assert!(config.custom.cpu_bottom);
     }
 
     #[test]
     fn cycle_preset_back_to_custom_restores_user_layout() {
         use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        config.custom.widgets =
-            WidgetList::from_kinds([WidgetKind::Mem, WidgetKind::Proc, WidgetKind::Gpu(0)]);
+        config.custom.root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+            Slot::Widget(WidgetKind::Gpu(0)),
+        ]);
         config.preset.set(ActivePreset::Custom);
 
         // Visit a builtin and come back.
@@ -1754,70 +1650,12 @@ mod tests {
         config.cycle_preset(false);
         assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.layout().widgets,
-            &[WidgetKind::Mem, WidgetKind::Proc, WidgetKind::Gpu(0)]
-        );
-    }
-
-    #[test]
-    fn set_cpu_bottom_on_builtin_promotes_to_custom() {
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-
-        config.set_cpu_bottom(true);
-
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
-        assert!(config.custom.cpu_bottom);
-        assert!(config.layout().cpu_bottom);
-    }
-
-    #[test]
-    fn set_proc_left_on_custom_just_mutates_custom() {
-        let mut config = Config::new();
-        // Default is custom.
-        let before = config.preset.active();
-        config.set_proc_left(true);
-        assert_eq!(config.preset.active(), before);
-        assert!(config.custom.proc_left);
-        assert!(config.layout().proc_left);
-    }
-
-    #[test]
-    fn set_cpu_bottom_no_op_on_equal_value_keeps_builtin_cursor() {
-        // Builtin "all" has cpu_bottom = false. Setting to false
-        // (the same value) must not promote to custom.
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        config.set_cpu_bottom(false);
-        assert_eq!(
-            config.preset.active(),
-            ActivePreset::Builtin(BuiltinPreset::All)
-        );
-    }
-
-    #[test]
-    fn set_mem_below_net_no_op_on_equal_value_keeps_builtin_cursor() {
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        config.set_mem_below_net(false);
-        assert_eq!(
-            config.preset.active(),
-            ActivePreset::Builtin(BuiltinPreset::All)
-        );
-    }
-
-    #[test]
-    fn set_proc_left_no_op_on_equal_value_keeps_builtin_cursor() {
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        config.set_proc_left(false);
-        assert_eq!(
-            config.preset.active(),
-            ActivePreset::Builtin(BuiltinPreset::All)
+            config.layout_spec(),
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Mem),
+                Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Gpu(0)),
+            ])
         );
     }
     #[test]
@@ -1843,16 +1681,23 @@ mod tests {
     #[test]
     fn config_round_trips_custom_layout_through_toml() {
         let mut config = Config::new();
-        config.custom.widgets = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]);
-        config.custom.cpu_bottom = true;
+        config.custom.root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Mem),
+        ]);
         let tmp = std::env::temp_dir().join("rtop_test_layout_roundtrip.toml");
         config.write(&tmp).unwrap();
 
         let mut loaded = Config::new();
         loaded.load(&tmp);
         // Cursor on custom (default), so live should match custom.
-        assert_eq!(loaded.layout().widgets, &[WidgetKind::Cpu, WidgetKind::Mem]);
-        assert!(loaded.layout().cpu_bottom);
+        assert_eq!(
+            loaded.layout_spec(),
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Cpu),
+                Slot::Widget(WidgetKind::Mem),
+            ])
+        );
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1879,42 +1724,6 @@ mod tests {
     // -----------------------------------------------------------------
     // Inline editor parser/validator/set_widgets coverage
     // -----------------------------------------------------------------
-
-    #[test]
-    fn parse_widgets_rejects_empty_input() {
-        assert!(ConfigKey::parse_widgets("").is_err());
-        assert!(ConfigKey::parse_widgets("   ").is_err());
-    }
-
-    #[test]
-    fn parse_widgets_accepts_known_kinds() {
-        let result = ConfigKey::parse_widgets("cpu mem net proc disk").unwrap();
-        assert_eq!(
-            result,
-            vec![
-                WidgetKind::Cpu,
-                WidgetKind::Mem,
-                WidgetKind::Net,
-                WidgetKind::Proc,
-                WidgetKind::Disk,
-            ]
-        );
-    }
-
-    #[test]
-    fn parse_widgets_accepts_gpu_indices() {
-        let result = ConfigKey::parse_widgets("cpu gpu0 gpu7").unwrap();
-        assert_eq!(
-            result,
-            vec![WidgetKind::Cpu, WidgetKind::Gpu(0), WidgetKind::Gpu(7)]
-        );
-    }
-
-    #[test]
-    fn parse_widgets_rejects_unknown_token() {
-        assert!(ConfigKey::parse_widgets("cpu nope").is_err());
-        assert!(ConfigKey::parse_widgets("gpu99").is_err());
-    }
 
     #[test]
     fn parse_disks_filter_accepts_empty() {
@@ -1988,14 +1797,20 @@ mod tests {
     #[test]
     fn parse_int_rejects_non_int_key() {
         assert!(ConfigKey::ColorTheme.parse_int("100").is_err());
-        assert!(ConfigKey::Widgets.parse_int("100").is_err());
+        assert!(ConfigKey::Shape.parse_int("100").is_err());
     }
 
     #[test]
-    fn validate_string_widgets() {
-        assert!(ConfigKey::Widgets.validate_string("cpu mem").is_ok());
-        assert!(ConfigKey::Widgets.validate_string("").is_err());
-        assert!(ConfigKey::Widgets.validate_string("nope").is_err());
+    fn validate_string_shape() {
+        assert!(ConfigKey::Shape.validate_string("vstack(cpu, mem)").is_ok());
+        assert!(ConfigKey::Shape.validate_string("cpu").is_ok());
+        assert!(ConfigKey::Shape.validate_string("").is_err());
+        assert!(ConfigKey::Shape.validate_string("nope").is_err());
+        assert!(
+            ConfigKey::Shape
+                .validate_string("vstack(cpu, cpu)")
+                .is_err()
+        );
     }
 
     #[test]
@@ -2038,13 +1853,14 @@ mod tests {
     }
 
     #[test]
-    fn set_widgets_no_op_keeps_builtin_cursor() {
+    fn set_shape_no_op_keeps_builtin_cursor() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         let cursor = ActivePreset::Builtin(BuiltinPreset::All);
         config.preset.set(cursor);
-        let live = config.layout().widgets.to_vec();
-        config.set_widgets(live);
+        // Setting shape to the live value must not promote.
+        let live = config.layout_spec().to_string();
+        config.set_shape(&live).unwrap();
         assert_eq!(
             config.preset.active(),
             cursor,
@@ -2053,52 +1869,65 @@ mod tests {
     }
 
     #[test]
-    fn set_widgets_change_promotes_builtin_to_custom() {
+    fn set_shape_change_promotes_builtin_to_custom() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         config
             .preset
             .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
-        config.set_widgets(vec![WidgetKind::Cpu, WidgetKind::Mem]);
+        config.set_shape("vstack(cpu, mem)").unwrap();
         assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.custom.widgets.as_slice(),
-            &[WidgetKind::Cpu, WidgetKind::Mem]
+            config.custom.root,
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Cpu),
+                Slot::Widget(WidgetKind::Mem),
+            ])
         );
     }
 
     #[test]
-    fn set_widgets_on_custom_writes_without_changing_cursor() {
+    fn set_shape_on_custom_writes_without_changing_cursor() {
         use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
         config.preset.set(ActivePreset::Custom);
-        config.set_widgets(vec![WidgetKind::Cpu]);
+        config.set_shape("cpu").unwrap();
         assert_eq!(config.preset.active(), ActivePreset::Custom);
-        assert_eq!(config.custom.widgets.as_slice(), &[WidgetKind::Cpu]);
+        assert_eq!(config.custom.root, Slot::Widget(WidgetKind::Cpu));
     }
 
     #[test]
-    fn set_string_widgets_via_inline_editor_path() {
+    fn set_string_shape_via_inline_editor_path() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         config
             .preset
             .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
-        ConfigKey::Widgets
-            .set_string(&mut config, "cpu mem disk")
+        ConfigKey::Shape
+            .set_string(&mut config, "vstack(cpu, mem, disk)")
             .unwrap();
         assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(
-            config.custom.widgets.as_slice(),
-            &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk]
+            config.custom.root,
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Cpu),
+                Slot::Widget(WidgetKind::Mem),
+                Slot::Widget(WidgetKind::Disk),
+            ])
         );
     }
 
     #[test]
-    fn set_string_widgets_invalid_returns_err() {
+    fn set_string_shape_invalid_returns_err() {
         let mut config = Config::new();
-        assert!(ConfigKey::Widgets.set_string(&mut config, "nope").is_err());
-        assert!(ConfigKey::Widgets.set_string(&mut config, "").is_err());
+        assert!(ConfigKey::Shape.set_string(&mut config, "nope").is_err());
+        assert!(ConfigKey::Shape.set_string(&mut config, "").is_err());
+        // Duplicate widget kinds rejected at parse time.
+        assert!(
+            ConfigKey::Shape
+                .set_string(&mut config, "vstack(cpu, cpu)")
+                .is_err()
+        );
     }
 
     #[test]

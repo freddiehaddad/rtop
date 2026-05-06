@@ -3,13 +3,14 @@
 //!
 //! Presets are read-only and ship with rtop. There is no runtime
 //! "save preset" or "delete preset" — users who need a different
-//! layout edit the `custom_*` fields in `rtop.toml` directly or
+//! layout edit the `[layout] shape = "..."` DSL string in
+//! `rtop.toml` directly (or via the options-menu `shape` key) or
 //! cycle to the custom preset (the slot beyond `BuiltinPreset::COUNT`).
 //! The only preset state persisted across runs is `Config::preset`,
 //! a [`PresetField`] storing the active cursor by canonical name.
 
 use crate::domain::layout_spec::{HStackChild, Slot};
-use crate::domain::widget_kind::{WidgetKind, WidgetList};
+use crate::domain::widget_kind::WidgetKind;
 use serde::de::{self, Deserializer};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -29,15 +30,9 @@ const LEFT_WEIGHT: NonZeroU8 = match NonZeroU8::new(40) {
 };
 
 /// Identity of one of the curated, immutable layout presets that
-/// ship with rtop. The associated layout data lives in a private
-/// const table; methods on `BuiltinPreset` expose it.
-///
-/// Adding a variant is a three-step change: extend the enum, extend
-/// the const data table, and bump [`Self::COUNT`] / [`Self::ALL`].
-/// The const assert below guarantees the table and the enum stay
-/// aligned at compile time. Variant declaration order MUST match
-/// the order of entries in [`BUILTIN_PRESETS`] because [`Self::data`]
-/// indexes the table with `self as usize`.
+/// ship with rtop. Adding a variant is a three-step change: extend
+/// the enum, extend [`Self::ALL`], and add a match arm in
+/// [`Self::name`] / [`Self::layout_spec`].
 ///
 /// Cycle order (also the variant declaration order) visits the
 /// dashboard first, then the four resource diagnostics paired with
@@ -66,148 +61,6 @@ pub enum BuiltinPreset {
     CpuNetMemDisk,
 }
 
-/// Per-preset layout data. Private to this module — callers go
-/// through [`BuiltinPreset`]'s accessors so the data table and the
-/// enum can't drift apart.
-struct PresetData {
-    name: &'static str,
-    widgets: &'static [WidgetKind],
-    cpu_bottom: bool,
-    mem_below_net: bool,
-    proc_left: bool,
-    /// `true` collapses the layout into a single full-width column.
-    /// Left-column widgets stack at their preferred heights from the
-    /// top; proc (when present) absorbs the remaining height at the
-    /// bottom. Used for presets whose widgets have small intrinsic
-    /// heights and would otherwise stretch to fill an oversized
-    /// column in the default 2-column layout.
-    stack_vertical: bool,
-}
-
-/// Widget list for the `all` builtin: every widget rtop knows
-/// about (the five base widgets plus a `Gpu(N)` entry for every
-/// supported index). Constructed at compile time so `MAX_GPUS`
-/// is the single source of truth — adjust it and the array
-/// resizes automatically.
-const PRESET_ALL_WIDGETS: &[WidgetKind] = {
-    const BASE_LEN: usize = 5;
-    const TOTAL: usize = BASE_LEN + crate::config::MAX_GPUS;
-    const fn build() -> [WidgetKind; TOTAL] {
-        let mut arr = [WidgetKind::Cpu; TOTAL];
-        arr[0] = WidgetKind::Cpu;
-        arr[1] = WidgetKind::Mem;
-        arr[2] = WidgetKind::Net;
-        arr[3] = WidgetKind::Proc;
-        arr[4] = WidgetKind::Disk;
-        let mut i = 0;
-        while i < crate::config::MAX_GPUS {
-            arr[BASE_LEN + i] = WidgetKind::Gpu(i as u8);
-            i += 1;
-        }
-        arr
-    }
-    const ARR: [WidgetKind; TOTAL] = build();
-    &ARR
-};
-
-/// Widget list for the `cpu+gpu+proc` builtin: CPU at the top,
-/// every supported GPU index in the middle, processes on the
-/// right (or wherever proc_left places it). Like
-/// [`PRESET_ALL_WIDGETS`], the GPU run is built at compile time
-/// so `MAX_GPUS` stays the single source of truth, and the layout
-/// engine drops `Gpu(N)` entries whose index exceeds the detected
-/// GPU count.
-const PRESET_CPU_GPU_PROC_WIDGETS: &[WidgetKind] = {
-    const TOTAL: usize = 2 + crate::config::MAX_GPUS;
-    const fn build() -> [WidgetKind; TOTAL] {
-        let mut arr = [WidgetKind::Cpu; TOTAL];
-        arr[0] = WidgetKind::Cpu;
-        let mut i = 0;
-        while i < crate::config::MAX_GPUS {
-            arr[1 + i] = WidgetKind::Gpu(i as u8);
-            i += 1;
-        }
-        arr[1 + crate::config::MAX_GPUS] = WidgetKind::Proc;
-        arr
-    }
-    const ARR: [WidgetKind; TOTAL] = build();
-    &ARR
-};
-
-const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
-    PresetData {
-        name: "all",
-        widgets: PRESET_ALL_WIDGETS,
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: false,
-    },
-    PresetData {
-        name: "cpu+proc",
-        widgets: &[WidgetKind::Cpu, WidgetKind::Proc],
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: false,
-    },
-    PresetData {
-        name: "mem+proc",
-        widgets: &[WidgetKind::Mem, WidgetKind::Proc],
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: true,
-    },
-    PresetData {
-        name: "disk+proc",
-        widgets: &[WidgetKind::Disk, WidgetKind::Proc],
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: true,
-    },
-    PresetData {
-        name: "cpu+net+proc",
-        widgets: &[WidgetKind::Cpu, WidgetKind::Net, WidgetKind::Proc],
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: false,
-    },
-    PresetData {
-        name: "cpu+gpu+proc",
-        widgets: PRESET_CPU_GPU_PROC_WIDGETS,
-        cpu_bottom: false,
-        mem_below_net: false,
-        proc_left: false,
-        stack_vertical: true,
-    },
-    PresetData {
-        name: "cpu+net+mem+disk",
-        widgets: &[
-            WidgetKind::Cpu,
-            WidgetKind::Net,
-            WidgetKind::Mem,
-            WidgetKind::Disk,
-        ],
-        cpu_bottom: false,
-        // Net renders above mem in the left column so the visual
-        // order matches the preset name `cpu+net+mem+disk`.
-        mem_below_net: true,
-        proc_left: false,
-        // Use the 2-column path (which collapses to a single
-        // full-width column when proc is absent) so net's existing
-        // slack-absorbing behaviour fills the available height.
-        stack_vertical: false,
-    },
-];
-
-// Compile-time guarantee that the data table and the enum stay in
-// sync. If a variant is added or removed, this assert forces the
-// table to be widened/narrowed in the same change.
-const _: () = assert!(BUILTIN_PRESETS.len() == BuiltinPreset::COUNT);
-
 impl BuiltinPreset {
     /// Total number of built-in presets.
     pub const COUNT: usize = 7;
@@ -228,47 +81,20 @@ impl BuiltinPreset {
     /// Stable, user-visible identifier for the preset (used in
     /// the CPU widget bottom hint and in TOML serialisation).
     pub fn name(self) -> &'static str {
-        self.data().name
-    }
-
-    /// Widget list for this preset, in display order.
-    pub fn widgets(self) -> &'static [WidgetKind] {
-        self.data().widgets
-    }
-
-    /// `true` to render CPU at the bottom of the screen.
-    pub fn cpu_bottom(self) -> bool {
-        self.data().cpu_bottom
-    }
-
-    /// `true` to position memory below network in the left column.
-    pub fn mem_below_net(self) -> bool {
-        self.data().mem_below_net
-    }
-
-    /// `true` to render the process widget on the left.
-    pub fn proc_left(self) -> bool {
-        self.data().proc_left
-    }
-
-    /// `true` collapses the layout into a single full-width column —
-    /// left-column widgets at preferred heights, proc absorbs slack
-    /// at the bottom. See [`PresetData::stack_vertical`].
-    pub fn stack_vertical(self) -> bool {
-        self.data().stack_vertical
+        match self {
+            Self::All => "all",
+            Self::CpuProc => "cpu+proc",
+            Self::MemProc => "mem+proc",
+            Self::DiskProc => "disk+proc",
+            Self::CpuNetProc => "cpu+net+proc",
+            Self::CpuGpuProc => "cpu+gpu+proc",
+            Self::CpuNetMemDisk => "cpu+net+mem+disk",
+        }
     }
 
     /// Resolve a preset by its canonical [`Self::name`].
     pub fn from_name(s: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|p| p.name() == s)
-    }
-
-    fn data(self) -> &'static PresetData {
-        // The `as usize` cast is sound because `BuiltinPreset` has
-        // implicit discriminants that start at 0 and step by 1, and
-        // the const assert above guarantees the table covers every
-        // variant.
-        &BUILTIN_PRESETS[self as usize]
     }
 
     /// Static [`Slot`] tree for this preset.
@@ -416,8 +242,7 @@ impl ActivePreset {
 
 /// Persisted preset cursor with deserialise-time error capture.
 ///
-/// Mirrors [`crate::domain::widget_kind::WidgetList`]'s pattern:
-/// holds the typed value plus a side channel for the offending
+/// Holds the typed value plus a side channel for the offending
 /// string when a hand-edited TOML names a preset that doesn't
 /// exist. `Config::validate` drains the side channel into
 /// warnings via [`Self::take_invalid`] and clears it.
@@ -496,196 +321,48 @@ impl<'de> Deserialize<'de> for PresetField {
     }
 }
 
-/// The persisted layout for the custom preset slot — the four
-/// orientation-and-visibility fields rolled into one block. The
-/// builtin presets carry their layout as static [`PresetData`];
-/// this struct is the owned, mutable counterpart that
-/// `Config::custom` stores and `Config::layout()` borrows from
-/// when the cursor is on [`ActivePreset::Custom`].
+/// The persisted layout for the custom preset slot.
 ///
-/// Serialised as a TOML `[layout]` table (named via
-/// `#[serde(rename = "layout")]` on the `Config::custom` field).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+/// Stored as a single [`Slot`] tree — the canonical layout
+/// representation. Serialised as a TOML `[layout]` table with one
+/// `shape` field carrying the DSL string form of the tree:
+///
+/// ```toml
+/// [layout]
+/// shape = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
+/// ```
+///
+/// On first launch (no `[layout]` table in `rtop.toml`) the default
+/// is `BuiltinPreset::All`'s tree, matching the previous default of
+/// "every widget visible".
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomLayout {
-    pub widgets: WidgetList,
-    pub cpu_bottom: bool,
-    pub mem_below_net: bool,
-    pub proc_left: bool,
-    /// Mirrors [`PresetData::stack_vertical`] for custom layouts.
-    /// Defaults to `false` (the standard 2-column layout) so old
-    /// configs without the field continue to work.
-    pub stack_vertical: bool,
+    /// The custom layout's [`Slot`] tree. Persisted under the
+    /// `shape` TOML key (the user-facing name); the field name
+    /// `root` is the type-internal moniker.
+    #[serde(rename = "shape")]
+    pub root: Slot,
 }
 
 impl Default for CustomLayout {
-    /// First-launch default: every widget rtop knows about (the
-    /// five base widgets plus a `Gpu(N)` entry for every supported
-    /// index). The layout engine drops Gpu entries whose index is
-    /// `>= detected gpu_count`, so the list can safely include all
-    /// of them — widgets only render when both listed and backed
-    /// by hardware. New GPUs plugged in later are picked up
-    /// automatically because their index is already in the list.
+    /// First-launch default: clone the `all` preset's tree so the
+    /// user sees the dashboard view straight away. Toggling
+    /// individual widgets off (`1`-`9`) edits this tree in place;
+    /// the user can also rewrite the `shape` DSL string directly.
     fn default() -> Self {
-        let mut widgets = vec![
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-        ];
-        widgets.extend((0..crate::config::MAX_GPUS).filter_map(WidgetKind::gpu));
         Self {
-            widgets: WidgetList::from_kinds(widgets),
-            cpu_bottom: false,
-            mem_below_net: false,
-            proc_left: false,
-            stack_vertical: false,
+            root: BuiltinPreset::All.layout_spec(),
         }
     }
 }
 
 impl CustomLayout {
-    /// Build a [`Slot`] tree from the legacy widget-list +
-    /// orientation-flag representation. Returns `None` when no
-    /// widget would render.
-    ///
-    /// This is a transitional helper: a future commit migrates
-    /// [`CustomLayout`] to store a [`Slot`] tree directly (with
-    /// DSL serialisation), at which point the orientation-flag
-    /// fields and this method go away. Until then, custom layouts
-    /// are converted on each frame so the engine consumes the
-    /// same canonical input shape as builtin presets.
-    pub fn layout_spec(&self) -> Option<Slot> {
-        legacy_to_slot(
-            self.widgets.as_slice(),
-            self.cpu_bottom,
-            self.mem_below_net,
-            self.proc_left,
-            self.stack_vertical,
-        )
+    /// Borrow this custom layout's [`Slot`] tree as an owned clone
+    /// for engine consumption. The engine takes the tree by value;
+    /// custom layouts can be edited in place between frames.
+    pub fn layout_spec(&self) -> Slot {
+        self.root.clone()
     }
-}
-
-/// Convert the legacy widget-list + orientation-flag representation
-/// (used by both [`CustomLayout`] and the persisted `rtop.toml`
-/// custom block) into a canonical [`Slot`] tree. Returns `None`
-/// when no widget is present.
-///
-/// GPU indices are preserved verbatim — every `Gpu(n)` listed in
-/// `widgets` lands in the tree regardless of detected count. The
-/// engine collapses absent devices to zero size at render time.
-pub(crate) fn legacy_to_slot(
-    widgets: &[WidgetKind],
-    cpu_bottom: bool,
-    mem_below_net: bool,
-    proc_left: bool,
-    stack_vertical: bool,
-) -> Option<Slot> {
-    let has_cpu = widgets.contains(&WidgetKind::Cpu);
-    let has_mem = widgets.contains(&WidgetKind::Mem);
-    let has_net = widgets.contains(&WidgetKind::Net);
-    let has_proc = widgets.contains(&WidgetKind::Proc);
-    let has_disk = widgets.contains(&WidgetKind::Disk);
-    let gpu_indices: Vec<u8> = (0..crate::config::MAX_GPUS as u8)
-        .filter(|n| widgets.contains(&WidgetKind::Gpu(*n)))
-        .collect();
-    let has_left = has_mem || has_net || has_disk || !gpu_indices.is_empty();
-
-    if !has_cpu && !has_proc && !has_left {
-        return None;
-    }
-
-    // Build the left-column widget order: GPUs first, then mem/net
-    // (per `mem_below_net`), then disk last.
-    let mut left_col: Vec<Slot> = Vec::new();
-    for n in &gpu_indices {
-        left_col.push(Slot::Widget(WidgetKind::Gpu(*n)));
-    }
-    if mem_below_net {
-        if has_net {
-            left_col.push(Slot::Widget(WidgetKind::Net));
-        }
-        if has_mem {
-            left_col.push(Slot::Widget(WidgetKind::Mem));
-        }
-    } else {
-        if has_mem {
-            left_col.push(Slot::Widget(WidgetKind::Mem));
-        }
-        if has_net {
-            left_col.push(Slot::Widget(WidgetKind::Net));
-        }
-    }
-    if has_disk {
-        left_col.push(Slot::Widget(WidgetKind::Disk));
-    }
-
-    let body = if stack_vertical && has_left {
-        let mut col = left_col;
-        if has_proc {
-            col.push(Slot::Widget(WidgetKind::Proc));
-        }
-        collapse_vstack(col)
-    } else if has_proc && has_left {
-        let left_slot = collapse_vstack(left_col).expect("has_left implies non-empty left_col");
-        let proc_slot = Slot::Widget(WidgetKind::Proc);
-        let (first, second) = if proc_left {
-            (
-                HStackChild::new(proc_slot, PROC_WEIGHT),
-                HStackChild::new(left_slot, LEFT_WEIGHT),
-            )
-        } else {
-            (
-                HStackChild::new(left_slot, LEFT_WEIGHT),
-                HStackChild::new(proc_slot, PROC_WEIGHT),
-            )
-        };
-        Some(Slot::HStack(vec![first, second]))
-    } else if has_proc {
-        Some(Slot::Widget(WidgetKind::Proc))
-    } else {
-        collapse_vstack(left_col)
-    };
-
-    if has_cpu {
-        let cpu = Slot::Widget(WidgetKind::Cpu);
-        Some(match body {
-            Some(b) if cpu_bottom => Slot::VStack(vec![b, cpu]),
-            Some(b) => Slot::VStack(vec![cpu, b]),
-            None => cpu,
-        })
-    } else {
-        body
-    }
-}
-
-/// Wrap a list of slots in a `VStack`, but flatten singleton lists
-/// to the inner slot. Avoids degenerate one-child stacks in the tree.
-fn collapse_vstack(mut col: Vec<Slot>) -> Option<Slot> {
-    match col.len() {
-        0 => None,
-        1 => col.pop(),
-        _ => Some(Slot::VStack(col)),
-    }
-}
-
-/// Borrowed view of the live layout (the layout currently in
-/// effect on screen). Returned by `Config::layout()`.
-///
-/// The view is built on demand and is the same shape regardless
-/// of whether the cursor is on a builtin (where `widgets` borrows
-/// the `&'static` slice from [`PresetData`]) or `Custom` (where
-/// `widgets` borrows from `Config::custom`). No allocation
-/// happens on the read path: builtins return their static slice
-/// unchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ActiveLayout<'a> {
-    pub widgets: &'a [WidgetKind],
-    pub cpu_bottom: bool,
-    pub mem_below_net: bool,
-    pub proc_left: bool,
-    pub stack_vertical: bool,
 }
 
 #[cfg(test)]
@@ -717,279 +394,64 @@ mod tests {
         assert_eq!(BuiltinPreset::from_name("All"), None);
     }
 
-    #[test]
-    fn all_presets_have_at_least_one_widget() {
-        for &preset in &BuiltinPreset::ALL {
-            assert!(
-                !preset.widgets().is_empty(),
-                "preset '{}' must reference at least one widget",
-                preset.name(),
-            );
-        }
-    }
-
-    #[test]
-    fn first_preset_is_all_widgets() {
-        let p = BuiltinPreset::All;
-        assert_eq!(p.name(), "all");
-        let widgets = p.widgets();
-        // 5 base widgets + every supported GPU index. The layout
-        // engine drops Gpu entries whose index is `>= detected
-        // gpu_count`, so listing all 8 here is the right thing.
-        assert_eq!(widgets.len(), 5 + crate::config::MAX_GPUS);
-        assert!(widgets.contains(&WidgetKind::Cpu));
-        assert!(widgets.contains(&WidgetKind::Mem));
-        assert!(widgets.contains(&WidgetKind::Net));
-        assert!(widgets.contains(&WidgetKind::Proc));
-        assert!(widgets.contains(&WidgetKind::Disk));
-        for i in 0..crate::config::MAX_GPUS {
-            let gpu = WidgetKind::gpu(i).expect("0..MAX_GPUS is in range");
-            assert!(widgets.contains(&gpu), "preset 'all' must list {gpu}");
-        }
-        assert!(!p.cpu_bottom());
-        assert!(!p.mem_below_net());
-        assert!(!p.proc_left());
-    }
-
-    #[test]
-    fn cpu_gpu_proc_preset_lists_cpu_every_gpu_and_proc() {
-        let p = BuiltinPreset::CpuGpuProc;
-        assert_eq!(p.name(), "cpu+gpu+proc");
-        let widgets = p.widgets();
-        // CPU + every supported GPU + proc, in that order.
-        assert_eq!(widgets.len(), 2 + crate::config::MAX_GPUS);
-        assert_eq!(widgets[0], WidgetKind::Cpu);
-        assert_eq!(widgets[widgets.len() - 1], WidgetKind::Proc);
-        for i in 0..crate::config::MAX_GPUS {
-            let gpu = WidgetKind::gpu(i).expect("0..MAX_GPUS is in range");
-            assert!(
-                widgets.contains(&gpu),
-                "preset 'cpu+gpu+proc' must list {gpu}"
-            );
-        }
-        // Mem/Net/Disk are intentionally absent.
-        assert!(!widgets.contains(&WidgetKind::Mem));
-        assert!(!widgets.contains(&WidgetKind::Net));
-        assert!(!widgets.contains(&WidgetKind::Disk));
-    }
-
-    #[test]
-    fn diagnostic_pair_presets_are_resource_plus_proc() {
-        // The mem+proc and disk+proc presets are deliberately
-        // two-widget pairs, mirroring cpu+proc. Each pairs one
-        // primary resource with the process list for diagnostic
-        // workflows.
-        let mem_proc = BuiltinPreset::MemProc;
-        assert_eq!(mem_proc.name(), "mem+proc");
-        assert_eq!(mem_proc.widgets(), &[WidgetKind::Mem, WidgetKind::Proc]);
-
-        let disk_proc = BuiltinPreset::DiskProc;
-        assert_eq!(disk_proc.name(), "disk+proc");
-        assert_eq!(disk_proc.widgets(), &[WidgetKind::Disk, WidgetKind::Proc]);
-    }
-
-    // -- ActivePreset --
-
-    #[test]
-    fn active_preset_default_is_custom() {
-        assert_eq!(ActivePreset::default(), ActivePreset::Custom);
-    }
-
-    #[test]
-    fn active_preset_name_round_trips_through_from_name() {
-        for &b in &BuiltinPreset::ALL {
-            let active = ActivePreset::Builtin(b);
-            assert_eq!(ActivePreset::from_name(active.name()), Some(active));
-        }
-        assert_eq!(
-            ActivePreset::from_name(ActivePreset::Custom.name()),
-            Some(ActivePreset::Custom)
-        );
-    }
-
-    #[test]
-    fn active_preset_from_name_rejects_unknown() {
-        assert_eq!(ActivePreset::from_name("nope"), None);
-        assert_eq!(ActivePreset::from_name(""), None);
-        assert_eq!(ActivePreset::from_name("Custom"), None); // case-sensitive
-    }
-
-    #[test]
-    fn active_preset_next_walks_full_cycle_then_wraps() {
-        // Forward cycle visits every builtin in BuiltinPreset::ALL
-        // order, then Custom, then wraps. Derived from ALL rather
-        // than hardcoded so the test stays correct as the cycle
-        // grows or is reordered.
-        let mut order: Vec<ActivePreset> = BuiltinPreset::ALL
-            .iter()
-            .map(|&b| ActivePreset::Builtin(b))
-            .collect();
-        order.push(ActivePreset::Custom);
-        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
-
-        let mut cursor = order[0];
-        for &expected_next in order.iter().cycle().skip(1).take(order.len()) {
-            cursor = cursor.next();
-            assert_eq!(cursor, expected_next);
-        }
-        // After CYCLE_LEN steps we're back where we started.
-        assert_eq!(cursor, order[0]);
-    }
-
-    #[test]
-    fn active_preset_prev_walks_full_cycle_then_wraps() {
-        // Backward cycle is the reverse of the forward order.
-        let mut forward: Vec<ActivePreset> = BuiltinPreset::ALL
-            .iter()
-            .map(|&b| ActivePreset::Builtin(b))
-            .collect();
-        forward.push(ActivePreset::Custom);
-        let order: Vec<ActivePreset> = forward.iter().rev().copied().collect();
-        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
-
-        let mut cursor = order[0];
-        for &expected_prev in order.iter().cycle().skip(1).take(order.len()) {
-            cursor = cursor.prev();
-            assert_eq!(cursor, expected_prev);
-        }
-        assert_eq!(cursor, order[0]);
-    }
-
-    // -- PresetField --
-
-    #[test]
-    fn preset_field_serialises_as_canonical_name() {
-        for &b in &BuiltinPreset::ALL {
-            let field = PresetField::new(ActivePreset::Builtin(b));
-            let value = toml::Value::try_from(&field).unwrap();
-            assert_eq!(value, toml::Value::String(b.name().to_string()));
-        }
-        let field = PresetField::new(ActivePreset::Custom);
-        let value = toml::Value::try_from(&field).unwrap();
-        assert_eq!(value, toml::Value::String("custom".to_string()));
-    }
-
-    #[test]
-    fn preset_field_deserialises_known_name() {
-        let value = toml::Value::String("cpu+proc".to_string());
-        let mut field: PresetField = value.try_into().unwrap();
-        assert_eq!(
-            field.active(),
-            ActivePreset::Builtin(BuiltinPreset::CpuProc)
-        );
-        assert_eq!(field.take_invalid(), None);
-    }
-
-    #[test]
-    fn preset_field_deserialises_custom() {
-        let value = toml::Value::String("custom".to_string());
-        let mut field: PresetField = value.try_into().unwrap();
-        assert_eq!(field.active(), ActivePreset::Custom);
-        assert_eq!(field.take_invalid(), None);
-    }
-
-    #[test]
-    fn preset_field_unknown_name_falls_back_to_custom_and_captures_invalid() {
-        let value = toml::Value::String("cpu+pro".to_string());
-        let mut field: PresetField = value.try_into().unwrap();
-        assert_eq!(field.active(), ActivePreset::Custom);
-        assert_eq!(field.take_invalid().as_deref(), Some("cpu+pro"));
-        // Subsequent take returns None.
-        assert_eq!(field.take_invalid(), None);
-    }
-
-    #[test]
-    fn preset_field_round_trips_through_toml_for_all_active_values() {
-        // Iterate ALL plus Custom rather than hardcoding the
-        // variants — this test stays correct as the catalog grows.
-        let mut cases: Vec<ActivePreset> = BuiltinPreset::ALL
-            .iter()
-            .map(|&b| ActivePreset::Builtin(b))
-            .collect();
-        cases.push(ActivePreset::Custom);
-        for active in cases {
-            let field = PresetField::new(active);
-            let serialised = toml::Value::try_from(&field).unwrap();
-            let mut deserialised: PresetField = serialised.try_into().unwrap();
-            assert_eq!(deserialised.active(), active);
-            assert_eq!(deserialised.take_invalid(), None);
-        }
-    }
-
-    // -- CustomLayout --
-
-    #[test]
-    fn custom_layout_default_includes_every_supported_widget() {
-        let layout = CustomLayout::default();
-        let kinds = layout.widgets.as_slice();
-        assert_eq!(kinds.len(), 5 + crate::config::MAX_GPUS);
-        assert!(kinds.contains(&WidgetKind::Cpu));
-        assert!(kinds.contains(&WidgetKind::Mem));
-        assert!(kinds.contains(&WidgetKind::Net));
-        assert!(kinds.contains(&WidgetKind::Proc));
-        assert!(kinds.contains(&WidgetKind::Disk));
-        for i in 0..crate::config::MAX_GPUS {
-            let gpu = WidgetKind::gpu(i).expect("0..MAX_GPUS is in range");
-            assert!(kinds.contains(&gpu), "default must list {gpu}");
-        }
-        assert!(!layout.cpu_bottom);
-        assert!(!layout.mem_below_net);
-        assert!(!layout.proc_left);
-    }
-
-    #[test]
-    fn custom_layout_round_trips_through_toml() {
-        let layout = CustomLayout {
-            widgets: WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Mem]),
-            cpu_bottom: true,
-            mem_below_net: false,
-            proc_left: true,
-            stack_vertical: true,
-        };
-        let value = toml::Value::try_from(&layout).unwrap();
-        let loaded: CustomLayout = value.try_into().unwrap();
-        assert_eq!(
-            loaded.widgets.as_slice(),
-            &[WidgetKind::Cpu, WidgetKind::Mem]
-        );
-        assert!(loaded.cpu_bottom);
-        assert!(!loaded.mem_below_net);
-        assert!(loaded.proc_left);
-        assert!(loaded.stack_vertical);
-    }
-
     // -- BuiltinPreset::layout_spec --
 
-    fn count_widget_leaves(slot: &Slot) -> usize {
-        match slot {
-            Slot::Widget(_) => 1,
-            Slot::VStack(children) => children.iter().map(count_widget_leaves).sum(),
-            Slot::HStack(children) => children.iter().map(|c| count_widget_leaves(&c.slot)).sum(),
+    fn collect_widgets(slot: &Slot) -> Vec<WidgetKind> {
+        let mut out = Vec::new();
+        let mut stack: Vec<&Slot> = vec![slot];
+        while let Some(s) = stack.pop() {
+            match s {
+                Slot::Widget(kind) => out.push(*kind),
+                Slot::VStack(children) => stack.extend(children.iter().rev()),
+                Slot::HStack(children) => stack.extend(children.iter().map(|c| &c.slot).rev()),
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn layout_spec_validates_for_every_builtin() {
+        // Each builtin's static tree must satisfy the global
+        // invariants Slot::validate checks (no duplicate widget
+        // kinds). This catches future regressions where someone
+        // accidentally lists a widget twice in a hand-written tree.
+        for &preset in &BuiltinPreset::ALL {
+            preset.layout_spec().validate().unwrap_or_else(|e| {
+                panic!("{}: layout_spec failed validation: {e}", preset.name())
+            });
         }
     }
 
     #[test]
-    fn builtin_layout_spec_includes_every_widget_listed_in_widgets() {
-        // Every widget in `BuiltinPreset::widgets()` must appear in
-        // the `layout_spec()` tree at least once. This is the
-        // structural contract guaranteeing the static tree and the
-        // legacy widget list stay in sync.
+    fn layout_spec_no_duplicate_widget_in_any_builtin() {
         for &preset in &BuiltinPreset::ALL {
-            let spec = preset.layout_spec();
-            for &kind in preset.widgets() {
+            let widgets = collect_widgets(&preset.layout_spec());
+            let mut seen = std::collections::HashSet::new();
+            for kind in &widgets {
                 assert!(
-                    spec.contains(kind),
-                    "{}: layout_spec() missing widget {kind}",
+                    seen.insert(*kind),
+                    "{}: widget {kind} appears twice",
                     preset.name(),
                 );
             }
-            // And the count of leaves equals the widget list length
-            // (no extras, no duplicates).
+        }
+    }
+
+    #[test]
+    fn layout_spec_round_trips_through_dsl() {
+        // Every builtin tree must be expressible in the DSL — its
+        // canonical Display form must parse back to the same tree.
+        for &preset in &BuiltinPreset::ALL {
+            let original = preset.layout_spec();
+            let dsl = original.to_string();
+            let parsed: Slot = dsl
+                .parse()
+                .unwrap_or_else(|e| panic!("{}: DSL did not round-trip: {e}", preset.name()));
             assert_eq!(
-                count_widget_leaves(&spec),
-                preset.widgets().len(),
-                "{}: leaf count must equal widgets() length",
-                preset.name(),
+                parsed,
+                original,
+                "{}: DSL round-trip altered tree",
+                preset.name()
             );
         }
     }
@@ -1007,7 +469,7 @@ mod tests {
         };
         assert_eq!(hstack.len(), 2);
         // Right column is always proc.
-        assert!(matches!(hstack[1].slot, Slot::Widget(WidgetKind::Proc),));
+        assert!(matches!(hstack[1].slot, Slot::Widget(WidgetKind::Proc)));
         // Left column is a VStack containing every GPU + mem + net + disk.
         let Slot::VStack(left) = &hstack[0].slot else {
             panic!("`all` left column should be a VStack");
@@ -1097,131 +559,160 @@ mod tests {
         );
     }
 
-    // -- legacy_to_slot --
+    // -- ActivePreset --
 
     #[test]
-    fn legacy_to_slot_empty_widget_list_returns_none() {
-        assert!(legacy_to_slot(&[], false, false, false, false).is_none());
+    fn active_preset_default_is_custom() {
+        assert_eq!(ActivePreset::default(), ActivePreset::Custom);
     }
 
     #[test]
-    fn legacy_to_slot_proc_only_yields_widget_leaf() {
-        assert_eq!(
-            legacy_to_slot(&[WidgetKind::Proc], false, false, false, false),
-            Some(Slot::Widget(WidgetKind::Proc)),
-        );
-    }
-
-    #[test]
-    fn legacy_to_slot_cpu_bottom_swaps_root_vstack_order() {
-        let widgets = [WidgetKind::Cpu, WidgetKind::Mem];
-        let top = legacy_to_slot(&widgets, false, false, false, false).unwrap();
-        let bot = legacy_to_slot(&widgets, true, false, false, false).unwrap();
-        assert_eq!(
-            top,
-            Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Cpu),
-                Slot::Widget(WidgetKind::Mem),
-            ])
-        );
-        assert_eq!(
-            bot,
-            Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Mem),
-                Slot::Widget(WidgetKind::Cpu),
-            ])
-        );
-    }
-
-    #[test]
-    fn legacy_to_slot_mem_below_net_swaps_left_column_mem_net_order() {
-        let widgets = [WidgetKind::Mem, WidgetKind::Net];
-        let mem_above_net = legacy_to_slot(&widgets, false, false, false, false).unwrap();
-        let mem_below_net = legacy_to_slot(&widgets, false, true, false, false).unwrap();
-        assert_eq!(
-            mem_above_net,
-            Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Mem),
-                Slot::Widget(WidgetKind::Net),
-            ])
-        );
-        assert_eq!(
-            mem_below_net,
-            Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Net),
-                Slot::Widget(WidgetKind::Mem),
-            ])
-        );
-    }
-
-    #[test]
-    fn legacy_to_slot_proc_left_reverses_hstack_order() {
-        let widgets = [WidgetKind::Mem, WidgetKind::Proc];
-        let proc_right = legacy_to_slot(&widgets, false, false, false, false).unwrap();
-        let proc_left_root = legacy_to_slot(&widgets, false, false, true, false).unwrap();
-        let Slot::HStack(right_children) = &proc_right else {
-            panic!("expected HStack root for [mem, proc]");
-        };
-        assert!(matches!(
-            right_children[0].slot,
-            Slot::Widget(WidgetKind::Mem)
-        ));
-        assert!(matches!(
-            right_children[1].slot,
-            Slot::Widget(WidgetKind::Proc)
-        ));
-        let Slot::HStack(left_children) = &proc_left_root else {
-            panic!("expected HStack root with proc_left=true");
-        };
-        assert!(matches!(
-            left_children[0].slot,
-            Slot::Widget(WidgetKind::Proc)
-        ));
-        assert!(matches!(
-            left_children[1].slot,
-            Slot::Widget(WidgetKind::Mem)
-        ));
-    }
-
-    #[test]
-    fn legacy_to_slot_stack_vertical_collapses_two_column_to_single_vstack() {
-        let widgets = [WidgetKind::Mem, WidgetKind::Proc];
-        let stacked = legacy_to_slot(&widgets, false, false, false, true).unwrap();
-        assert_eq!(
-            stacked,
-            Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Mem),
-                Slot::Widget(WidgetKind::Proc),
-            ])
-        );
-    }
-
-    #[test]
-    fn legacy_to_slot_includes_all_listed_gpus_regardless_of_index_count() {
-        // The conversion no longer filters by `gpu_count` — the
-        // engine handles GPU presence at render time.
-        let widgets = [
-            WidgetKind::Cpu,
-            WidgetKind::Gpu(0),
-            WidgetKind::Gpu(3),
-            WidgetKind::Gpu(7),
-            WidgetKind::Proc,
-        ];
-        let spec = legacy_to_slot(&widgets, false, false, false, false).unwrap();
-        assert!(spec.contains(WidgetKind::Gpu(0)));
-        assert!(spec.contains(WidgetKind::Gpu(3)));
-        assert!(spec.contains(WidgetKind::Gpu(7)));
-    }
-
-    #[test]
-    fn custom_layout_spec_default_includes_every_listed_widget() {
-        let custom = CustomLayout::default();
-        let spec = custom.layout_spec().expect("default custom is non-empty");
-        for &kind in custom.widgets.as_slice() {
-            assert!(
-                spec.contains(kind),
-                "default custom layout_spec missing {kind}",
-            );
+    fn active_preset_name_round_trips_through_from_name() {
+        for &b in &BuiltinPreset::ALL {
+            let active = ActivePreset::Builtin(b);
+            assert_eq!(ActivePreset::from_name(active.name()), Some(active));
         }
+        assert_eq!(
+            ActivePreset::from_name(ActivePreset::Custom.name()),
+            Some(ActivePreset::Custom)
+        );
+    }
+
+    #[test]
+    fn active_preset_from_name_rejects_unknown() {
+        assert_eq!(ActivePreset::from_name("nope"), None);
+        assert_eq!(ActivePreset::from_name(""), None);
+        assert_eq!(ActivePreset::from_name("Custom"), None); // case-sensitive
+    }
+
+    #[test]
+    fn active_preset_next_walks_full_cycle_then_wraps() {
+        let mut order: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        order.push(ActivePreset::Custom);
+        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
+
+        let mut cursor = order[0];
+        for &expected_next in order.iter().cycle().skip(1).take(order.len()) {
+            cursor = cursor.next();
+            assert_eq!(cursor, expected_next);
+        }
+        assert_eq!(cursor, order[0]);
+    }
+
+    #[test]
+    fn active_preset_prev_walks_full_cycle_then_wraps() {
+        let mut forward: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        forward.push(ActivePreset::Custom);
+        let order: Vec<ActivePreset> = forward.iter().rev().copied().collect();
+        assert_eq!(order.len(), ActivePreset::CYCLE_LEN);
+
+        let mut cursor = order[0];
+        for &expected_prev in order.iter().cycle().skip(1).take(order.len()) {
+            cursor = cursor.prev();
+            assert_eq!(cursor, expected_prev);
+        }
+        assert_eq!(cursor, order[0]);
+    }
+
+    // -- PresetField --
+
+    #[test]
+    fn preset_field_serialises_as_canonical_name() {
+        for &b in &BuiltinPreset::ALL {
+            let field = PresetField::new(ActivePreset::Builtin(b));
+            let value = toml::Value::try_from(&field).unwrap();
+            assert_eq!(value, toml::Value::String(b.name().to_string()));
+        }
+        let field = PresetField::new(ActivePreset::Custom);
+        let value = toml::Value::try_from(&field).unwrap();
+        assert_eq!(value, toml::Value::String("custom".to_string()));
+    }
+
+    #[test]
+    fn preset_field_deserialises_known_name() {
+        let value = toml::Value::String("cpu+proc".to_string());
+        let mut field: PresetField = value.try_into().unwrap();
+        assert_eq!(
+            field.active(),
+            ActivePreset::Builtin(BuiltinPreset::CpuProc)
+        );
+        assert_eq!(field.take_invalid(), None);
+    }
+
+    #[test]
+    fn preset_field_deserialises_custom() {
+        let value = toml::Value::String("custom".to_string());
+        let mut field: PresetField = value.try_into().unwrap();
+        assert_eq!(field.active(), ActivePreset::Custom);
+        assert_eq!(field.take_invalid(), None);
+    }
+
+    #[test]
+    fn preset_field_unknown_name_falls_back_to_custom_and_captures_invalid() {
+        let value = toml::Value::String("cpu+pro".to_string());
+        let mut field: PresetField = value.try_into().unwrap();
+        assert_eq!(field.active(), ActivePreset::Custom);
+        assert_eq!(field.take_invalid().as_deref(), Some("cpu+pro"));
+        assert_eq!(field.take_invalid(), None);
+    }
+
+    #[test]
+    fn preset_field_round_trips_through_toml_for_all_active_values() {
+        let mut cases: Vec<ActivePreset> = BuiltinPreset::ALL
+            .iter()
+            .map(|&b| ActivePreset::Builtin(b))
+            .collect();
+        cases.push(ActivePreset::Custom);
+        for active in cases {
+            let field = PresetField::new(active);
+            let serialised = toml::Value::try_from(&field).unwrap();
+            let mut deserialised: PresetField = serialised.try_into().unwrap();
+            assert_eq!(deserialised.active(), active);
+            assert_eq!(deserialised.take_invalid(), None);
+        }
+    }
+
+    // -- CustomLayout --
+
+    #[test]
+    fn custom_layout_default_is_all_preset_tree() {
+        let layout = CustomLayout::default();
+        assert_eq!(layout.root, BuiltinPreset::All.layout_spec());
+    }
+
+    #[test]
+    fn custom_layout_round_trips_through_toml_via_dsl_string() {
+        let layout = CustomLayout {
+            root: Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Cpu),
+                Slot::Widget(WidgetKind::Mem),
+            ]),
+        };
+        let value = toml::Value::try_from(&layout).unwrap();
+        // Persisted as `shape = "vstack(cpu, mem)"` — a TOML table
+        // with one string field.
+        let table = value
+            .as_table()
+            .expect("CustomLayout serialises as a table");
+        assert_eq!(
+            table.get("shape").and_then(|v| v.as_str()),
+            Some("vstack(cpu, mem)"),
+        );
+        let loaded: CustomLayout = value.try_into().unwrap();
+        assert_eq!(loaded, layout);
+    }
+
+    #[test]
+    fn custom_layout_layout_spec_returns_root_clone() {
+        let layout = CustomLayout {
+            root: Slot::Widget(WidgetKind::Cpu),
+        };
+        assert_eq!(layout.layout_spec(), Slot::Widget(WidgetKind::Cpu));
     }
 }

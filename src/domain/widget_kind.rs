@@ -116,8 +116,8 @@ impl Display for WidgetKind {
 }
 
 /// Error returned when a string cannot be parsed into a
-/// [`WidgetKind`]. Carries the offending input so that callers
-/// (notably `WidgetList`'s deserialiser) can surface a useful warning.
+/// [`WidgetKind`]. Carries the offending input so callers can surface
+/// a useful warning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseWidgetKindError(pub String);
 
@@ -175,85 +175,6 @@ impl<'de> Deserialize<'de> for WidgetKind {
         }
 
         deserializer.deserialize_str(WidgetKindVisitor)
-    }
-}
-
-/// A list of [`WidgetKind`]s with deserialise-time error capture.
-///
-/// `Vec<WidgetKind>` would reject the entire load on a single bad
-/// string, which is too strict — we want to drop the bad entries,
-/// keep the good ones, and surface a warning. `WidgetList` reads the
-/// raw TOML as `Vec<String>`, parses each entry, and stores
-/// failures separately so `Config::validate` can warn the user
-/// without losing the rest of the layout.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct WidgetList {
-    items: Vec<WidgetKind>,
-    /// String entries from the last deserialise pass that failed
-    /// to parse as a `WidgetKind`. Cleared by `take_invalid` after
-    /// `Config::validate` reports them.
-    invalid: Vec<String>,
-}
-
-impl WidgetList {
-    pub fn new(items: Vec<WidgetKind>) -> Self {
-        Self {
-            items,
-            invalid: Vec::new(),
-        }
-    }
-
-    pub fn from_kinds<I: IntoIterator<Item = WidgetKind>>(iter: I) -> Self {
-        Self::new(iter.into_iter().collect())
-    }
-
-    pub fn as_slice(&self) -> &[WidgetKind] {
-        &self.items
-    }
-
-    pub fn push(&mut self, kind: WidgetKind) {
-        self.items.push(kind);
-    }
-
-    pub fn remove_kind(&mut self, kind: WidgetKind) -> bool {
-        if let Some(pos) = self.items.iter().position(|b| *b == kind) {
-            self.items.remove(pos);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Drain the captured invalid entries (deserialise-time
-    /// parse failures) and return them. Used by `Config::validate`
-    /// to fold them into the warning list once and then clear so
-    /// repeated `validate` calls don't re-report.
-    pub fn take_invalid(&mut self) -> Vec<String> {
-        std::mem::take(&mut self.invalid)
-    }
-}
-
-impl Serialize for WidgetList {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        // TOML output is the canonical string form; invalid
-        // entries are dropped so the saved file matches what the
-        // runtime actually used.
-        self.items.serialize(serializer)
-    }
-}
-
-impl<'de> Deserialize<'de> for WidgetList {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let raw = Vec::<String>::deserialize(deserializer)?;
-        let mut items = Vec::with_capacity(raw.len());
-        let mut invalid = Vec::new();
-        for s in raw {
-            match s.parse::<WidgetKind>() {
-                Ok(kind) => items.push(kind),
-                Err(_) => invalid.push(s),
-            }
-        }
-        Ok(Self { items, invalid })
     }
 }
 
@@ -402,48 +323,6 @@ mod tests {
             Some(WidgetKind::Gpu(MAX_GPUS as u8 - 1))
         );
         assert_eq!(WidgetKind::gpu(MAX_GPUS), None);
-    }
-
-    #[test]
-    fn widget_list_serialise_emits_string_array() {
-        let list = WidgetList::from_kinds([WidgetKind::Cpu, WidgetKind::Gpu(0)]);
-        let toml = toml::Value::try_from(&list).unwrap();
-        assert_eq!(
-            toml,
-            toml::Value::Array(vec![
-                toml::Value::String("cpu".into()),
-                toml::Value::String("gpu0".into()),
-            ]),
-        );
-    }
-
-    #[test]
-    fn widget_list_deserialise_keeps_valid_drops_invalid() {
-        let raw = toml::Value::Array(vec![
-            toml::Value::String("cpu".into()),
-            toml::Value::String("nope".into()),
-            toml::Value::String("gpu1".into()),
-        ]);
-        let mut list: WidgetList = raw.try_into().unwrap();
-        assert_eq!(list.as_slice(), &[WidgetKind::Cpu, WidgetKind::Gpu(1)]);
-        assert_eq!(list.take_invalid(), vec!["nope".to_string()]);
-        // Subsequent take returns empty.
-        assert!(list.take_invalid().is_empty());
-    }
-
-    #[test]
-    fn widget_list_deserialise_empty_array() {
-        let raw = toml::Value::Array(vec![]);
-        let list: WidgetList = raw.try_into().unwrap();
-        assert!(list.as_slice().is_empty());
-    }
-
-    #[test]
-    fn widget_list_remove_kind_returns_false_when_absent() {
-        let mut list = WidgetList::from_kinds([WidgetKind::Cpu]);
-        assert!(!list.remove_kind(WidgetKind::Mem));
-        assert!(list.remove_kind(WidgetKind::Cpu));
-        assert!(list.as_slice().is_empty());
     }
 
     #[test]
