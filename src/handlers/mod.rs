@@ -164,29 +164,21 @@ impl InputContext<'_> {
 /// Clears the screen, renders all widgets, and optionally re-draws the
 /// main menu if we're returning to it. Returns the output string.
 pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
-    use crate::app::{RenderParams, render_all};
+    use crate::app::{RenderInputs, render_all};
 
     let mut out = String::new();
     if let Some(layout) = ctx.render.cached_layout.as_ref() {
-        let params = RenderParams {
-            dirty: Dirty::ALL_WIDGETS,
+        let params = RenderInputs {
             layout,
-            cpu: ctx.live.cpu.as_deref(),
-            mem: ctx.live.mem.as_deref(),
-            disk: ctx.live.disk.as_deref(),
-            net: ctx.live.net.as_deref(),
-            gpu: ctx.live.gpu.as_deref(),
-            proc_data: ctx.live.proc_data.as_deref(),
-            proc_entries: &ctx.process.entries,
-            proc_display_procs: ctx.process.display_procs.as_deref(),
-            selected_iface: ctx.network.selected_iface.as_str(),
+            live: ctx.live,
+            network: ctx.network,
+            runtime: ctx.runtime,
             config: ctx.config,
             theme: ctx.theme,
-            rounded: ctx.runtime.rounded,
-            update_ms: ctx.runtime.update_ms,
+            dirty: Dirty::ALL_WIDGETS,
             is_filtering: false,
-            core_count: ctx.live.core_count,
-            total_mem: ctx.live.total_mem,
+            proc_entries: &ctx.process.entries,
+            proc_display_procs: ctx.process.display_procs.as_deref(),
             detailed_pid: ctx.process.detailed_pid,
             followed_pid: ctx.process.followed_pid,
             armed_terminate: ctx
@@ -194,7 +186,8 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
                 .armed_terminate
                 .as_ref()
                 .map(|(_, name, force)| (name.as_str(), *force)),
-        };
+        }
+        .build();
         out.push_str(term::CLEAR_SCREEN);
         out.push_str(&render_all(
             &params,

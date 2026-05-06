@@ -831,25 +831,17 @@ fn render_dirty_frame(
         output.push_str(term::CLEAR_SCREEN);
     }
 
-    let params = RenderParams {
-        dirty: state.render.dirty,
+    let params = RenderInputs {
         layout,
-        cpu: state.live.cpu.as_deref(),
-        mem: state.live.mem.as_deref(),
-        disk: state.live.disk.as_deref(),
-        net: state.live.net.as_deref(),
-        gpu: state.live.gpu.as_deref(),
-        proc_data: state.live.proc_data.as_deref(),
-        proc_entries: &state.process.entries,
-        proc_display_procs: state.process.display_procs.as_deref(),
-        selected_iface: &state.network.selected_iface,
+        live: &state.live,
+        network: &state.network,
+        runtime: &state.runtime,
         config,
         theme,
-        rounded: state.runtime.rounded,
-        update_ms: state.runtime.update_ms,
+        dirty: state.render.dirty,
         is_filtering: state.overlay.menu_state == MenuState::Filter,
-        core_count: state.live.core_count,
-        total_mem: state.live.total_mem,
+        proc_entries: &state.process.entries,
+        proc_display_procs: state.process.display_procs.as_deref(),
         detailed_pid: state.process.detailed_pid,
         followed_pid: state.process.followed_pid,
         armed_terminate: state
@@ -857,7 +849,8 @@ fn render_dirty_frame(
             .armed_terminate
             .as_ref()
             .map(|(_, name, force)| (name.as_str(), *force)),
-    };
+    }
+    .build();
     output.push_str(&render_all(
         &params,
         &mut state.process.selected,
@@ -1030,6 +1023,71 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) detailed_pid: u32,
     pub(crate) followed_pid: u32,
     pub(crate) armed_terminate: Option<(&'a str, bool)>,
+}
+
+/// Inputs required to build a [`RenderParams`].
+///
+/// Bundles the per-frame state borrows so the builder takes one
+/// argument instead of nine. Used by [`RenderInputs::build`].
+///
+/// Process state is currently split into individual field borrows
+/// (rather than a single `&ProcessViewState` borrow) so that the
+/// caller can still mutably borrow `state.process.selected` and
+/// `state.process.start` for `render_all` to clamp. Unit 8 will
+/// move the clamp out of the render path; this struct can then
+/// collapse to a single `process: &ProcessViewState` field.
+pub(crate) struct RenderInputs<'a> {
+    pub(crate) layout: &'a draw::layout::Layout,
+    pub(crate) live: &'a LiveData,
+    pub(crate) network: &'a NetworkViewState,
+    pub(crate) runtime: &'a RuntimeState,
+    pub(crate) config: &'a config::Config,
+    pub(crate) theme: &'a theme::Theme,
+    /// Which widgets to render this frame.
+    pub(crate) dirty: Dirty,
+    /// `true` while the user is in `MenuState::Filter` so the proc
+    /// widget can show its inline filter prompt.
+    pub(crate) is_filtering: bool,
+    pub(crate) proc_entries: &'a [ProcDisplayEntry],
+    pub(crate) proc_display_procs: Option<&'a [crate::domain::process::ProcInfo]>,
+    pub(crate) detailed_pid: u32,
+    pub(crate) followed_pid: u32,
+    pub(crate) armed_terminate: Option<(&'a str, bool)>,
+}
+
+impl<'a> RenderInputs<'a> {
+    /// Materialise a [`RenderParams`] view of these inputs.
+    ///
+    /// Used by both `render_dirty_frame` (the main per-frame render
+    /// path) and `handlers::redraw_after_overlay` (the post-overlay
+    /// redraw path) so the per-widget field wiring lives in one
+    /// place. Adding a new widget setting or per-frame state field
+    /// touches one call site.
+    pub(crate) fn build(self) -> RenderParams<'a> {
+        RenderParams {
+            dirty: self.dirty,
+            layout: self.layout,
+            cpu: self.live.cpu.as_deref(),
+            mem: self.live.mem.as_deref(),
+            disk: self.live.disk.as_deref(),
+            net: self.live.net.as_deref(),
+            gpu: self.live.gpu.as_deref(),
+            proc_data: self.live.proc_data.as_deref(),
+            proc_entries: self.proc_entries,
+            proc_display_procs: self.proc_display_procs,
+            selected_iface: self.network.selected_iface.as_str(),
+            config: self.config,
+            theme: self.theme,
+            rounded: self.runtime.rounded,
+            update_ms: self.runtime.update_ms,
+            is_filtering: self.is_filtering,
+            core_count: self.live.core_count,
+            total_mem: self.live.total_mem,
+            detailed_pid: self.detailed_pid,
+            followed_pid: self.followed_pid,
+            armed_terminate: self.armed_terminate,
+        }
+    }
 }
 
 /// Render UI widgets into an ANSI output string.
