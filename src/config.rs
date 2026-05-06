@@ -604,7 +604,10 @@ impl Config {
 
 macro_rules! config_schema {
     (
-        $( $variant:ident => $name:literal : $kind:ident { $($shape:tt)* } ),* $(,)?
+        $(
+            $variant:ident => $name:literal : $kind:ident { $($shape:tt)* }
+            [ $($desc:literal),* $(,)? ]
+        ),* $(,)?
     ) => {
         /// A flat enum identifying every config field.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -619,6 +622,17 @@ macro_rules! config_schema {
             /// Returns the kind of value this key holds.
             pub fn kind(self) -> KeyKind {
                 match self { $( Self::$variant => KeyKind::$kind, )* }
+            }
+
+            /// Returns the multi-line help text shown for this option
+            /// when it is focused in the options menu.
+            ///
+            /// Each entry is one rendered line; an empty string is a
+            /// blank separator line.
+            pub fn desc(self) -> &'static [&'static str] {
+                match self {
+                    $( Self::$variant => &[ $( $desc ),* ], )*
+                }
             }
 
             /// Parse a TOML field name into a `ConfigKey`.
@@ -728,86 +742,430 @@ macro_rules! config_schema {
 
 config_schema! {
     // -- bool, direct field --
-    ThemeBackground    => "theme_background"     : Bool   { field theme_background },
-    RoundedCorners     => "rounded_corners"      : Bool   { field rounded_corners },
-    ProcReversed       => "proc_reversed"        : Bool   { field proc_reversed },
-    ProcTree           => "proc_tree"            : Bool   { field proc_tree },
-    ProcColors         => "proc_colors"          : Bool   { field proc_colors },
-    ProcGradient       => "proc_gradient"        : Bool   { field proc_gradient },
-    ProcPerCore        => "proc_per_core"        : Bool   { field proc_per_core },
-    ProcMemBytes       => "proc_mem_bytes"       : Bool   { field proc_mem_bytes },
-    ProcAggregate      => "proc_aggregate"       : Bool   { field proc_aggregate },
-    KeepDeadProcUsage  => "keep_dead_proc_usage" : Bool   { field keep_dead_proc_usage },
-    CpuInvertLower     => "cpu_invert_lower"     : Bool   { field cpu_invert_lower },
-    CpuSingleGraph     => "cpu_single_graph"     : Bool   { field cpu_single_graph },
-    CpuAutoScale       => "cpu_auto_scale"       : Bool   { field cpu_auto_scale },
-    ShowUptime         => "show_uptime"          : Bool   { field show_uptime },
-    ShowCpuWatts       => "show_cpu_watts"       : Bool   { field show_cpu_watts },
-    CheckTemp          => "check_temp"           : Bool   { field check_temp },
-    ShowCoretemp       => "show_coretemp"        : Bool   { field show_coretemp },
-    ShowCpuFreq        => "show_cpu_freq"        : Bool   { field show_cpu_freq },
-    ShowSwap           => "show_swap"            : Bool   { field show_swap },
-    ShowIoStat         => "show_io_stat"         : Bool   { field show_io_stat },
-    IoMode             => "io_mode"              : Bool   { field io_mode },
-    IoGraphCombined    => "io_graph_combined"    : Bool   { field io_graph_combined },
-    SwapUploadDownload => "swap_upload_download" : Bool   { field swap_upload_download },
-    Base10Sizes        => "base_10_sizes"        : Bool   { field base_10_sizes },
-    NetAuto            => "net_auto"             : Bool   { field net_auto },
-    NetSync            => "net_sync"             : Bool   { field net_sync },
-    VimKeys            => "vim_keys"             : Bool   { field vim_keys },
-    BackgroundUpdate   => "background_update"    : Bool   { field background_update },
-    TerminalSync       => "terminal_sync"        : Bool   { field terminal_sync },
-    SaveConfigOnExit   => "save_config_on_exit"  : Bool   { field save_config_on_exit },
-    DiskIoMode         => "disk_io_mode"         : Bool   { field disk_io_mode },
+    ThemeBackground => "theme_background" : Bool { field theme_background } [
+        "Theme background color.",
+        "",
+        "Set to False for terminal background",
+        "transparency.",
+    ],
+    RoundedCorners => "rounded_corners" : Bool { field rounded_corners } [
+        "Rounded corners on widgets.",
+        "",
+        "True or False.",
+    ],
+    ProcReversed => "proc_reversed" : Bool { field proc_reversed } [
+        "Reverse sort order.",
+        "",
+        "True or False.",
+    ],
+    ProcTree => "proc_tree" : Bool { field proc_tree } [
+        "Tree view.",
+        "",
+        "Group processes by parent with",
+        "lines drawn between parent and",
+        "child processes.",
+    ],
+    ProcColors => "proc_colors" : Bool { field proc_colors } [
+        "Process row colors.",
+        "",
+        "Color process rows based on",
+        "CPU usage.",
+    ],
+    ProcGradient => "proc_gradient" : Bool { field proc_gradient } [
+        "Process color gradient.",
+        "",
+        "Fade row colors based on distance",
+        "from the selected process.",
+    ],
+    ProcPerCore => "proc_per_core" : Bool { field proc_per_core } [
+        "Per-core CPU usage.",
+        "",
+        "Show CPU usage relative to one",
+        "core instead of total CPU power.",
+        "Values can exceed 100%.",
+    ],
+    ProcMemBytes => "proc_mem_bytes" : Bool { field proc_mem_bytes } [
+        "Memory as bytes.",
+        "",
+        "Show memory in bytes instead of",
+        "percentage of total memory.",
+    ],
+    ProcAggregate => "proc_aggregate" : Bool { field proc_aggregate } [
+        "Aggregate child resources.",
+        "",
+        "In tree view, include child CPU",
+        "and memory usage in the parent",
+        "process totals.",
+    ],
+    KeepDeadProcUsage => "keep_dead_proc_usage" : Bool { field keep_dead_proc_usage } [
+        "Preserve dead process usage.",
+        "",
+        "Keep CPU and memory values for",
+        "processes that have exited.",
+    ],
+    CpuInvertLower => "cpu_invert_lower" : Bool { field cpu_invert_lower } [
+        "Invert lower CPU graph.",
+        "",
+        "Flips the orientation of the lower",
+        "CPU graph so it grows downward.",
+    ],
+    CpuSingleGraph => "cpu_single_graph" : Bool { field cpu_single_graph } [
+        "Single CPU graph.",
+        "",
+        "Disable the lower CPU graph and",
+        "expand the upper graph to full",
+        "widget height.",
+    ],
+    CpuAutoScale => "cpu_auto_scale" : Bool { field cpu_auto_scale } [
+        "Auto-scale CPU graph y-axis.",
+        "",
+        "Off: graph height maps to absolute",
+        "0-100% (default).",
+        "On: scale to the largest visible",
+        "value (recolours by visible max,",
+        "not absolute %).",
+    ],
+    ShowUptime => "show_uptime" : Bool { field show_uptime } [
+        "System uptime display.",
+        "",
+        "Show system uptime in the CPU widget.",
+    ],
+    ShowCpuWatts => "show_cpu_watts" : Bool { field show_cpu_watts } [
+        "CPU power consumption.",
+        "",
+        "Show wattage in the CPU widget.",
+        "Requires LibreHardwareMonitor.",
+    ],
+    CheckTemp => "check_temp" : Bool { field check_temp } [
+        "CPU temperature monitoring.",
+        "",
+        "Enable temperature reporting in",
+        "the CPU widget.",
+    ],
+    ShowCoretemp => "show_coretemp" : Bool { field show_coretemp } [
+        "Per-core temperatures.",
+        "",
+        "Show individual core temperatures.",
+        "Requires temperature monitoring",
+        "to be enabled.",
+    ],
+    ShowCpuFreq => "show_cpu_freq" : Bool { field show_cpu_freq } [
+        "CPU frequency display.",
+        "",
+        "Show the current CPU clock speed",
+        "in the core panel.",
+    ],
+    ShowSwap => "show_swap" : Bool { field show_swap } [
+        "Swap memory display.",
+        "",
+        "Show swap usage in the memory widget.",
+    ],
+    ShowIoStat => "show_io_stat" : Bool { field show_io_stat } [
+        "Disk IO activity indicators.",
+        "",
+        "Show read/write throughput data",
+        "alongside disk usage meters.",
+    ],
+    IoMode => "io_mode" : Bool { field io_mode } [
+        "IO mode toggle.",
+        "",
+        "Switch between usage meters and",
+        "IO throughput graphs with the",
+        "\"i\" key.",
+    ],
+    IoGraphCombined => "io_graph_combined" : Bool { field io_graph_combined } [
+        "Combined IO graph.",
+        "",
+        "Merge read and write into a single",
+        "graph. Only applies in IO mode.",
+    ],
+    SwapUploadDownload => "swap_upload_download" : Bool { field swap_upload_download } [
+        "Swap upload and download positions.",
+    ],
+    Base10Sizes => "base_10_sizes" : Bool { field base_10_sizes } [
+        "Base 10 size units.",
+        "",
+        "Uses KB = 1000 instead of",
+        "KiB = 1024.",
+    ],
+    NetAuto => "net_auto" : Bool { field net_auto } [
+        "Auto scale network graphs.",
+        "",
+        "Automatically adjust graph scale",
+        "based on current traffic.",
+    ],
+    NetSync => "net_sync" : Bool { field net_sync } [
+        "Sync network graph scales.",
+        "",
+        "Use the same scale for both upload",
+        "and download graphs.",
+    ],
+    VimKeys => "vim_keys" : Bool { field vim_keys } [
+        "Vim key bindings.",
+        "",
+        "h/j/k/l for directional control,",
+        "g/G for top/bottom of list,",
+        "Ctrl+F/B/D/U for page scrolling.",
+    ],
+    BackgroundUpdate => "background_update" : Bool { field background_update } [
+        "Update while menus are open.",
+        "",
+        "Continue refreshing data when the",
+        "options or help menu is visible.",
+    ],
+    TerminalSync => "terminal_sync" : Bool { field terminal_sync } [
+        "Terminal output synchronization.",
+        "",
+        "Reduces flickering on supported",
+        "terminals.",
+    ],
+    SaveConfigOnExit => "save_config_on_exit" : Bool { field save_config_on_exit } [
+        "Save settings on exit.",
+        "",
+        "Automatically write current settings",
+        "to the config file on exit.",
+    ],
+    DiskIoMode => "disk_io_mode" : Bool { field disk_io_mode } [
+        "Persistent IO mode.",
+        "",
+        "Always show IO throughput graphs",
+        "instead of usage meters.",
+    ],
 
     // -- bool, layout-virtual --
-    ProcLeft           => "proc_left"            : Bool   { layout proc_left, set_proc_left },
-    CpuBottom          => "cpu_bottom"           : Bool   { layout cpu_bottom, set_cpu_bottom },
-    MemBelowNet        => "mem_below_net"        : Bool   { layout mem_below_net, set_mem_below_net },
+    ProcLeft => "proc_left" : Bool { layout proc_left, set_proc_left } [
+        "Process widget on left.",
+        "",
+        "Show the process widget on the left",
+        "side of the screen.",
+    ],
+    CpuBottom => "cpu_bottom" : Bool { layout cpu_bottom, set_cpu_bottom } [
+        "CPU widget at bottom.",
+        "",
+        "Show the CPU widget at the bottom of",
+        "the screen instead of the top.",
+    ],
+    MemBelowNet => "mem_below_net" : Bool { layout mem_below_net, set_mem_below_net } [
+        "Memory widget below network.",
+        "",
+        "Position the memory widget below the",
+        "network widget instead of above.",
+    ],
 
     // -- int, direct field --
-    UpdateMs           => "update_ms"            : Int    { field update_ms },
-    CpuUpdateMs        => "cpu_update_ms"        : Int    { field cpu_update_ms },
-    MemUpdateMs        => "mem_update_ms"        : Int    { field mem_update_ms },
-    DiskUpdateMs       => "disk_update_ms"       : Int    { field disk_update_ms },
-    NetUpdateMs        => "net_update_ms"        : Int    { field net_update_ms },
-    GpuUpdateMs        => "gpu_update_ms"        : Int    { field gpu_update_ms },
-    ProcUpdateMs       => "proc_update_ms"       : Int    { field proc_update_ms },
-    NetDownload        => "net_download"         : Int    { field net_download },
-    NetUpload          => "net_upload"           : Int    { field net_upload },
+    UpdateMs => "update_ms" : Int { field update_ms } [
+        "Update interval in milliseconds.",
+        "",
+        "Recommended 2000 ms or above for",
+        "better graph sample times.",
+        "",
+        "Range: 100 ms to 86400000 ms.",
+    ],
+    CpuUpdateMs => "cpu_update_ms" : Int { field cpu_update_ms } [
+        "CPU update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    MemUpdateMs => "mem_update_ms" : Int { field mem_update_ms } [
+        "Memory update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    DiskUpdateMs => "disk_update_ms" : Int { field disk_update_ms } [
+        "Disk update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    NetUpdateMs => "net_update_ms" : Int { field net_update_ms } [
+        "Network update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    GpuUpdateMs => "gpu_update_ms" : Int { field gpu_update_ms } [
+        "GPU update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    ProcUpdateMs => "proc_update_ms" : Int { field proc_update_ms } [
+        "Process update interval (ms).",
+        "",
+        "0 = use global update_ms.",
+        "Range: 100 to 86400000.",
+    ],
+    NetDownload => "net_download" : Int { field net_download } [
+        "Fixed download graph scale.",
+        "",
+        "Value in Mebibits. Default: 100.",
+        "Overridden when auto scaling is on.",
+    ],
+    NetUpload => "net_upload" : Int { field net_upload } [
+        "Fixed upload graph scale.",
+        "",
+        "Value in Mebibits. Default: 100.",
+        "Overridden when auto scaling is on.",
+    ],
 
     // -- string, direct field (free-form or constrained via choice_values) --
-    ColorTheme         => "color_theme"          : String { field color_theme },
-    ClockFormat        => "clock_format"         : String { field clock_format },
-    CustomCpuName      => "custom_cpu_name"      : String { field custom_cpu_name },
-    ProcFilter         => "proc_filter"          : String { field proc_filter },
+    ColorTheme => "color_theme" : String { field color_theme } [
+        "Color theme.",
+        "",
+        "Choose from all bundled themes.",
+        "",
+        "\"default\" for the built-in theme.",
+    ],
+    ClockFormat => "clock_format" : String { field clock_format } [
+        "Clock display format.",
+        "",
+        "Shown in the CPU widget. Uses format",
+        "specifiers: %H, %M, %S, %X.",
+        "",
+        "Empty string to disable.",
+    ],
+    CustomCpuName => "custom_cpu_name" : String { field custom_cpu_name } [
+        "Custom CPU name.",
+        "",
+        "Override the detected CPU model",
+        "name. Empty string to disable.",
+    ],
+    ProcFilter => "proc_filter" : String { field proc_filter } [
+        "Process filter.",
+        "",
+        "Filter by name. Prefix with !",
+        "for inverse match.",
+    ],
 
     // -- string, joined Vec<String> --
-    DisksFilter        => "disks_filter"         : String { joined_vec disks_filter },
+    DisksFilter => "disks_filter" : String { joined_vec disks_filter } [
+        "Disk filter.",
+        "",
+        "Filter which disks are shown.",
+        "Use drive letters (e.g. \"C:\").",
+        "Prefix with ! to exclude.",
+        "Separate with whitespace.",
+    ],
 
     // -- string, layout-virtual --
-    Widgets            => "widgets"              : String { virtual_widgets },
+    Widgets => "widgets" : String { virtual_widgets } [
+        "Visible widgets.",
+        "",
+        "Available: cpu, mem, net, proc, disk,",
+        "gpu0..gpu7. Separate with whitespace.",
+    ],
 
     // -- string, fixed-array element --
-    CustomGpuName0     => "custom_gpu_name0"     : String { array custom_gpu_names[0] },
-    CustomGpuName1     => "custom_gpu_name1"     : String { array custom_gpu_names[1] },
-    CustomGpuName2     => "custom_gpu_name2"     : String { array custom_gpu_names[2] },
-    CustomGpuName3     => "custom_gpu_name3"     : String { array custom_gpu_names[3] },
-    CustomGpuName4     => "custom_gpu_name4"     : String { array custom_gpu_names[4] },
-    CustomGpuName5     => "custom_gpu_name5"     : String { array custom_gpu_names[5] },
-    CustomGpuName6     => "custom_gpu_name6"     : String { array custom_gpu_names[6] },
-    CustomGpuName7     => "custom_gpu_name7"     : String { array custom_gpu_names[7] },
+    CustomGpuName0 => "custom_gpu_name0" : String { array custom_gpu_names[0] } [
+        "Custom GPU name for GPU 0.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName1 => "custom_gpu_name1" : String { array custom_gpu_names[1] } [
+        "Custom GPU name for GPU 1.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName2 => "custom_gpu_name2" : String { array custom_gpu_names[2] } [
+        "Custom GPU name for GPU 2.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName3 => "custom_gpu_name3" : String { array custom_gpu_names[3] } [
+        "Custom GPU name for GPU 3.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName4 => "custom_gpu_name4" : String { array custom_gpu_names[4] } [
+        "Custom GPU name for GPU 4.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName5 => "custom_gpu_name5" : String { array custom_gpu_names[5] } [
+        "Custom GPU name for GPU 5.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName6 => "custom_gpu_name6" : String { array custom_gpu_names[6] } [
+        "Custom GPU name for GPU 6.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
+    CustomGpuName7 => "custom_gpu_name7" : String { array custom_gpu_names[7] } [
+        "Custom GPU name for GPU 7.",
+        "",
+        "Override the detected GPU name.",
+        "Empty string to disable.",
+    ],
 
     // -- enum (typed enum field, browsable via choice_values) --
-    GraphSymbol        => "graph_symbol"         : Enum   { field graph_symbol },
-    GraphSymbolCpu     => "graph_symbol_cpu"     : Enum   { field graph_symbol_cpu },
-    GraphSymbolNet     => "graph_symbol_net"     : Enum   { field graph_symbol_net },
-    GraphSymbolDisk    => "graph_symbol_disk"    : Enum   { field graph_symbol_disk },
-    ProcSorting        => "proc_sorting"         : Enum   { field proc_sorting },
-    CpuGraphUpper      => "cpu_graph_upper"      : Enum   { field cpu_graph_upper },
-    CpuGraphLower      => "cpu_graph_lower"      : Enum   { field cpu_graph_lower },
-    TempScale          => "temp_scale"           : Enum   { field temp_scale },
-    LogLevel           => "log_level"            : Enum   { field log_level },
+    GraphSymbol => "graph_symbol" : Enum { field graph_symbol } [
+        "Default graph symbol.",
+        "",
+        "\"braille\" or \"block\".",
+        "Per-widget overrides use \"default\"",
+        "to inherit this setting.",
+    ],
+    GraphSymbolCpu => "graph_symbol_cpu" : Enum { field graph_symbol_cpu } [
+        "CPU graph symbol.",
+        "",
+        "\"default\", \"braille\", or \"block\".",
+    ],
+    GraphSymbolNet => "graph_symbol_net" : Enum { field graph_symbol_net } [
+        "Network graph symbol.",
+        "",
+        "\"default\", \"braille\", or \"block\".",
+    ],
+    GraphSymbolDisk => "graph_symbol_disk" : Enum { field graph_symbol_disk } [
+        "Disk graph symbol.",
+        "",
+        "\"default\", \"braille\", or \"block\".",
+    ],
+    ProcSorting => "proc_sorting" : Enum { field proc_sorting } [
+        "Process sort column.",
+        "",
+        "\"pid\", \"name\", \"cpu lazy\",",
+        "\"cpu responsive\", \"mem\",",
+        "or \"threads\".",
+    ],
+    CpuGraphUpper => "cpu_graph_upper" : Enum { field cpu_graph_upper } [
+        "Upper CPU graph source.",
+        "",
+        "CPU stat shown in the upper half",
+        "of the CPU graph.",
+    ],
+    CpuGraphLower => "cpu_graph_lower" : Enum { field cpu_graph_lower } [
+        "Lower CPU graph source.",
+        "",
+        "CPU stat shown in the lower half",
+        "of the CPU graph.",
+    ],
+    TempScale => "temp_scale" : Enum { field temp_scale } [
+        "Temperature scale.",
+        "",
+        "Celsius, Fahrenheit, Kelvin,",
+        "or Rankine.",
+    ],
+    LogLevel => "log_level" : Enum { field log_level } [
+        "Logging level.",
+        "",
+        "Sets verbosity for rtop.log.",
+        "",
+        "\"off\", \"error\", \"warn\",",
+        "\"info\", \"debug\", or \"trace\".",
+        "",
+        "\"off\" disables file logging.",
+        "Changes apply immediately.",
+    ],
 }
 
 // ---------------------------------------------------------------------------

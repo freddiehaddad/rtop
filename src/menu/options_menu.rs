@@ -20,11 +20,9 @@ pub enum OptKind {
     StringVal,
 }
 
-/// A single option definition.
-pub struct OptDef {
-    pub key: ConfigKey,
-    pub desc: &'static [&'static str],
-}
+// Each category is a `&[ConfigKey]`. The per-key help text lives on
+// `ConfigKey::desc()` and the editable shape is derived from
+// `ConfigKey::kind()` plus `browsable_values(key)`.
 
 // ---------------------------------------------------------------------------
 // Browsable option value lists
@@ -58,633 +56,101 @@ pub fn opt_kind(key: ConfigKey, config: &Config) -> OptKind {
 pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", "disk"];
 
 /// Options in the "general" category.
-pub const GENERAL: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::ColorTheme,
-        desc: &[
-            "Color theme.",
-            "",
-            "Choose from all bundled themes.",
-            "",
-            "\"default\" for the built-in theme.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ThemeBackground,
-        desc: &[
-            "Theme background color.",
-            "",
-            "Set to False for terminal background",
-            "transparency.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::VimKeys,
-        desc: &[
-            "Vim key bindings.",
-            "",
-            "h/j/k/l for directional control,",
-            "g/G for top/bottom of list,",
-            "Ctrl+F/B/D/U for page scrolling.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::Widgets,
-        desc: &[
-            "Visible widgets.",
-            "",
-            "Available: cpu, mem, net, proc, disk,",
-            "gpu0..gpu7. Separate with whitespace.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::UpdateMs,
-        desc: &[
-            "Update interval in milliseconds.",
-            "",
-            "Recommended 2000 ms or above for",
-            "better graph sample times.",
-            "",
-            "Range: 100 ms to 86400000 ms.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::RoundedCorners,
-        desc: &["Rounded corners on widgets.", "", "True or False."],
-    },
-    OptDef {
-        key: ConfigKey::TerminalSync,
-        desc: &[
-            "Terminal output synchronization.",
-            "",
-            "Reduces flickering on supported",
-            "terminals.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::GraphSymbol,
-        desc: &[
-            "Default graph symbol.",
-            "",
-            "\"braille\" or \"block\".",
-            "Per-widget overrides use \"default\"",
-            "to inherit this setting.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ClockFormat,
-        desc: &[
-            "Clock display format.",
-            "",
-            "Shown in the CPU widget. Uses format",
-            "specifiers: %H, %M, %S, %X.",
-            "",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::Base10Sizes,
-        desc: &[
-            "Base 10 size units.",
-            "",
-            "Uses KB = 1000 instead of",
-            "KiB = 1024.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::BackgroundUpdate,
-        desc: &[
-            "Update while menus are open.",
-            "",
-            "Continue refreshing data when the",
-            "options or help menu is visible.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::LogLevel,
-        desc: &[
-            "Logging level.",
-            "",
-            "Sets verbosity for rtop.log.",
-            "",
-            "\"off\", \"error\", \"warn\",",
-            "\"info\", \"debug\", or \"trace\".",
-            "",
-            "\"off\" disables file logging.",
-            "Changes apply immediately.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::SaveConfigOnExit,
-        desc: &[
-            "Save settings on exit.",
-            "",
-            "Automatically write current settings",
-            "to the config file on exit.",
-        ],
-    },
+pub const GENERAL: &[ConfigKey] = &[
+    ConfigKey::ColorTheme,
+    ConfigKey::ThemeBackground,
+    ConfigKey::VimKeys,
+    ConfigKey::Widgets,
+    ConfigKey::UpdateMs,
+    ConfigKey::RoundedCorners,
+    ConfigKey::TerminalSync,
+    ConfigKey::GraphSymbol,
+    ConfigKey::ClockFormat,
+    ConfigKey::Base10Sizes,
+    ConfigKey::BackgroundUpdate,
+    ConfigKey::LogLevel,
+    ConfigKey::SaveConfigOnExit,
 ];
 
 /// Options in the "cpu" category.
-pub const CPU: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::CpuBottom,
-        desc: &[
-            "CPU widget at bottom.",
-            "",
-            "Show the CPU widget at the bottom of",
-            "the screen instead of the top.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::GraphSymbolCpu,
-        desc: &[
-            "CPU graph symbol.",
-            "",
-            "\"default\", \"braille\", or \"block\".",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuGraphUpper,
-        desc: &[
-            "Upper CPU graph source.",
-            "",
-            "CPU stat shown in the upper half",
-            "of the CPU graph.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuGraphLower,
-        desc: &[
-            "Lower CPU graph source.",
-            "",
-            "CPU stat shown in the lower half",
-            "of the CPU graph.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuInvertLower,
-        desc: &[
-            "Invert lower CPU graph.",
-            "",
-            "Flips the orientation of the lower",
-            "CPU graph so it grows downward.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuSingleGraph,
-        desc: &[
-            "Single CPU graph.",
-            "",
-            "Disable the lower CPU graph and",
-            "expand the upper graph to full",
-            "widget height.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuAutoScale,
-        desc: &[
-            "Auto-scale CPU graph y-axis.",
-            "",
-            "Off: graph height maps to absolute",
-            "0-100% (default).",
-            "On: scale to the largest visible",
-            "value (recolours by visible max,",
-            "not absolute %).",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CheckTemp,
-        desc: &[
-            "CPU temperature monitoring.",
-            "",
-            "Enable temperature reporting in",
-            "the CPU widget.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowCoretemp,
-        desc: &[
-            "Per-core temperatures.",
-            "",
-            "Show individual core temperatures.",
-            "Requires temperature monitoring",
-            "to be enabled.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::TempScale,
-        desc: &[
-            "Temperature scale.",
-            "",
-            "Celsius, Fahrenheit, Kelvin,",
-            "or Rankine.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowCpuFreq,
-        desc: &[
-            "CPU frequency display.",
-            "",
-            "Show the current CPU clock speed",
-            "in the core panel.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomCpuName,
-        desc: &[
-            "Custom CPU name.",
-            "",
-            "Override the detected CPU model",
-            "name. Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowUptime,
-        desc: &[
-            "System uptime display.",
-            "",
-            "Show system uptime in the CPU widget.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowCpuWatts,
-        desc: &[
-            "CPU power consumption.",
-            "",
-            "Show wattage in the CPU widget.",
-            "Requires LibreHardwareMonitor.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CpuUpdateMs,
-        desc: &[
-            "CPU update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const CPU: &[ConfigKey] = &[
+    ConfigKey::CpuBottom,
+    ConfigKey::GraphSymbolCpu,
+    ConfigKey::CpuGraphUpper,
+    ConfigKey::CpuGraphLower,
+    ConfigKey::CpuInvertLower,
+    ConfigKey::CpuSingleGraph,
+    ConfigKey::CpuAutoScale,
+    ConfigKey::CheckTemp,
+    ConfigKey::ShowCoretemp,
+    ConfigKey::TempScale,
+    ConfigKey::ShowCpuFreq,
+    ConfigKey::CustomCpuName,
+    ConfigKey::ShowUptime,
+    ConfigKey::ShowCpuWatts,
+    ConfigKey::CpuUpdateMs,
 ];
 
 /// Options in the "mem" category.
-pub const MEM: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::MemBelowNet,
-        desc: &[
-            "Memory widget below network.",
-            "",
-            "Position the memory widget below the",
-            "network widget instead of above.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowSwap,
-        desc: &[
-            "Swap memory display.",
-            "",
-            "Show swap usage in the memory widget.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::MemUpdateMs,
-        desc: &[
-            "Memory update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const MEM: &[ConfigKey] = &[
+    ConfigKey::MemBelowNet,
+    ConfigKey::ShowSwap,
+    ConfigKey::MemUpdateMs,
 ];
 
 /// Options in the "net" category.
-pub const NET: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::GraphSymbolNet,
-        desc: &[
-            "Network graph symbol.",
-            "",
-            "\"default\", \"braille\", or \"block\".",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::SwapUploadDownload,
-        desc: &["Swap upload and download positions."],
-    },
-    OptDef {
-        key: ConfigKey::NetDownload,
-        desc: &[
-            "Fixed download graph scale.",
-            "",
-            "Value in Mebibits. Default: 100.",
-            "Overridden when auto scaling is on.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::NetUpload,
-        desc: &[
-            "Fixed upload graph scale.",
-            "",
-            "Value in Mebibits. Default: 100.",
-            "Overridden when auto scaling is on.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::NetAuto,
-        desc: &[
-            "Auto scale network graphs.",
-            "",
-            "Automatically adjust graph scale",
-            "based on current traffic.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::NetSync,
-        desc: &[
-            "Sync network graph scales.",
-            "",
-            "Use the same scale for both upload",
-            "and download graphs.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::NetUpdateMs,
-        desc: &[
-            "Network update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const NET: &[ConfigKey] = &[
+    ConfigKey::GraphSymbolNet,
+    ConfigKey::SwapUploadDownload,
+    ConfigKey::NetDownload,
+    ConfigKey::NetUpload,
+    ConfigKey::NetAuto,
+    ConfigKey::NetSync,
+    ConfigKey::NetUpdateMs,
 ];
 
 /// Options in the "proc" category.
-pub const PROC: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::ProcLeft,
-        desc: &[
-            "Process widget on left.",
-            "",
-            "Show the process widget on the left",
-            "side of the screen.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcSorting,
-        desc: &[
-            "Process sort column.",
-            "",
-            "\"pid\", \"name\", \"cpu lazy\",",
-            "\"cpu responsive\", \"mem\",",
-            "or \"threads\".",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcReversed,
-        desc: &["Reverse sort order.", "", "True or False."],
-    },
-    OptDef {
-        key: ConfigKey::ProcTree,
-        desc: &[
-            "Tree view.",
-            "",
-            "Group processes by parent with",
-            "lines drawn between parent and",
-            "child processes.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcAggregate,
-        desc: &[
-            "Aggregate child resources.",
-            "",
-            "In tree view, include child CPU",
-            "and memory usage in the parent",
-            "process totals.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcColors,
-        desc: &[
-            "Process row colors.",
-            "",
-            "Color process rows based on",
-            "CPU usage.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcGradient,
-        desc: &[
-            "Process color gradient.",
-            "",
-            "Fade row colors based on distance",
-            "from the selected process.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcPerCore,
-        desc: &[
-            "Per-core CPU usage.",
-            "",
-            "Show CPU usage relative to one",
-            "core instead of total CPU power.",
-            "Values can exceed 100%.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcMemBytes,
-        desc: &[
-            "Memory as bytes.",
-            "",
-            "Show memory in bytes instead of",
-            "percentage of total memory.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::KeepDeadProcUsage,
-        desc: &[
-            "Preserve dead process usage.",
-            "",
-            "Keep CPU and memory values for",
-            "processes that have exited.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcFilter,
-        desc: &[
-            "Process filter.",
-            "",
-            "Filter by name. Prefix with !",
-            "for inverse match.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ProcUpdateMs,
-        desc: &[
-            "Process update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const PROC: &[ConfigKey] = &[
+    ConfigKey::ProcLeft,
+    ConfigKey::ProcSorting,
+    ConfigKey::ProcReversed,
+    ConfigKey::ProcTree,
+    ConfigKey::ProcAggregate,
+    ConfigKey::ProcColors,
+    ConfigKey::ProcGradient,
+    ConfigKey::ProcPerCore,
+    ConfigKey::ProcMemBytes,
+    ConfigKey::KeepDeadProcUsage,
+    ConfigKey::ProcFilter,
+    ConfigKey::ProcUpdateMs,
 ];
 
 /// Options in the "gpu" category.
-pub const GPU: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::CustomGpuName0,
-        desc: &[
-            "Custom GPU name for GPU 0.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName1,
-        desc: &[
-            "Custom GPU name for GPU 1.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName2,
-        desc: &[
-            "Custom GPU name for GPU 2.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName3,
-        desc: &[
-            "Custom GPU name for GPU 3.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName4,
-        desc: &[
-            "Custom GPU name for GPU 4.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName5,
-        desc: &[
-            "Custom GPU name for GPU 5.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName6,
-        desc: &[
-            "Custom GPU name for GPU 6.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::CustomGpuName7,
-        desc: &[
-            "Custom GPU name for GPU 7.",
-            "",
-            "Override the detected GPU name.",
-            "Empty string to disable.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::GpuUpdateMs,
-        desc: &[
-            "GPU update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const GPU: &[ConfigKey] = &[
+    ConfigKey::CustomGpuName0,
+    ConfigKey::CustomGpuName1,
+    ConfigKey::CustomGpuName2,
+    ConfigKey::CustomGpuName3,
+    ConfigKey::CustomGpuName4,
+    ConfigKey::CustomGpuName5,
+    ConfigKey::CustomGpuName6,
+    ConfigKey::CustomGpuName7,
+    ConfigKey::GpuUpdateMs,
 ];
 
 /// Options in the "disk" category.
-pub const DISK: &[OptDef] = &[
-    OptDef {
-        key: ConfigKey::GraphSymbolDisk,
-        desc: &[
-            "Disk graph symbol.",
-            "",
-            "\"default\", \"braille\", or \"block\".",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::ShowIoStat,
-        desc: &[
-            "Disk IO activity indicators.",
-            "",
-            "Show read/write throughput data",
-            "alongside disk usage meters.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoMode,
-        desc: &[
-            "IO mode toggle.",
-            "",
-            "Switch between usage meters and",
-            "IO throughput graphs with the",
-            "\"i\" key.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::IoGraphCombined,
-        desc: &[
-            "Combined IO graph.",
-            "",
-            "Merge read and write into a single",
-            "graph. Only applies in IO mode.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::DiskIoMode,
-        desc: &[
-            "Persistent IO mode.",
-            "",
-            "Always show IO throughput graphs",
-            "instead of usage meters.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::DisksFilter,
-        desc: &[
-            "Disk filter.",
-            "",
-            "Filter which disks are shown.",
-            "Use drive letters (e.g. \"C:\").",
-            "Prefix with ! to exclude.",
-            "Separate with whitespace.",
-        ],
-    },
-    OptDef {
-        key: ConfigKey::DiskUpdateMs,
-        desc: &[
-            "Disk update interval (ms).",
-            "",
-            "0 = use global update_ms.",
-            "Range: 100 to 86400000.",
-        ],
-    },
+pub const DISK: &[ConfigKey] = &[
+    ConfigKey::GraphSymbolDisk,
+    ConfigKey::ShowIoStat,
+    ConfigKey::IoMode,
+    ConfigKey::IoGraphCombined,
+    ConfigKey::DiskIoMode,
+    ConfigKey::DisksFilter,
+    ConfigKey::DiskUpdateMs,
 ];
 
 /// All categories in order.
-pub fn categories() -> &'static [&'static [OptDef]] {
+pub fn categories() -> &'static [&'static [ConfigKey]] {
     &[GENERAL, CPU, MEM, NET, PROC, GPU, DISK]
 }
 
@@ -976,17 +442,17 @@ pub fn draw(p: &DrawParams) -> String {
         if i >= options.len() {
             break;
         }
-        let opt = &options[i];
-        let kind = classify(opt.key, config);
-        let value = get_value(opt.key, config);
+        let key = options[i];
+        let kind = classify(key, config);
+        let value = get_value(key, config);
         let is_selected = c == selected;
 
-        let name_display = capitalize_option(opt.key);
+        let name_display = capitalize_option(key);
 
         // Browsable index suffix
         let mut name_suffix = String::new();
         if is_selected && kind == OptKind::Browsable {
-            let vals = browsable_values(opt.key);
+            let vals = browsable_values(key);
             let idx = vals.iter().position(|&v| v == value).unwrap_or(0);
             name_suffix = format!(" {}/{}", idx + 1, vals.len());
         }
@@ -1012,7 +478,7 @@ pub fn draw(p: &DrawParams) -> String {
         //     aligned editable buffer with underline cursor
         let val_row = cy_start + c * 2 + 1;
         let active_edit: Option<&OptionEditState> = if is_selected {
-            option_edit.filter(|e| e.key == opt.key)
+            option_edit.filter(|e| e.key == key)
         } else {
             None
         };
@@ -1047,7 +513,7 @@ pub fn draw(p: &DrawParams) -> String {
                 let desc_top = y + 8 + 1;
                 let desc_bottom = y + 6 + height;
                 let mut row = desc_top;
-                for (di, desc_line) in opt.desc.iter().enumerate() {
+                for (di, desc_line) in key.desc().iter().enumerate() {
                     if row >= desc_bottom {
                         break;
                     }
@@ -1098,7 +564,7 @@ pub fn draw(p: &DrawParams) -> String {
 
                 // Description in right panel
                 out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
-                for (di, desc_line) in opt.desc.iter().enumerate() {
+                for (di, desc_line) in key.desc().iter().enumerate() {
                     let desc_row = y + 8 + 1 + di; // start at the row after the divider
                     if desc_row >= y + 6 + height {
                         break;
@@ -1130,7 +596,7 @@ pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> 
     let height = if height % 2 != 0 { height - 1 } else { height };
     let item_height = ((height - 4) / 2).min(global_max);
     let idx = item_height * page + selected;
-    options.get(idx).map(|o| o.key)
+    options.get(idx).copied()
 }
 
 /// Get item_height (visible items per page) for a category.
@@ -1176,7 +642,7 @@ mod tests {
     fn option_keys_roundtrip_through_config_parser() {
         for category in categories() {
             for option in *category {
-                assert_eq!(ConfigKey::parse(option.key.name()), Some(option.key));
+                assert_eq!(ConfigKey::parse(option.name()), Some(*option));
             }
         }
     }
