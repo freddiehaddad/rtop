@@ -1,20 +1,21 @@
-//! Layout engine: turns a `LayoutConfig` (widget set + orientation
-//! flags) into per-widget rectangles in `Layout`.
+//! Layout engine: turns a `LayoutConfig` (terminal size + hints + a
+//! [`Slot`] tree) into per-widget rectangles in [`Layout`].
 //!
-//! Internally the engine is a recursive tree-walking algorithm over
-//! a `Slot` tree (`VStack` / `HStack` / `Widget` leaves). The legacy
-//! `LayoutConfig` API with its orientation flags is converted into
-//! a `Slot` tree by [`build_slot`]; from there the engine never
-//! special-cases any widget by name. Widget-specific rules (slack
-//! absorption, the CPU height clamp) are intrinsic properties of
-//! [`WidgetKind`] consulted uniformly.
+//! The engine is a recursive walk over the [`Slot`] tree
+//! ([`Slot::VStack`] / [`Slot::HStack`] / [`Slot::Widget`] leaves).
+//! It never special-cases any widget by name — widget-specific rules
+//! (slack absorption, the CPU height clamp) are intrinsic properties
+//! of [`WidgetKind`] consulted uniformly.
 //!
-//! Future commits in this layout-redesign series will promote `Slot`
-//! to the public surface and drop the orientation-flag fields from
-//! `LayoutConfig`. This commit replaces the engine's internals
-//! without changing any caller.
+//! Visibility — invisible widgets (currently only `Gpu(n)` where `n
+//! >= hints.gpu_count`) contribute zero to every size aggregation
+//! and are skipped at placement time. Containers redistribute the
+//! freed space across their visible siblings. Builtin presets can
+//! therefore declare static `Slot` trees that include all GPU slots
+//! and rely on the engine to fold absent devices out, regardless of
+//! where a `Gpu(n)` leaf appears in the tree.
 
-use crate::config::MAX_GPUS;
+use crate::domain::layout_spec::{HStackChild, Slot};
 use crate::domain::widget_kind::{PerWidget, WidgetKind, WidgetSizing};
 
 // ─────────────────────────────────────────────────────────────────
@@ -103,27 +104,14 @@ pub const MIN_DISK_HEIGHT: usize = 4;
 /// remains after CPU and the left column; this is just the smallest
 /// value at which the header + a few rows are still legible.
 pub const MIN_PROC_HEIGHT: usize = 8;
-/// Percentage of terminal width allocated to the proc-bearing
-/// column in a two-column split.
-const PROC_WIDTH_PCT: usize = 60;
-/// Percentage of terminal width allocated to the non-proc column
-/// in a two-column split. By construction equals `100 -
-/// PROC_WIDTH_PCT`.
-const LEFT_WIDTH_PCT: usize = 100 - PROC_WIDTH_PCT;
 
 /// Configuration for layout calculation.
-pub struct LayoutConfig<'a> {
+pub struct LayoutConfig {
     pub term_width: usize,
     pub term_height: usize,
-    pub widgets: &'a [WidgetKind],
-    pub cpu_bottom: bool,
-    pub mem_below_net: bool,
-    pub proc_left: bool,
-    /// `true` collapses the layout into a single full-width column
-    /// (CPU on top — or bottom per `cpu_bottom` — followed by the
-    /// remaining widgets stacked vertically with a Fill widget
-    /// absorbing slack).
-    pub stack_vertical: bool,
+    /// Root of the slot tree to render. Built per frame from
+    /// `Config::layout_spec()`.
+    pub root: Slot,
     /// Snapshot-derived sizing inputs (core_count, disk_count,
     /// has_swap, …) that widgets consume via their per-widget
     /// `preferred_height` helpers.
@@ -136,15 +124,12 @@ pub struct LayoutConfig<'a> {
 
 /// Calculate widget sizes and positions based on terminal
 /// dimensions and config. Returns an empty layout on degenerate
-/// inputs (term smaller than 2x2, or no widgets).
+/// inputs (term smaller than 2x2).
 pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
     let mut layout = Layout::default();
     if cfg.term_width < 2 || cfg.term_height < 2 {
         return layout;
     }
-    let Some(slot) = build_slot(cfg) else {
-        return layout;
-    };
     let area = Rect {
         x: 0,
         y: 0,
@@ -155,29 +140,26 @@ pub fn calc_sizes(cfg: &LayoutConfig) -> Layout {
         hints: &cfg.hints,
         term_height: cfg.term_height,
     };
-    place(&slot, area, &ctx, &mut layout);
+    place(&cfg.root, area, &ctx, &mut layout);
     layout
 }
 
 /// Smallest terminal size at which the active layout fits without
-/// truncation, given the current widget set and snapshot hints.
+/// truncation, given the current slot tree and snapshot hints.
 ///
 /// Returns the `(width, height)` shown in the "Terminal too small.
 /// Need WxH." message, and the value used by the `is_too_small`
 /// gate in the event loop.
 pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
-    let Some(slot) = build_slot(cfg) else {
-        return (0, 0);
-    };
     let ctx = MinCtx { hints: &cfg.hints };
-    let (min_w, mut min_h) = slot_min_size(&slot, &ctx);
+    let (min_w, mut min_h) = slot_min_size(&cfg.root, &ctx);
     // CPU's preferred-height clamp (`min(preferred, term_height/3)`)
     // means the terminal must be at least three times CPU's
     // preferred height for CPU to render at its preferred size
     // without being clamped. Encoded here at the top level rather
     // than inside the recursion because the clamp is anchored to
     // *terminal* height, not the immediate parent container.
-    if has_widget(&slot, WidgetKind::Cpu) {
+    if cfg.root.contains(WidgetKind::Cpu) {
         let cpu_pref = crate::ui::cpu_widget::preferred_height(&cfg.hints).max(MIN_CPU_HEIGHT);
         min_h = min_h.max(3 * cpu_pref);
     }
@@ -185,27 +167,8 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Internal: the new layout primitives
+// Internal types
 // ─────────────────────────────────────────────────────────────────
-
-/// A rectangular region that holds either a widget, a vertical
-/// stack of slots, or a horizontal stack of slots. The engine's
-/// internal representation; future commits promote it to the
-/// public surface.
-#[derive(Debug, Clone)]
-enum Slot {
-    Widget(WidgetKind),
-    VStack(Vec<Slot>),
-    HStack(Vec<HStackChild>),
-}
-
-/// A child of an `HStack` carrying its relative width weight.
-/// Total available width is divided proportionally to weights.
-#[derive(Debug, Clone)]
-struct HStackChild {
-    slot: Slot,
-    weight: u8,
-}
 
 #[derive(Debug, Clone, Copy)]
 struct Rect {
@@ -231,150 +194,20 @@ struct MinCtx<'a> {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// Build — convert legacy LayoutConfig to a Slot tree
-// ─────────────────────────────────────────────────────────────────
-
-/// Convert the legacy orientation-flag-based `LayoutConfig` into a
-/// `Slot` tree. Returns `None` when no widgets are visible.
-///
-/// This is the bridge between the old public API and the new
-/// internal representation. Future commits will promote `Slot` to
-/// the public API and drop this function.
-fn build_slot(cfg: &LayoutConfig) -> Option<Slot> {
-    let widgets = cfg.widgets;
-    let has_cpu = widgets.contains(&WidgetKind::Cpu);
-    let has_mem = widgets.contains(&WidgetKind::Mem);
-    let has_net = widgets.contains(&WidgetKind::Net);
-    let has_proc = widgets.contains(&WidgetKind::Proc);
-    let has_disk = widgets.contains(&WidgetKind::Disk);
-    let gpu_indices: Vec<u8> = (0..MAX_GPUS as u8)
-        .filter(|n| (*n as usize) < cfg.hints.gpu_count && widgets.contains(&WidgetKind::Gpu(*n)))
-        .collect();
-    let has_left = has_mem || has_net || has_disk || !gpu_indices.is_empty();
-
-    if !has_cpu && !has_proc && !has_left {
-        return None;
-    }
-
-    // Build the left-column widget order: GPUs first, then mem/net
-    // (per `mem_below_net`), then disk last.
-    let mut left_col: Vec<Slot> = Vec::new();
-    for n in &gpu_indices {
-        left_col.push(Slot::Widget(WidgetKind::Gpu(*n)));
-    }
-    if cfg.mem_below_net {
-        if has_net {
-            left_col.push(Slot::Widget(WidgetKind::Net));
-        }
-        if has_mem {
-            left_col.push(Slot::Widget(WidgetKind::Mem));
-        }
-    } else {
-        if has_mem {
-            left_col.push(Slot::Widget(WidgetKind::Mem));
-        }
-        if has_net {
-            left_col.push(Slot::Widget(WidgetKind::Net));
-        }
-    }
-    if has_disk {
-        left_col.push(Slot::Widget(WidgetKind::Disk));
-    }
-
-    // Body = everything that goes below (or above, with `cpu_bottom`)
-    // the CPU widget. Three shapes:
-    //   * stack_vertical && has_left : single full-width column
-    //     containing the left-column widgets and proc.
-    //   * !stack_vertical && has_proc && has_left : two-column HStack
-    //     with the left-column widgets in one column and proc in the
-    //     other (placement controlled by `proc_left`).
-    //   * has_proc only : proc fills the body alone.
-    //   * has_left only : left-column widgets fill the body alone.
-    let body = if cfg.stack_vertical && has_left {
-        let mut col = left_col;
-        if has_proc {
-            col.push(Slot::Widget(WidgetKind::Proc));
-        }
-        collapse_vstack(col)
-    } else if has_proc && has_left {
-        let left_slot = collapse_vstack(left_col).expect("has_left implies non-empty left_col");
-        let proc_slot = Slot::Widget(WidgetKind::Proc);
-        let (first, second) = if cfg.proc_left {
-            (
-                HStackChild {
-                    slot: proc_slot,
-                    weight: PROC_WIDTH_PCT as u8,
-                },
-                HStackChild {
-                    slot: left_slot,
-                    weight: LEFT_WIDTH_PCT as u8,
-                },
-            )
-        } else {
-            (
-                HStackChild {
-                    slot: left_slot,
-                    weight: LEFT_WIDTH_PCT as u8,
-                },
-                HStackChild {
-                    slot: proc_slot,
-                    weight: PROC_WIDTH_PCT as u8,
-                },
-            )
-        };
-        Some(Slot::HStack(vec![first, second]))
-    } else if has_proc {
-        Some(Slot::Widget(WidgetKind::Proc))
-    } else {
-        collapse_vstack(left_col)
-    };
-
-    // Wrap with CPU on top or bottom, if present.
-    if has_cpu {
-        let cpu = Slot::Widget(WidgetKind::Cpu);
-        Some(match body {
-            Some(b) if cfg.cpu_bottom => Slot::VStack(vec![b, cpu]),
-            Some(b) => Slot::VStack(vec![cpu, b]),
-            None => cpu,
-        })
-    } else {
-        body
-    }
-}
-
-/// Wrap a list of slots in a `VStack`, but flatten singleton lists
-/// to the inner slot. Avoids degenerate one-child stacks in the tree.
-fn collapse_vstack(mut col: Vec<Slot>) -> Option<Slot> {
-    match col.len() {
-        0 => None,
-        1 => col.pop(),
-        _ => Some(Slot::VStack(col)),
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────
 // Place — assign x/y/w/h to every widget reachable from the slot
 // ─────────────────────────────────────────────────────────────────
 
 fn place(slot: &Slot, area: Rect, ctx: &PlaceCtx, layout: &mut Layout) {
     match slot {
         Slot::Widget(kind) => {
-            // Skip GPU widgets whose index is beyond the detected
-            // count. `build_slot` already filters, but defensive
-            // here so the engine remains correct if a future caller
-            // hands us a tree directly without going through
-            // `build_slot`.
-            if let WidgetKind::Gpu(n) = kind
-                && (*n as usize) >= ctx.hints.gpu_count
-            {
+            if !widget_is_visible(*kind, ctx.hints) {
                 return;
             }
             // Apply per-widget width floor. In normal terminals the
             // floor is below the allocated area width and this is a
             // no-op; in pathologically narrow allocations the
             // widget overflows its column rather than truncating
-            // its content. Matches the legacy `width.max(MIN_*_WIDTH)`
-            // calls in the old place_left_column.
+            // its content.
             let width = area.width.max(widget_min_width(*kind, ctx.hints));
             layout.set(
                 *kind,
@@ -405,7 +238,7 @@ fn place(slot: &Slot, area: Rect, ctx: &PlaceCtx, layout: &mut Layout) {
             }
         }
         Slot::HStack(children) => {
-            let widths = hstack_distribute_widths(children, area.width);
+            let widths = hstack_distribute_widths(children, ctx.hints, area.width);
             let mut x = area.x;
             for (child, child_w) in children.iter().zip(widths.iter()) {
                 place(
@@ -426,15 +259,19 @@ fn place(slot: &Slot, area: Rect, ctx: &PlaceCtx, layout: &mut Layout) {
 }
 
 /// Distribute a VStack's vertical space across its children:
-/// Preferred children get their preferred height; Fill children
-/// share the remainder equally with rounding leftover going to the
-/// earliest-listed Fill child (so the total matches `total` exactly).
+/// invisible children get 0; `Preferred` children get their
+/// preferred height; `Fill` children share the remainder equally
+/// with rounding leftover going to the earliest-listed `Fill`
+/// child (so the heights sum to exactly `total`).
 fn vstack_distribute_heights(children: &[Slot], ctx: &PlaceCtx, total: usize) -> Vec<usize> {
     let mut heights = vec![0usize; children.len()];
     let mut sum_preferred = 0usize;
     let mut fill_indices: Vec<usize> = Vec::new();
     for (i, child) in children.iter().enumerate() {
-        if slot_is_fill(child) {
+        if !slot_is_visible(child, ctx.hints) {
+            continue;
+        }
+        if slot_is_fill(child, ctx.hints) {
             fill_indices.push(i);
         } else {
             heights[i] = slot_preferred_height(child, ctx);
@@ -453,30 +290,37 @@ fn vstack_distribute_heights(children: &[Slot], ctx: &PlaceCtx, total: usize) ->
 }
 
 /// Distribute an HStack's horizontal space across its children
-/// proportionally to weights. The last child absorbs rounding
-/// leftover so the widths sum to exactly `total`.
-fn hstack_distribute_widths(children: &[HStackChild], total: usize) -> Vec<usize> {
-    if children.is_empty() {
-        return Vec::new();
-    }
-    let total_weight: usize = children.iter().map(|c| c.weight as usize).sum();
-    if total_weight == 0 {
-        // Defensive: equal split if every weight is zero.
-        let per = total / children.len();
-        let mut widths = vec![per; children.len()];
-        widths[children.len() - 1] += total - per * children.len();
+/// proportionally to weights. Invisible children get 0 and their
+/// weight is excluded from the denominator. The last visible child
+/// absorbs rounding leftover so the widths sum to exactly `total`.
+fn hstack_distribute_widths(
+    children: &[HStackChild],
+    hints: &LayoutHints,
+    total: usize,
+) -> Vec<usize> {
+    let mut widths = vec![0usize; children.len()];
+    let visible: Vec<usize> = children
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| slot_is_visible(&c.slot, hints))
+        .map(|(i, _)| i)
+        .collect();
+    if visible.is_empty() {
         return widths;
     }
-    let last = children.len() - 1;
-    let mut widths = Vec::with_capacity(children.len());
+    let total_weight: usize = visible
+        .iter()
+        .map(|&i| children[i].weight.get() as usize)
+        .sum();
+    let last = *visible.last().expect("visible is non-empty");
     let mut allocated = 0usize;
-    for (i, child) in children.iter().enumerate() {
+    for &i in &visible {
         let w = if i == last {
             total.saturating_sub(allocated)
         } else {
-            total * child.weight as usize / total_weight
+            total * children[i].weight.get() as usize / total_weight
         };
-        widths.push(w);
+        widths[i] = w;
         allocated += w;
     }
     widths
@@ -486,14 +330,27 @@ fn hstack_distribute_widths(children: &[HStackChild], total: usize) -> Vec<usize
 // Sizing — slot-level aggregation built on per-widget queries
 // ─────────────────────────────────────────────────────────────────
 
-/// Whether a slot has any descendant `Fill` widget. A slot with at
-/// least one Fill descendant absorbs slack; otherwise it has a
-/// fixed preferred height.
-fn slot_is_fill(slot: &Slot) -> bool {
+/// Whether a slot has any visible descendant `Fill` widget.
+/// Invisible subtrees contribute nothing — a `Fill` widget that
+/// won't render this frame must not claim slack.
+fn slot_is_fill(slot: &Slot, hints: &LayoutHints) -> bool {
     match slot {
-        Slot::Widget(kind) => matches!(kind.sizing(), WidgetSizing::Fill),
-        Slot::VStack(children) => children.iter().any(slot_is_fill),
-        Slot::HStack(children) => children.iter().any(|c| slot_is_fill(&c.slot)),
+        Slot::Widget(kind) => {
+            widget_is_visible(*kind, hints) && matches!(kind.sizing(), WidgetSizing::Fill)
+        }
+        Slot::VStack(children) => children.iter().any(|c| slot_is_fill(c, hints)),
+        Slot::HStack(children) => children.iter().any(|c| slot_is_fill(&c.slot, hints)),
+    }
+}
+
+/// Whether a slot will render anything this frame. A slot with no
+/// visible leaves contributes zero to every aggregation and is
+/// skipped at placement time.
+fn slot_is_visible(slot: &Slot, hints: &LayoutHints) -> bool {
+    match slot {
+        Slot::Widget(kind) => widget_is_visible(*kind, hints),
+        Slot::VStack(children) => children.iter().any(|c| slot_is_visible(c, hints)),
+        Slot::HStack(children) => children.iter().any(|c| slot_is_visible(&c.slot, hints)),
     }
 }
 
@@ -501,7 +358,7 @@ fn slot_is_fill(slot: &Slot) -> bool {
 /// returns the sum/max of its children's preferred heights, which
 /// is meaningful as a lower bound but not the actual rendered
 /// height — Fill slots get their heights from the parent's
-/// `vstack_distribute_heights`.)
+/// `vstack_distribute_heights`.) Invisible children contribute 0.
 fn slot_preferred_height(slot: &Slot, ctx: &PlaceCtx) -> usize {
     match slot {
         Slot::Widget(kind) => widget_preferred_height(*kind, ctx),
@@ -516,8 +373,11 @@ fn slot_preferred_height(slot: &Slot, ctx: &PlaceCtx) -> usize {
 
 /// Preferred height of a single widget kind, with per-widget
 /// container-relative clamps applied (currently only CPU's `1/3 of
-/// terminal height` cap).
+/// terminal height` cap). Returns 0 for invisible widgets.
 fn widget_preferred_height(kind: WidgetKind, ctx: &PlaceCtx) -> usize {
+    if !widget_is_visible(kind, ctx.hints) {
+        return 0;
+    }
     let raw = match kind {
         WidgetKind::Cpu => crate::ui::cpu_widget::preferred_height(ctx.hints).max(MIN_CPU_HEIGHT),
         WidgetKind::Mem => crate::ui::mem_widget::preferred_height(ctx.hints),
@@ -543,8 +403,9 @@ fn widget_preferred_height(kind: WidgetKind, ctx: &PlaceCtx) -> usize {
 
 /// Compute the `(min_width, min_height)` of a slot tree. Bottom-up
 /// recursion: leaves report their per-widget minimums; containers
-/// aggregate (VStack: max width, sum height; HStack: weight-aware
-/// min width, max height).
+/// aggregate (VStack: max width across visible children, sum height;
+/// HStack: weight-aware min width across visible children, max
+/// height). Invisible subtrees contribute zero.
 fn slot_min_size(slot: &Slot, ctx: &MinCtx) -> (usize, usize) {
     match slot {
         Slot::Widget(kind) => (
@@ -555,6 +416,9 @@ fn slot_min_size(slot: &Slot, ctx: &MinCtx) -> (usize, usize) {
             let mut max_w = 0usize;
             let mut sum_h = 0usize;
             for child in children {
+                if !slot_is_visible(child, ctx.hints) {
+                    continue;
+                }
                 let (cw, ch) = slot_min_size(child, ctx);
                 max_w = max_w.max(cw);
                 sum_h += ch;
@@ -562,16 +426,22 @@ fn slot_min_size(slot: &Slot, ctx: &MinCtx) -> (usize, usize) {
             (max_w, sum_h)
         }
         Slot::HStack(children) => {
-            let total_weight: usize = children
+            let visible: Vec<&HStackChild> = children
                 .iter()
-                .map(|c| c.weight as usize)
-                .sum::<usize>()
-                .max(1);
+                .filter(|c| slot_is_visible(&c.slot, ctx.hints))
+                .collect();
+            if visible.is_empty() {
+                return (0, 0);
+            }
+            let total_weight: usize = visible
+                .iter()
+                .map(|c| c.weight.get() as usize)
+                .sum::<usize>();
             let mut max_min_w = 0usize;
             let mut max_h = 0usize;
-            for child in children {
+            for child in visible {
                 let (cw, ch) = slot_min_size(&child.slot, ctx);
-                let weight = (child.weight as usize).max(1);
+                let weight = child.weight.get() as usize;
                 // For a child with min width `cw` and weight share
                 // `weight / total_weight`, the HStack must be at
                 // least `cw * total_weight / weight` wide
@@ -586,6 +456,9 @@ fn slot_min_size(slot: &Slot, ctx: &MinCtx) -> (usize, usize) {
 }
 
 fn widget_min_width(kind: WidgetKind, hints: &LayoutHints) -> usize {
+    if !widget_is_visible(kind, hints) {
+        return 0;
+    }
     match kind {
         WidgetKind::Cpu => crate::ui::cpu_widget::min_width(hints),
         WidgetKind::Net => MIN_NET_WIDTH,
@@ -595,6 +468,9 @@ fn widget_min_width(kind: WidgetKind, hints: &LayoutHints) -> usize {
 }
 
 fn widget_min_height(kind: WidgetKind, hints: &LayoutHints) -> usize {
+    if !widget_is_visible(kind, hints) {
+        return 0;
+    }
     match kind {
         WidgetKind::Cpu => crate::ui::cpu_widget::preferred_height(hints).max(MIN_CPU_HEIGHT),
         WidgetKind::Mem => crate::ui::mem_widget::preferred_height(hints),
@@ -605,14 +481,14 @@ fn widget_min_height(kind: WidgetKind, hints: &LayoutHints) -> usize {
     }
 }
 
-/// Whether `target` appears anywhere in the slot tree. Used by
-/// `min_terminal_size` to apply CPU's terminal-height-relative
-/// clamp post-recursion.
-fn has_widget(slot: &Slot, target: WidgetKind) -> bool {
-    match slot {
-        Slot::Widget(kind) => *kind == target,
-        Slot::VStack(children) => children.iter().any(|c| has_widget(c, target)),
-        Slot::HStack(children) => children.iter().any(|c| has_widget(&c.slot, target)),
+/// Whether a widget kind renders this frame. Currently only
+/// [`WidgetKind::Gpu`] varies — indices beyond `hints.gpu_count`
+/// have no backing device. The other widgets are always visible
+/// when present in the tree.
+fn widget_is_visible(kind: WidgetKind, hints: &LayoutHints) -> bool {
+    match kind {
+        WidgetKind::Gpu(n) => (n as usize) < hints.gpu_count,
+        _ => true,
     }
 }
 
@@ -623,153 +499,59 @@ fn has_widget(slot: &Slot, target: WidgetKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::widget_kind::WidgetKind;
+    use std::num::NonZeroU8;
 
-    fn widgets(kinds: &[WidgetKind]) -> Vec<WidgetKind> {
-        kinds.to_vec()
+    fn nz(n: u8) -> NonZeroU8 {
+        NonZeroU8::new(n).expect("test weight must be non-zero")
     }
 
-    fn lc(tw: usize, th: usize, shown: &[WidgetKind]) -> LayoutConfig<'_> {
-        LayoutConfig {
-            term_width: tw,
-            term_height: th,
-            widgets: shown,
-            cpu_bottom: false,
-            mem_below_net: false,
-            proc_left: false,
-            stack_vertical: false,
-            hints: LayoutHints {
-                core_count: 4,
-                gpu_count: 0,
-                disk_count: 2,
-                has_swap: false,
-                has_cpu_temp: false,
-                has_cpu_watts: false,
-                disk_rows_per_unit: 2,
-            },
+    fn hints() -> LayoutHints {
+        LayoutHints {
+            core_count: 4,
+            gpu_count: 0,
+            disk_count: 2,
+            has_swap: false,
+            has_cpu_temp: false,
+            has_cpu_watts: false,
+            disk_rows_per_unit: 2,
         }
     }
 
-    /// Build a `LayoutConfig` from `lc(...)` and apply a hints
-    /// override callback.
+    fn lc(tw: usize, th: usize, root: Slot) -> LayoutConfig {
+        LayoutConfig {
+            term_width: tw,
+            term_height: th,
+            root,
+            hints: hints(),
+        }
+    }
+
     fn lc_with_hints(
         tw: usize,
         th: usize,
-        shown: &[WidgetKind],
+        root: Slot,
         f: impl FnOnce(&mut LayoutHints),
-    ) -> LayoutConfig<'_> {
-        let mut cfg = lc(tw, th, shown);
+    ) -> LayoutConfig {
+        let mut cfg = lc(tw, th, root);
         f(&mut cfg.hints);
         cfg
     }
 
+    fn two_col(left: Slot, right: Slot) -> Slot {
+        Slot::HStack(vec![
+            HStackChild::new(left, nz(40)),
+            HStackChild::new(right, nz(60)),
+        ])
+    }
+
     // ────────────────────────────────────────────────────────────
-    // calc_sizes — preset shapes
+    // place — top-level shapes
     // ────────────────────────────────────────────────────────────
 
     #[test]
-    fn calc_sizes_all_widgets_shown() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-        ]);
-        let layout = calc_sizes(&lc_with_hints(120, 40, &b, |h| h.core_count = 8));
-        assert!(layout.dims_for(WidgetKind::Cpu).is_some());
-        assert!(layout.dims_for(WidgetKind::Mem).is_some());
-        assert!(layout.dims_for(WidgetKind::Net).is_some());
-        assert!(layout.dims_for(WidgetKind::Proc).is_some());
-    }
-
-    #[test]
-    fn calc_sizes_cpu_full_width_other_widgets_in_columns() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-        ]);
-        let layout = calc_sizes(&lc(120, 40, &b));
-        let cpu = layout.dims_for(WidgetKind::Cpu).unwrap();
-        let mem = layout.dims_for(WidgetKind::Mem).unwrap();
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
-        assert_eq!(cpu.x, 0);
-        assert_eq!(cpu.width, 120);
-        // Mem and proc are side-by-side below CPU.
-        assert_eq!(mem.x, 0);
-        assert!(proc.x > 0);
-        assert_eq!(mem.x + mem.width, proc.x);
-    }
-
-    #[test]
-    fn calc_sizes_cpu_bottom() {
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem]);
-        let layout_top = calc_sizes(&lc(80, 40, &b));
-        let layout_bot = calc_sizes(&LayoutConfig {
-            cpu_bottom: true,
-            ..lc(80, 40, &b)
-        });
-        assert!(
-            layout_top.dims_for(WidgetKind::Cpu).unwrap().y
-                < layout_bot.dims_for(WidgetKind::Cpu).unwrap().y
-        );
-    }
-
-    #[test]
-    fn calc_sizes_proc_left() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-        ]);
-        let layout = calc_sizes(&LayoutConfig {
-            proc_left: true,
-            ..lc(120, 40, &b)
-        });
-        let proc_x = layout.dims_for(WidgetKind::Proc).unwrap().x;
-        let mem_x = layout.dims_for(WidgetKind::Mem).unwrap().x;
-        assert!(proc_x < mem_x);
-    }
-
-    #[test]
-    fn calc_sizes_mem_below_net() {
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Net]);
-        let layout_above = calc_sizes(&lc(80, 40, &b));
-        let layout_below = calc_sizes(&LayoutConfig {
-            mem_below_net: true,
-            ..lc(80, 40, &b)
-        });
-        assert!(
-            layout_above.dims_for(WidgetKind::Mem).unwrap().y
-                < layout_above.dims_for(WidgetKind::Net).unwrap().y
-        );
-        assert!(
-            layout_below.dims_for(WidgetKind::Mem).unwrap().y
-                > layout_below.dims_for(WidgetKind::Net).unwrap().y
-        );
-    }
-
-    #[test]
-    fn calc_sizes_minimum_terminal_size() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-        ]);
-        // Should not panic on tiny terminals; widgets may have
-        // unusable dims but the engine returns a Layout.
-        let _ = calc_sizes(&lc_with_hints(10, 5, &b, |h| h.core_count = 2));
-    }
-
-    #[test]
-    fn calc_sizes_proc_only() {
-        let b = widgets(&[WidgetKind::Proc]);
-        let layout = calc_sizes(&lc(100, 30, &b));
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
-        // Proc spans the full terminal when alone.
+    fn calc_sizes_single_widget_fills_terminal() {
+        let layout = calc_sizes(&lc(100, 30, Slot::Widget(WidgetKind::Proc)));
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
         assert_eq!(proc.x, 0);
         assert_eq!(proc.y, 0);
         assert_eq!(proc.width, 100);
@@ -777,41 +559,221 @@ mod tests {
     }
 
     #[test]
-    fn calc_sizes_no_disk() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
+    fn calc_sizes_returns_empty_layout_for_too_small_terminal() {
+        let layout = calc_sizes(&lc(1, 30, Slot::Widget(WidgetKind::Proc)));
+        assert!(layout.dims_for(WidgetKind::Proc).is_none());
+        let layout = calc_sizes(&lc(100, 1, Slot::Widget(WidgetKind::Proc)));
+        assert!(layout.dims_for(WidgetKind::Proc).is_none());
+    }
+
+    #[test]
+    fn calc_sizes_cpu_full_width_then_two_columns() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            two_col(
+                Slot::Widget(WidgetKind::Mem),
+                Slot::Widget(WidgetKind::Proc),
+            ),
         ]);
-        let layout = calc_sizes(&lc(120, 50, &b));
+        let layout = calc_sizes(&lc_with_hints(120, 40, root, |h| h.core_count = 8));
+        let cpu = layout.dims_for(WidgetKind::Cpu).expect("cpu placed");
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        assert_eq!(cpu.x, 0);
+        assert_eq!(cpu.y, 0);
+        assert_eq!(cpu.width, 120);
+        // Mem and proc are side-by-side below CPU.
+        assert_eq!(mem.x, 0);
+        assert_eq!(mem.y, cpu.height);
+        assert!(proc.x > 0);
+        assert_eq!(mem.x + mem.width, proc.x);
+        assert_eq!(mem.width + proc.width, 120);
+    }
+
+    #[test]
+    fn calc_sizes_vstack_cpu_top_vs_cpu_bottom() {
+        let cpu_top = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Mem),
+        ]);
+        let cpu_bot = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Cpu),
+        ]);
+        let layout_top = calc_sizes(&lc(80, 40, cpu_top));
+        let layout_bot = calc_sizes(&lc(80, 40, cpu_bot));
         assert!(
-            layout.dims_for(WidgetKind::Disk).is_none(),
-            "disk widget should be absent",
+            layout_top.dims_for(WidgetKind::Cpu).expect("cpu placed").y
+                < layout_bot.dims_for(WidgetKind::Cpu).expect("cpu placed").y
         );
     }
 
     #[test]
-    fn calc_sizes_widths_sum_to_terminal_width_in_two_column_layout() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
+    fn calc_sizes_hstack_proc_on_left_when_listed_first() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            two_col(
+                Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Mem),
+            ),
         ]);
-        let layout = calc_sizes(&lc(120, 40, &b));
-        let mem = layout.dims_for(WidgetKind::Mem).unwrap();
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
+        let layout = calc_sizes(&lc(120, 40, root));
+        let proc_x = layout.dims_for(WidgetKind::Proc).expect("proc placed").x;
+        let mem_x = layout.dims_for(WidgetKind::Mem).expect("mem placed").x;
+        assert!(proc_x < mem_x);
+    }
+
+    #[test]
+    fn calc_sizes_widths_sum_to_terminal_width_in_hstack() {
+        let root = two_col(
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+        );
+        let layout = calc_sizes(&lc(120, 40, root));
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
         assert_eq!(mem.width + proc.width, 120);
     }
 
-    /// Regression: sparse GPU layouts preserve `WidgetKind::Gpu(n)`
-    /// identity end-to-end so the renderer pulls the right device
-    /// data for each placed slot.
+    // ────────────────────────────────────────────────────────────
+    // VStack height distribution: Preferred vs Fill
+    // ────────────────────────────────────────────────────────────
+
     #[test]
-    fn calc_sizes_sparse_gpu_layout_preserves_indices() {
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(1), WidgetKind::Gpu(3)]);
-        let layout = calc_sizes(&lc_with_hints(120, 50, &b, |h| {
+    fn vstack_preferred_then_fill_proc_absorbs_remainder() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let cfg = lc(120, 40, root);
+        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
+        let layout = calc_sizes(&cfg);
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        assert_eq!(mem.height, mem_pref);
+        assert_eq!(proc.height, 40 - mem_pref);
+        assert_eq!(mem.y + mem.height, proc.y);
+    }
+
+    #[test]
+    fn vstack_two_fill_siblings_share_remainder() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Net),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let cfg = lc(120, 40, root);
+        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
+        let layout = calc_sizes(&cfg);
+        let net = layout.dims_for(WidgetKind::Net).expect("net placed");
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        let remainder = 40 - mem_pref;
+        // Two Fill children share equally; rounding leftover goes to the first one (net).
+        assert!(net.height + proc.height == remainder);
+        assert!(net.height >= proc.height);
+        assert!(net.height - proc.height <= 1);
+    }
+
+    #[test]
+    fn vstack_only_preferred_children_leave_remainder_unallocated() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Disk),
+        ]);
+        let cfg = lc(120, 40, root);
+        let layout = calc_sizes(&cfg);
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let disk = layout.dims_for(WidgetKind::Disk).expect("disk placed");
+        assert_eq!(
+            mem.height,
+            crate::ui::mem_widget::preferred_height(&cfg.hints)
+        );
+        assert_eq!(
+            disk.height,
+            crate::ui::disk_widget::preferred_height(&cfg.hints)
+        );
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // CPU height clamp (1/3 terminal height)
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cpu_clamped_to_one_third_of_terminal_height() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        // With many cores, CPU's preferred height is large. Clamp
+        // to term_height/3 = 60/3 = 20.
+        let cfg = lc_with_hints(200, 60, root, |h| h.core_count = 64);
+        let layout = calc_sizes(&cfg);
+        let cpu = layout.dims_for(WidgetKind::Cpu).expect("cpu placed");
+        assert!(cpu.height <= 60 / 3);
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // GPU visibility — engine treats absent GPUs as zero-size
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn invisible_gpu_in_vstack_contributes_zero_height() {
+        // Static tree includes Gpu(0..7); only 2 are detected. The
+        // engine should treat Gpu(2..7) as 0-height and pack
+        // Mem/Net/Disk into the remaining space.
+        let mut left = Vec::new();
+        for n in 0..8u8 {
+            left.push(Slot::Widget(WidgetKind::Gpu(n)));
+        }
+        left.push(Slot::Widget(WidgetKind::Mem));
+        left.push(Slot::Widget(WidgetKind::Disk));
+        left.push(Slot::Widget(WidgetKind::Net));
+        let cfg = lc_with_hints(120, 60, Slot::VStack(left), |h| {
+            h.gpu_count = 2;
+            h.core_count = 8;
+        });
+        let layout = calc_sizes(&cfg);
+        let g0 = layout.dims_for(WidgetKind::Gpu(0)).expect("gpu0 placed");
+        let g1 = layout.dims_for(WidgetKind::Gpu(1)).expect("gpu1 placed");
+        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let gpu_pref = crate::ui::gpu_widget::preferred_height();
+        assert_eq!(g0.y, 0);
+        assert_eq!(g0.height, gpu_pref);
+        assert_eq!(g1.y, gpu_pref);
+        assert_eq!(g1.height, gpu_pref);
+        // Mem follows immediately after the two visible GPUs (no
+        // gap from invisible Gpu(2..7)).
+        assert_eq!(mem.y, 2 * gpu_pref);
+        // Invisible GPU slots aren't placed.
+        for n in 2..8u8 {
+            assert!(layout.dims_for(WidgetKind::Gpu(n)).is_none());
+        }
+    }
+
+    #[test]
+    fn invisible_gpu_in_hstack_yields_width_to_visible_sibling() {
+        // HStack with [Gpu(5), Proc] when no GPUs are detected.
+        // The Gpu child is invisible; Proc gets the full width.
+        let root = Slot::HStack(vec![
+            HStackChild::new(Slot::Widget(WidgetKind::Gpu(5)), nz(40)),
+            HStackChild::new(Slot::Widget(WidgetKind::Proc), nz(60)),
+        ]);
+        let cfg = lc_with_hints(100, 30, root, |h| h.gpu_count = 0);
+        let layout = calc_sizes(&cfg);
+        assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
+        let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
+        assert_eq!(proc.x, 0);
+        assert_eq!(proc.width, 100);
+    }
+
+    #[test]
+    fn sparse_gpu_layout_preserves_indices() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Gpu(1)),
+            Slot::Widget(WidgetKind::Gpu(3)),
+        ]);
+        let layout = calc_sizes(&lc_with_hints(120, 50, root, |h| {
             h.core_count = 8;
             h.gpu_count = 4;
         }));
@@ -819,222 +781,19 @@ mod tests {
         assert!(layout.dims_for(WidgetKind::Gpu(1)).is_some());
         assert!(layout.dims_for(WidgetKind::Gpu(2)).is_none());
         assert!(layout.dims_for(WidgetKind::Gpu(3)).is_some());
-        // Lower index renders above higher index in declaration order.
-        let gpu1 = layout.dims_for(WidgetKind::Gpu(1)).unwrap();
-        let gpu3 = layout.dims_for(WidgetKind::Gpu(3)).unwrap();
+        let gpu1 = layout.dims_for(WidgetKind::Gpu(1)).expect("gpu1 placed");
+        let gpu3 = layout.dims_for(WidgetKind::Gpu(3)).expect("gpu3 placed");
         assert!(gpu1.y < gpu3.y);
     }
 
     #[test]
-    fn calc_sizes_skips_gpu_indices_beyond_detected_count() {
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Gpu(0), WidgetKind::Gpu(5)]);
-        let layout = calc_sizes(&lc_with_hints(120, 50, &b, |h| {
-            h.core_count = 8;
-            h.gpu_count = 1;
-        }));
-        assert!(layout.dims_for(WidgetKind::Gpu(0)).is_some());
+    fn invisible_only_tree_yields_empty_layout() {
+        // Tree contains only invisible widgets — no terminal-too-small
+        // triggers, but nothing renders either.
+        let root = Slot::Widget(WidgetKind::Gpu(5));
+        let cfg = lc_with_hints(120, 40, root, |h| h.gpu_count = 0);
+        let layout = calc_sizes(&cfg);
         assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
-    }
-
-    // ────────────────────────────────────────────────────────────
-    // stack_vertical (single-column body)
-    // ────────────────────────────────────────────────────────────
-
-    fn lc_stacked<'a>(tw: usize, th: usize, shown: &'a [WidgetKind]) -> LayoutConfig<'a> {
-        LayoutConfig {
-            stack_vertical: true,
-            ..lc(tw, th, shown)
-        }
-    }
-
-    #[test]
-    fn stack_vertical_mem_proc_stacks_proc_below_mem_full_width() {
-        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
-        let layout = calc_sizes(&lc_stacked(120, 40, &b));
-        let mem = layout.dims_for(WidgetKind::Mem).unwrap();
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
-        let mem_pref = crate::ui::mem_widget::preferred_height(&LayoutHints::default());
-        assert_eq!(mem.x, 0);
-        assert_eq!(mem.y, 0);
-        assert_eq!(mem.width, 120);
-        assert_eq!(mem.height, mem_pref);
-        assert_eq!(proc.x, 0);
-        assert_eq!(proc.y, mem_pref);
-        assert_eq!(proc.width, 120);
-        assert_eq!(proc.height, 40 - mem_pref);
-    }
-
-    #[test]
-    fn stack_vertical_disk_proc_stacks_proc_below_disk_full_width() {
-        let b = widgets(&[WidgetKind::Disk, WidgetKind::Proc]);
-        let cfg = LayoutConfig {
-            stack_vertical: true,
-            ..lc_with_hints(120, 40, &b, |h| {
-                h.disk_count = 2;
-                h.disk_rows_per_unit = 2;
-            })
-        };
-        let layout = calc_sizes(&cfg);
-        let disk = layout.dims_for(WidgetKind::Disk).unwrap();
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
-        let disk_pref = crate::ui::disk_widget::preferred_height(&cfg.hints);
-        assert_eq!(disk.x, 0);
-        assert_eq!(disk.y, 0);
-        assert_eq!(disk.width, 120);
-        assert_eq!(disk.height, disk_pref);
-        assert_eq!(proc.x, 0);
-        assert_eq!(proc.y, disk_pref);
-        assert_eq!(proc.width, 120);
-        assert_eq!(proc.height, 40 - disk_pref);
-    }
-
-    #[test]
-    fn stack_vertical_cpu_mem_disk_no_proc_stacks_under_cpu() {
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk]);
-        let cfg = LayoutConfig {
-            stack_vertical: true,
-            ..lc_with_hints(120, 60, &b, |h| {
-                h.core_count = 8;
-                h.disk_count = 2;
-                h.disk_rows_per_unit = 2;
-            })
-        };
-        let layout = calc_sizes(&cfg);
-        let cpu = layout.dims_for(WidgetKind::Cpu).unwrap();
-        let mem = layout.dims_for(WidgetKind::Mem).unwrap();
-        let disk = layout.dims_for(WidgetKind::Disk).unwrap();
-        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
-        let disk_pref = crate::ui::disk_widget::preferred_height(&cfg.hints);
-        assert_eq!(cpu.x, 0);
-        assert_eq!(cpu.y, 0);
-        assert_eq!(cpu.width, 120);
-        assert_eq!(mem.x, 0);
-        assert_eq!(mem.y, cpu.height);
-        assert_eq!(mem.width, 120);
-        assert_eq!(mem.height, mem_pref);
-        assert_eq!(disk.x, 0);
-        assert_eq!(disk.y, cpu.height + mem_pref);
-        assert_eq!(disk.width, 120);
-        assert_eq!(disk.height, disk_pref);
-    }
-
-    #[test]
-    fn stack_vertical_cpu_gpu_proc_stacks_each_gpu_at_preferred_height() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Gpu(0),
-            WidgetKind::Gpu(1),
-            WidgetKind::Proc,
-        ]);
-        let cfg = LayoutConfig {
-            stack_vertical: true,
-            ..lc_with_hints(160, 60, &b, |h| {
-                h.core_count = 8;
-                h.gpu_count = 2;
-            })
-        };
-        let layout = calc_sizes(&cfg);
-        let gpu_pref = crate::ui::gpu_widget::preferred_height();
-        let cpu = layout.dims_for(WidgetKind::Cpu).unwrap();
-        let g0 = layout.dims_for(WidgetKind::Gpu(0)).unwrap();
-        let g1 = layout.dims_for(WidgetKind::Gpu(1)).unwrap();
-        let proc = layout.dims_for(WidgetKind::Proc).unwrap();
-        assert_eq!(cpu.x, 0);
-        assert_eq!(cpu.width, 160);
-        assert_eq!(g0.x, 0);
-        assert_eq!(g0.y, cpu.height);
-        assert_eq!(g0.width, 160);
-        assert_eq!(g0.height, gpu_pref);
-        assert_eq!(g1.x, 0);
-        assert_eq!(g1.y, cpu.height + gpu_pref);
-        assert_eq!(g1.height, gpu_pref);
-        assert_eq!(proc.x, 0);
-        assert_eq!(proc.y, cpu.height + 2 * gpu_pref);
-        assert_eq!(proc.width, 160);
-        assert_eq!(proc.height, 60 - cpu.height - 2 * gpu_pref);
-    }
-
-    // ────────────────────────────────────────────────────────────
-    // min_terminal_size
-    // ────────────────────────────────────────────────────────────
-
-    #[test]
-    fn min_terminal_size_proc_only_uses_proc_minimums() {
-        let b = widgets(&[WidgetKind::Proc]);
-        let (w, h) = min_terminal_size(&lc(0, 0, &b));
-        assert_eq!(w, MIN_PROC_WIDTH);
-        assert_eq!(h, MIN_PROC_HEIGHT);
-    }
-
-    #[test]
-    fn min_terminal_size_left_only_uses_widest_left_widget() {
-        let b = widgets(&[WidgetKind::Net]);
-        let (w, _) = min_terminal_size(&lc(0, 0, &b));
-        assert_eq!(w, MIN_NET_WIDTH);
-
-        let b = widgets(&[WidgetKind::Mem, WidgetKind::Net]);
-        let (w, _) = min_terminal_size(&lc(0, 0, &b));
-        assert_eq!(w, MIN_MEM_WIDTH);
-    }
-
-    #[test]
-    fn min_terminal_size_two_columns_satisfies_pct_split() {
-        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
-        let (w, _) = min_terminal_size(&lc(0, 0, &b));
-        // Both columns must fit at their respective minimums under
-        // the proc/left percentage split.
-        assert!(w * PROC_WIDTH_PCT / 100 >= MIN_PROC_WIDTH);
-        assert!(w - w * PROC_WIDTH_PCT / 100 >= MIN_MEM_WIDTH);
-    }
-
-    #[test]
-    fn min_terminal_size_height_sums_left_plus_proc_when_stacked() {
-        let b = widgets(&[WidgetKind::Mem, WidgetKind::Proc]);
-        let cfg = lc_stacked(0, 0, &b);
-        let (_, h) = min_terminal_size(&cfg);
-        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
-        assert_eq!(h, mem_pref + MIN_PROC_HEIGHT);
-    }
-
-    #[test]
-    fn min_terminal_size_grows_with_more_disks_and_gpus() {
-        let b = widgets(&[
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Disk,
-            WidgetKind::Gpu(0),
-            WidgetKind::Proc,
-        ]);
-        let small = min_terminal_size(&lc_with_hints(0, 0, &b, |h| {
-            h.core_count = 4;
-            h.disk_count = 1;
-            h.gpu_count = 1;
-            h.disk_rows_per_unit = 2;
-        }));
-        let large = min_terminal_size(&lc_with_hints(0, 0, &b, |h| {
-            h.core_count = 32;
-            h.disk_count = 4;
-            h.gpu_count = 1;
-            h.has_cpu_temp = true;
-            h.has_cpu_watts = true;
-            h.disk_rows_per_unit = 2;
-        }));
-        assert!(
-            large.1 > small.1,
-            "more cores/disks/temps should require taller terminal: small={small:?}, large={large:?}",
-        );
-    }
-
-    #[test]
-    fn min_terminal_size_includes_cpu_clamp_constraint() {
-        // Terminal must be >= 3 * cpu_preferred so CPU can render
-        // at its preferred height under the term_height/3 clamp.
-        let b = widgets(&[WidgetKind::Cpu, WidgetKind::Proc]);
-        let (_, h) = min_terminal_size(&lc(0, 0, &b));
-        let cpu_pref =
-            crate::ui::cpu_widget::preferred_height(&LayoutHints::default()).max(MIN_CPU_HEIGHT);
-        assert!(h >= 3 * cpu_pref);
     }
 
     // ────────────────────────────────────────────────────────────
@@ -1044,94 +803,160 @@ mod tests {
     #[test]
     fn hstack_distribute_widths_sum_equals_total() {
         let children = vec![
-            HStackChild {
-                slot: Slot::Widget(WidgetKind::Mem),
-                weight: 40,
-            },
-            HStackChild {
-                slot: Slot::Widget(WidgetKind::Proc),
-                weight: 60,
-            },
+            HStackChild::new(Slot::Widget(WidgetKind::Mem), nz(40)),
+            HStackChild::new(Slot::Widget(WidgetKind::Proc), nz(60)),
         ];
+        let h = hints();
         for total in [10usize, 50, 100, 113, 1000] {
-            let widths = hstack_distribute_widths(&children, total);
+            let widths = hstack_distribute_widths(&children, &h, total);
             let sum: usize = widths.iter().sum();
             assert_eq!(sum, total, "sum != total for total={total}");
         }
     }
 
     #[test]
-    fn hstack_distribute_widths_proportional_to_weights() {
+    fn hstack_distribute_widths_skips_invisible_children() {
         let children = vec![
-            HStackChild {
-                slot: Slot::Widget(WidgetKind::Mem),
-                weight: 1,
-            },
-            HStackChild {
-                slot: Slot::Widget(WidgetKind::Proc),
-                weight: 3,
-            },
+            HStackChild::new(Slot::Widget(WidgetKind::Gpu(5)), nz(40)),
+            HStackChild::new(Slot::Widget(WidgetKind::Proc), nz(60)),
         ];
-        let widths = hstack_distribute_widths(&children, 100);
-        assert_eq!(widths[0], 25);
-        assert_eq!(widths[1], 75);
+        let mut h = hints();
+        h.gpu_count = 0;
+        let widths = hstack_distribute_widths(&children, &h, 100);
+        assert_eq!(widths[0], 0);
+        assert_eq!(widths[1], 100);
+    }
+
+    #[test]
+    fn hstack_distribute_widths_all_invisible_yields_zeros() {
+        let children = vec![
+            HStackChild::new(Slot::Widget(WidgetKind::Gpu(5)), nz(40)),
+            HStackChild::new(Slot::Widget(WidgetKind::Gpu(6)), nz(60)),
+        ];
+        let mut h = hints();
+        h.gpu_count = 0;
+        let widths = hstack_distribute_widths(&children, &h, 100);
+        assert_eq!(widths, vec![0, 0]);
     }
 
     // ────────────────────────────────────────────────────────────
-    // vstack_distribute_heights
+    // min_terminal_size
     // ────────────────────────────────────────────────────────────
 
     #[test]
-    fn vstack_distribute_heights_preferred_get_preferred_fill_gets_rest() {
-        let children = vec![
-            Slot::Widget(WidgetKind::Mem),  // Preferred: pref = 6
-            Slot::Widget(WidgetKind::Proc), // Fill
-        ];
-        let ctx = PlaceCtx {
-            hints: &LayoutHints::default(),
-            term_height: 100,
-        };
-        let heights = vstack_distribute_heights(&children, &ctx, 30);
-        let mem_pref = crate::ui::mem_widget::preferred_height(&LayoutHints::default());
-        assert_eq!(heights[0], mem_pref);
-        assert_eq!(heights[1], 30 - mem_pref);
-        assert_eq!(heights.iter().sum::<usize>(), 30);
+    fn min_terminal_size_proc_only_uses_proc_minimums() {
+        let (w, h) = min_terminal_size(&lc(0, 0, Slot::Widget(WidgetKind::Proc)));
+        assert_eq!(w, MIN_PROC_WIDTH);
+        assert_eq!(h, MIN_PROC_HEIGHT);
     }
 
     #[test]
-    fn vstack_distribute_heights_multiple_fills_share_equally() {
-        let children = vec![
-            Slot::Widget(WidgetKind::Net),  // Fill
-            Slot::Widget(WidgetKind::Proc), // Fill
-        ];
-        let ctx = PlaceCtx {
-            hints: &LayoutHints::default(),
-            term_height: 100,
-        };
-        let heights = vstack_distribute_heights(&children, &ctx, 30);
-        assert_eq!(heights, vec![15, 15]);
+    fn min_terminal_size_left_only_uses_widest_visible_widget() {
+        let (w, _) = min_terminal_size(&lc(0, 0, Slot::Widget(WidgetKind::Net)));
+        assert_eq!(w, MIN_NET_WIDTH);
+
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Net),
+        ]);
+        let (w, _) = min_terminal_size(&lc(0, 0, root));
+        assert_eq!(w, MIN_MEM_WIDTH);
     }
 
     #[test]
-    fn vstack_distribute_heights_no_fill_leaves_remainder_empty() {
-        let children = vec![
-            Slot::Widget(WidgetKind::Mem),  // Preferred: pref = 6
-            Slot::Widget(WidgetKind::Disk), // Preferred
-        ];
-        let ctx = PlaceCtx {
-            hints: &LayoutHints {
-                disk_count: 2,
-                disk_rows_per_unit: 2,
-                ..Default::default()
-            },
-            term_height: 100,
+    fn min_terminal_size_hstack_satisfies_pct_split() {
+        let root = two_col(
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+        );
+        let (w, _) = min_terminal_size(&lc(0, 0, root));
+        // Both columns must fit at their respective minimums under
+        // the 40/60 weight split.
+        assert!(w * 60 / 100 >= MIN_PROC_WIDTH);
+        assert!(w - w * 60 / 100 >= MIN_MEM_WIDTH);
+    }
+
+    #[test]
+    fn min_terminal_size_vstack_height_sums_visible_children() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let cfg = lc(0, 0, root);
+        let (_, h) = min_terminal_size(&cfg);
+        let mem_pref = crate::ui::mem_widget::preferred_height(&cfg.hints);
+        assert_eq!(h, mem_pref + MIN_PROC_HEIGHT);
+    }
+
+    #[test]
+    fn min_terminal_size_grows_with_more_disks_and_cores() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            two_col(
+                Slot::VStack(vec![
+                    Slot::Widget(WidgetKind::Mem),
+                    Slot::Widget(WidgetKind::Net),
+                    Slot::Widget(WidgetKind::Disk),
+                ]),
+                Slot::Widget(WidgetKind::Proc),
+            ),
+        ]);
+        let make = |cores, disks| {
+            lc_with_hints(0, 0, root.clone(), |h| {
+                h.core_count = cores;
+                h.disk_count = disks;
+                h.disk_rows_per_unit = 2;
+            })
         };
-        let heights = vstack_distribute_heights(&children, &ctx, 30);
-        let mem_pref = crate::ui::mem_widget::preferred_height(ctx.hints);
-        let disk_pref = crate::ui::disk_widget::preferred_height(ctx.hints);
-        assert_eq!(heights, vec![mem_pref, disk_pref]);
-        // Leftover space (30 - mem_pref - disk_pref) is intentionally
-        // unallocated when no Fill widget is present.
-        assert!(heights.iter().sum::<usize>() < 30);
+        let small = min_terminal_size(&make(4, 1));
+        let large = min_terminal_size(&make(32, 4));
+        assert!(
+            large.1 > small.1,
+            "more cores/disks should require taller terminal: small={small:?}, large={large:?}",
+        );
+    }
+
+    #[test]
+    fn min_terminal_size_includes_cpu_clamp_constraint() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let (_, h) = min_terminal_size(&lc(0, 0, root));
+        let cpu_pref =
+            crate::ui::cpu_widget::preferred_height(&LayoutHints::default()).max(MIN_CPU_HEIGHT);
+        assert!(h >= 3 * cpu_pref);
+    }
+
+    #[test]
+    fn min_terminal_size_invisible_widgets_contribute_zero() {
+        // Single-widget tree of an invisible Gpu reports (0, 0).
+        let cfg = lc_with_hints(0, 0, Slot::Widget(WidgetKind::Gpu(5)), |h| h.gpu_count = 0);
+        let (w, h) = min_terminal_size(&cfg);
+        assert_eq!((w, h), (0, 0));
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // slot_is_fill
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn slot_is_fill_treats_invisible_fill_as_not_fill() {
+        // No Fill widgets are currently invisible-able, but verify
+        // the contract: an invisible Fill contributes nothing,
+        // including not claiming a slack share.
+        // Test via Gpu — Preferred — for shape coverage; the
+        // semantic check is the visibility gate.
+        let h = hints();
+        assert!(!slot_is_fill(&Slot::Widget(WidgetKind::Gpu(5)), &h));
+        // A Fill widget in a tree alongside an invisible widget is
+        // still Fill (the tree contains a visible Fill).
+        let mut h2 = h;
+        h2.gpu_count = 0;
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Gpu(5)),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        assert!(slot_is_fill(&root, &h2));
     }
 }

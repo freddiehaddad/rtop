@@ -68,15 +68,13 @@ fn calculate_layout(
     live: &LiveData,
     size: TerminalSize,
 ) -> draw::layout::Layout {
-    let layout = config.layout();
+    let Some(root) = config.layout_spec() else {
+        return draw::layout::Layout::default();
+    };
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        widgets: layout.widgets,
-        cpu_bottom: layout.cpu_bottom,
-        mem_below_net: layout.mem_below_net,
-        proc_left: layout.proc_left,
-        stack_vertical: layout.stack_vertical,
+        root,
         hints: live.layout_hints(config),
     })
 }

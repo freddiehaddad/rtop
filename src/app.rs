@@ -103,17 +103,17 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         // Required terminal size for the active layout, derived per
         // frame from the active widget set + hardware-derived hints
         // (core count, gpu count, disk count, swap, temps, watts).
-        let layout = config.layout();
-        let min_size = crate::draw::layout::min_terminal_size(&crate::draw::layout::LayoutConfig {
-            term_width: size.width,
-            term_height: size.height,
-            widgets: layout.widgets,
-            cpu_bottom: layout.cpu_bottom,
-            mem_below_net: layout.mem_below_net,
-            proc_left: layout.proc_left,
-            stack_vertical: layout.stack_vertical,
-            hints: state.live.layout_hints(config),
-        });
+        let min_size = match config.layout_spec() {
+            Some(root) => {
+                crate::draw::layout::min_terminal_size(&crate::draw::layout::LayoutConfig {
+                    term_width: size.width,
+                    term_height: size.height,
+                    root,
+                    hints: state.live.layout_hints(config),
+                })
+            }
+            None => (0, 0),
+        };
 
         // Handle too-small terminal: render message, only accept quit.
         if render_gates::is_too_small(size, min_size) {

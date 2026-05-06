@@ -477,6 +477,22 @@ impl Config {
         }
     }
 
+    /// Build the canonical [`Slot`] tree for the active preset.
+    /// Returns `None` for an empty custom layout (no widgets), in
+    /// which case callers should treat the layout as empty.
+    ///
+    /// Builtins return a static tree from
+    /// [`crate::domain::preset::BuiltinPreset::layout_spec`]; the
+    /// custom preset converts its legacy widget-list +
+    /// orientation-flag fields via
+    /// [`crate::domain::preset::CustomLayout::layout_spec`].
+    pub fn layout_spec(&self) -> Option<crate::domain::layout_spec::Slot> {
+        match self.preset.active() {
+            crate::domain::preset::ActivePreset::Builtin(b) => Some(b.layout_spec()),
+            crate::domain::preset::ActivePreset::Custom => self.custom.layout_spec(),
+        }
+    }
+
     /// Move the preset cursor one position in the cycle. `forward`
     /// = `true` advances (`p`); `forward` = `false` retreats (`P`).
     /// The cycle wraps over [`crate::domain::preset::ActivePreset::CYCLE_LEN`]

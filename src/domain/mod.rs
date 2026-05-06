@@ -2,6 +2,7 @@ pub mod config_enums;
 pub mod cpu;
 pub mod disk;
 pub mod gpu;
+pub mod layout_spec;
 pub mod memory;
 pub mod network;
 pub mod preset;
