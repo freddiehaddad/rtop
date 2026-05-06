@@ -24,11 +24,12 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 - **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
 - **Preset system** — cycle through curated layout presets with `p` / `P`
-- **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL) — utilization, temperature, VRAM, power, clocks
+- **Custom layouts** — beyond the built-in presets, arrange widgets into rows, columns, and nested panels with adjustable proportions ([details](#custom-layout))
+- **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL)
 - **CPU temperature and power** via PawnIO kernel driver
 - **Per-widget dirty rendering** — only redraws what changed
-- **Event-driven architecture** — per-collector threads with independent timers, channel-driven UI loop, zero CPU when idle
-- **Per-widget update intervals** — each collector can run at its own speed
+- **Per-widget refresh rates** — set how often each widget updates (e.g., CPU every 1 s, processes every 5 s)
+- **Idle when nothing's changing** — no background CPU between updates; the UI sleeps until a widget needs a redraw
 - **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
 - **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
 - **Process following** — pin a process with `F` to auto-scroll across refreshes
@@ -184,21 +185,50 @@ mem_update_ms = 0        # 0 = use global (2000ms)
 
 Set per-widget intervals via the options menu (each category tab has an update interval option) or in `rtop.toml`.
 
-### Visible Widgets
+### Custom Layout
 
-Control which widgets are shown via the `[layout]` config table (used when the active preset is `custom`):
+Want a layout that's different from the built-in presets? rtop lets you describe one with a small expression that combines widgets with vertical (`vstack`) and horizontal (`hstack`) panels. You choose both **which widgets are visible** and **how they're arranged**, including how wide each column should be.
+
+The grammar:
+
+```
+shape := widget                                            # a single widget
+       | vstack(shape, shape, ...)                         # children stacked top-to-bottom
+       | hstack(weight:shape, weight:shape, ...)           # children laid out left-to-right
+                                                           # weight is 1..255 (relative width share)
+```
+
+Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu0`..`gpu7`. Each widget kind may appear at most once in a shape.
+
+Edit your layout three ways:
+
+1. **Toggle keys** (`1`–`9`, `0`) — add/remove individual widgets in place.
+2. **Options menu** (`o` or `F2`) → general → `shape` — type a new DSL expression and press Enter.
+3. **`rtop.toml`** — set `preset = "custom"` and edit the `shape` string under `[layout]`.
+
+#### Example 1 — minimal
+
+CPU graph on top, processes filling the rest:
 
 ```toml
 preset = "custom"
 
 [layout]
-widgets = ["cpu", "mem", "net", "proc", "disk", "gpu0"]
-cpu_bottom = false
-mem_below_net = false
-proc_left = false
+shape = "vstack(cpu, proc)"
 ```
 
-Toggle widgets at runtime with the `1`–`9` and `0` keys.
+#### Example 2 — two-column dashboard with custom proportions
+
+CPU spans the full width on top. Below, a left column stacks memory, network, and disk; the right column is the process list. The 40/60 weights give processes 60% of the width:
+
+```toml
+preset = "custom"
+
+[layout]
+shape = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
+```
+
+Toggle widgets at runtime with `1`–`5` (cpu/mem/net/proc/disk), `6`–`9` (gpu0–3), and `0` (gpu4–7). Cycle through the curated builtin presets with `p` / `P`.
 
 ---
 
