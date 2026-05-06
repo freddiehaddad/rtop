@@ -46,9 +46,10 @@ pub enum BuiltinPreset {
     CpuNetProc,
     /// CPU + every supported GPU + processes — gaming / ML focus.
     CpuGpuProc,
-    /// CPU + memory + disk — passive system-utilisation view with
-    /// no process noise and no network.
-    CpuMemDisk,
+    /// CPU + network + memory + disk — passive system-utilisation
+    /// view with no process noise. Net absorbs slack so the column
+    /// fills the screen without empty space.
+    CpuNetMemDisk,
 }
 
 /// Per-preset layout data. Private to this module — callers go
@@ -169,12 +170,22 @@ const BUILTIN_PRESETS: [PresetData; BuiltinPreset::COUNT] = [
         stack_vertical: true,
     },
     PresetData {
-        name: "cpu+mem+disk",
-        widgets: &[WidgetKind::Cpu, WidgetKind::Mem, WidgetKind::Disk],
+        name: "cpu+net+mem+disk",
+        widgets: &[
+            WidgetKind::Cpu,
+            WidgetKind::Net,
+            WidgetKind::Mem,
+            WidgetKind::Disk,
+        ],
         cpu_bottom: false,
-        mem_below_net: false,
+        // Net renders above mem in the left column so the visual
+        // order matches the preset name `cpu+net+mem+disk`.
+        mem_below_net: true,
         proc_left: false,
-        stack_vertical: true,
+        // Use the 2-column path (which collapses to a single
+        // full-width column when proc is absent) so net's existing
+        // slack-absorbing behaviour fills the available height.
+        stack_vertical: false,
     },
 ];
 
@@ -197,7 +208,7 @@ impl BuiltinPreset {
         Self::DiskProc,
         Self::CpuNetProc,
         Self::CpuGpuProc,
-        Self::CpuMemDisk,
+        Self::CpuNetMemDisk,
     ];
 
     /// Stable, user-visible identifier for the preset (used in

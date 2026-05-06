@@ -1121,9 +1121,9 @@ mod preset_flag_tests {
             .filter(|p| p.stack_vertical())
             .map(|p| p.name())
             .collect();
-        assert_eq!(
-            stacked,
-            vec!["mem+proc", "disk+proc", "cpu+gpu+proc", "cpu+mem+disk"]
-        );
+        // cpu+net+mem+disk is no longer in this list — net absorbs
+        // the slack via the existing 2-column path, so the preset
+        // doesn't need stack_vertical.
+        assert_eq!(stacked, vec!["mem+proc", "disk+proc", "cpu+gpu+proc"]);
     }
 }
