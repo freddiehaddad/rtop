@@ -12,6 +12,7 @@ rust-version = "1.95"
 default = []
 
 [dependencies]
+arc-swap = "1"
 bitflags = "2"
 clap = { version = "4", features = ["derive"] }
 crossterm = "0.29"

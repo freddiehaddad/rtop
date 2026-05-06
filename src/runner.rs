@@ -11,8 +11,9 @@ use crate::domain::{
     process::ProcInfo,
 };
 use crate::event::{AppEvent, PerSubsystem, SubsystemKind};
+use arc_swap::ArcSwapOption;
 use std::sync::{
-    Arc, Mutex,
+    Arc,
     mpsc::{self, Receiver, Sender},
 };
 use std::thread::JoinHandle;
@@ -65,9 +66,11 @@ pub(crate) struct ProcSnapshot {
 /// Thread-safe slot that always holds the latest value.
 ///
 /// Publishers overwrite; consumers read the latest. Multiple publishes
-/// between reads naturally coalesce — only the most recent value is kept.
+/// between reads naturally coalesce — only the most recent value is
+/// kept. Both operations are lock-free atomic swaps via
+/// [`arc_swap::ArcSwapOption`].
 pub(crate) struct LatestSlot<T> {
-    inner: Arc<Mutex<Option<Arc<T>>>>,
+    inner: Arc<ArcSwapOption<T>>,
 }
 
 impl<T> Clone for LatestSlot<T> {
@@ -81,19 +84,18 @@ impl<T> Clone for LatestSlot<T> {
 impl<T> LatestSlot<T> {
     pub(crate) fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(None)),
+            inner: Arc::new(ArcSwapOption::empty()),
         }
     }
 
-    /// Store new data, replacing any previous value.
+    /// Store new data, replacing any previous value. Lock-free.
     pub(crate) fn publish(&self, data: T) {
-        let mut slot = self.inner.lock().expect("slot mutex poisoned");
-        *slot = Some(Arc::new(data));
+        self.inner.store(Some(Arc::new(data)));
     }
 
-    /// Read the latest value, if any.
+    /// Read the latest value, if any. Lock-free.
     pub(crate) fn latest(&self) -> Option<Arc<T>> {
-        self.inner.lock().expect("slot mutex poisoned").clone()
+        self.inner.load_full()
     }
 }
 
