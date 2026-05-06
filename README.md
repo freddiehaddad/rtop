@@ -72,7 +72,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `T` | Kill process (force, double-tap) |
 | `n` / `b` | Cycle network interfaces |
 | `a` | Toggle network auto scale |
-| `y` | Toggle network sync scale |
+| `s` | Toggle network sync scale |
 | `z` | Reset network totals |
 | `q` | Quit |
 

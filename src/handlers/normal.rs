@@ -448,7 +448,7 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
             ctx.config.net_auto = !ctx.config.net_auto;
             ctx.render.dirty |= Dirty::NET_WIDGET;
         }
-        Key::Char('y') => {
+        Key::Char('s') => {
             ctx.config.net_sync = !ctx.config.net_sync;
             ctx.render.dirty |= Dirty::NET_WIDGET;
         }

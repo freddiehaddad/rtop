@@ -149,7 +149,7 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Network",
     },
     Keybind {
-        key: "y",
+        key: "s",
         desc: "Toggle net sync scale",
         section: "Network",
     },
