@@ -11,6 +11,24 @@ pub struct Keybind {
     pub section: &'static str,
 }
 
+// ---------------------------------------------------------------------------
+// Layout constants
+// ---------------------------------------------------------------------------
+//
+// All shape parameters of the help menu live here. The box width
+// and height are otherwise *fully derived* from `KEYBINDS`, so
+// adding or removing entries automatically resizes the box.
+
+/// Cells of horizontal padding between the left/right border and
+/// the nearest content character.
+const SIDE_PAD: usize = 1;
+/// Cells between the right edge of the key column and the left
+/// edge of the description column.
+const KEY_DESC_GAP: usize = 2;
+/// Minimum extra width needed by `box_drawing::section_divider` on
+/// top of the section name (`├──┐ name ┌─┤` overhead).
+const DIVIDER_OVERHEAD: usize = 6;
+
 /// All keybinds in the application, grouped by section.
 /// This is the single source of truth — the help menu renders from this.
 pub const KEYBINDS: &[Keybind] = &[
@@ -160,10 +178,70 @@ pub const KEYBINDS: &[Keybind] = &[
     },
 ];
 
+/// Compute the smallest `(width, height)` the help box needs to
+/// render `KEYBINDS` without truncation, including borders.
+///
+/// Width is the larger of:
+///   * `2 (borders) + 2 * SIDE_PAD + key_col + KEY_DESC_GAP + desc_col`
+///   * `2 (borders) + section_name + DIVIDER_OVERHEAD` (max over sections)
+///
+/// Height is `2 (borders) + section_count + keybind_count` — one
+/// row per divider, one row per keybind, no inter-section blanks.
+fn dimensions() -> (usize, usize) {
+    let key_col = KEYBINDS
+        .iter()
+        .map(|kb| tools::ulen(kb.key, false))
+        .max()
+        .unwrap_or(0);
+    let desc_col = KEYBINDS
+        .iter()
+        .map(|kb| tools::ulen(kb.desc, false))
+        .max()
+        .unwrap_or(0);
+    let longest_section = KEYBINDS
+        .iter()
+        .map(|kb| tools::ulen(kb.section, false))
+        .max()
+        .unwrap_or(0);
+
+    let content_width = 2 * SIDE_PAD + key_col + KEY_DESC_GAP + desc_col;
+    let divider_width = longest_section + DIVIDER_OVERHEAD;
+    let width = 2 + content_width.max(divider_width);
+
+    let section_count = KEYBINDS
+        .iter()
+        .map(|kb| kb.section)
+        .scan("", |prev, cur| {
+            let new = cur != *prev;
+            *prev = cur;
+            Some(new)
+        })
+        .filter(|&new| new)
+        .count();
+    let height = 2 + section_count + KEYBINDS.len();
+
+    (width, height)
+}
+
+/// Width of the key column, derived from the longest key text.
+fn key_col_width() -> usize {
+    KEYBINDS
+        .iter()
+        .map(|kb| tools::ulen(kb.key, false))
+        .max()
+        .unwrap_or(0)
+}
+
 /// Draw the help menu centered on screen, populated from KEYBINDS.
+///
+/// Box dimensions are derived from `KEYBINDS` via `dimensions()`,
+/// then clamped to the terminal size. Adding or removing keybinds
+/// or sections automatically resizes the box; no constants need
+/// updating.
 pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool) -> String {
-    let w = 60.min(term_width);
-    let h = 40.min(term_height);
+    let (preferred_w, preferred_h) = dimensions();
+    let w = preferred_w.min(term_width);
+    let h = preferred_h.min(term_height);
     let x = (term_width.saturating_sub(w)) / 2;
     let y = (term_height.saturating_sub(h)) / 2;
 
@@ -187,42 +265,47 @@ pub fn draw(term_width: usize, term_height: usize, theme: &Theme, rounded: bool)
         title_color: title_c,
     });
 
-    // Build lines from KEYBINDS, grouped by section
-    let divider_w = w.saturating_sub(2); // between ├ and ┤
-    let max_lines = h.saturating_sub(3);
-    let mut row = 0;
+    // Inner content area. `create_box` uses 1-based offsets: the
+    // left border lands at column `x+1` and the top border at row
+    // `y+1`. So the first cell strictly inside the box is `(x+2,
+    // y+2)`, and the last writable cell is `(x+w-1, y+h-1)`.
+    let inner_top = y + 2;
+    let inner_bottom = y + h.saturating_sub(1); // last writable row
+    let divider_inner_w = w.saturating_sub(2);
+    let key_col = key_col_width();
+    let key_x = x + 2 + SIDE_PAD;
+    let desc_x = key_x + key_col + KEY_DESC_GAP;
+
+    let mut row = inner_top;
     let mut current_section = "";
 
     for kb in KEYBINDS {
-        if row >= max_lines {
-            break;
-        }
-        // Section header: ├──┐ Section ┌──────────────────────┤
+        // Section divider when section changes.
         if kb.section != current_section {
-            if !current_section.is_empty() && row < max_lines {
-                row += 1;
-            }
-            if row >= max_lines {
+            if row > inner_bottom {
                 break;
             }
             current_section = kb.section;
-            out.push_str(&term::mv(x + 1, y + 2 + row));
+            out.push_str(&term::mv(x + 1, row));
             out.push_str(&box_drawing::section_divider(
-                kb.section, divider_w, help_c, title_c,
+                kb.section,
+                divider_inner_w,
+                help_c,
+                title_c,
             ));
             row += 1;
         }
-        if row >= max_lines {
+
+        // Key + description.
+        if row > inner_bottom {
             break;
         }
-        // Key + description
-        let key_col = 16; // fixed width for key column
-        let key_display = tools::ljust(kb.key, key_col, false);
         out.push_str(&format!(
-            "{}  {}{}{}{}",
-            term::mv(x + 2, y + 2 + row),
+            "{}{}{}{}{}{}",
+            term::mv(key_x, row),
             hi,
-            key_display,
+            tools::ljust(kb.key, key_col, false),
+            term::mv(desc_x, row),
             fg,
             kb.desc,
         ));
@@ -267,7 +350,7 @@ mod tests {
     #[test]
     fn draw_renders_keybind_descriptions() {
         let theme = Theme::new();
-        let out = draw(80, 45, &theme, true);
+        let out = draw(200, 60, &theme, true);
         assert!(out.contains("Quit"), "should contain Quit");
         assert!(
             out.contains("Toggle main menu"),
@@ -277,5 +360,50 @@ mod tests {
             out.contains("Select process"),
             "should contain process selection"
         );
+    }
+
+    #[test]
+    fn dimensions_height_equals_borders_plus_sections_plus_keybinds() {
+        let (_, h) = dimensions();
+        let section_count = KEYBINDS
+            .iter()
+            .map(|kb| kb.section)
+            .scan("", |prev, cur| {
+                let new = cur != *prev;
+                *prev = cur;
+                Some(new)
+            })
+            .filter(|&new| new)
+            .count();
+        assert_eq!(h, 2 + section_count + KEYBINDS.len());
+    }
+
+    #[test]
+    fn dimensions_width_fits_longest_keybind_row() {
+        let (w, _) = dimensions();
+        let key_col = KEYBINDS
+            .iter()
+            .map(|kb| tools::ulen(kb.key, false))
+            .max()
+            .unwrap();
+        let desc_col = KEYBINDS
+            .iter()
+            .map(|kb| tools::ulen(kb.desc, false))
+            .max()
+            .unwrap();
+        // 2 borders + 2 paddings + key + gap + desc must fit.
+        assert!(w >= 2 + 2 * SIDE_PAD + key_col + KEY_DESC_GAP + desc_col);
+    }
+
+    #[test]
+    fn dimensions_width_fits_longest_section_divider() {
+        let (w, _) = dimensions();
+        let longest_section = KEYBINDS
+            .iter()
+            .map(|kb| tools::ulen(kb.section, false))
+            .max()
+            .unwrap();
+        // 2 borders + section name + divider overhead must fit.
+        assert!(w >= 2 + longest_section + DIVIDER_OVERHEAD);
     }
 }
