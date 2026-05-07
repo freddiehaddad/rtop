@@ -34,7 +34,7 @@ const DIVIDER_OVERHEAD: usize = 6;
 pub const KEYBINDS: &[Keybind] = &[
     // Global
     Keybind {
-        key: "q / Ctrl-C",
+        key: "q / Ctrl+C",
         desc: "Quit",
         section: "Global",
     },
@@ -54,17 +54,17 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "p / Shift-P",
+        key: "p / Shift+P",
         desc: "Cycle presets forward/back",
         section: "Global",
     },
     Keybind {
-        key: "Ctrl-R",
+        key: "Ctrl+R",
         desc: "Reload config",
         section: "Global",
     },
     Keybind {
-        key: "+/-",
+        key: "+ / -",
         desc: "Adjust update speed",
         section: "Global",
     },
@@ -84,39 +84,39 @@ pub const KEYBINDS: &[Keybind] = &[
         section: "Global",
     },
     Keybind {
-        key: "Shift-R",
+        key: "Shift+R",
         desc: "Restore all hidden widgets",
         section: "Global",
     },
     // Process
     Keybind {
-        key: "Up/Down",
+        key: "Up / Down",
         desc: "Select process",
         section: "Process",
     },
     Keybind {
-        key: "PgUp/PgDn",
+        key: "PgUp / PgDn",
         desc: "Page through processes",
         section: "Process",
     },
     Keybind {
-        key: "Home/End",
+        key: "Home / End",
         desc: "Jump to first/last",
         section: "Process",
     },
     Keybind {
-        key: "Left/Right",
+        key: "Left / Right",
         desc: "Cycle sort column",
         section: "Process",
     },
     Keybind {
         key: "r",
-        desc: "Reverse sort order",
+        desc: "Toggle reverse sort",
         section: "Process",
     },
     Keybind {
         key: "f / /",
-        desc: "Enter filter mode",
+        desc: "Filter processes",
         section: "Process",
     },
     Keybind {
@@ -131,54 +131,49 @@ pub const KEYBINDS: &[Keybind] = &[
     },
     Keybind {
         key: "t",
-        desc: "Terminate process (graceful)",
+        desc: "Terminate process (graceful, double-tap)",
         section: "Process",
     },
     Keybind {
-        key: "T",
-        desc: "Kill process (force)",
+        key: "Shift+T",
+        desc: "Kill process (force, double-tap)",
         section: "Process",
     },
     Keybind {
         key: "Enter",
-        desc: "Show process details",
+        desc: "Show/hide process details",
         section: "Process",
     },
     Keybind {
-        key: "F",
+        key: "Shift+F",
         desc: "Follow/unfollow process",
         section: "Process",
     },
     // Disk
     Keybind {
         key: "i",
-        desc: "Toggle IO mode",
+        desc: "Toggle disk IO mode",
         section: "Disk",
     },
     // Network
     Keybind {
-        key: "n",
-        desc: "Next network interface",
-        section: "Network",
-    },
-    Keybind {
-        key: "b",
-        desc: "Previous network interface",
+        key: "n / b",
+        desc: "Cycle network interfaces",
         section: "Network",
     },
     Keybind {
         key: "a",
-        desc: "Toggle net auto-scale",
+        desc: "Toggle network auto scale",
         section: "Network",
     },
     Keybind {
         key: "s",
-        desc: "Toggle net sync scale",
+        desc: "Toggle network sync scale",
         section: "Network",
     },
     Keybind {
         key: "z",
-        desc: "Reset network counters",
+        desc: "Reset network totals",
         section: "Network",
     },
 ];

@@ -50,32 +50,53 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 ### Keybinds
 
+#### Global
+
 | Key | Action |
 |-----|--------|
+| `q` / `Ctrl+C` | Quit |
 | `m` / `Esc` | Toggle main menu |
-| `?` / `F1` | Help |
-| `o` / `F2` | Options |
-| `1`–`5` | Toggle widgets (cpu/mem/net/proc/disk) |
-| `6`–`9` | Toggle GPU 0–3 |
-| `0` | Toggle GPU 4–7 |
-| `Shift+R` | Restore all hidden widgets |
-| `p` / `P` | Cycle presets forward/back |
-| `Ctrl+R` | Reload config from file |
+| `?` / `F1` | Toggle help |
+| `o` / `F2` | Toggle options |
+| `p` / `Shift+P` | Cycle presets forward/back |
+| `Ctrl+R` | Reload config |
 | `+` / `-` | Adjust update speed |
+| `1`–`5` | Toggle widget (cpu/mem/net/proc/disk) |
+| `6`–`9` | Toggle GPU 0-3 |
+| `0` | Toggle GPU 4-7 |
+| `Shift+R` | Restore all hidden widgets |
+
+#### Process
+
+| Key | Action |
+|-----|--------|
+| `Up` / `Down` | Select process |
+| `PgUp` / `PgDn` | Page through processes |
+| `Home` / `End` | Jump to first/last |
+| `Left` / `Right` | Cycle sort column |
+| `r` | Toggle reverse sort |
 | `f` / `/` | Filter processes |
 | `e` | Toggle tree view |
-| `r` | Toggle reverse sort |
 | `c` | Toggle per-core CPU |
-| `i` | Toggle disk IO mode |
-| `Enter` | Show/hide process details |
-| `F` | Follow/unfollow process |
 | `t` | Terminate process (graceful, double-tap) |
-| `T` | Kill process (force, double-tap) |
+| `Shift+T` | Kill process (force, double-tap) |
+| `Enter` | Show/hide process details |
+| `Shift+F` | Follow/unfollow process |
+
+#### Disk
+
+| Key | Action |
+|-----|--------|
+| `i` | Toggle disk IO mode |
+
+#### Network
+
+| Key | Action |
+|-----|--------|
 | `n` / `b` | Cycle network interfaces |
 | `a` | Toggle network auto scale |
 | `s` | Toggle network sync scale |
 | `z` | Reset network totals |
-| `q` | Quit |
 
 When **vim keys** are enabled (options → general):
 `h`/`j`/`k`/`l` for directional control, `g`/`G` for top/bottom of list, `Ctrl+F`/`Ctrl+B` for page scrolling, `Ctrl+D`/`Ctrl+U` for half-page scrolling.
