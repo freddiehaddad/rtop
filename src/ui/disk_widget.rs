@@ -468,6 +468,65 @@ fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, cu
         .max(1)
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// Disk widget renderer. Unit struct — the widget has no per-
+/// instance state.
+pub struct DiskWidget;
+
+impl super::Widget for DiskWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::DISK_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Disk];
+        KINDS
+    }
+
+    fn preferred_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height(hints)
+    }
+
+    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_MEM_WIDTH
+    }
+
+    fn min_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height(hints)
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(disk_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Disk)
+        else {
+            return;
+        };
+        let Some(disk) = params.disk else {
+            return;
+        };
+        let area = super::WidgetArea::from_dim(disk_dim, params.rounded);
+        let frame = DiskFrame {
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                params.config.disk.graph_symbol_disk,
+                params.config.ui.graph_symbol,
+            ),
+            base_10: params.config.ui.base_10_sizes,
+            show_io_stat: params.config.disk.show_io_stat,
+            io_mode: params.view.io_mode,
+            disk_io_mode: params.config.disk.disk_io_mode,
+            io_graph_combined: params.config.disk.io_graph_combined,
+        };
+        let filter = crate::domain::disk::DisksFilter::parse(&params.config.disk.disks_filter);
+        let visible = filter.apply(&disk.info.disks);
+        output.push_str(&draw(&visible, &area, params.theme, &frame, &disk.status));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

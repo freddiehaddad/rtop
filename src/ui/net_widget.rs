@@ -289,6 +289,75 @@ pub fn draw(
     buf.finish()
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// Network widget renderer. Unit struct — the widget has no
+/// per-instance state.
+pub struct NetWidget;
+
+impl super::Widget for NetWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::NET_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Net];
+        KINDS
+    }
+
+    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        // Net is a Fill widget — preferred is its absolute minimum;
+        // the container distributes slack from sibling Preferred
+        // widgets.
+        crate::draw::layout::MIN_NET_HEIGHT
+    }
+
+    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_NET_WIDTH
+    }
+
+    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_NET_HEIGHT
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(net_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Net)
+        else {
+            return;
+        };
+        let Some(net) = params.net else {
+            return;
+        };
+        let iface = params.selected_iface;
+        let default_net = crate::domain::network::NetInfo::default();
+        let net_info = net
+            .nets
+            .iter()
+            .find(|n| n.name == iface)
+            .unwrap_or(&default_net);
+        let area = super::WidgetArea::from_dim(net_dim, params.rounded);
+        let frame = NetFrame {
+            iface,
+            auto_scale: params.view.net_auto,
+            sync_scale: params.view.net_sync,
+            max_download: params.config.net.net_download,
+            max_upload: params.config.net.net_upload,
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                params.config.net.graph_symbol_net,
+                params.config.ui.graph_symbol,
+            ),
+            swap_dl_ul: params.config.net.swap_upload_download,
+            base_10: params.config.ui.base_10_sizes,
+        };
+        output.push_str(&draw(net_info, &area, params.theme, &frame, &net.status));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -198,7 +198,8 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
     // than inside the recursion because the clamp is anchored to
     // *terminal* height, not the immediate parent container.
     if cfg.root.contains(WidgetKind::Cpu) && !cfg.hidden.contains(WidgetKind::Cpu) {
-        let cpu_pref = crate::ui::cpu_widget::preferred_height(&cfg.hints).max(MIN_CPU_HEIGHT);
+        let cpu_pref = crate::ui::widget_for_kind(WidgetKind::Cpu)
+            .map_or(MIN_CPU_HEIGHT, |w| w.preferred_height(&cfg.hints));
         min_h = min_h.max(3 * cpu_pref);
     }
     (min_w, min_h)
@@ -423,19 +424,15 @@ fn widget_preferred_height(kind: WidgetKind, ctx: &PlaceCtx) -> usize {
     if !widget_is_visible(kind, ctx.hidden) {
         return 0;
     }
-    let raw = match kind {
-        WidgetKind::Cpu => crate::ui::cpu_widget::preferred_height(ctx.hints).max(MIN_CPU_HEIGHT),
-        WidgetKind::Mem => crate::ui::mem_widget::preferred_height(ctx.hints),
-        WidgetKind::Disk => crate::ui::disk_widget::preferred_height(ctx.hints),
-        WidgetKind::Gpu(_) => crate::ui::gpu_widget::preferred_height(),
-        // Fill widgets shouldn't be queried for preferred height
-        // during normal placement (`vstack_distribute_heights` only
-        // calls this on non-Fill slots). If the call happens
-        // anyway — e.g. as a min-size estimate inside a parent
-        // VStack that's itself Fill — return their min height.
-        WidgetKind::Net => MIN_NET_HEIGHT,
-        WidgetKind::Proc => MIN_PROC_HEIGHT,
+    let Some(widget) = crate::ui::widget_for_kind(kind) else {
+        return 0;
     };
+    let raw = widget.preferred_height(ctx.hints);
+    // Container-relative clamp: CPU's preferred height is capped
+    // at one-third of the terminal so a tall terminal doesn't push
+    // the proc widget off-screen. The clamp is anchored to
+    // *terminal* height (not in `LayoutHints`), so it lives here
+    // rather than inside the widget's `preferred_height`.
     match kind {
         WidgetKind::Cpu => raw.clamp(MIN_CPU_HEIGHT, (ctx.term_height / 3).max(MIN_CPU_HEIGHT)),
         _ => raw,
@@ -504,26 +501,14 @@ fn widget_min_width(kind: WidgetKind, hints: &LayoutHints, hidden: &WidgetSet) -
     if !widget_is_visible(kind, hidden) {
         return 0;
     }
-    match kind {
-        WidgetKind::Cpu => crate::ui::cpu_widget::min_width(hints),
-        WidgetKind::Net => MIN_NET_WIDTH,
-        WidgetKind::Proc => MIN_PROC_WIDTH,
-        WidgetKind::Mem | WidgetKind::Disk | WidgetKind::Gpu(_) => MIN_MEM_WIDTH,
-    }
+    crate::ui::widget_for_kind(kind).map_or(0, |w| w.min_width(hints))
 }
 
 fn widget_min_height(kind: WidgetKind, hints: &LayoutHints, hidden: &WidgetSet) -> usize {
     if !widget_is_visible(kind, hidden) {
         return 0;
     }
-    match kind {
-        WidgetKind::Cpu => crate::ui::cpu_widget::preferred_height(hints).max(MIN_CPU_HEIGHT),
-        WidgetKind::Mem => crate::ui::mem_widget::preferred_height(hints),
-        WidgetKind::Disk => crate::ui::disk_widget::preferred_height(hints),
-        WidgetKind::Gpu(_) => crate::ui::gpu_widget::preferred_height(),
-        WidgetKind::Net => MIN_NET_HEIGHT,
-        WidgetKind::Proc => MIN_PROC_HEIGHT,
-    }
+    crate::ui::widget_for_kind(kind).map_or(0, |w| w.min_height(hints))
 }
 
 /// Whether a widget kind renders this frame.

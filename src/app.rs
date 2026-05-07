@@ -21,7 +21,7 @@ mod pull;
 mod render_gates;
 mod state;
 
-pub(crate) use dirty_exec::{RenderInputs, render_all};
+pub(crate) use dirty_exec::{RenderInputs, RenderParams, render_all};
 pub(crate) use state::{
     AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState,
     RuntimeState, RuntimeView, WidgetFilter,

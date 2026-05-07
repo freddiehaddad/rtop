@@ -223,6 +223,88 @@ pub fn draw(
     buf.finish()
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// GPU widget renderer. Single registry entry that handles every
+/// per-instance `WidgetKind::Gpu(N)` — `kinds()` enumerates each
+/// supported index and `render()` iterates them, drawing only the
+/// instances present in the active layout AND backed by a real
+/// device.
+pub struct GpuWidget;
+
+impl super::Widget for GpuWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::GPU_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        // Every supported GPU index is one of this widget's kinds.
+        // The layout engine asks "which widget handles `Gpu(N)`?";
+        // this slice answers all eight at once.
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] = &[
+            crate::domain::widget_kind::WidgetKind::Gpu(0),
+            crate::domain::widget_kind::WidgetKind::Gpu(1),
+            crate::domain::widget_kind::WidgetKind::Gpu(2),
+            crate::domain::widget_kind::WidgetKind::Gpu(3),
+            crate::domain::widget_kind::WidgetKind::Gpu(4),
+            crate::domain::widget_kind::WidgetKind::Gpu(5),
+            crate::domain::widget_kind::WidgetKind::Gpu(6),
+            crate::domain::widget_kind::WidgetKind::Gpu(7),
+        ];
+        KINDS
+    }
+
+    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height()
+    }
+
+    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_MEM_WIDTH
+    }
+
+    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height()
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(gpu) = params.gpu else {
+            return;
+        };
+        // Iterate by actual GPU index n. Layout slots are keyed by
+        // WidgetKind::Gpu(n), so a sparse selection (e.g. only
+        // gpu1) renders gpu.gpus[1] with the correct title and
+        // toggle key. The defensive bounds check on gpu.gpus
+        // covers the narrow window where layout was computed
+        // against an older device count.
+        for n in 0..crate::config::MAX_GPUS {
+            let kind = crate::domain::widget_kind::WidgetKind::Gpu(n as u8);
+            let Some(gpu_dim) = params.layout.dims_for(kind) else {
+                continue;
+            };
+            let Some(gpu_info) = gpu.gpus.get(n) else {
+                continue;
+            };
+            let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
+            let custom_name = params
+                .config
+                .gpu
+                .custom_gpu_names
+                .get(n)
+                .map(String::as_str)
+                .unwrap_or("");
+            let frame = GpuFrame {
+                index: n,
+                temp_scale: params.config.cpu.temp_scale,
+                custom_name,
+                base_10: params.config.ui.base_10_sizes,
+            };
+            output.push_str(&draw(gpu_info, &area, params.theme, &frame, &gpu.status));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

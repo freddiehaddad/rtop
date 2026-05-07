@@ -230,6 +230,56 @@ pub fn draw(
     buf.finish()
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// Memory widget renderer. Unit struct — the widget has no per-
+/// instance state.
+pub struct MemWidget;
+
+impl super::Widget for MemWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::MEM_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Mem];
+        KINDS
+    }
+
+    fn preferred_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height(hints)
+    }
+
+    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_MEM_WIDTH
+    }
+
+    fn min_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height(hints)
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(mem_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Mem)
+        else {
+            return;
+        };
+        let Some(mem) = params.mem else {
+            return;
+        };
+        let area = super::WidgetArea::from_dim(mem_dim, params.rounded);
+        let frame = MemFrame {
+            config: &params.config.mem,
+            base_10: params.config.ui.base_10_sizes,
+        };
+        output.push_str(&draw(&mem.info, &area, params.theme, &frame, &mem.status));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -915,6 +915,81 @@ fn draw_bottom_hints(
     buf.finish()
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// CPU widget renderer. Unit struct — the widget has no per-
+/// instance state.
+pub struct CpuWidget;
+
+impl super::Widget for CpuWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::CPU_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Cpu];
+        KINDS
+    }
+
+    fn preferred_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        // The container-relative `term_height/3` clamp lives on the
+        // layout engine because it depends on terminal dimensions
+        // (not in `LayoutHints`); we apply only the per-widget
+        // intrinsic floor here.
+        preferred_height(hints).max(crate::draw::layout::MIN_CPU_HEIGHT)
+    }
+
+    fn min_width(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        min_width(hints)
+    }
+
+    fn min_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize {
+        preferred_height(hints).max(crate::draw::layout::MIN_CPU_HEIGHT)
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(cpu_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Cpu)
+        else {
+            return;
+        };
+        let Some(cpu) = params.cpu else {
+            return;
+        };
+        let area = super::WidgetArea::from_dim(cpu_dim, params.rounded);
+        let frame = CpuFrame {
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                params.config.cpu.graph_symbol_cpu,
+                params.config.ui.graph_symbol,
+            ),
+            upper_source: params.config.cpu.cpu_graph_upper,
+            lower_source: params.config.cpu.cpu_graph_lower,
+            check_temp: params.config.cpu.check_temp,
+            show_coretemp: params.config.cpu.show_coretemp,
+            temp_scale: params.config.cpu.temp_scale,
+            single_graph: params.config.cpu.cpu_single_graph,
+            auto_scale: params.config.cpu.cpu_auto_scale,
+            update_ms: params.update_ms,
+            preset_name: params.config.preset.active().name(),
+            filter_active: params.filter_active,
+            invert_lower: params.config.cpu.cpu_invert_lower,
+            show_cpu_freq: params.config.cpu.show_cpu_freq,
+            show_uptime: params.config.cpu.show_uptime,
+            cpu_name: &cpu.info.cpu_name,
+            custom_cpu_name: &params.config.cpu.custom_cpu_name,
+            show_cpu_watts: params.config.cpu.show_cpu_watts,
+            cpu_watts: cpu.info.cpu_watts,
+            cpu_max_watts: cpu.info.cpu_max_watts,
+            clock_format: &params.config.ui.clock_format,
+        };
+        output.push_str(&draw(&cpu.info, &area, params.theme, &frame, &cpu.status));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

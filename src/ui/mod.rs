@@ -80,9 +80,137 @@ pub struct ProcView<'a> {
     pub armed_force: bool,
 }
 
+// ---------------------------------------------------------------------------
+// Widget trait
+// ---------------------------------------------------------------------------
+
+/// One widget renderer.
+///
+/// Implemented by [`cpu_widget::CpuWidget`], [`mem_widget::MemWidget`],
+/// [`net_widget::NetWidget`], [`proc_widget::ProcWidget`],
+/// [`disk_widget::DiskWidget`], and [`gpu_widget::GpuWidget`]. Adding
+/// a new widget kind is a one-file change: define the type, impl
+/// `Widget`, register it in the static `WIDGETS` table consumed by
+/// the dispatchers in [`crate::app::dirty_exec::render_all`] and
+/// [`crate::draw::layout`].
+///
+/// **Why a trait** — six concrete implementers share an identical
+/// shape (dirty-flag + per-kind sizing + render). The previous
+/// design replicated the dispatch in three central match-on-
+/// `WidgetKind` chains (`render_all`, `widget_preferred_height`,
+/// `widget_min_width`/`min_height`); adding a new widget kind
+/// required touching all of them with no compiler help. The trait
+/// makes adding a widget a one-file change that compiles or
+/// doesn't.
+///
+/// **`Sync` bound** — every implementer is a stateless unit struct,
+/// so `Sync` is trivially satisfied. The bound is required because
+/// the dispatchers hold the registered widgets as
+/// `&'static [&'static dyn Widget]`, which Rust requires to be
+/// `Sync` for cross-thread sharing.
+///
+/// **Object-safe** — all methods take `&self` and primitive /
+/// borrowed types so the dispatchers can hold a
+/// `&'static [&'static dyn Widget]`. For per-instance widgets
+/// (today: GPU), the implementing type carries the instance index
+/// (e.g., `GpuWidget { index: u8 }`) and `kinds(&self)` returns
+/// the per-instance `WidgetKind`.
+///
+/// **No `draw` on the trait** — per-widget snapshot/frame types
+/// don't generalise cleanly (each widget pulls a different
+/// snapshot field, builds a different `*Frame`). Instead,
+/// [`Widget::render`] takes the entire
+/// [`crate::app::RenderParams`] and the implementer pulls what it
+/// needs. The render method is the one place per widget where the
+/// snapshot lookup, layout-slot lookup, frame construction, and
+/// per-instance iteration live.
+pub trait Widget: Sync {
+    /// The dirty bit this widget responds to. The dispatcher only
+    /// invokes [`Self::render`] when this bit is set in
+    /// `params.dirty`.
+    fn dirty_flag(&self) -> crate::dirty::Dirty;
+
+    /// The widget kinds this renderer handles. Most widgets return
+    /// a single-element slice; per-instance widgets (today: GPU)
+    /// return one entry per instance index.
+    ///
+    /// Used by the layout engine to look up the right widget when
+    /// it has a [`crate::domain::widget_kind::WidgetKind`] and
+    /// needs that widget's intrinsic sizing (preferred / min).
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind];
+
+    /// Preferred intrinsic height in rows (including borders).
+    /// The layout engine clamps this against per-widget `Preferred`
+    /// slot rules and the terminal-relative caps (e.g. CPU's
+    /// `term_height/3`).
+    fn preferred_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize;
+
+    /// Minimum width in columns (including borders). The layout
+    /// engine uses this as the floor when a widget's allocation
+    /// would otherwise be smaller.
+    fn min_width(&self, hints: &crate::draw::layout::LayoutHints) -> usize;
+
+    /// Minimum height in rows (including borders). Used by the
+    /// `min_terminal_size` calculation to compute the smallest
+    /// terminal at which the active layout fits.
+    fn min_height(&self, hints: &crate::draw::layout::LayoutHints) -> usize;
+
+    /// Render this widget for every instance present in
+    /// `params.layout`. The implementer pulls its snapshot from
+    /// `params.<subsystem>`, looks up its layout slot via
+    /// `params.layout.dims_for(...)`, builds the per-frame view,
+    /// and calls its draw function. No-op (empty append) if any
+    /// required data is missing.
+    ///
+    /// Appends to `output` rather than returning a string so the
+    /// dispatcher doesn't pay an allocation per widget per frame
+    /// for the common "nothing to render" case.
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String);
+}
+
 pub mod cpu_widget;
 pub mod disk_widget;
 pub mod gpu_widget;
 pub mod mem_widget;
 pub mod net_widget;
 pub mod proc_widget;
+
+/// Every widget renderer registered with the central dispatchers.
+///
+/// [`crate::app::dirty_exec::render_all`] iterates this slice and
+/// calls [`Widget::render`] on each entry whose
+/// [`Widget::dirty_flag`] is currently set. The layout engine's
+/// per-kind sizing helpers ([`widget_for_kind`]) look up the
+/// matching widget by [`Widget::kinds`].
+///
+/// Adding a new widget kind is a one-file change at the new
+/// widget's call site (define the type, impl `Widget`) plus
+/// adding it to this list.
+pub static WIDGETS: &[&dyn Widget] = &[
+    &cpu_widget::CpuWidget,
+    &mem_widget::MemWidget,
+    &net_widget::NetWidget,
+    &proc_widget::ProcWidget,
+    &disk_widget::DiskWidget,
+    &gpu_widget::GpuWidget,
+];
+
+/// Look up the widget renderer responsible for a given
+/// [`crate::domain::widget_kind::WidgetKind`].
+///
+/// Returns `None` if no registered widget claims the kind (which
+/// is a programmer error — every kind in the schema must be
+/// claimed by exactly one widget). The layout engine treats
+/// `None` as "not laid out" (zero size, skip placement) so a
+/// future schema mismatch degrades gracefully rather than
+/// panicking.
+pub fn widget_for_kind(
+    kind: crate::domain::widget_kind::WidgetKind,
+) -> Option<&'static dyn Widget> {
+    for widget in WIDGETS {
+        if widget.kinds().contains(&kind) {
+            return Some(*widget);
+        }
+    }
+    None
+}

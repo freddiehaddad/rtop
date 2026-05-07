@@ -340,6 +340,96 @@ fn draw_proc_borders(
     ));
 }
 
+// ---------------------------------------------------------------------------
+// Widget impl
+// ---------------------------------------------------------------------------
+
+/// Process widget renderer. Unit struct — the widget has no
+/// per-instance state.
+pub struct ProcWidget;
+
+impl super::Widget for ProcWidget {
+    fn dirty_flag(&self) -> crate::dirty::Dirty {
+        crate::dirty::Dirty::PROC_WIDGET
+    }
+
+    fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Proc];
+        KINDS
+    }
+
+    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        // Proc is a Fill widget — preferred is its absolute
+        // minimum; the container distributes slack from sibling
+        // Preferred widgets.
+        crate::draw::layout::MIN_PROC_HEIGHT
+    }
+
+    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_PROC_WIDTH
+    }
+
+    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+        crate::draw::layout::MIN_PROC_HEIGHT
+    }
+
+    fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
+        let Some(proc_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Proc)
+        else {
+            return;
+        };
+        let Some(proc_snap) = params.proc_data else {
+            return;
+        };
+        let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
+        let entries = params.proc_entries;
+        let detailed_pid = params.detailed_pid;
+        let sort_by = params.view.proc_sorting;
+        let reversed = params.view.proc_reversed;
+        let tree_mode = params.view.proc_tree;
+        let pf = &params.view.proc_filter;
+        let area = super::WidgetArea::from_dim(proc_dim, params.rounded);
+        let view = super::ProcView {
+            start: params.proc_start,
+            selected: params.proc_selected,
+            sort_by,
+            sort_reversed: reversed,
+            tree_mode,
+            detailed_pid,
+            followed_pid: params.followed_pid,
+            filter: pf,
+            filtering: params.is_filtering,
+            armed_name: params
+                .armed_terminate
+                .as_ref()
+                .map(|(n, _)| *n)
+                .unwrap_or(""),
+            armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
+        };
+        let frame = ProcFrame {
+            proc_per_core: params.view.proc_per_core,
+            core_count: params.core_count,
+            proc_mem_bytes: params.config.proc.proc_mem_bytes,
+            total_mem: params.total_mem,
+            proc_colors: params.config.proc.proc_colors,
+            proc_gradient: params.config.proc.proc_gradient,
+            base_10: params.config.ui.base_10_sizes,
+        };
+        output.push_str(&draw(
+            procs,
+            entries,
+            &area,
+            params.theme,
+            &frame,
+            &view,
+            &proc_snap.status,
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
