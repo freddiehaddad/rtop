@@ -2,34 +2,20 @@ use crate::collect::CollectStatus;
 use crate::domain::disk::DiskInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
-use crate::draw::graph::{Graph, GraphMode};
-use crate::draw::meter::Meter;
-use crate::theme::{Theme, gradient_color};
+use crate::draw::graph::GraphMode;
+use crate::theme::Theme;
 use crate::theme_keys as tc;
-use crate::tools;
 
 use super::WidgetArea;
 
-// --- Layout constants ---
+mod io_view;
+mod sizing;
+mod usage_view;
 
-/// Right-aligned value column width for normal mode ("274G/1.6T" = up to 10 chars).
-const USAGE_VAL_W: usize = 10;
-/// Right-aligned value column for IO combined rows
-/// (1 space + max "R1023B/s W1023B/s" = 18 chars).
-const IO_COMBINED_VAL_W: usize = 19;
-/// Right-aligned width for a shortened per-second speed value in
-/// the IO display modes (perf-row mode and IO separate-row mode).
-/// `floating_humanizer(_, shorten=true, _, _, true, _)` returns at
-/// most 6 characters (e.g. `0.0B/s`, `999K/s`); the `+1` guarantees
-/// at least one leading space between the `R`/`W` letter and the
-/// value, mirroring the `B` column's `max_pct_width + 1` rjust
-/// target. Without this fixed width the graphs visually shift when
-/// the speed value's character count changes.
-const IO_SPEED_W: usize = 7;
-/// Minimum graph/meter width.
-const MIN_METER_W: usize = 5;
-/// Minimum graph width in IO mode.
-const MIN_IO_GRAPH_W: usize = 3;
+pub use sizing::preferred_height;
+
+use io_view::IoRowParams;
+use usage_view::{PerfRowParams, UsageRowParams};
 
 /// Per-frame view passed to [`draw`].
 ///
@@ -44,18 +30,6 @@ pub struct DiskFrame {
     pub io_mode: bool,
     pub disk_io_mode: bool,
     pub io_graph_combined: bool,
-}
-
-/// Preferred intrinsic height for the disk widget given the
-/// snapshot hints, in rows (including borders).
-///
-/// Each disk reserves [`hints.disk_rows_per_unit`] rows (1 for
-/// capacity-only or combined-IO; 2 for capacity-with-inline-IO or
-/// split-graph IO view). Plus 2 border rows, with a floor of
-/// [`crate::draw::layout::MIN_DISK_HEIGHT`].
-pub fn preferred_height(hints: &crate::draw::layout::LayoutHints) -> usize {
-    let content_rows = hints.disk_count * hints.disk_rows_per_unit as usize;
-    (content_rows + 2).max(crate::draw::layout::MIN_DISK_HEIGHT)
 }
 
 /// Draw the disk widget into an ANSI string.
@@ -96,7 +70,6 @@ pub fn draw(
     let height = area.height;
     let rounded = area.rounded;
     let border_color = theme.color(tc::DISK_WIDGET);
-    let fg = theme.color(tc::MAIN_FG);
     let title_color = theme.color(tc::TITLE);
     let hi = theme.color(tc::HI_FG);
     let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
@@ -145,171 +118,35 @@ pub fn draw(
         }
 
         if io_view {
-            // I/O mode: show throughput graphs instead of usage meters
-            // Fixed value column: 1 space + max speed width (6 chars for shortened speeds)
-
-            if settings.io_graph_combined {
-                // Combined value: "R9.9M/s W9.9M/s" = up to 16 chars + 1 space
-
-                // Combined read+write in a single graph row
-                let label = format!("{} IO ", disk.name);
-                let label_len = tools::ulen(&label, false);
-                let graph_w = inner_w
-                    .saturating_sub(label_len + IO_COMBINED_VAL_W)
-                    .max(MIN_IO_GRAPH_W);
-
-                let speed_r = tools::floating_humanizer(
-                    disk.read_bytes_per_sec,
-                    true,
-                    0,
-                    false,
-                    true,
-                    settings.base_10,
-                );
-                let speed_w = tools::floating_humanizer(
-                    disk.write_bytes_per_sec,
-                    true,
-                    0,
-                    false,
-                    true,
-                    settings.base_10,
-                );
-                let value = format!("R{} W{}", speed_r, speed_w);
-
-                // Merge read+write histories by summing
-                let combined: std::collections::VecDeque<i64> = {
-                    let rlen = disk.read_history.len();
-                    let wlen = disk.write_history.len();
-                    let max_len = rlen.max(wlen);
-                    let mut combined = std::collections::VecDeque::with_capacity(max_len);
-                    for i in 0..max_len {
-                        let r = if i < rlen { disk.read_history[i] } else { 0 };
-                        let w = if i < wlen { disk.write_history[i] } else { 0 };
-                        combined.push_back(r + w);
-                    }
-                    combined
-                };
-
-                let max = visible_graph_max(
-                    &combined,
-                    graph_w,
-                    disk.read_bytes_per_sec + disk.write_bytes_per_sec,
-                );
-                let mut graph = Graph::new(graph_w, 1, settings.graph_symbol, false, max, 0);
-                let graph_row = graph.render_row(&combined, read_grad);
-
-                let combined_speed = disk.read_bytes_per_sec + disk.write_bytes_per_sec;
-                let combined_pct =
-                    ((combined_speed as i64).saturating_mul(100) / max).min(100) as i32;
-                buf.mv(content_x, y + 2 + row)
-                    .color(fg)
-                    .text(&label)
-                    .text(&graph_row)
-                    .color(gradient_color(read_grad, combined_pct))
-                    .text(&tools::rjust(&value, IO_COMBINED_VAL_W, false));
-                row += 1;
-            } else {
-                // Separate read and write graph rows. The R/W
-                // letter sits on the right next to the speed value
-                // (matching the perf-row column order); the graph
-                // fills the variable space between drive label and
-                // ` R`/` W` letter. The 2-char gap (one trailing
-                // space after the drive label, one leading space
-                // before the letter) provides visual separation.
-                let label = format!("{} ", disk.name);
-                let label_len = tools::ulen(&label, false);
-                // Right column: " R" or " W" (2 chars) + rjust(speed, IO_SPEED_W).
-                let value_col_w = 2 + IO_SPEED_W;
-                let graph_w = inner_w
-                    .saturating_sub(label_len + value_col_w)
-                    .max(MIN_IO_GRAPH_W);
-
-                // Read row
-                let speed_r = tools::floating_humanizer(
-                    disk.read_bytes_per_sec,
-                    true,
-                    0,
-                    false,
-                    true,
-                    settings.base_10,
-                );
-
-                let read_max =
-                    visible_graph_max(&disk.read_history, graph_w, disk.read_bytes_per_sec);
-                let mut rg = Graph::new(graph_w, 1, settings.graph_symbol, false, read_max, 0);
-                let rg_row = rg.render_row(&disk.read_history, read_grad);
-
-                let read_pct = ((disk.read_bytes_per_sec as i64).saturating_mul(100) / read_max)
-                    .min(100) as i32;
-                buf.mv(content_x, y + 2 + row)
-                    .color(fg)
-                    .text(&label)
-                    .text(&rg_row)
-                    .color(fg)
-                    .text(" R")
-                    .color(gradient_color(read_grad, read_pct))
-                    .text(&tools::rjust(&speed_r, IO_SPEED_W, false));
-                row += 1;
-
-                if row >= inner_h {
-                    continue;
-                }
-
-                // Write row
-                let speed_w = tools::floating_humanizer(
-                    disk.write_bytes_per_sec,
-                    true,
-                    0,
-                    false,
-                    true,
-                    settings.base_10,
-                );
-
-                let write_max =
-                    visible_graph_max(&disk.write_history, graph_w, disk.write_bytes_per_sec);
-                let mut wg = Graph::new(graph_w, 1, settings.graph_symbol, false, write_max, 0);
-                let wg_row = wg.render_row(&disk.write_history, write_grad);
-
-                let write_pct = ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_max)
-                    .min(100) as i32;
-                buf.mv(content_x, y + 2 + row)
-                    .color(fg)
-                    .text(&label)
-                    .text(&wg_row)
-                    .color(fg)
-                    .text(" W")
-                    .color(gradient_color(write_grad, write_pct))
-                    .text(&tools::rjust(&speed_w, IO_SPEED_W, false));
-                row += 1;
-            }
-        } else {
-            // Normal mode: usage meter
-            let du = tools::floating_humanizer(disk.used, true, 0, false, false, settings.base_10);
-            let dt = tools::floating_humanizer(disk.total, true, 0, false, false, settings.base_10);
-            let value = format!("{}/{}", du, dt);
-
-            // Label: "C: NTFS " — drive + fstype
-            let label = if disk.fstype.is_empty() {
-                format!("{} ", disk.name)
-            } else {
-                format!("{} {} ", disk.name, disk.fstype)
+            let io_params = IoRowParams {
+                content_x,
+                row_y: y + 2 + row,
+                inner_w,
+                inner_h_remaining: inner_h - row,
+                theme,
+                settings,
+                read_grad,
+                write_grad,
             };
-            let label_len = label.len();
-            let meter_w = inner_w
-                .saturating_sub(label_len + USAGE_VAL_W)
-                .max(MIN_METER_W);
-            let disk_meter = Meter::new(meter_w, avail_grad, meter_bg);
-
-            buf.mv(content_x, y + 2 + row)
-                .color(fg)
-                .text(&label)
-                .text(disk_meter.render(disk.used_percent))
-                .color(gradient_color(avail_grad, disk.used_percent))
-                .text(&tools::rjust(&value, USAGE_VAL_W, false));
-            row += 1;
+            row += if settings.io_graph_combined {
+                io_view::draw_combined_row(&mut buf, disk, &io_params)
+            } else {
+                io_view::draw_separate_rows(&mut buf, disk, &io_params)
+            };
+        } else {
+            let usage_params = UsageRowParams {
+                content_x,
+                row_y: y + 2 + row,
+                inner_w,
+                theme,
+                settings,
+                avail_grad,
+                meter_bg,
+            };
+            row += usage_view::draw_usage_row(&mut buf, disk, &usage_params);
 
             if settings.show_io_stat && row < inner_h {
-                let params = PerfRowParams {
+                let perf_params = PerfRowParams {
                     content_x,
                     row_y: y + 2 + row,
                     inner_w,
@@ -319,153 +156,12 @@ pub fn draw(
                     write_grad,
                     busy_grad,
                 };
-                draw_perf_row(&mut buf, disk, &params);
-                row += 1;
+                row += usage_view::draw_perf_row(&mut buf, disk, &perf_params);
             }
         }
     }
 
     buf.finish()
-}
-
-struct PerfRowParams<'a> {
-    content_x: usize,
-    row_y: usize,
-    inner_w: usize,
-    theme: &'a Theme,
-    settings: &'a DiskFrame,
-    read_grad: &'a [String],
-    write_grad: &'a [String],
-    busy_grad: &'a [String],
-}
-
-fn draw_perf_row(
-    buf: &mut AnsiBuffer,
-    disk: &crate::domain::disk::DiskInfo,
-    params: &PerfRowParams,
-) {
-    let x = params.content_x;
-    let y = params.row_y;
-    let width = params.inner_w;
-    if width == 0 {
-        return;
-    }
-
-    let base_10 = params.settings.base_10;
-    let fg = params.theme.color(tc::MAIN_FG);
-    let read_speed =
-        tools::floating_humanizer(disk.read_bytes_per_sec, true, 0, false, true, base_10);
-    let write_speed =
-        tools::floating_humanizer(disk.write_bytes_per_sec, true, 0, false, true, base_10);
-    let busy = disk.busy_percent.clamp(0, 100);
-    let busy_w: usize = 6; // "B" + 5-char right-justified value
-    let busy_x = x + width.saturating_sub(busy_w);
-    let left_w = width.saturating_sub(busy_w);
-
-    // Constant column widths so the graph never shifts when the
-    // speed-string width changes. Mirrors the `B` column pattern:
-    // letter + rjust(value, max_value_width + 1) — the +1 inside
-    // IO_SPEED_W guarantees at least one leading space.
-    let read_w = 1 + IO_SPEED_W;
-    let write_w = 1 + IO_SPEED_W;
-    let fixed_left = read_w + write_w + 4; // labels plus spaces around the two graphs
-    let graph_total = left_w.saturating_sub(fixed_left);
-    let read_graph_w = graph_total / 2;
-    let write_graph_w = graph_total.saturating_sub(read_graph_w);
-
-    let read_graph_max =
-        visible_graph_max(&disk.read_history, read_graph_w, disk.read_bytes_per_sec);
-    let read_pct =
-        ((disk.read_bytes_per_sec as i64).saturating_mul(100) / read_graph_max).min(100) as i32;
-    let read_color = gradient_color(params.read_grad, read_pct);
-
-    let mut col = x;
-    buf.mv(col, y)
-        .color(fg)
-        .text("R")
-        .color(read_color)
-        .text(&tools::rjust(&read_speed, IO_SPEED_W, false));
-    col += read_w;
-
-    if read_graph_w > 0 {
-        buf.text(" ");
-        col += 1;
-        let mut graph = Graph::new(
-            read_graph_w,
-            1,
-            params.settings.graph_symbol,
-            false,
-            read_graph_max,
-            0,
-        );
-        let graph_row = graph.render_row(&disk.read_history, params.read_grad);
-        buf.text(&graph_row);
-        col += read_graph_w;
-    }
-
-    if col + write_w < busy_x {
-        buf.text(" ");
-        col += 1;
-    }
-
-    let available_write_graph_w = write_graph_w.min(busy_x.saturating_sub(col + 1));
-    let write_graph_max = if available_write_graph_w > 0 {
-        visible_graph_max(
-            &disk.write_history,
-            available_write_graph_w,
-            disk.write_bytes_per_sec,
-        )
-    } else {
-        // No room for the graph — still need a sane denominator for value
-        // coloring. Match the "lifetime peak when no window" idiom by using
-        // the visible-window max over the full history.
-        visible_graph_max(
-            &disk.write_history,
-            disk.write_history.len().max(1),
-            disk.write_bytes_per_sec,
-        )
-    };
-    let write_pct =
-        ((disk.write_bytes_per_sec as i64).saturating_mul(100) / write_graph_max).min(100) as i32;
-    let write_color = gradient_color(params.write_grad, write_pct);
-
-    buf.color(fg)
-        .text("W")
-        .color(write_color)
-        .text(&tools::rjust(&write_speed, IO_SPEED_W, false));
-
-    if available_write_graph_w > 0 {
-        buf.text(" ");
-        let mut graph = Graph::new(
-            available_write_graph_w,
-            1,
-            params.settings.graph_symbol,
-            false,
-            write_graph_max,
-            0,
-        );
-        let graph_row = graph.render_row(&disk.write_history, params.write_grad);
-        buf.text(&graph_row);
-    }
-
-    let busy_color = gradient_color(params.busy_grad, busy);
-    buf.mv(busy_x, y)
-        .color(fg)
-        .text("B")
-        .color(busy_color)
-        .text(&format!("{:>5}", format!("{busy}%")));
-}
-
-fn visible_graph_max(history: &std::collections::VecDeque<i64>, width: usize, current: u64) -> i64 {
-    history
-        .iter()
-        .rev()
-        .take(width.max(1))
-        .copied()
-        .max()
-        .unwrap_or(0)
-        .max(current as i64)
-        .max(1)
 }
 
 // ---------------------------------------------------------------------------
