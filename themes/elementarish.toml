@@ -25,9 +25,9 @@ mid = "#b28602"
 end = "#d1302c"
 
 [gradients.cpu_lower]
-start = "#4897d4"
-mid = "#5474e8"
-end = "#ff40b6"
+start = "#268ad0"
+mid = "#6c71c4"
+end = "#d33682"
 
 [gradients.used]
 start = "#859900"

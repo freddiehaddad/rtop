@@ -356,7 +356,16 @@ pub fn draw(p: &DrawParams) -> String {
     let hi = theme.color(tc::HI_FG);
     let title_c = theme.color(tc::TITLE);
     let fg = theme.color(tc::MAIN_FG);
-    let sel_bg = theme.color(tc::SELECTED_BG);
+    // `theme.color()` returns a *foreground* ANSI escape; for the
+    // selected-row background we need the matching **background**
+    // escape (`\x1b[48;2;...m`). Use `theme.background()` to flip
+    // the SGR parameter (38 -> 48). Without this the selected row
+    // attempts to set FG twice and ends up rendering
+    // `selected_fg`-on-`main_bg`, which is invisible on themes whose
+    // `selected_fg` matches `main_bg` (greyscale, gruvbox_material_dark,
+    // orange) or whose `selected_fg` matches `main_bg` numerically
+    // even with a different selected_bg defined (flat_remix_light).
+    let sel_bg = theme.background(tc::SELECTED_BG);
     let sel_fg = theme.color(tc::SELECTED_FG);
     let opts_c = theme.color(tc::OPTIONS_BOX);
     let reset = term::RESET;
@@ -499,21 +508,40 @@ pub fn draw(p: &DrawParams) -> String {
             None
         };
         if let Some(edit) = active_edit {
+            // Selected row + active inline edit: render the editable
+            // buffer with the selected colour pair so the value cell
+            // stays readable even when the theme's `selected_fg`
+            // matches `main_bg` (without the bg the cell would be
+            // foreground-on-foreground and invisible — see
+            // `themes/greyscale.toml` for the canonical case).
             let value_color = if edit.error.is_some() { hi } else { sel_fg };
             let cell = render_edit_value(&edit.buffer, edit.cursor, 25);
             out.push_str(&format!(
-                "{}{}  {}{}",
+                "{}{}{}  {}{}",
                 term::mv(x + 2, val_row),
+                sel_bg,
                 value_color,
                 cell,
                 reset,
             ));
         } else {
             let value_display = cjust(&value, 25);
+            // Selected row: render the value with both `sel_bg` and
+            // `sel_fg` (matching the name row above). Without
+            // `sel_bg`, themes whose `selected_fg` matches
+            // `main_bg` (greyscale, gruvbox_material_dark, orange,
+            // flat_remix_light) would render an invisible value
+            // cell.
+            let (color, bg): (&str, &str) = if is_selected {
+                (sel_fg, sel_bg.as_str())
+            } else {
+                (fg, "")
+            };
             out.push_str(&format!(
-                "{}{}  {}  {}",
+                "{}{}{}  {}  {}",
                 term::mv(x + 2, val_row),
-                if is_selected { &sel_fg } else { &fg },
+                bg,
+                color,
                 value_display,
                 reset,
             ));
@@ -552,15 +580,23 @@ pub fn draw(p: &DrawParams) -> String {
                 }
                 out.push_str(reset);
             } else {
+                // Decorations sit *inside* the selected value row,
+                // so they must repaint `sel_bg` themselves — the
+                // earlier `reset` after the value cell wiped the
+                // background state and a bare foreground escape
+                // would render the icons on the terminal default
+                // background, breaking the selection band.
                 match kind {
                     OptKind::Bool | OptKind::Browsable | OptKind::Int => {
                         out.push_str(&format!(
-                            "{}{}{}{}{}{}{}",
+                            "{}{}{}{}{}{}{}{}{}",
                             term::BOLD,
                             term::mv(x + 3, val_row),
+                            sel_bg,
                             hi,
                             symbols::LEFT_ARROW,
                             term::mv(x + 29, val_row),
+                            sel_bg,
                             hi,
                             symbols::RIGHT_ARROW,
                         ));
@@ -568,9 +604,10 @@ pub fn draw(p: &DrawParams) -> String {
                     }
                     OptKind::StringVal => {
                         out.push_str(&format!(
-                            "{}{}{}{}",
+                            "{}{}{}{}{}",
                             term::BOLD,
                             term::mv(x + 29, val_row),
+                            sel_bg,
                             hi,
                             symbols::ENTER,
                         ));
@@ -723,5 +760,57 @@ mod tests {
         // Crab is preserved verbatim.
         assert!(out.contains('🦀'));
         assert_eq!(count_visible_chars(&out), 25);
+    }
+
+    /// Regression: the selected-row VALUE cell used to render with
+    /// only `selected_fg` and no background, while the selected-row
+    /// NAME cell *attempted* to set the background but used the
+    /// wrong ANSI escape — `theme.color(SELECTED_BG)` returns a
+    /// *foreground* escape, not a background one. The net effect was
+    /// that the selected row rendered as `selected_fg` on `main_bg`
+    /// regardless of `selected_bg` — invisible on themes where
+    /// `selected_fg` matches `main_bg` (greyscale,
+    /// gruvbox_material_dark, orange) and on flat_remix_light
+    /// where the visual collision happens at the cell-fill level.
+    /// Both name and value cells must emit the real background
+    /// escape (`\x1b[48;2;...m`) for the selected row.
+    #[test]
+    fn selected_row_paints_real_background_escape() {
+        use crate::config::Config;
+        use crate::theme::Theme;
+
+        // Greyscale is the canonical case: `selected_bg = #ffffff`,
+        // `selected_fg = #000000`, `main_bg = #000000`. Without the
+        // 48;2 escape the row renders black-on-black.
+        let theme = Theme::from_name("greyscale");
+        let bg_escape = theme.background(crate::theme_keys::SELECTED_BG);
+        assert!(
+            bg_escape.contains("48;2"),
+            "background() must produce a 48;2 (BG) escape, got {bg_escape:?}",
+        );
+
+        let config = Config::new();
+        let out = draw(&DrawParams {
+            term_width: 120,
+            term_height: 30,
+            cat: 0,
+            selected: 0,
+            page: 0,
+            config: &config,
+            theme: &theme,
+            option_edit: None,
+        });
+
+        // The selected row emits the BG escape at least twice — once
+        // for the name row, once for the value row. Pre-fix the
+        // output contained the FG escape (38;2) for SELECTED_BG and
+        // never the BG escape (48;2).
+        let occurrences = out.matches(&bg_escape).count();
+        assert!(
+            occurrences >= 2,
+            "selected row must paint sel_bg (48;2 escape) on both \
+             name and value cells; got {occurrences} occurrences of \
+             {bg_escape:?}",
+        );
     }
 }
