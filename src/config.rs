@@ -11,14 +11,14 @@ use tracing_subscriber::filter::LevelFilter;
 /// Maximum number of GPUs supported.
 pub const MAX_GPUS: usize = 8;
 
-/// Error returned by `ConfigKey::set_string` when the supplied
-/// string cannot be parsed into the field's value type.
+/// Error returned by [`StringKey::set`] / [`EnumKey::set_canonical`]
+/// when the supplied string cannot be parsed into the field's value
+/// type.
 ///
-/// The single in-tree caller (`menu::options_menu::cycle_browsable`)
-/// always passes a value drawn from `browsable_values()`, so this
-/// error is unreachable at runtime and the caller `.expect()`s it.
-/// Carrying the key name and offending value makes the panic
-/// message informative if the contract is ever violated.
+/// Constructed at the call sites where parse failure is a contract
+/// violation (the inline-edit commit path validates first) or where
+/// the caller wants to surface the offending key + value verbatim
+/// in a log message.
 #[derive(Debug, Error)]
 #[error("invalid value '{value}' for config key '{key}'")]
 pub struct SetStringError {
@@ -511,322 +511,340 @@ impl Config {
 }
 
 // ---------------------------------------------------------------------------
-// ConfigKey — declarative schema
+// ConfigKey — typed-by-kind schema
 // ---------------------------------------------------------------------------
 //
-// `ConfigKey` is a flat enum identifying every config field. The
-// previous shape of this file kept eight parallel hand-maintained
-// match arms (`name`, `kind`, `parse`, `get_display`, `toggle_bool`,
-// `get_int`, `set_int`, plus the enum itself). Adding or renaming a
-// key meant editing every one of them in lockstep.
+// Per-kind sub-enums (`BoolKey`, `IntKey`, `EnumKey`, `StringKey`)
+// own the variants for their kind. Each sub-enum exposes only the
+// operations that make sense for that kind — `BoolKey::toggle`,
+// `IntKey::set`, `EnumKey::set_canonical`, `StringKey::validate` —
+// so wrong-kind dispatch is *unrepresentable* in the type system
+// (no more "panic if called on the wrong kind" methods).
 //
-// `config_schema!` collapses those eight mirrors into one declarative
-// table. Each entry binds:
-//   * the enum variant
-//   * the TOML/snake_case name
-//   * the value kind (`Bool` / `Int` / `Enum` / `String`)
-//   * the access shape (how the value is read/written on `Config`)
+// `ConfigKey` is the user-facing wrapper that the options-menu
+// CAT lists carry. Callers pattern-match on it to recover the
+// typed inner key:
 //
-// Access shapes:
-//   * `field $f`                 — direct `config.$f`
-//   * `joined_vec $f`            — `Vec<String>` displayed as a
-//                                  whitespace-joined string
-//   * `array $f [$i]`            — fixed-array element at index `$i`
-//   * `shape`                    — the `shape` virtual key, derived
-//                                  from `config.layout_spec()` and
-//                                  written via `config.set_custom_layout()`
+// ```text
+// match key {
+//     ConfigKey::Bool(k)   => k.toggle(config),
+//     ConfigKey::Int(k)    => /* enter int editor */,
+//     ConfigKey::Enum(k)   => /* cycle / commit canonical name */,
+//     ConfigKey::String(k) => /* enter string editor */,
+// }
+// ```
 //
-// The macro emits the enum and the eight previously hand-mirrored
-// methods. `set_string`, `validate_string`, `parse_int`,
-// `int_bounds_message`, `parse_disks_filter`, and `choice_values`
-// stay hand-written below — they carry per-shape error handling and
-// validation logic that does not benefit from being declarative.
+// `config_schema!` collapses the per-kind sub-enum generation +
+// the `ConfigKey` wrapper into one declarative table grouped by
+// kind. Each section enumerates its variants with the access shape
+// connecting each variant to its `Config` field.
 //
-// `Config`, `Default for Config`, and `validate()` are also
-// hand-written; the struct field list carries serde attributes
-// (`#[serde(rename = "...")]`, `#[serde(with = "...")]`, `#[serde(skip)]`)
-// and the existing schema includes one virtual key (`Shape`) without
-// a 1:1 struct field. Folding that into the macro would cost more
-// clarity than it would save.
+// Access shapes (string-only — the other kinds are always
+// `field $f`):
+//   * `field $f`              — direct `config.$f`
+//   * `joined_vec $f`         — `Vec<String>` displayed as a
+//                               whitespace-joined string
+//   * `array $f [$i]`         — fixed-array element at index `$i`
+//   * `custom_layout`         — the layout DSL, virtual key whose
+//                               display goes through
+//                               `config.layout_spec()` and write
+//                               through `config.set_custom_layout()`
+//
+// Methods that carry per-variant logic (parse with bounds, validate
+// with per-key rules, set with per-shape destination) are
+// hand-written on the sub-enums after the macro expansion.
 
 macro_rules! config_schema {
     (
-        $(
-            $variant:ident => $name:literal : $kind:ident { $($shape:tt)* }
-        ),* $(,)?
+        bools {
+            $( $bvar:ident => $bname:literal => field $bfield:ident ),* $(,)?
+        }
+        ints {
+            $( $ivar:ident => $iname:literal => field $ifield:ident ),* $(,)?
+        }
+        enums {
+            $( $evar:ident => $ename:literal => field $efield:ident ),* $(,)?
+        }
+        strings {
+            $( $svar:ident => $sname:literal => { $($sshape:tt)+ } ),* $(,)?
+        }
     ) => {
-        /// A flat enum identifying every config field.
+        // === BoolKey ====================================================
+
+        /// Boolean-typed config keys.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum ConfigKey { $( $variant ),* }
+        pub enum BoolKey { $( $bvar ),* }
+
+        impl BoolKey {
+            /// TOML field name (snake_case).
+            pub fn name(self) -> &'static str {
+                match self { $( Self::$bvar => $bname, )* }
+            }
+
+            /// Read the current bool value.
+            pub fn get(self, config: &Config) -> bool {
+                match self { $( Self::$bvar => config.$bfield, )* }
+            }
+
+            /// Flip the bool in-place.
+            pub fn toggle(self, config: &mut Config) {
+                match self { $( Self::$bvar => { config.$bfield = !config.$bfield; } )* }
+            }
+
+            /// Display string for the options menu (`"true"` / `"false"`).
+            pub fn get_display(self, config: &Config) -> String {
+                bool_display(self.get(config))
+            }
+        }
+
+        // === IntKey =====================================================
+
+        /// Integer-typed config keys.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum IntKey { $( $ivar ),* }
+
+        impl IntKey {
+            /// TOML field name (snake_case).
+            pub fn name(self) -> &'static str {
+                match self { $( Self::$ivar => $iname, )* }
+            }
+
+            /// Read the current int value.
+            pub fn get(self, config: &Config) -> i64 {
+                match self { $( Self::$ivar => config.$ifield, )* }
+            }
+
+            /// Write the int value. No clamping — caller should
+            /// invoke [`Config::validate`] to apply bounds.
+            pub fn set(self, config: &mut Config, value: i64) {
+                match self { $( Self::$ivar => { config.$ifield = value; } )* }
+            }
+
+            /// Display string for the options menu (the integer
+            /// rendered in base 10).
+            pub fn get_display(self, config: &Config) -> String {
+                self.get(config).to_string()
+            }
+        }
+
+        // === EnumKey ====================================================
+
+        /// Typed-enum config keys (closed set of canonical names
+        /// enforced by the underlying enum's `FromStr`).
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum EnumKey { $( $evar ),* }
+
+        impl EnumKey {
+            /// TOML field name (snake_case).
+            pub fn name(self) -> &'static str {
+                match self { $( Self::$evar => $ename, )* }
+            }
+
+            /// Display string for the options menu (the enum's
+            /// canonical lowercase name via `Display`).
+            pub fn get_display(self, config: &Config) -> String {
+                match self { $( Self::$evar => config.$efield.to_string(), )* }
+            }
+        }
+
+        // === StringKey ==================================================
+
+        /// String-typed config keys (free-form, constrained, list,
+        /// or DSL).
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum StringKey { $( $svar ),* }
+
+        impl StringKey {
+            /// TOML field name (snake_case).
+            pub fn name(self) -> &'static str {
+                match self { $( Self::$svar => $sname, )* }
+            }
+
+            /// Display string for the options menu — the field
+            /// value rendered for the access shape.
+            pub fn get_display(self, config: &Config) -> String {
+                match self {
+                    $( Self::$svar => config_schema!(@string_display config $($sshape)+), )*
+                }
+            }
+        }
+
+        // === ConfigKey wrapper ==========================================
+
+        /// One config field, identified by its kind plus the typed
+        /// sub-enum variant for that kind.
+        ///
+        /// The options-menu CAT lists carry `&[ConfigKey]`; callers
+        /// pattern-match on the wrapper to recover the typed inner.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum ConfigKey {
+            Bool(BoolKey),
+            Int(IntKey),
+            Enum(EnumKey),
+            String(StringKey),
+        }
 
         impl ConfigKey {
-            /// Returns the TOML field name (snake_case).
+            /// TOML field name (snake_case). Delegates to the
+            /// typed inner.
             pub fn name(self) -> &'static str {
-                match self { $( Self::$variant => $name, )* }
+                match self {
+                    Self::Bool(k) => k.name(),
+                    Self::Int(k) => k.name(),
+                    Self::Enum(k) => k.name(),
+                    Self::String(k) => k.name(),
+                }
             }
 
             /// Returns the kind of value this key holds.
             pub fn kind(self) -> KeyKind {
-                match self { $( Self::$variant => KeyKind::$kind, )* }
+                match self {
+                    Self::Bool(_) => KeyKind::Bool,
+                    Self::Int(_) => KeyKind::Int,
+                    Self::Enum(_) => KeyKind::Enum,
+                    Self::String(_) => KeyKind::String,
+                }
+            }
+
+            /// Returns a display string for the value of this key
+            /// in the given config. Delegates to the typed inner.
+            pub fn get_display(self, config: &Config) -> String {
+                match self {
+                    Self::Bool(k) => k.get_display(config),
+                    Self::Int(k) => k.get_display(config),
+                    Self::Enum(k) => k.get_display(config),
+                    Self::String(k) => k.get_display(config),
+                }
             }
 
             /// Parse a TOML field name into a `ConfigKey`.
             #[cfg(test)]
             pub fn parse(name: &str) -> Option<Self> {
-                match name {
-                    $( $name => Some(Self::$variant), )*
-                    _ => None,
-                }
-            }
-
-            /// Returns a display string for the value of this key in
-            /// the given config.
-            pub fn get_display(self, config: &Config) -> String {
-                match self {
-                    $( Self::$variant => config_schema!(@display $kind config $($shape)*), )*
-                }
-            }
-
-            /// Toggle the boolean field.
-            ///
-            /// Panics on non-bool keys: this is a programmer error
-            /// (the caller must dispatch on `kind()` first).
-            pub fn toggle_bool(self, config: &mut Config) {
-                match self {
-                    $( Self::$variant => config_schema!(@toggle self $kind config $($shape)*), )*
-                }
-            }
-
-            /// Get an integer value.
-            ///
-            /// Panics on non-int keys: this is a programmer error
-            /// (the caller must dispatch on `kind()` first).
-            pub fn get_int(self, config: &Config) -> i64 {
-                match self {
-                    $( Self::$variant => config_schema!(@get_int self $kind config $($shape)*), )*
-                }
-            }
-
-            /// Set an integer value. No clamping — caller should call
-            /// `validate()`.
-            ///
-            /// Panics on non-int keys: this is a programmer error
-            /// (the caller must dispatch on `kind()` first).
-            pub fn set_int(self, config: &mut Config, value: i64) {
-                match self {
-                    $( Self::$variant => config_schema!(@set_int self $kind config value $($shape)*), )*
-                }
+                $( if name == $bname { return Some(Self::Bool(BoolKey::$bvar)); } )*
+                $( if name == $iname { return Some(Self::Int(IntKey::$ivar)); } )*
+                $( if name == $ename { return Some(Self::Enum(EnumKey::$evar)); } )*
+                $( if name == $sname { return Some(Self::String(StringKey::$svar)); } )*
+                None
             }
         }
+
+        // From impls let CAT-list authors lift a typed key to the
+        // wrapper at the call site without hand-writing the variant
+        // wrapper, e.g. `ConfigKey::from(BoolKey::ThemeBackground)`.
+        // Const lists cannot use `.into()` (it's not const), so the
+        // CAT lists still spell out `ConfigKey::Bool(BoolKey::X)`,
+        // but runtime-built collections can use `From`.
+        impl From<BoolKey>   for ConfigKey { fn from(k: BoolKey)   -> Self { Self::Bool(k) } }
+        impl From<IntKey>    for ConfigKey { fn from(k: IntKey)    -> Self { Self::Int(k) } }
+        impl From<EnumKey>   for ConfigKey { fn from(k: EnumKey)   -> Self { Self::Enum(k) } }
+        impl From<StringKey> for ConfigKey { fn from(k: StringKey) -> Self { Self::String(k) } }
     };
 
-    // === @display: kind config <shape> -> String ===
-    (@display Bool $cfg:ident field $f:ident) => { bool_display($cfg.$f) };
-    (@display Int $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
-    (@display Enum $cfg:ident field $f:ident) => { $cfg.$f.to_string() };
-    (@display String $cfg:ident field $f:ident) => { $cfg.$f.clone() };
-    (@display String $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
-    (@display String $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
-    (@display String $cfg:ident custom_layout) => { $cfg.custom_layout.to_string() };
-
-    // === @toggle: only Bool variants do anything; others panic ===
-    (@toggle $self:ident Bool $cfg:ident field $f:ident) => { $cfg.$f = !$cfg.$f };
-    (@toggle $self:ident Int $cfg:ident $($_:tt)*) => {
-        panic!("toggle_bool called on non-bool key '{}'", $self.name())
-    };
-    (@toggle $self:ident Enum $cfg:ident $($_:tt)*) => {
-        panic!("toggle_bool called on non-bool key '{}'", $self.name())
-    };
-    (@toggle $self:ident String $cfg:ident $($_:tt)*) => {
-        panic!("toggle_bool called on non-bool key '{}'", $self.name())
-    };
-
-    // === @get_int: only Int kind returns a value; others panic ===
-    (@get_int $self:ident Int $cfg:ident field $f:ident) => { $cfg.$f };
-    (@get_int $self:ident Bool $cfg:ident $($_:tt)*) => {
-        panic!("get_int called on non-int key '{}'", $self.name())
-    };
-    (@get_int $self:ident Enum $cfg:ident $($_:tt)*) => {
-        panic!("get_int called on non-int key '{}'", $self.name())
-    };
-    (@get_int $self:ident String $cfg:ident $($_:tt)*) => {
-        panic!("get_int called on non-int key '{}'", $self.name())
-    };
-
-    // === @set_int: only Int kind writes; others panic ===
-    (@set_int $self:ident Int $cfg:ident $val:ident field $f:ident) => { $cfg.$f = $val };
-    (@set_int $self:ident Bool $cfg:ident $val:ident $($_:tt)*) => {
-        panic!("set_int called on non-int key '{}'", $self.name())
-    };
-    (@set_int $self:ident Enum $cfg:ident $val:ident $($_:tt)*) => {
-        panic!("set_int called on non-int key '{}'", $self.name())
-    };
-    (@set_int $self:ident String $cfg:ident $val:ident $($_:tt)*) => {
-        panic!("set_int called on non-int key '{}'", $self.name())
-    };
+    // === @string_display: dispatch by access shape ===
+    (@string_display $cfg:ident field $f:ident) => { $cfg.$f.clone() };
+    (@string_display $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
+    (@string_display $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
+    (@string_display $cfg:ident custom_layout) => { $cfg.custom_layout.to_string() };
 }
 
 config_schema! {
-    // -- bool, direct field --
-    ThemeBackground => "theme_background" : Bool { field theme_background } ,
-    RoundedCorners => "rounded_corners" : Bool { field rounded_corners } ,
-    ProcReversed => "proc_reversed" : Bool { field proc_reversed } ,
-    ProcTree => "proc_tree" : Bool { field proc_tree } ,
-    ProcColors => "proc_colors" : Bool { field proc_colors } ,
-    ProcGradient => "proc_gradient" : Bool { field proc_gradient } ,
-    ProcPerCore => "proc_per_core" : Bool { field proc_per_core } ,
-    ProcMemBytes => "proc_mem_bytes" : Bool { field proc_mem_bytes } ,
-    ProcAggregate => "proc_aggregate" : Bool { field proc_aggregate } ,
-    KeepDeadProcUsage => "keep_dead_proc_usage" : Bool { field keep_dead_proc_usage } ,
-    CpuInvertLower => "cpu_invert_lower" : Bool { field cpu_invert_lower } ,
-    CpuSingleGraph => "cpu_single_graph" : Bool { field cpu_single_graph } ,
-    CpuAutoScale => "cpu_auto_scale" : Bool { field cpu_auto_scale } ,
-    ShowUptime => "show_uptime" : Bool { field show_uptime } ,
-    ShowCpuWatts => "show_cpu_watts" : Bool { field show_cpu_watts } ,
-    CheckTemp => "check_temp" : Bool { field check_temp } ,
-    ShowCoretemp => "show_coretemp" : Bool { field show_coretemp } ,
-    ShowCpuFreq => "show_cpu_freq" : Bool { field show_cpu_freq } ,
-    ShowSwap => "show_swap" : Bool { field show_swap } ,
-    ShowIoStat => "show_io_stat" : Bool { field show_io_stat } ,
-    IoMode => "io_mode" : Bool { field io_mode } ,
-    IoGraphCombined => "io_graph_combined" : Bool { field io_graph_combined } ,
-    SwapUploadDownload => "swap_upload_download" : Bool { field swap_upload_download } ,
-    Base10Sizes => "base_10_sizes" : Bool { field base_10_sizes } ,
-    NetAuto => "net_auto" : Bool { field net_auto } ,
-    NetSync => "net_sync" : Bool { field net_sync } ,
-    VimKeys => "vim_keys" : Bool { field vim_keys } ,
-    BackgroundUpdate => "background_update" : Bool { field background_update } ,
-    TerminalSync => "terminal_sync" : Bool { field terminal_sync } ,
-    SaveConfigOnExit => "save_config_on_exit" : Bool { field save_config_on_exit } ,
-    DiskIoMode => "disk_io_mode" : Bool { field disk_io_mode } ,
-
-    // -- int, direct field --
-    UpdateMs => "update_ms" : Int { field update_ms } ,
-    CpuUpdateMs => "cpu_update_ms" : Int { field cpu_update_ms } ,
-    MemUpdateMs => "mem_update_ms" : Int { field mem_update_ms } ,
-    DiskUpdateMs => "disk_update_ms" : Int { field disk_update_ms } ,
-    NetUpdateMs => "net_update_ms" : Int { field net_update_ms } ,
-    GpuUpdateMs => "gpu_update_ms" : Int { field gpu_update_ms } ,
-    ProcUpdateMs => "proc_update_ms" : Int { field proc_update_ms } ,
-    NetDownload => "net_download" : Int { field net_download } ,
-    NetUpload => "net_upload" : Int { field net_upload } ,
-
-    // -- string, direct field (free-form or constrained via choice_values) --
-    ColorTheme => "color_theme" : String { field color_theme } ,
-    ClockFormat => "clock_format" : String { field clock_format } ,
-    CustomCpuName => "custom_cpu_name" : String { field custom_cpu_name } ,
-    ProcFilter => "proc_filter" : String { field proc_filter } ,
-
-    // -- string, joined Vec<String> --
-    DisksFilter => "disks_filter" : String { joined_vec disks_filter } ,
-
-    // -- string, layout-virtual --
-    CustomLayout => "custom_layout" : String { custom_layout } ,
-
-    // -- string, fixed-array element --
-    CustomGpuName0 => "custom_gpu_name0" : String { array custom_gpu_names[0] } ,
-    CustomGpuName1 => "custom_gpu_name1" : String { array custom_gpu_names[1] } ,
-    CustomGpuName2 => "custom_gpu_name2" : String { array custom_gpu_names[2] } ,
-    CustomGpuName3 => "custom_gpu_name3" : String { array custom_gpu_names[3] } ,
-    CustomGpuName4 => "custom_gpu_name4" : String { array custom_gpu_names[4] } ,
-    CustomGpuName5 => "custom_gpu_name5" : String { array custom_gpu_names[5] } ,
-    CustomGpuName6 => "custom_gpu_name6" : String { array custom_gpu_names[6] } ,
-    CustomGpuName7 => "custom_gpu_name7" : String { array custom_gpu_names[7] } ,
-
-    // -- enum (typed enum field, browsable via choice_values) --
-    GraphSymbol => "graph_symbol" : Enum { field graph_symbol } ,
-    GraphSymbolCpu => "graph_symbol_cpu" : Enum { field graph_symbol_cpu } ,
-    GraphSymbolNet => "graph_symbol_net" : Enum { field graph_symbol_net } ,
-    GraphSymbolDisk => "graph_symbol_disk" : Enum { field graph_symbol_disk } ,
-    ProcSorting => "proc_sorting" : Enum { field proc_sorting } ,
-    CpuGraphUpper => "cpu_graph_upper" : Enum { field cpu_graph_upper } ,
-    CpuGraphLower => "cpu_graph_lower" : Enum { field cpu_graph_lower } ,
-    TempScale => "temp_scale" : Enum { field temp_scale } ,
-    LogLevel => "log_level" : Enum { field log_level } ,
+    bools {
+        ThemeBackground => "theme_background" => field theme_background,
+        RoundedCorners => "rounded_corners" => field rounded_corners,
+        ProcReversed => "proc_reversed" => field proc_reversed,
+        ProcTree => "proc_tree" => field proc_tree,
+        ProcColors => "proc_colors" => field proc_colors,
+        ProcGradient => "proc_gradient" => field proc_gradient,
+        ProcPerCore => "proc_per_core" => field proc_per_core,
+        ProcMemBytes => "proc_mem_bytes" => field proc_mem_bytes,
+        ProcAggregate => "proc_aggregate" => field proc_aggregate,
+        KeepDeadProcUsage => "keep_dead_proc_usage" => field keep_dead_proc_usage,
+        CpuInvertLower => "cpu_invert_lower" => field cpu_invert_lower,
+        CpuSingleGraph => "cpu_single_graph" => field cpu_single_graph,
+        CpuAutoScale => "cpu_auto_scale" => field cpu_auto_scale,
+        ShowUptime => "show_uptime" => field show_uptime,
+        ShowCpuWatts => "show_cpu_watts" => field show_cpu_watts,
+        CheckTemp => "check_temp" => field check_temp,
+        ShowCoretemp => "show_coretemp" => field show_coretemp,
+        ShowCpuFreq => "show_cpu_freq" => field show_cpu_freq,
+        ShowSwap => "show_swap" => field show_swap,
+        ShowIoStat => "show_io_stat" => field show_io_stat,
+        IoMode => "io_mode" => field io_mode,
+        IoGraphCombined => "io_graph_combined" => field io_graph_combined,
+        SwapUploadDownload => "swap_upload_download" => field swap_upload_download,
+        Base10Sizes => "base_10_sizes" => field base_10_sizes,
+        NetAuto => "net_auto" => field net_auto,
+        NetSync => "net_sync" => field net_sync,
+        VimKeys => "vim_keys" => field vim_keys,
+        BackgroundUpdate => "background_update" => field background_update,
+        TerminalSync => "terminal_sync" => field terminal_sync,
+        SaveConfigOnExit => "save_config_on_exit" => field save_config_on_exit,
+        DiskIoMode => "disk_io_mode" => field disk_io_mode,
+    }
+    ints {
+        UpdateMs => "update_ms" => field update_ms,
+        CpuUpdateMs => "cpu_update_ms" => field cpu_update_ms,
+        MemUpdateMs => "mem_update_ms" => field mem_update_ms,
+        DiskUpdateMs => "disk_update_ms" => field disk_update_ms,
+        NetUpdateMs => "net_update_ms" => field net_update_ms,
+        GpuUpdateMs => "gpu_update_ms" => field gpu_update_ms,
+        ProcUpdateMs => "proc_update_ms" => field proc_update_ms,
+        NetDownload => "net_download" => field net_download,
+        NetUpload => "net_upload" => field net_upload,
+    }
+    enums {
+        GraphSymbol => "graph_symbol" => field graph_symbol,
+        GraphSymbolCpu => "graph_symbol_cpu" => field graph_symbol_cpu,
+        GraphSymbolNet => "graph_symbol_net" => field graph_symbol_net,
+        GraphSymbolDisk => "graph_symbol_disk" => field graph_symbol_disk,
+        ProcSorting => "proc_sorting" => field proc_sorting,
+        CpuGraphUpper => "cpu_graph_upper" => field cpu_graph_upper,
+        CpuGraphLower => "cpu_graph_lower" => field cpu_graph_lower,
+        TempScale => "temp_scale" => field temp_scale,
+        LogLevel => "log_level" => field log_level,
+    }
+    strings {
+        ColorTheme => "color_theme" => { field color_theme },
+        ClockFormat => "clock_format" => { field clock_format },
+        CustomCpuName => "custom_cpu_name" => { field custom_cpu_name },
+        ProcFilter => "proc_filter" => { field proc_filter },
+        DisksFilter => "disks_filter" => { joined_vec disks_filter },
+        CustomLayout => "custom_layout" => { custom_layout },
+        CustomGpuName0 => "custom_gpu_name0" => { array custom_gpu_names[0] },
+        CustomGpuName1 => "custom_gpu_name1" => { array custom_gpu_names[1] },
+        CustomGpuName2 => "custom_gpu_name2" => { array custom_gpu_names[2] },
+        CustomGpuName3 => "custom_gpu_name3" => { array custom_gpu_names[3] },
+        CustomGpuName4 => "custom_gpu_name4" => { array custom_gpu_names[4] },
+        CustomGpuName5 => "custom_gpu_name5" => { array custom_gpu_names[5] },
+        CustomGpuName6 => "custom_gpu_name6" => { array custom_gpu_names[6] },
+        CustomGpuName7 => "custom_gpu_name7" => { array custom_gpu_names[7] },
+    }
 }
 
 // ---------------------------------------------------------------------------
-// ConfigKey — hand-written impls
+// IntKey — hand-written impls (per-key bounds + step + parse)
 // ---------------------------------------------------------------------------
-//
-// Methods below carry per-key validation logic, error handling, or
-// shape-specific parsing that does not fit the declarative table
-// above. Each one is intentionally hand-written.
 
-impl ConfigKey {
-    /// Set a value from its canonical string form.
-    ///
-    /// Returns `Err(SetStringError)` if `value` does not parse for
-    /// the field's type. Used both by `cycle_browsable` (which
-    /// passes a value drawn from `browsable_values()`, so failure
-    /// is a contract violation) and by the inline-edit commit path
-    /// (which validates first via [`Self::validate_string`] so the
-    /// contract is also already satisfied).
-    pub fn set_string(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
-        let err = || SetStringError {
-            key: self.name(),
-            value: value.to_string(),
-        };
+impl IntKey {
+    /// Per-key step size used by the options-menu arrow-step path.
+    /// `*UpdateMs` keys step in 100 ms increments; throughput caps
+    /// step in single-unit increments.
+    pub fn step(self) -> i64 {
         match self {
-            Self::ColorTheme => config.color_theme = value.to_string(),
-            Self::CustomLayout => {
-                config.set_custom_layout(value).map_err(|_| err())?;
-            }
-            Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolDisk => config.graph_symbol_disk = value.parse().map_err(|_| err())?,
-            Self::ProcSorting => config.proc_sorting = value.parse().map_err(|_| err())?,
-            Self::CpuGraphUpper => config.cpu_graph_upper = value.parse().map_err(|_| err())?,
-            Self::CpuGraphLower => config.cpu_graph_lower = value.parse().map_err(|_| err())?,
-
-            Self::TempScale => config.temp_scale = value.parse().map_err(|_| err())?,
-            Self::ClockFormat => config.clock_format = value.to_string(),
-            Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
-            Self::DisksFilter => {
-                config.disks_filter = Self::parse_disks_filter(value).map_err(|_| err())?;
-            }
-            Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
-            Self::ProcFilter => config.proc_filter = value.to_string(),
-            Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
-            Self::CustomGpuName1 => config.custom_gpu_names[1] = value.to_string(),
-            Self::CustomGpuName2 => config.custom_gpu_names[2] = value.to_string(),
-            Self::CustomGpuName3 => config.custom_gpu_names[3] = value.to_string(),
-            Self::CustomGpuName4 => config.custom_gpu_names[4] = value.to_string(),
-            Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
-            Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
-            Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
-            // Bool and Int keys go through `set_bool` / `set_int`.
-            // If the contract is violated we return an error
-            // identifying the offending key.
-            _ => return Err(err()),
+            Self::UpdateMs
+            | Self::CpuUpdateMs
+            | Self::MemUpdateMs
+            | Self::DiskUpdateMs
+            | Self::NetUpdateMs
+            | Self::GpuUpdateMs
+            | Self::ProcUpdateMs => 100,
+            Self::NetDownload | Self::NetUpload => 1,
         }
-        Ok(())
     }
 
-    /// Parse `value` as a whitespace-separated list of drive filter
-    /// entries (e.g. `"C: !D:"`).
-    ///
-    /// An empty list is allowed (matches every disk). Each entry
-    /// must be a single ASCII letter followed by `:`, optionally
-    /// prefixed with `!`. Returns the original token list (so case
-    /// and `!` prefixes are preserved verbatim for round-trip
-    /// fidelity) — normalisation happens at match time.
-    pub fn parse_disks_filter(value: &str) -> Result<Vec<String>, &'static str> {
-        let tokens: Vec<String> = value.split_whitespace().map(str::to_string).collect();
-        let parsed = crate::domain::disk::DisksFilter::parse(&tokens);
-        if !parsed.invalid().is_empty() {
-            return Err("drive entries must be like 'C:' or '!D:'");
-        }
-        Ok(tokens)
-    }
-
-    /// Parse `value` as an integer for this int-typed key, enforcing
-    /// the same bounds that [`Config::validate`] would clamp to.
-    ///
-    /// Calling this on a non-int key returns an error rather than
-    /// panicking so the inline editor can degrade gracefully.
-    pub fn parse_int(self, value: &str) -> Result<i64, &'static str> {
+    /// Parse `value` as an integer for this key, enforcing the same
+    /// bounds that [`Config::validate`] would clamp to.
+    pub fn parse(self, value: &str) -> Result<i64, &'static str> {
         let trimmed = value.trim();
         if trimmed.is_empty() {
             return Err("must be an integer");
@@ -841,16 +859,16 @@ impl ConfigKey {
             | Self::GpuUpdateMs
             | Self::ProcUpdateMs => (0..=86_400_000).contains(&n),
             Self::NetDownload | Self::NetUpload => (0..=10_000_000).contains(&n),
-            _ => return Err("not an integer key"),
         };
         if in_range {
             Ok(n)
         } else {
-            Err(self.int_bounds_message())
+            Err(self.bounds_message())
         }
     }
 
-    fn int_bounds_message(self) -> &'static str {
+    /// Static error message naming the legal range for this key.
+    pub fn bounds_message(self) -> &'static str {
         match self {
             Self::UpdateMs => "must be 100..86400000 ms",
             Self::CpuUpdateMs
@@ -860,24 +878,94 @@ impl ConfigKey {
             | Self::GpuUpdateMs
             | Self::ProcUpdateMs => "must be 0..86400000 ms (0=inherit)",
             Self::NetDownload | Self::NetUpload => "must be 0..10000000 KiB/s",
-            _ => "out of range",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EnumKey — hand-written impls (choices + parse-and-set)
+// ---------------------------------------------------------------------------
+
+impl EnumKey {
+    /// The closed set of canonical (lowercase) names the menu
+    /// cycles for this enum key.
+    pub fn choices(self) -> &'static [&'static str] {
+        match self {
+            Self::GraphSymbol
+            | Self::GraphSymbolCpu
+            | Self::GraphSymbolNet
+            | Self::GraphSymbolDisk => GraphSymbol::NAMES,
+            Self::CpuGraphUpper | Self::CpuGraphLower => CpuGraphSource::NAMES,
+            Self::TempScale => TempScale::NAMES,
+            Self::ProcSorting => ProcSort::NAMES,
+            Self::LogLevel => crate::log::FILTER_NAMES,
         }
     }
 
-    /// Validate that `value` is acceptable for this string-typed key
-    /// without mutating any config field. Returns a static error
-    /// message suitable for inline display in the options menu when
-    /// validation fails.
+    /// Parse a canonical name into the typed enum and store it in
+    /// `config`. Returns `Err(SetStringError)` if `value` is not in
+    /// [`Self::choices`].
+    pub fn set_canonical(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
+        let err = || SetStringError {
+            key: self.name(),
+            value: value.to_string(),
+        };
+        match self {
+            Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolDisk => config.graph_symbol_disk = value.parse().map_err(|_| err())?,
+            Self::ProcSorting => config.proc_sorting = value.parse().map_err(|_| err())?,
+            Self::CpuGraphUpper => config.cpu_graph_upper = value.parse().map_err(|_| err())?,
+            Self::CpuGraphLower => config.cpu_graph_lower = value.parse().map_err(|_| err())?,
+            Self::TempScale => config.temp_scale = value.parse().map_err(|_| err())?,
+            Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StringKey — hand-written impls (choices, validate, set)
+// ---------------------------------------------------------------------------
+
+impl StringKey {
+    /// Optional closed set of canonical names. `Some` only for
+    /// constrained string keys (today: just `color_theme`); `None`
+    /// for free-form keys and the special `disks_filter` /
+    /// `custom_layout` parsers.
+    pub fn choices(self) -> Option<&'static [&'static str]> {
+        match self {
+            Self::ColorTheme => Some(crate::theme::THEME_NAMES),
+            _ => None,
+        }
+    }
+
+    /// Validate that `value` is acceptable without mutating the
+    /// config. Returns a static error message suitable for inline
+    /// display in the options menu when validation fails.
     ///
-    /// Used by the inline editor commit path: validate first, and
-    /// only call [`Self::set_string`] when validation succeeds.
-    pub fn validate_string(self, value: &str) -> Result<(), &'static str> {
+    /// Used by the inline editor commit path: validate first, only
+    /// call [`Self::set`] when validation succeeds.
+    pub fn validate(self, value: &str) -> Result<(), &'static str> {
         match self {
             Self::CustomLayout => value
                 .parse::<Slot>()
                 .map(|_| ())
                 .map_err(|_| "invalid layout"),
-            Self::DisksFilter => Self::parse_disks_filter(value).map(|_| ()),
+            Self::DisksFilter => parse_disks_filter(value).map(|_| ()),
+            Self::ColorTheme => {
+                if self
+                    .choices()
+                    .expect("ColorTheme has choices by construction")
+                    .contains(&value)
+                {
+                    Ok(())
+                } else {
+                    Err("invalid value")
+                }
+            }
+            // Free-form string keys accept anything.
             Self::ClockFormat
             | Self::CustomCpuName
             | Self::ProcFilter
@@ -889,40 +977,57 @@ impl ConfigKey {
             | Self::CustomGpuName5
             | Self::CustomGpuName6
             | Self::CustomGpuName7 => Ok(()),
-            _ => match self.kind() {
-                KeyKind::String | KeyKind::Enum => {
-                    if self.browsable_values().contains(&value) {
-                        Ok(())
-                    } else {
-                        Err("invalid value")
-                    }
-                }
-                _ => Err("not a string key"),
-            },
         }
     }
 
-    /// Returns the allowed values for constrained string keys, or None for free-form.
-    pub fn choice_values(self) -> Option<&'static [&'static str]> {
+    /// Set the field from a string. Returns `Err(SetStringError)`
+    /// if `value` does not parse for the field's shape (currently
+    /// only `CustomLayout` and `DisksFilter` can fail here; other
+    /// string keys are free-form or pre-validated by the caller).
+    pub fn set(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
+        let err = || SetStringError {
+            key: self.name(),
+            value: value.to_string(),
+        };
         match self {
-            Self::ColorTheme => Some(crate::theme::THEME_NAMES),
-            Self::GraphSymbol
-            | Self::GraphSymbolCpu
-            | Self::GraphSymbolNet
-            | Self::GraphSymbolDisk => Some(GraphSymbol::NAMES),
-            Self::CpuGraphUpper | Self::CpuGraphLower => Some(CpuGraphSource::NAMES),
-            Self::TempScale => Some(TempScale::NAMES),
-            Self::ProcSorting => Some(ProcSort::NAMES),
-            Self::LogLevel => Some(crate::log::FILTER_NAMES),
-            _ => None,
+            Self::ColorTheme => config.color_theme = value.to_string(),
+            Self::ClockFormat => config.clock_format = value.to_string(),
+            Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
+            Self::ProcFilter => config.proc_filter = value.to_string(),
+            Self::CustomLayout => {
+                config.set_custom_layout(value).map_err(|_| err())?;
+            }
+            Self::DisksFilter => {
+                config.disks_filter = parse_disks_filter(value).map_err(|_| err())?;
+            }
+            Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
+            Self::CustomGpuName1 => config.custom_gpu_names[1] = value.to_string(),
+            Self::CustomGpuName2 => config.custom_gpu_names[2] = value.to_string(),
+            Self::CustomGpuName3 => config.custom_gpu_names[3] = value.to_string(),
+            Self::CustomGpuName4 => config.custom_gpu_names[4] = value.to_string(),
+            Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
+            Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
+            Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
         }
+        Ok(())
     }
+}
 
-    /// Returns the canonical values cycled by the options menu for
-    /// browsable keys, or `&[]` for free-form keys.
-    pub fn browsable_values(self) -> &'static [&'static str] {
-        self.choice_values().unwrap_or(&[])
+/// Parse `value` as a whitespace-separated list of drive filter
+/// entries (e.g. `"C: !D:"`).
+///
+/// An empty list is allowed (matches every disk). Each entry must
+/// be a single ASCII letter followed by `:`, optionally prefixed
+/// with `!`. Returns the original token list (so case and `!`
+/// prefixes are preserved verbatim for round-trip fidelity);
+/// normalisation happens at match time.
+fn parse_disks_filter(value: &str) -> Result<Vec<String>, &'static str> {
+    let tokens: Vec<String> = value.split_whitespace().map(str::to_string).collect();
+    let parsed = crate::domain::disk::DisksFilter::parse(&tokens);
+    if !parsed.invalid().is_empty() {
+        return Err("drive entries must be like 'C:' or '!D:'");
     }
+    Ok(tokens)
 }
 
 fn bool_display(v: bool) -> String {
@@ -1291,11 +1396,11 @@ mod tests {
     #[test]
     fn config_key_roundtrip_through_parser() {
         let keys = [
-            ConfigKey::ColorTheme,
-            ConfigKey::ProcSorting,
-            ConfigKey::ThemeBackground,
-            ConfigKey::UpdateMs,
-            ConfigKey::NetDownload,
+            ConfigKey::String(StringKey::ColorTheme),
+            ConfigKey::Enum(EnumKey::ProcSorting),
+            ConfigKey::Bool(BoolKey::ThemeBackground),
+            ConfigKey::Int(IntKey::UpdateMs),
+            ConfigKey::Int(IntKey::NetDownload),
         ];
 
         for key in keys {
@@ -1309,19 +1414,13 @@ mod tests {
 
     #[test]
     fn parse_disks_filter_accepts_empty() {
-        assert_eq!(
-            ConfigKey::parse_disks_filter("").unwrap(),
-            Vec::<String>::new()
-        );
-        assert_eq!(
-            ConfigKey::parse_disks_filter("   ").unwrap(),
-            Vec::<String>::new()
-        );
+        assert_eq!(parse_disks_filter("").unwrap(), Vec::<String>::new());
+        assert_eq!(parse_disks_filter("   ").unwrap(), Vec::<String>::new());
     }
 
     #[test]
     fn parse_disks_filter_preserves_case_and_prefix() {
-        let result = ConfigKey::parse_disks_filter("c: !D: E:").unwrap();
+        let result = parse_disks_filter("c: !D: E:").unwrap();
         assert_eq!(
             result,
             vec!["c:".to_string(), "!D:".to_string(), "E:".to_string()]
@@ -1330,113 +1429,112 @@ mod tests {
 
     #[test]
     fn parse_disks_filter_rejects_bare_letter() {
-        assert!(ConfigKey::parse_disks_filter("C").is_err());
-        assert!(ConfigKey::parse_disks_filter("C: D").is_err());
-        assert!(ConfigKey::parse_disks_filter("!E").is_err());
+        assert!(parse_disks_filter("C").is_err());
+        assert!(parse_disks_filter("C: D").is_err());
+        assert!(parse_disks_filter("!E").is_err());
     }
 
     #[test]
     fn parse_int_enforces_update_ms_lower_bound() {
-        assert!(ConfigKey::UpdateMs.parse_int("99").is_err());
-        assert_eq!(ConfigKey::UpdateMs.parse_int("100").unwrap(), 100);
+        assert!(IntKey::UpdateMs.parse("99").is_err());
+        assert_eq!(IntKey::UpdateMs.parse("100").unwrap(), 100);
     }
 
     #[test]
     fn parse_int_accepts_zero_for_inherit_keys() {
         for key in [
-            ConfigKey::CpuUpdateMs,
-            ConfigKey::MemUpdateMs,
-            ConfigKey::DiskUpdateMs,
-            ConfigKey::NetUpdateMs,
-            ConfigKey::GpuUpdateMs,
-            ConfigKey::ProcUpdateMs,
+            IntKey::CpuUpdateMs,
+            IntKey::MemUpdateMs,
+            IntKey::DiskUpdateMs,
+            IntKey::NetUpdateMs,
+            IntKey::GpuUpdateMs,
+            IntKey::ProcUpdateMs,
         ] {
-            assert_eq!(key.parse_int("0").unwrap(), 0);
+            assert_eq!(key.parse("0").unwrap(), 0);
         }
     }
 
     #[test]
     fn parse_int_rejects_negative_and_overflow() {
-        assert!(ConfigKey::CpuUpdateMs.parse_int("-1").is_err());
-        assert!(ConfigKey::NetDownload.parse_int("10000001").is_err());
-        assert_eq!(
-            ConfigKey::NetDownload.parse_int("10000000").unwrap(),
-            10_000_000
-        );
+        assert!(IntKey::CpuUpdateMs.parse("-1").is_err());
+        assert!(IntKey::NetDownload.parse("10000001").is_err());
+        assert_eq!(IntKey::NetDownload.parse("10000000").unwrap(), 10_000_000);
     }
 
     #[test]
     fn parse_int_trims_whitespace() {
-        assert_eq!(ConfigKey::UpdateMs.parse_int("  500  ").unwrap(), 500);
+        assert_eq!(IntKey::UpdateMs.parse("  500  ").unwrap(), 500);
     }
 
     #[test]
     fn parse_int_rejects_non_numeric_or_empty() {
-        assert!(ConfigKey::UpdateMs.parse_int("abc").is_err());
-        assert!(ConfigKey::UpdateMs.parse_int("").is_err());
+        assert!(IntKey::UpdateMs.parse("abc").is_err());
+        assert!(IntKey::UpdateMs.parse("").is_err());
     }
 
-    #[test]
-    fn parse_int_rejects_non_int_key() {
-        assert!(ConfigKey::ColorTheme.parse_int("100").is_err());
-        assert!(ConfigKey::CustomLayout.parse_int("100").is_err());
-    }
+    // Note: the previous `parse_int_rejects_non_int_key` test is no
+    // longer expressible — `parse` lives on `IntKey`, so passing a
+    // non-int key is a compile error rather than a runtime check.
 
     #[test]
     fn validate_string_shape() {
+        assert!(StringKey::CustomLayout.validate("vstack(cpu, mem)").is_ok());
+        assert!(StringKey::CustomLayout.validate("cpu").is_ok());
+        assert!(StringKey::CustomLayout.validate("").is_err());
+        assert!(StringKey::CustomLayout.validate("nope").is_err());
         assert!(
-            ConfigKey::CustomLayout
-                .validate_string("vstack(cpu, mem)")
-                .is_ok()
-        );
-        assert!(ConfigKey::CustomLayout.validate_string("cpu").is_ok());
-        assert!(ConfigKey::CustomLayout.validate_string("").is_err());
-        assert!(ConfigKey::CustomLayout.validate_string("nope").is_err());
-        assert!(
-            ConfigKey::CustomLayout
-                .validate_string("vstack(cpu, cpu)")
+            StringKey::CustomLayout
+                .validate("vstack(cpu, cpu)")
                 .is_err()
         );
     }
 
     #[test]
     fn validate_string_disks_filter() {
-        assert!(ConfigKey::DisksFilter.validate_string("").is_ok());
-        assert!(ConfigKey::DisksFilter.validate_string("C: !D:").is_ok());
-        assert!(ConfigKey::DisksFilter.validate_string("X").is_err());
+        assert!(StringKey::DisksFilter.validate("").is_ok());
+        assert!(StringKey::DisksFilter.validate("C: !D:").is_ok());
+        assert!(StringKey::DisksFilter.validate("X").is_err());
     }
 
     #[test]
     fn validate_string_free_form_keys_always_ok() {
         for key in [
-            ConfigKey::ClockFormat,
-            ConfigKey::CustomCpuName,
-            ConfigKey::ProcFilter,
-            ConfigKey::CustomGpuName0,
-            ConfigKey::CustomGpuName7,
+            StringKey::ClockFormat,
+            StringKey::CustomCpuName,
+            StringKey::ProcFilter,
+            StringKey::CustomGpuName0,
+            StringKey::CustomGpuName7,
         ] {
-            assert!(key.validate_string("").is_ok());
-            assert!(key.validate_string("anything goes !@#$%").is_ok());
+            assert!(key.validate("").is_ok());
+            assert!(key.validate("anything goes !@#$%").is_ok());
         }
     }
 
     #[test]
     fn validate_string_constrained_choice_keys() {
-        assert!(ConfigKey::ColorTheme.validate_string("default").is_ok());
-        assert!(
-            ConfigKey::ColorTheme
-                .validate_string("nonexistent")
-                .is_err()
-        );
-        assert!(ConfigKey::LogLevel.validate_string("info").is_ok());
-        assert!(ConfigKey::LogLevel.validate_string("loud").is_err());
+        // ColorTheme is the one constrained string key — `validate`
+        // checks membership in the bundled theme list.
+        assert!(StringKey::ColorTheme.validate("default").is_ok());
+        assert!(StringKey::ColorTheme.validate("nonexistent").is_err());
     }
 
     #[test]
-    fn validate_string_rejects_non_string_keys() {
-        assert!(ConfigKey::UpdateMs.validate_string("100").is_err());
-        assert!(ConfigKey::RoundedCorners.validate_string("true").is_err());
+    fn enum_set_canonical_accepts_choices_rejects_unknown() {
+        // Enum keys validate via `set_canonical` (they don't have a
+        // standalone `validate` method — they're always parsed via
+        // `FromStr` of the typed enum).
+        let mut config = Config::new();
+        assert!(EnumKey::LogLevel.set_canonical(&mut config, "info").is_ok());
+        assert!(
+            EnumKey::LogLevel
+                .set_canonical(&mut config, "loud")
+                .is_err()
+        );
     }
+
+    // Note: the previous `validate_string_rejects_non_string_keys`
+    // test is no longer expressible — `validate` lives on
+    // `StringKey`, so passing a Bool or Int key is a compile error.
 
     #[test]
     fn set_custom_layout_writes_to_custom_root_without_touching_cursor_from_builtin() {
@@ -1477,14 +1575,15 @@ mod tests {
 
     #[test]
     fn set_string_custom_layout_via_inline_editor_path() {
-        // Inline editor commit goes through ConfigKey::CustomLayout.set_string
-        // which calls Config::set_custom_layout. Same no-promote semantics.
+        // Inline editor commit goes through `StringKey::CustomLayout::set`
+        // which calls `Config::set_custom_layout`. Same no-promote
+        // semantics.
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         let cursor = ActivePreset::Builtin(BuiltinPreset::CpuProc);
         config.preset.set(cursor);
-        ConfigKey::CustomLayout
-            .set_string(&mut config, "vstack(cpu, mem, disk)")
+        StringKey::CustomLayout
+            .set(&mut config, "vstack(cpu, mem, disk)")
             .unwrap();
         // Cursor unchanged.
         assert_eq!(config.preset.active(), cursor);
@@ -1502,16 +1601,12 @@ mod tests {
     #[test]
     fn set_string_custom_layout_invalid_returns_err() {
         let mut config = Config::new();
-        assert!(
-            ConfigKey::CustomLayout
-                .set_string(&mut config, "nope")
-                .is_err()
-        );
-        assert!(ConfigKey::CustomLayout.set_string(&mut config, "").is_err());
+        assert!(StringKey::CustomLayout.set(&mut config, "nope").is_err());
+        assert!(StringKey::CustomLayout.set(&mut config, "").is_err());
         // Duplicate widget kinds rejected at parse time.
         assert!(
-            ConfigKey::CustomLayout
-                .set_string(&mut config, "vstack(cpu, cpu)")
+            StringKey::CustomLayout
+                .set(&mut config, "vstack(cpu, cpu)")
                 .is_err()
         );
     }
@@ -1519,9 +1614,7 @@ mod tests {
     #[test]
     fn set_string_disks_filter_via_inline_editor_path() {
         let mut config = Config::new();
-        ConfigKey::DisksFilter
-            .set_string(&mut config, "C: !D:")
-            .unwrap();
+        StringKey::DisksFilter.set(&mut config, "C: !D:").unwrap();
         assert_eq!(
             config.disks_filter,
             vec!["C:".to_string(), "!D:".to_string()]
@@ -1531,6 +1624,6 @@ mod tests {
     #[test]
     fn set_string_disks_filter_invalid_returns_err() {
         let mut config = Config::new();
-        assert!(ConfigKey::DisksFilter.set_string(&mut config, "X").is_err());
+        assert!(StringKey::DisksFilter.set(&mut config, "X").is_err());
     }
 }

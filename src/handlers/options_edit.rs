@@ -4,8 +4,8 @@
 //! Captures every keystroke (so command keys like `q`, `j`, `k` become
 //! buffer characters rather than menu commands), edits a UTF-8-safe
 //! [`OptionEditState`] buffer, and either commits the new value via
-//! [`ConfigKey::set_string`] / [`ConfigKey::set_int`] (Enter) or
-//! discards the buffer (Esc).
+//! the appropriate typed sub-enum's `set` / `set_canonical` method
+//! (Enter) or discards the buffer (Esc).
 
 use crate::{
     config::ConfigKey,
@@ -18,8 +18,10 @@ use crate::{
 ///
 /// Drives the [`Key::Char`] filter (`Integer` rejects everything that
 /// is not an ASCII digit) and the commit-time validation
-/// (`Integer` parses as `i64`; `Text` validates via
-/// [`ConfigKey::validate_string`]).
+/// (`Integer` parses as `i64` via [`crate::config::IntKey::parse`];
+/// `Text` validates via [`crate::config::StringKey::validate`]
+/// or commits directly via [`crate::config::EnumKey::set_canonical`]
+/// for enum-typed keys).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum EditKind {
     Text,
@@ -188,7 +190,12 @@ fn commit(ctx: &mut InputContext) -> HandleResult {
 
     match kind {
         EditKind::Integer => {
-            let n = match key.parse_int(&buffer) {
+            // Inline integer editor only opens for `IntKey` options;
+            // the kind dispatch above guarantees this.
+            let ConfigKey::Int(int_key) = key else {
+                return HandleResult::none();
+            };
+            let n = match int_key.parse(&buffer) {
                 Ok(n) => n,
                 Err(msg) => {
                     if let Some(state) = ctx.overlay.option_edit_mut() {
@@ -197,31 +204,61 @@ fn commit(ctx: &mut InputContext) -> HandleResult {
                     return redraw_options(ctx);
                 }
             };
-            key.set_int(ctx.config, n);
+            int_key.set(ctx.config, n);
             ctx.config.validate();
         }
         EditKind::Text => {
-            if let Err(msg) = key.validate_string(&buffer) {
-                if let Some(state) = ctx.overlay.option_edit_mut() {
-                    state.error = Some(msg);
+            // Inline text editor opens for `StringKey` and `EnumKey`;
+            // dispatch by the wrapper variant.
+            match key {
+                ConfigKey::String(string_key) => {
+                    if let Err(msg) = string_key.validate(&buffer) {
+                        if let Some(state) = ctx.overlay.option_edit_mut() {
+                            state.error = Some(msg);
+                        }
+                        return redraw_options(ctx);
+                    }
+                    if let Err(err) = string_key.set(ctx.config, &buffer) {
+                        // set() only fails on a contract violation
+                        // (validate returned Ok but the parser
+                        // disagreed). Surface a generic message
+                        // rather than panicking so the user can
+                        // recover.
+                        if let Some(state) = ctx.overlay.option_edit_mut() {
+                            state.error = Some("could not save value");
+                        }
+                        tracing::warn!(
+                            subsystem = %crate::log::Subsystem::Input,
+                            option = %err.key,
+                            value = %err.value,
+                            "StringKey::set failed after validate passed",
+                        );
+                        return redraw_options(ctx);
+                    }
                 }
-                return redraw_options(ctx);
-            }
-            if let Err(err) = key.set_string(ctx.config, &buffer) {
-                // set_string only fails on a contract violation
-                // (validate_string returned Ok but the parser
-                // disagreed). Surface a generic message rather
-                // than panicking so the user can recover.
-                if let Some(state) = ctx.overlay.option_edit_mut() {
-                    state.error = Some("could not save value");
+                ConfigKey::Enum(enum_key) => {
+                    if let Err(err) = enum_key.set_canonical(ctx.config, &buffer) {
+                        if let Some(state) = ctx.overlay.option_edit_mut() {
+                            state.error = Some("invalid value");
+                        }
+                        tracing::warn!(
+                            subsystem = %crate::log::Subsystem::Input,
+                            option = %err.key,
+                            value = %err.value,
+                            "EnumKey::set_canonical failed",
+                        );
+                        return redraw_options(ctx);
+                    }
                 }
-                tracing::warn!(
-                    subsystem = %crate::log::Subsystem::Input,
-                    option = %err.key,
-                    value = %err.value,
-                    "set_string failed after validate_string passed",
-                );
-                return redraw_options(ctx);
+                ConfigKey::Bool(_) | ConfigKey::Int(_) => {
+                    // Inline text editor never opens for Bool / Int —
+                    // those go through arrow-step or the integer
+                    // editor. Reaching here is a logic bug.
+                    if let Some(state) = ctx.overlay.option_edit_mut() {
+                        state.error = Some("not a string-typed option");
+                    }
+                    return redraw_options(ctx);
+                }
             }
         }
     }
@@ -296,13 +333,22 @@ fn render_options_menu(ctx: &InputContext) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{IntKey, StringKey};
 
     fn state(buffer: &str) -> OptionEditState {
-        OptionEditState::new(ConfigKey::ClockFormat, EditKind::Text, buffer.to_string())
+        OptionEditState::new(
+            ConfigKey::String(StringKey::ClockFormat),
+            EditKind::Text,
+            buffer.to_string(),
+        )
     }
 
     fn int_state(buffer: &str) -> OptionEditState {
-        OptionEditState::new(ConfigKey::UpdateMs, EditKind::Integer, buffer.to_string())
+        OptionEditState::new(
+            ConfigKey::Int(IntKey::UpdateMs),
+            EditKind::Integer,
+            buffer.to_string(),
+        )
     }
 
     #[test]

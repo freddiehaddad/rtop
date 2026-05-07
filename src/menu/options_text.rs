@@ -14,13 +14,13 @@
 //! semantics, update its entry here so the in-app help reflects
 //! the new behaviour.
 
-use crate::config::ConfigKey;
+use crate::config::{BoolKey, ConfigKey, EnumKey, IntKey, StringKey};
 
 /// Returns the multi-line help text for a config key as it appears
 /// in the right-hand panel of the options menu.
 pub fn desc(key: ConfigKey) -> &'static [&'static str] {
     match key {
-        ConfigKey::ThemeBackground => &[
+        ConfigKey::Bool(BoolKey::ThemeBackground) => &[
             "Render the theme background.",
             "",
             "Off lets the terminal background show",
@@ -28,14 +28,14 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::RoundedCorners => &[
+        ConfigKey::Bool(BoolKey::RoundedCorners) => &[
             "Rounded widget corners.",
             "",
             "Off uses square corners.",
             "",
             "Default: on.",
         ],
-        ConfigKey::ProcReversed => &[
+        ConfigKey::Bool(BoolKey::ProcReversed) => &[
             "Reverse sort order.",
             "",
             "Flips the sort direction. The 'r' key on the",
@@ -43,7 +43,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::ProcTree => &[
+        ConfigKey::Bool(BoolKey::ProcTree) => &[
             "Tree view.",
             "",
             "Group processes under their parent with",
@@ -52,7 +52,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::ProcColors => &[
+        ConfigKey::Bool(BoolKey::ProcColors) => &[
             "Color process rows by CPU usage.",
             "",
             "Higher-CPU rows take a warmer color so they",
@@ -60,7 +60,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ProcGradient => &[
+        ConfigKey::Bool(BoolKey::ProcGradient) => &[
             "Fade process rows by distance.",
             "",
             "Rows farther from the selected process fade",
@@ -69,7 +69,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ProcPerCore => &[
+        ConfigKey::Bool(BoolKey::ProcPerCore) => &[
             "Per-core CPU percentage.",
             "",
             "Show each process's CPU usage relative to a",
@@ -79,7 +79,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::ProcMemBytes => &[
+        ConfigKey::Bool(BoolKey::ProcMemBytes) => &[
             "Memory as bytes.",
             "",
             "Show process memory in bytes (GB / MB / KB)",
@@ -87,7 +87,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ProcAggregate => &[
+        ConfigKey::Bool(BoolKey::ProcAggregate) => &[
             "Aggregate child resources in tree view.",
             "",
             "Each parent's CPU and memory totals include",
@@ -96,7 +96,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::KeepDeadProcUsage => &[
+        ConfigKey::Bool(BoolKey::KeepDeadProcUsage) => &[
             "Preserve last value for ended processes.",
             "",
             "Show each terminated process's last CPU and",
@@ -105,7 +105,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::CpuInvertLower => &[
+        ConfigKey::Bool(BoolKey::CpuInvertLower) => &[
             "Mirror the lower graph.",
             "",
             "Flips the lower graph upside-down so it",
@@ -114,7 +114,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::CpuSingleGraph => &[
+        ConfigKey::Bool(BoolKey::CpuSingleGraph) => &[
             "Show one CPU graph instead of two.",
             "",
             "Hides the lower CPU graph and gives the",
@@ -122,7 +122,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::CpuAutoScale => &[
+        ConfigKey::Bool(BoolKey::CpuAutoScale) => &[
             "Auto-scale CPU graph y-axis.",
             "",
             "Scales each graph to its largest visible",
@@ -131,7 +131,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::ShowUptime => &[
+        ConfigKey::Bool(BoolKey::ShowUptime) => &[
             "Show system uptime.",
             "",
             "Adds the time since boot to the CPU widget",
@@ -139,7 +139,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ShowCpuWatts => &[
+        ConfigKey::Bool(BoolKey::ShowCpuWatts) => &[
             "Show CPU power draw.",
             "",
             "Adds a wattage meter to the CPU widget.",
@@ -148,7 +148,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::CheckTemp => &[
+        ConfigKey::Bool(BoolKey::CheckTemp) => &[
             "Read CPU temperature.",
             "",
             "Requires PawnIO and Administrator",
@@ -157,7 +157,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ShowCoretemp => &[
+        ConfigKey::Bool(BoolKey::ShowCoretemp) => &[
             "Per-core temperatures.",
             "",
             "Adds a temperature column to the per-core",
@@ -166,7 +166,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ShowCpuFreq => &[
+        ConfigKey::Bool(BoolKey::ShowCpuFreq) => &[
             "Show CPU frequency.",
             "",
             "Adds the current CPU clock speed (in GHz)",
@@ -174,7 +174,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ShowSwap => &[
+        ConfigKey::Bool(BoolKey::ShowSwap) => &[
             "Show swap (page file) usage.",
             "",
             "Adds page-file used and total to the memory",
@@ -183,7 +183,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::ShowIoStat => &[
+        ConfigKey::Bool(BoolKey::ShowIoStat) => &[
             "Inline read/write throughput row.",
             "",
             "Adds a small read+write number row beneath",
@@ -192,7 +192,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::IoMode => &[
+        ConfigKey::Bool(BoolKey::IoMode) => &[
             "IO graph view (current session).",
             "",
             "Replaces the per-disk usage meter with a",
@@ -201,7 +201,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::IoGraphCombined => &[
+        ConfigKey::Bool(BoolKey::IoGraphCombined) => &[
             "Combined read/write IO graph.",
             "",
             "Show one merged graph per disk instead of",
@@ -210,7 +210,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::SwapUploadDownload => &[
+        ConfigKey::Bool(BoolKey::SwapUploadDownload) => &[
             "Swap upload and download positions.",
             "",
             "By default download is on top and upload is",
@@ -218,7 +218,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::Base10Sizes => &[
+        ConfigKey::Bool(BoolKey::Base10Sizes) => &[
             "Base-10 byte units.",
             "",
             "Show sizes as KB, MB, GB (1000-based)",
@@ -228,7 +228,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::NetAuto => &[
+        ConfigKey::Bool(BoolKey::NetAuto) => &[
             "Auto-scale network graph y-axis.",
             "",
             "Scales each graph to its largest visible",
@@ -236,7 +236,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::NetSync => &[
+        ConfigKey::Bool(BoolKey::NetSync) => &[
             "Sync upload and download scales.",
             "",
             "Both graphs share the same y-axis maximum so",
@@ -244,7 +244,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::VimKeys => &[
+        ConfigKey::Bool(BoolKey::VimKeys) => &[
             "Vim-style key bindings.",
             "",
             "Adds h/j/k/l for movement, g/G for top and",
@@ -253,7 +253,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::BackgroundUpdate => &[
+        ConfigKey::Bool(BoolKey::BackgroundUpdate) => &[
             "Keep updating while menus are open.",
             "",
             "Off freezes the data behind a menu until you",
@@ -261,7 +261,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::TerminalSync => &[
+        ConfigKey::Bool(BoolKey::TerminalSync) => &[
             "Synchronized terminal output.",
             "",
             "Reduces flicker on terminals that support",
@@ -269,7 +269,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::SaveConfigOnExit => &[
+        ConfigKey::Bool(BoolKey::SaveConfigOnExit) => &[
             "Write settings to disk on exit.",
             "",
             "Off keeps your changes to runtime settings",
@@ -277,7 +277,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::DiskIoMode => &[
+        ConfigKey::Bool(BoolKey::DiskIoMode) => &[
             "Persistent IO graph view.",
             "",
             "Same as IO Graph View, but persists across",
@@ -285,7 +285,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::UpdateMs => &[
+        ConfigKey::Int(IntKey::UpdateMs) => &[
             "Refresh interval (ms).",
             "",
             "How often widgets refresh by default. Each",
@@ -295,7 +295,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 2,000 ms.",
             "Range: 100 to 86,400,000 ms.",
         ],
-        ConfigKey::CpuUpdateMs => &[
+        ConfigKey::Int(IntKey::CpuUpdateMs) => &[
             "CPU refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -304,7 +304,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::MemUpdateMs => &[
+        ConfigKey::Int(IntKey::MemUpdateMs) => &[
             "Memory refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -314,7 +314,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::DiskUpdateMs => &[
+        ConfigKey::Int(IntKey::DiskUpdateMs) => &[
             "Disk refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -324,7 +324,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::NetUpdateMs => &[
+        ConfigKey::Int(IntKey::NetUpdateMs) => &[
             "Network refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -334,7 +334,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::GpuUpdateMs => &[
+        ConfigKey::Int(IntKey::GpuUpdateMs) => &[
             "GPU refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -344,7 +344,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::ProcUpdateMs => &[
+        ConfigKey::Int(IntKey::ProcUpdateMs) => &[
             "Process refresh interval (ms).",
             "",
             "Overrides the global Refresh Interval for",
@@ -354,7 +354,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::NetDownload => &[
+        ConfigKey::Int(IntKey::NetDownload) => &[
             "Manual download cap (KiB/s).",
             "",
             "Pins the download graph y-axis to this",
@@ -364,7 +364,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 100 KiB/s.",
             "Range: 0 to 10,000,000 KiB/s.",
         ],
-        ConfigKey::NetUpload => &[
+        ConfigKey::Int(IntKey::NetUpload) => &[
             "Manual upload cap (KiB/s).",
             "",
             "Pins the upload graph y-axis to this value.",
@@ -374,7 +374,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 100 KiB/s.",
             "Range: 0 to 10,000,000 KiB/s.",
         ],
-        ConfigKey::ColorTheme => &[
+        ConfigKey::String(StringKey::ColorTheme) => &[
             "Color theme.",
             "",
             "Selects the color palette used throughout",
@@ -382,7 +382,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: default.",
         ],
-        ConfigKey::ClockFormat => &[
+        ConfigKey::String(StringKey::ClockFormat) => &[
             "Clock format (or empty to hide).",
             "",
             "Format for the clock shown in the CPU",
@@ -396,7 +396,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: %X.",
         ],
-        ConfigKey::CustomCpuName => &[
+        ConfigKey::String(StringKey::CustomCpuName) => &[
             "Custom CPU label (or empty for auto).",
             "",
             "Override the detected CPU model shown in the",
@@ -405,7 +405,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: empty.",
         ],
-        ConfigKey::ProcFilter => &[
+        ConfigKey::String(StringKey::ProcFilter) => &[
             "Initial process filter.",
             "",
             "A starting filter string applied to the",
@@ -414,7 +414,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: empty.",
         ],
-        ConfigKey::DisksFilter => &[
+        ConfigKey::String(StringKey::DisksFilter) => &[
             "Disk include/exclude list.",
             "",
             "Whitespace-separated drive letters. Plain",
@@ -428,7 +428,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: empty.",
         ],
-        ConfigKey::CustomLayout => &[
+        ConfigKey::String(StringKey::CustomLayout) => &[
             "Layout for the custom preset.",
             "",
             "Build a layout by stacking widgets:",
@@ -453,15 +453,15 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Cycle to the custom preset (p / P) to see",
             "your edits on screen.",
         ],
-        ConfigKey::CustomGpuName0 => custom_gpu_desc(0),
-        ConfigKey::CustomGpuName1 => custom_gpu_desc(1),
-        ConfigKey::CustomGpuName2 => custom_gpu_desc(2),
-        ConfigKey::CustomGpuName3 => custom_gpu_desc(3),
-        ConfigKey::CustomGpuName4 => custom_gpu_desc(4),
-        ConfigKey::CustomGpuName5 => custom_gpu_desc(5),
-        ConfigKey::CustomGpuName6 => custom_gpu_desc(6),
-        ConfigKey::CustomGpuName7 => custom_gpu_desc(7),
-        ConfigKey::GraphSymbol => &[
+        ConfigKey::String(StringKey::CustomGpuName0) => custom_gpu_desc(0),
+        ConfigKey::String(StringKey::CustomGpuName1) => custom_gpu_desc(1),
+        ConfigKey::String(StringKey::CustomGpuName2) => custom_gpu_desc(2),
+        ConfigKey::String(StringKey::CustomGpuName3) => custom_gpu_desc(3),
+        ConfigKey::String(StringKey::CustomGpuName4) => custom_gpu_desc(4),
+        ConfigKey::String(StringKey::CustomGpuName5) => custom_gpu_desc(5),
+        ConfigKey::String(StringKey::CustomGpuName6) => custom_gpu_desc(6),
+        ConfigKey::String(StringKey::CustomGpuName7) => custom_gpu_desc(7),
+        ConfigKey::Enum(EnumKey::GraphSymbol) => &[
             "Default graph style.",
             "",
             "The graph drawing style used by every widget",
@@ -471,7 +471,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: braille.",
         ],
-        ConfigKey::GraphSymbolCpu => &[
+        ConfigKey::Enum(EnumKey::GraphSymbolCpu) => &[
             "CPU graph style override.",
             "",
             "Overrides the default graph style for the",
@@ -480,7 +480,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: default.",
         ],
-        ConfigKey::GraphSymbolNet => &[
+        ConfigKey::Enum(EnumKey::GraphSymbolNet) => &[
             "Network graph style override.",
             "",
             "Overrides the default graph style for the",
@@ -489,7 +489,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: default.",
         ],
-        ConfigKey::GraphSymbolDisk => &[
+        ConfigKey::Enum(EnumKey::GraphSymbolDisk) => &[
             "Disk graph style override.",
             "",
             "Overrides the default graph style for the",
@@ -498,7 +498,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: default.",
         ],
-        ConfigKey::ProcSorting => &[
+        ConfigKey::Enum(EnumKey::ProcSorting) => &[
             "Sort processes by.",
             "",
             "Which column the process list is sorted on.",
@@ -507,7 +507,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: cpu.",
         ],
-        ConfigKey::CpuGraphUpper => &[
+        ConfigKey::Enum(EnumKey::CpuGraphUpper) => &[
             "Upper CPU graph source.",
             "",
             "Which CPU statistic the larger top graph",
@@ -515,7 +515,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: total.",
         ],
-        ConfigKey::CpuGraphLower => &[
+        ConfigKey::Enum(EnumKey::CpuGraphLower) => &[
             "Lower CPU graph source.",
             "",
             "Which CPU statistic the smaller bottom graph",
@@ -524,7 +524,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: total.",
         ],
-        ConfigKey::TempScale => &[
+        ConfigKey::Enum(EnumKey::TempScale) => &[
             "Temperature scale.",
             "",
             "Display temperatures in celsius or",
@@ -532,7 +532,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: celsius.",
         ],
-        ConfigKey::LogLevel => &[
+        ConfigKey::Enum(EnumKey::LogLevel) => &[
             "Log verbosity.",
             "",
             "Off disables the log file. Higher levels",

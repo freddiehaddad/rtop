@@ -588,7 +588,7 @@ mod tests {
 
     #[test]
     fn enter_option_edit_transitions_and_stores_buffer() {
-        use crate::config::ConfigKey;
+        use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
@@ -599,7 +599,11 @@ mod tests {
         assert_eq!(state.overlay.menu_state, MenuState::Options);
         assert!(state.overlay.option_edit().is_none());
 
-        let edit = OptionEditState::new(ConfigKey::ClockFormat, EditKind::Text, "%H:%M".into());
+        let edit = OptionEditState::new(
+            ConfigKey::String(StringKey::ClockFormat),
+            EditKind::Text,
+            "%H:%M".into(),
+        );
         state.overlay.enter_option_edit(edit);
         assert_eq!(state.overlay.menu_state, MenuState::OptionsEdit);
         let stored = state
@@ -607,12 +611,12 @@ mod tests {
             .option_edit()
             .expect("option_edit must be Some after enter_option_edit");
         assert_eq!(stored.buffer, "%H:%M");
-        assert_eq!(stored.key, ConfigKey::ClockFormat);
+        assert_eq!(stored.key, ConfigKey::String(StringKey::ClockFormat));
     }
 
     #[test]
     fn exit_option_edit_clears_buffer_and_returns_to_options() {
-        use crate::config::ConfigKey;
+        use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
@@ -620,7 +624,7 @@ mod tests {
         state.overlay.set_menu_state(MenuState::Main);
         state.overlay.set_menu_state(MenuState::Options);
         state.overlay.enter_option_edit(OptionEditState::new(
-            ConfigKey::ProcFilter,
+            ConfigKey::String(StringKey::ProcFilter),
             EditKind::Text,
             String::new(),
         ));
@@ -633,7 +637,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "option_edit must be cleared")]
     fn set_menu_state_panics_if_option_edit_is_dangling() {
-        use crate::config::ConfigKey;
+        use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
@@ -641,7 +645,7 @@ mod tests {
         state.overlay.set_menu_state(MenuState::Main);
         state.overlay.set_menu_state(MenuState::Options);
         state.overlay.enter_option_edit(OptionEditState::new(
-            ConfigKey::ProcFilter,
+            ConfigKey::String(StringKey::ProcFilter),
             EditKind::Text,
             String::new(),
         ));

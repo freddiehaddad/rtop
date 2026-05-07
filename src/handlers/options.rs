@@ -1,5 +1,5 @@
 use crate::{
-    config::ConfigKey,
+    config::{BoolKey, ConfigKey, EnumKey, IntKey, StringKey},
     dirty::Dirty,
     handlers::options_edit::{EditKind, OptionEditState},
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
@@ -275,7 +275,9 @@ fn apply_option_change(
 ) {
     match kind {
         menu::options_menu::OptKind::Bool => {
-            opt_key.toggle_bool(ctx.config);
+            if let ConfigKey::Bool(k) = opt_key {
+                k.toggle(ctx.config);
+            }
             tracing::info!(
                 subsystem = %crate::log::Subsystem::Input,
                 action = "option_toggle",
@@ -285,11 +287,15 @@ fn apply_option_change(
         }
         menu::options_menu::OptKind::Int => {
             menu::options_menu::step_int(opt_key, ctx.config, dir);
+            let value = match opt_key {
+                ConfigKey::Int(k) => k.get(ctx.config),
+                _ => 0,
+            };
             tracing::info!(
                 subsystem = %crate::log::Subsystem::Input,
                 action = "option_step",
                 option = opt_key.name(),
-                value = opt_key.get_int(ctx.config),
+                value,
                 "option stepped",
             );
         }
@@ -331,54 +337,54 @@ pub(crate) fn apply_post_change_effects(
     extra_ops: &mut Vec<TerminalOp>,
 ) {
     match key {
-        ConfigKey::ColorTheme => {
+        ConfigKey::String(StringKey::ColorTheme) => {
             let name = ctx.config.color_theme.clone();
             *ctx.theme = theme::Theme::from_name(&name);
             extra_ops.push(TerminalOp::Raw(
                 ctx.theme.base_style(ctx.config.theme_background),
             ));
         }
-        ConfigKey::ThemeBackground => {
+        ConfigKey::Bool(BoolKey::ThemeBackground) => {
             extra_ops.push(TerminalOp::Raw(
                 ctx.theme.base_style(ctx.config.theme_background),
             ));
         }
-        ConfigKey::RoundedCorners => {
+        ConfigKey::Bool(BoolKey::RoundedCorners) => {
             ctx.runtime.rounded = ctx.config.rounded_corners;
         }
-        ConfigKey::LogLevel => {
+        ConfigKey::Enum(EnumKey::LogLevel) => {
             crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
         }
-        ConfigKey::UpdateMs => {
+        ConfigKey::Int(IntKey::UpdateMs) => {
             ctx.runtime.update_ms = ctx.config.update_ms as u64;
             sync_all_intervals(ctx);
         }
-        ConfigKey::CpuUpdateMs => {
+        ConfigKey::Int(IntKey::CpuUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Cpu, ms);
         }
-        ConfigKey::MemUpdateMs => {
+        ConfigKey::Int(IntKey::MemUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Mem, ms);
         }
-        ConfigKey::DiskUpdateMs => {
+        ConfigKey::Int(IntKey::DiskUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Disk, ms);
         }
-        ConfigKey::NetUpdateMs => {
+        ConfigKey::Int(IntKey::NetUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Net, ms);
         }
-        ConfigKey::GpuUpdateMs => {
+        ConfigKey::Int(IntKey::GpuUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Gpu, ms);
         }
-        ConfigKey::ProcUpdateMs => {
+        ConfigKey::Int(IntKey::ProcUpdateMs) => {
             let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Proc, ms);
@@ -388,16 +394,16 @@ pub(crate) fn apply_post_change_effects(
 
     if matches!(
         key,
-        ConfigKey::ProcFilter
-            | ConfigKey::ProcSorting
-            | ConfigKey::ProcReversed
-            | ConfigKey::ProcTree
-            | ConfigKey::ProcAggregate
-            | ConfigKey::KeepDeadProcUsage
-            | ConfigKey::ProcMemBytes
-            | ConfigKey::ProcGradient
-            | ConfigKey::ProcColors
-            | ConfigKey::ProcPerCore
+        ConfigKey::String(StringKey::ProcFilter)
+            | ConfigKey::Enum(EnumKey::ProcSorting)
+            | ConfigKey::Bool(BoolKey::ProcReversed)
+            | ConfigKey::Bool(BoolKey::ProcTree)
+            | ConfigKey::Bool(BoolKey::ProcAggregate)
+            | ConfigKey::Bool(BoolKey::KeepDeadProcUsage)
+            | ConfigKey::Bool(BoolKey::ProcMemBytes)
+            | ConfigKey::Bool(BoolKey::ProcGradient)
+            | ConfigKey::Bool(BoolKey::ProcColors)
+            | ConfigKey::Bool(BoolKey::ProcPerCore)
     ) {
         ctx.render.dirty |= Dirty::PROC_LIST;
     }

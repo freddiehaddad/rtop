@@ -1,4 +1,4 @@
-use crate::config::{Config, ConfigKey, KeyKind};
+use crate::config::{BoolKey, Config, ConfigKey, EnumKey, IntKey, KeyKind, StringKey};
 use crate::draw::box_drawing::{self, symbols};
 use crate::handlers::options_edit::OptionEditState;
 use crate::term;
@@ -30,8 +30,16 @@ pub enum OptKind {
 // ---------------------------------------------------------------------------
 
 /// Return the list of valid values for a browsable option key.
+///
+/// `EnumKey` always has choices (closed set); `StringKey` may
+/// optionally have choices (today: only `ColorTheme`); other kinds
+/// have none — the inline editor handles them via free-form input.
 pub fn browsable_values(key: ConfigKey) -> &'static [&'static str] {
-    key.browsable_values()
+    match key {
+        ConfigKey::Enum(k) => k.choices(),
+        ConfigKey::String(k) => k.choices().unwrap_or(&[]),
+        ConfigKey::Bool(_) | ConfigKey::Int(_) => &[],
+    }
 }
 
 fn classify(key: ConfigKey, _config: &Config) -> OptKind {
@@ -58,90 +66,93 @@ pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", 
 
 /// Options in the "general" category.
 pub const GENERAL: &[ConfigKey] = &[
-    ConfigKey::ColorTheme,
-    ConfigKey::ThemeBackground,
-    ConfigKey::VimKeys,
-    ConfigKey::CustomLayout,
-    ConfigKey::UpdateMs,
-    ConfigKey::RoundedCorners,
-    ConfigKey::TerminalSync,
-    ConfigKey::GraphSymbol,
-    ConfigKey::ClockFormat,
-    ConfigKey::Base10Sizes,
-    ConfigKey::BackgroundUpdate,
-    ConfigKey::LogLevel,
-    ConfigKey::SaveConfigOnExit,
+    ConfigKey::String(StringKey::ColorTheme),
+    ConfigKey::Bool(BoolKey::ThemeBackground),
+    ConfigKey::Bool(BoolKey::VimKeys),
+    ConfigKey::String(StringKey::CustomLayout),
+    ConfigKey::Int(IntKey::UpdateMs),
+    ConfigKey::Bool(BoolKey::RoundedCorners),
+    ConfigKey::Bool(BoolKey::TerminalSync),
+    ConfigKey::Enum(EnumKey::GraphSymbol),
+    ConfigKey::String(StringKey::ClockFormat),
+    ConfigKey::Bool(BoolKey::Base10Sizes),
+    ConfigKey::Bool(BoolKey::BackgroundUpdate),
+    ConfigKey::Enum(EnumKey::LogLevel),
+    ConfigKey::Bool(BoolKey::SaveConfigOnExit),
 ];
 
 /// Options in the "cpu" category.
 pub const CPU: &[ConfigKey] = &[
-    ConfigKey::GraphSymbolCpu,
-    ConfigKey::CpuGraphUpper,
-    ConfigKey::CpuGraphLower,
-    ConfigKey::CpuInvertLower,
-    ConfigKey::CpuSingleGraph,
-    ConfigKey::CpuAutoScale,
-    ConfigKey::CheckTemp,
-    ConfigKey::ShowCoretemp,
-    ConfigKey::TempScale,
-    ConfigKey::ShowCpuFreq,
-    ConfigKey::CustomCpuName,
-    ConfigKey::ShowUptime,
-    ConfigKey::ShowCpuWatts,
-    ConfigKey::CpuUpdateMs,
+    ConfigKey::Enum(EnumKey::GraphSymbolCpu),
+    ConfigKey::Enum(EnumKey::CpuGraphUpper),
+    ConfigKey::Enum(EnumKey::CpuGraphLower),
+    ConfigKey::Bool(BoolKey::CpuInvertLower),
+    ConfigKey::Bool(BoolKey::CpuSingleGraph),
+    ConfigKey::Bool(BoolKey::CpuAutoScale),
+    ConfigKey::Bool(BoolKey::CheckTemp),
+    ConfigKey::Bool(BoolKey::ShowCoretemp),
+    ConfigKey::Enum(EnumKey::TempScale),
+    ConfigKey::Bool(BoolKey::ShowCpuFreq),
+    ConfigKey::String(StringKey::CustomCpuName),
+    ConfigKey::Bool(BoolKey::ShowUptime),
+    ConfigKey::Bool(BoolKey::ShowCpuWatts),
+    ConfigKey::Int(IntKey::CpuUpdateMs),
 ];
 
 /// Options in the "mem" category.
-pub const MEM: &[ConfigKey] = &[ConfigKey::ShowSwap, ConfigKey::MemUpdateMs];
+pub const MEM: &[ConfigKey] = &[
+    ConfigKey::Bool(BoolKey::ShowSwap),
+    ConfigKey::Int(IntKey::MemUpdateMs),
+];
 
 /// Options in the "net" category.
 pub const NET: &[ConfigKey] = &[
-    ConfigKey::GraphSymbolNet,
-    ConfigKey::SwapUploadDownload,
-    ConfigKey::NetDownload,
-    ConfigKey::NetUpload,
-    ConfigKey::NetAuto,
-    ConfigKey::NetSync,
-    ConfigKey::NetUpdateMs,
+    ConfigKey::Enum(EnumKey::GraphSymbolNet),
+    ConfigKey::Bool(BoolKey::SwapUploadDownload),
+    ConfigKey::Int(IntKey::NetDownload),
+    ConfigKey::Int(IntKey::NetUpload),
+    ConfigKey::Bool(BoolKey::NetAuto),
+    ConfigKey::Bool(BoolKey::NetSync),
+    ConfigKey::Int(IntKey::NetUpdateMs),
 ];
 
 /// Options in the "proc" category.
 pub const PROC: &[ConfigKey] = &[
-    ConfigKey::ProcSorting,
-    ConfigKey::ProcReversed,
-    ConfigKey::ProcTree,
-    ConfigKey::ProcAggregate,
-    ConfigKey::ProcColors,
-    ConfigKey::ProcGradient,
-    ConfigKey::ProcPerCore,
-    ConfigKey::ProcMemBytes,
-    ConfigKey::KeepDeadProcUsage,
-    ConfigKey::ProcFilter,
-    ConfigKey::ProcUpdateMs,
+    ConfigKey::Enum(EnumKey::ProcSorting),
+    ConfigKey::Bool(BoolKey::ProcReversed),
+    ConfigKey::Bool(BoolKey::ProcTree),
+    ConfigKey::Bool(BoolKey::ProcAggregate),
+    ConfigKey::Bool(BoolKey::ProcColors),
+    ConfigKey::Bool(BoolKey::ProcGradient),
+    ConfigKey::Bool(BoolKey::ProcPerCore),
+    ConfigKey::Bool(BoolKey::ProcMemBytes),
+    ConfigKey::Bool(BoolKey::KeepDeadProcUsage),
+    ConfigKey::String(StringKey::ProcFilter),
+    ConfigKey::Int(IntKey::ProcUpdateMs),
 ];
 
 /// Options in the "gpu" category.
 pub const GPU: &[ConfigKey] = &[
-    ConfigKey::CustomGpuName0,
-    ConfigKey::CustomGpuName1,
-    ConfigKey::CustomGpuName2,
-    ConfigKey::CustomGpuName3,
-    ConfigKey::CustomGpuName4,
-    ConfigKey::CustomGpuName5,
-    ConfigKey::CustomGpuName6,
-    ConfigKey::CustomGpuName7,
-    ConfigKey::GpuUpdateMs,
+    ConfigKey::String(StringKey::CustomGpuName0),
+    ConfigKey::String(StringKey::CustomGpuName1),
+    ConfigKey::String(StringKey::CustomGpuName2),
+    ConfigKey::String(StringKey::CustomGpuName3),
+    ConfigKey::String(StringKey::CustomGpuName4),
+    ConfigKey::String(StringKey::CustomGpuName5),
+    ConfigKey::String(StringKey::CustomGpuName6),
+    ConfigKey::String(StringKey::CustomGpuName7),
+    ConfigKey::Int(IntKey::GpuUpdateMs),
 ];
 
 /// Options in the "disk" category.
 pub const DISK: &[ConfigKey] = &[
-    ConfigKey::GraphSymbolDisk,
-    ConfigKey::ShowIoStat,
-    ConfigKey::IoMode,
-    ConfigKey::IoGraphCombined,
-    ConfigKey::DiskIoMode,
-    ConfigKey::DisksFilter,
-    ConfigKey::DiskUpdateMs,
+    ConfigKey::Enum(EnumKey::GraphSymbolDisk),
+    ConfigKey::Bool(BoolKey::ShowIoStat),
+    ConfigKey::Bool(BoolKey::IoMode),
+    ConfigKey::Bool(BoolKey::IoGraphCombined),
+    ConfigKey::Bool(BoolKey::DiskIoMode),
+    ConfigKey::String(StringKey::DisksFilter),
+    ConfigKey::Int(IntKey::DiskUpdateMs),
 ];
 
 /// All categories in order.
@@ -159,11 +170,11 @@ pub fn get_value(key: ConfigKey, config: &Config) -> String {
 }
 
 /// Cycle a browsable option left or right. Returns true if changed.
+///
+/// Only `EnumKey` and constrained `StringKey`s (today: `ColorTheme`)
+/// are browsable; calling this on any other key is a no-op.
 pub fn cycle_browsable(key: ConfigKey, config: &mut Config, direction: i32) -> bool {
-    if !matches!(key.kind(), KeyKind::String | KeyKind::Enum) {
-        return false;
-    }
-    let vals = key.browsable_values();
+    let vals = browsable_values(key);
     if vals.is_empty() {
         return false;
     }
@@ -176,25 +187,35 @@ pub fn cycle_browsable(key: ConfigKey, config: &mut Config, direction: i32) -> b
     } else {
         idx - 1
     };
-    key.set_string(config, vals[new_idx])
-        .expect("browsable_values entries must round-trip through set_string");
+    let target = vals[new_idx];
+    match key {
+        ConfigKey::Enum(k) => k
+            .set_canonical(config, target)
+            .expect("EnumKey::choices entries must round-trip through set_canonical"),
+        ConfigKey::String(k) => k
+            .set(config, target)
+            .expect("StringKey::choices entries must round-trip through set"),
+        ConfigKey::Bool(_) | ConfigKey::Int(_) => {
+            // browsable_values returned a non-empty slice above only
+            // for Enum / String keys, so this branch is unreachable
+            // by construction.
+            unreachable!("non-browsable key reached cycle_browsable mutation path")
+        }
+    }
     true
 }
 
 /// Step an int option by `delta`.
+///
+/// No-op for non-int keys (the menu dispatches by `OptKind` before
+/// reaching this function — the match here exists to satisfy the
+/// type-safe `IntKey` API rather than as a runtime guard).
 pub fn step_int(key: ConfigKey, config: &mut Config, delta: i64) {
-    let step = match key {
-        ConfigKey::UpdateMs
-        | ConfigKey::CpuUpdateMs
-        | ConfigKey::MemUpdateMs
-        | ConfigKey::DiskUpdateMs
-        | ConfigKey::NetUpdateMs
-        | ConfigKey::GpuUpdateMs
-        | ConfigKey::ProcUpdateMs => 100,
-        _ => 1,
+    let ConfigKey::Int(k) = key else {
+        return;
     };
-    let value = key.get_int(config) + delta * step;
-    key.set_int(config, value);
+    let value = k.get(config) + delta * k.step();
+    k.set(config, value);
     config.validate();
 }
 
