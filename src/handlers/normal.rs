@@ -132,12 +132,12 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
             "config reload warning",
         );
     }
-    let theme_name = ctx.config.color_theme.clone();
+    let theme_name = ctx.config.ui.color_theme.clone();
     *ctx.theme = theme::Theme::from_name(&theme_name);
-    let base = ctx.theme.base_style(ctx.config.theme_background);
-    ctx.runtime.rounded = ctx.config.rounded_corners;
+    let base = ctx.theme.base_style(ctx.config.ui.theme_background);
+    ctx.runtime.rounded = ctx.config.ui.rounded_corners;
     sync_update_ms(ctx);
-    crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
+    crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
     // Reload may load a different active layout; the runtime view
     // filter no longer applies to widgets the user didn't choose
     // to hide. Treat reload as a fresh slate and clear the filter.
@@ -150,7 +150,7 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
 // --- Process navigation ---
 
 fn handle_process_nav(key: &Key, ctx: &mut InputContext) {
-    let vim = ctx.config.vim_keys;
+    let vim = ctx.config.ui.vim_keys;
 
     // Any navigation key cancels Follow mode (btop behavior).
     let is_nav = matches!(
@@ -248,71 +248,71 @@ fn handle_process_keys(key: &Key, ctx: &mut InputContext) {
     match *key {
         Key::Char('f') | Key::Char('/') => {
             ctx.overlay.set_menu_state(MenuState::Filter);
-            ctx.process.filter_text = ctx.config.proc_filter.clone();
+            ctx.process.filter_text = ctx.config.proc.proc_filter.clone();
             ctx.render.dirty |= Dirty::PROC_WIDGET;
         }
         Key::Char('e') => {
-            ctx.config.proc_tree = !ctx.config.proc_tree;
+            ctx.config.proc.proc_tree = !ctx.config.proc.proc_tree;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('r') => {
-            ctx.config.proc_reversed = !ctx.config.proc_reversed;
+            ctx.config.proc.proc_reversed = !ctx.config.proc.proc_reversed;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('c') => {
-            ctx.config.proc_per_core = !ctx.config.proc_per_core;
+            ctx.config.proc.proc_per_core = !ctx.config.proc.proc_per_core;
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('i') => {
-            ctx.config.io_mode = !ctx.config.io_mode;
+            ctx.config.disk.io_mode = !ctx.config.disk.io_mode;
             ctx.render.dirty |= Dirty::DISK_WIDGET;
         }
         Key::Left => {
-            let current = ctx.config.proc_sorting;
+            let current = ctx.config.proc.proc_sorting;
             let idx = ProcSort::ALL
                 .iter()
                 .position(|&s| s == current)
-                .expect("config.proc_sorting must always be a known ProcSort variant");
+                .expect("config.proc.proc_sorting must always be a known ProcSort variant");
             let new_idx = if idx == 0 {
                 ProcSort::ALL.len() - 1
             } else {
                 idx - 1
             };
-            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.config.proc.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
-        Key::Char('h') if ctx.config.vim_keys => {
-            let current = ctx.config.proc_sorting;
+        Key::Char('h') if ctx.config.ui.vim_keys => {
+            let current = ctx.config.proc.proc_sorting;
             let idx = ProcSort::ALL
                 .iter()
                 .position(|&s| s == current)
-                .expect("config.proc_sorting must always be a known ProcSort variant");
+                .expect("config.proc.proc_sorting must always be a known ProcSort variant");
             let new_idx = if idx == 0 {
                 ProcSort::ALL.len() - 1
             } else {
                 idx - 1
             };
-            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.config.proc.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Right => {
-            let current = ctx.config.proc_sorting;
+            let current = ctx.config.proc.proc_sorting;
             let idx = ProcSort::ALL
                 .iter()
                 .position(|&s| s == current)
-                .expect("config.proc_sorting must always be a known ProcSort variant");
+                .expect("config.proc.proc_sorting must always be a known ProcSort variant");
             let new_idx = (idx + 1) % ProcSort::ALL.len();
-            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.config.proc.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
-        Key::Char('l') if ctx.config.vim_keys => {
-            let current = ctx.config.proc_sorting;
+        Key::Char('l') if ctx.config.ui.vim_keys => {
+            let current = ctx.config.proc.proc_sorting;
             let idx = ProcSort::ALL
                 .iter()
                 .position(|&s| s == current)
-                .expect("config.proc_sorting must always be a known ProcSort variant");
+                .expect("config.proc.proc_sorting must always be a known ProcSort variant");
             let new_idx = (idx + 1) % ProcSort::ALL.len();
-            ctx.config.proc_sorting = ProcSort::ALL[new_idx];
+            ctx.config.proc.proc_sorting = ProcSort::ALL[new_idx];
             ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
         }
         Key::Char('t') => {
@@ -476,11 +476,11 @@ fn handle_network(key: &Key, ctx: &mut InputContext) {
             ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('a') => {
-            ctx.config.net_auto = !ctx.config.net_auto;
+            ctx.config.net.net_auto = !ctx.config.net.net_auto;
             ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('s') => {
-            ctx.config.net_sync = !ctx.config.net_sync;
+            ctx.config.net.net_sync = !ctx.config.net.net_sync;
             ctx.render.dirty |= Dirty::NET_WIDGET;
         }
         Key::Char('z') if !ctx.network.selected_iface.is_empty() => {
@@ -506,8 +506,8 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
         100
     };
     let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
-    ctx.config.update_ms = new_ms;
-    ctx.runtime.update_ms = ctx.config.update_ms as u64;
+    ctx.config.refresh.update_ms = new_ms;
+    ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
     sync_all_intervals(ctx);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
@@ -528,12 +528,12 @@ fn handle_update_rate(key: &Key, ctx: &mut InputContext) {
 pub(super) fn sync_all_intervals(ctx: &mut InputContext) {
     use crate::event::SubsystemKind;
     let intervals = [
-        (SubsystemKind::Cpu, ctx.config.cpu_update_ms),
-        (SubsystemKind::Mem, ctx.config.mem_update_ms),
-        (SubsystemKind::Disk, ctx.config.disk_update_ms),
-        (SubsystemKind::Net, ctx.config.net_update_ms),
-        (SubsystemKind::Gpu, ctx.config.gpu_update_ms),
-        (SubsystemKind::Proc, ctx.config.proc_update_ms),
+        (SubsystemKind::Cpu, ctx.config.refresh.cpu_update_ms),
+        (SubsystemKind::Mem, ctx.config.refresh.mem_update_ms),
+        (SubsystemKind::Disk, ctx.config.refresh.disk_update_ms),
+        (SubsystemKind::Net, ctx.config.refresh.net_update_ms),
+        (SubsystemKind::Gpu, ctx.config.refresh.gpu_update_ms),
+        (SubsystemKind::Proc, ctx.config.refresh.proc_update_ms),
     ];
     for (kind, widget_ms) in intervals {
         ctx.manager
@@ -542,7 +542,7 @@ pub(super) fn sync_all_intervals(ctx: &mut InputContext) {
 }
 
 fn sync_update_ms(ctx: &mut InputContext) {
-    ctx.runtime.update_ms = ctx.config.update_ms as u64;
+    ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
     sync_all_intervals(ctx);
 }
 
@@ -565,7 +565,7 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
         (current + 1) % nets.len()
     };
     ctx.network.selected_iface = nets[new_idx].name.clone();
-    ctx.config.net_iface = ctx.network.selected_iface.clone();
+    ctx.config.net.net_iface = ctx.network.selected_iface.clone();
 }
 
 /// Attempt graceful termination by sending WM_CLOSE to the process's

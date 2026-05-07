@@ -42,14 +42,14 @@ fn main() {
     };
 
     let log_dir = tools::data_dir();
-    log::init(&log_dir, config.log_level).expect("logging must initialise at startup");
+    log::init(&log_dir, config.log.log_level).expect("logging must initialise at startup");
     let active_config_file = cli.config_file.as_deref().or_else(|| {
         default_conf_path
             .exists()
             .then_some(default_conf_path.as_path())
     });
     log::startup_banner(
-        config.log_level,
+        config.log.log_level,
         &log_dir.join("rtop.log"),
         active_config_file,
     );
@@ -59,13 +59,13 @@ fn main() {
     }
 
     if let Some(ms) = cli.update_ms {
-        config.update_ms = ms as i64;
+        config.refresh.update_ms = ms as i64;
     }
     if let Some(ref f) = cli.filter {
-        config.proc_filter = f.clone();
+        config.proc.proc_filter = f.clone();
     }
 
-    let mut terminal = match term::Terminal::init(config.terminal_sync) {
+    let mut terminal = match term::Terminal::init(config.ui.terminal_sync) {
         Ok(t) => t,
         Err(e) => {
             tracing::error!(
@@ -78,9 +78,9 @@ fn main() {
         }
     };
 
-    let mut theme = theme::Theme::from_name(&config.color_theme);
+    let mut theme = theme::Theme::from_name(&config.ui.color_theme);
 
-    let base_colors = theme.base_style(config.theme_background);
+    let base_colors = theme.base_style(config.ui.theme_background);
     if let Err(e) = terminal.write_raw(&base_colors) {
         tracing::warn!(
             subsystem = %log::Subsystem::Terminal,

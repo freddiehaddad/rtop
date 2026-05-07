@@ -58,7 +58,8 @@ enum AppCommand {
 /// queued events, then renders any dirty widgets in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    let mut manager = runner::CollectorManager::start(config.update_ms as u64, event_tx.clone());
+    let mut manager =
+        runner::CollectorManager::start(config.refresh.update_ms as u64, event_tx.clone());
     lifecycle::spawn_input_thread(event_tx);
     let mut state = AppState::new(config, Instant::now());
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
@@ -98,7 +99,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         let size = terminal_size(terminal);
 
         // Always consume slot data into LiveData regardless of overlay state.
-        let render_ui = config.background_update || state.overlay.render_ui();
+        let render_ui = config.ui.background_update || state.overlay.render_ui();
         pull::pull_subsystem_data(&mut state, config, &manager, render_ui, &ready);
 
         // Required terminal size for the active layout, derived per
@@ -203,7 +204,7 @@ fn handle_input_key(
         th: size.height,
     };
     let result = dispatch_handler(key, &mut ctx);
-    terminal.set_sync(ctx.config.terminal_sync);
+    terminal.set_sync(ctx.config.ui.terminal_sync);
     lifecycle::execute_terminal_ops(terminal, ctx.config, ctx.theme, &result);
     if result.redraw_overlay {
         let out = handlers::redraw_after_overlay(&mut ctx);

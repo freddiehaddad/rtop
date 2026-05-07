@@ -75,48 +75,78 @@ fn validate_choice(
 // Config struct
 // ---------------------------------------------------------------------------
 
-/// All configuration state for rtop.
+// ---------------------------------------------------------------------------
+// Per-subsystem config sections
+// ---------------------------------------------------------------------------
+//
+// `Config` was originally a 50+-field flat struct; renderers and
+// handlers reached into it for a few unrelated fields each, and
+// adding a per-widget setting touched the same struct as adding a
+// log-level setting.
+//
+// The new shape splits the persisted state into per-subsystem
+// sub-structs (`UiConfig`, `RefreshConfig`, `CpuConfig`, …) that
+// `Config` composes via `#[serde(flatten)]`. The on-disk TOML
+// format is unchanged — every field still serialises at the
+// top level — but the in-memory layout matches the natural
+// dependency boundaries:
+//
+// * Widget renderers can take `&CpuConfig` (or `&NetConfig`, etc.)
+//   directly, eliminating the per-widget `*WidgetSettings`
+//   adapter layer in a follow-up todo.
+// * Config consumers that only care about refresh intervals don't
+//   pull in CPU/disk/network field knowledge.
+// * Adding a new option is a one-section edit, not a 50-field
+//   struct edit.
+//
+// Top-level fields (`preset`, `custom_layout`, `hidden_widgets`,
+// `log_level`, `conf_file`) stay on `Config` directly because
+// they don't fit a single subsystem (layout selection,
+// process-wide log filter, runtime view filter, file path).
+
+/// UI / general appearance settings (`general` options-menu tab).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Config {
-    // -- bools --
+pub struct UiConfig {
     pub theme_background: bool,
     pub rounded_corners: bool,
-    pub proc_reversed: bool,
-    pub proc_tree: bool,
-    pub proc_colors: bool,
-    pub proc_gradient: bool,
-    pub proc_per_core: bool,
-    pub proc_mem_bytes: bool,
-
-    pub proc_aggregate: bool,
-    pub keep_dead_proc_usage: bool,
-    pub cpu_invert_lower: bool,
-    pub cpu_single_graph: bool,
-    pub cpu_auto_scale: bool,
-    pub show_uptime: bool,
-    pub show_cpu_watts: bool,
-    pub check_temp: bool,
-    pub show_coretemp: bool,
-    pub show_cpu_freq: bool,
-    pub show_swap: bool,
-
-    pub show_io_stat: bool,
-    pub io_mode: bool,
-    pub io_graph_combined: bool,
-    pub swap_upload_download: bool,
-    pub base_10_sizes: bool,
-    pub net_auto: bool,
-    pub net_sync: bool,
-
+    pub color_theme: String,
     pub vim_keys: bool,
-    pub background_update: bool,
     pub terminal_sync: bool,
+    pub background_update: bool,
     pub save_config_on_exit: bool,
+    pub base_10_sizes: bool,
+    /// Default graph drawing style; per-widget `graph_symbol_*`
+    /// fields override this when set to a non-`Default` value.
+    pub graph_symbol: GraphSymbol,
+    /// Format string for the clock displayed in the CPU widget
+    /// header. Empty hides the clock.
+    pub clock_format: String,
+}
 
-    pub disk_io_mode: bool,
+impl Default for UiConfig {
+    fn default() -> Self {
+        Self {
+            theme_background: true,
+            rounded_corners: true,
+            color_theme: "default".to_string(),
+            vim_keys: false,
+            terminal_sync: true,
+            background_update: true,
+            save_config_on_exit: true,
+            base_10_sizes: false,
+            graph_symbol: GraphSymbol::Braille,
+            clock_format: "%X".to_string(),
+        }
+    }
+}
 
-    // -- ints --
+/// Refresh-interval settings (one global + per-subsystem
+/// overrides). 0 on a per-subsystem field means "inherit the
+/// global `update_ms`".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RefreshConfig {
     pub update_ms: i64,
     pub cpu_update_ms: i64,
     pub mem_update_ms: i64,
@@ -124,9 +154,228 @@ pub struct Config {
     pub net_update_ms: i64,
     pub gpu_update_ms: i64,
     pub proc_update_ms: i64,
+}
+
+impl Default for RefreshConfig {
+    fn default() -> Self {
+        Self {
+            update_ms: 2000,
+            cpu_update_ms: 0,
+            mem_update_ms: 0,
+            disk_update_ms: 0,
+            net_update_ms: 0,
+            gpu_update_ms: 0,
+            proc_update_ms: 0,
+        }
+    }
+}
+
+/// CPU widget settings (`cpu` options-menu tab).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CpuConfig {
+    pub graph_symbol_cpu: GraphSymbol,
+    pub cpu_graph_upper: CpuGraphSource,
+    pub cpu_graph_lower: CpuGraphSource,
+    pub cpu_invert_lower: bool,
+    pub cpu_single_graph: bool,
+    pub cpu_auto_scale: bool,
+    pub check_temp: bool,
+    pub show_coretemp: bool,
+    pub temp_scale: TempScale,
+    pub show_cpu_freq: bool,
+    pub custom_cpu_name: String,
+    pub show_uptime: bool,
+    pub show_cpu_watts: bool,
+}
+
+impl Default for CpuConfig {
+    fn default() -> Self {
+        Self {
+            graph_symbol_cpu: GraphSymbol::Default,
+            cpu_graph_upper: CpuGraphSource::User,
+            cpu_graph_lower: CpuGraphSource::System,
+            cpu_invert_lower: true,
+            cpu_single_graph: false,
+            cpu_auto_scale: false,
+            check_temp: true,
+            show_coretemp: true,
+            temp_scale: TempScale::Celsius,
+            show_cpu_freq: true,
+            custom_cpu_name: String::new(),
+            show_uptime: true,
+            show_cpu_watts: true,
+        }
+    }
+}
+
+/// Memory widget settings (`mem` options-menu tab).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemConfig {
+    pub show_swap: bool,
+}
+
+impl Default for MemConfig {
+    fn default() -> Self {
+        Self { show_swap: true }
+    }
+}
+
+/// Network widget settings (`net` options-menu tab).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NetConfig {
+    pub graph_symbol_net: GraphSymbol,
+    pub swap_upload_download: bool,
     pub net_download: i64,
     pub net_upload: i64,
+    pub net_auto: bool,
+    pub net_sync: bool,
+    /// Preferred network interface name. `"auto"` picks the first
+    /// available interface; any other value is the user's pinned
+    /// selection (cycled at runtime via `Tab` / `Shift+Tab`).
+    pub net_iface: String,
+}
 
+impl Default for NetConfig {
+    fn default() -> Self {
+        Self {
+            graph_symbol_net: GraphSymbol::Default,
+            swap_upload_download: false,
+            net_download: 100,
+            net_upload: 100,
+            net_auto: true,
+            net_sync: false,
+            net_iface: "auto".to_string(),
+        }
+    }
+}
+
+/// Process widget settings (`proc` options-menu tab).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcConfig {
+    pub proc_sorting: ProcSort,
+    pub proc_reversed: bool,
+    pub proc_tree: bool,
+    pub proc_aggregate: bool,
+    pub proc_colors: bool,
+    pub proc_gradient: bool,
+    pub proc_per_core: bool,
+    pub proc_mem_bytes: bool,
+    pub keep_dead_proc_usage: bool,
+    pub proc_filter: String,
+}
+
+impl Default for ProcConfig {
+    fn default() -> Self {
+        Self {
+            proc_sorting: ProcSort::Cpu,
+            proc_reversed: false,
+            proc_tree: false,
+            proc_aggregate: false,
+            proc_colors: true,
+            proc_gradient: true,
+            proc_per_core: false,
+            proc_mem_bytes: true,
+            keep_dead_proc_usage: false,
+            proc_filter: String::new(),
+        }
+    }
+}
+
+/// GPU widget settings (`gpu` options-menu tab).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GpuConfig {
+    pub custom_gpu_names: [String; MAX_GPUS],
+}
+
+/// Disk widget settings (`disk` options-menu tab).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiskConfig {
+    pub graph_symbol_disk: GraphSymbol,
+    pub show_io_stat: bool,
+    pub io_mode: bool,
+    pub io_graph_combined: bool,
+    pub disk_io_mode: bool,
+    pub disks_filter: Vec<String>,
+}
+
+impl Default for DiskConfig {
+    fn default() -> Self {
+        Self {
+            graph_symbol_disk: GraphSymbol::Default,
+            show_io_stat: true,
+            io_mode: false,
+            io_graph_combined: false,
+            disk_io_mode: false,
+            disks_filter: Vec::new(),
+        }
+    }
+}
+
+/// Logging config — process-wide tracing level. Lives in its own
+/// section purely so the `config_schema!` macro can address it
+/// with the same `section.field` shape it uses for every other
+/// key; logical owner is the logging subsystem.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LogConfig {
+    /// Process-wide tracing log level. Serialised as the canonical
+    /// lowercase name (`off`/`error`/`warn`/`info`/`debug`/`trace`).
+    #[serde(
+        with = "crate::log::serde_filter",
+        default = "crate::log::default_filter"
+    )]
+    pub log_level: LevelFilter,
+}
+
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            log_level: LevelFilter::WARN,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Config — composed wrapper over per-subsystem sections
+// ---------------------------------------------------------------------------
+
+/// All persisted configuration state for rtop.
+///
+/// Composed of per-subsystem sections (see the `*Config` structs
+/// above) flattened into a single TOML root via
+/// `#[serde(flatten)]`. Top-level fields (`preset`,
+/// `custom_layout`, `hidden_widgets`, `log_level`, `conf_file`)
+/// stay on the wrapper because they don't fit a single subsystem.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Config {
+    #[serde(flatten)]
+    pub ui: UiConfig,
+    #[serde(flatten)]
+    pub refresh: RefreshConfig,
+    #[serde(flatten)]
+    pub cpu: CpuConfig,
+    #[serde(flatten)]
+    pub mem: MemConfig,
+    #[serde(flatten)]
+    pub net: NetConfig,
+    #[serde(flatten)]
+    pub proc: ProcConfig,
+    #[serde(flatten)]
+    pub gpu: GpuConfig,
+    #[serde(flatten)]
+    pub disk: DiskConfig,
+    #[serde(flatten)]
+    pub log: LogConfig,
+
+    /// Cursor over the active preset (one of the builtins, or the
+    /// custom slot). Persisted by canonical name.
     pub preset: crate::domain::preset::PresetField,
 
     /// Persisted layout for the `Custom` preset slot. Stored as a
@@ -156,29 +405,8 @@ pub struct Config {
     #[serde(default)]
     pub hidden_widgets: crate::domain::widget_set::WidgetSet,
 
-    // -- strings --
-    pub color_theme: String,
-    pub graph_symbol: GraphSymbol,
-    pub graph_symbol_cpu: GraphSymbol,
-    pub graph_symbol_net: GraphSymbol,
-    pub graph_symbol_disk: GraphSymbol,
-    pub proc_sorting: ProcSort,
-    pub cpu_graph_upper: CpuGraphSource,
-    pub cpu_graph_lower: CpuGraphSource,
-
-    pub temp_scale: TempScale,
-    pub clock_format: String,
-    pub custom_cpu_name: String,
-    pub disks_filter: Vec<String>,
-    pub net_iface: String,
-    #[serde(
-        with = "crate::log::serde_filter",
-        default = "crate::log::default_filter"
-    )]
-    pub log_level: LevelFilter,
-    pub proc_filter: String,
-    pub custom_gpu_names: [String; MAX_GPUS],
-
+    /// Path to the loaded config file (for `reload()`). Not
+    /// persisted — populated by `load()` at startup.
     #[serde(skip)]
     conf_file: Option<PathBuf>,
 }
@@ -186,61 +414,23 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            // bools
-            theme_background: true,
-            rounded_corners: true,
-            proc_reversed: false,
-            proc_tree: false,
-            proc_colors: true,
-            proc_gradient: true,
-            proc_per_core: false,
-            proc_mem_bytes: true,
-
-            proc_aggregate: false,
-            keep_dead_proc_usage: false,
-            cpu_invert_lower: true,
-            cpu_single_graph: false,
-            cpu_auto_scale: false,
-            show_uptime: true,
-            show_cpu_watts: true,
-            check_temp: true,
-            show_coretemp: true,
-            show_cpu_freq: true,
-            show_swap: true,
-
-            show_io_stat: true,
-            io_mode: false,
-            io_graph_combined: false,
-            swap_upload_download: false,
-            base_10_sizes: false,
-            net_auto: true,
-            net_sync: false,
-
-            vim_keys: false,
-            background_update: true,
-            terminal_sync: true,
-            save_config_on_exit: true,
-
-            disk_io_mode: false,
-
-            // ints
-            update_ms: 2000,
-            cpu_update_ms: 0,
-            mem_update_ms: 0,
-            disk_update_ms: 0,
-            net_update_ms: 0,
-            gpu_update_ms: 0,
-            proc_update_ms: 0,
-            net_download: 100,
-            net_upload: 100,
+            ui: UiConfig::default(),
+            refresh: RefreshConfig::default(),
+            cpu: CpuConfig::default(),
+            mem: MemConfig::default(),
+            net: NetConfig::default(),
+            proc: ProcConfig::default(),
+            gpu: GpuConfig::default(),
+            disk: DiskConfig::default(),
+            log: LogConfig::default(),
 
             // First-launch cursor lands on the `all` builtin so the
             // very first `p` keypress visibly cycles to a different
             // preset, and the cursor name matches the visible
             // layout. Custom is reached by cycling all the way
             // around or by editing the layout (toggle keys, options
-            // menu, or `shape` DSL string in `rtop.toml`), at which
-            // point the cursor auto-promotes.
+            // menu, or `custom_layout` DSL string in `rtop.toml`),
+            // at which point the cursor auto-promotes.
             preset: crate::domain::preset::PresetField::default(),
 
             // First-launch custom layout: a clone of the `all`
@@ -254,25 +444,6 @@ impl Default for Config {
             // persisted so toggle gestures (1-9, 0, Shift+R)
             // survive restart.
             hidden_widgets: crate::domain::widget_set::WidgetSet::new(),
-
-            // strings
-            color_theme: "default".to_string(),
-            graph_symbol: GraphSymbol::Braille,
-            graph_symbol_cpu: GraphSymbol::Default,
-            graph_symbol_net: GraphSymbol::Default,
-            graph_symbol_disk: GraphSymbol::Default,
-            proc_sorting: ProcSort::Cpu,
-            cpu_graph_upper: CpuGraphSource::User,
-            cpu_graph_lower: CpuGraphSource::System,
-
-            temp_scale: TempScale::Celsius,
-            clock_format: "%X".to_string(),
-            custom_cpu_name: String::new(),
-            disks_filter: Vec::new(),
-            net_iface: "auto".to_string(),
-            log_level: LevelFilter::WARN,
-            proc_filter: String::new(),
-            custom_gpu_names: Default::default(),
 
             conf_file: None,
         }
@@ -293,7 +464,7 @@ impl Config {
         if widget_ms > 0 {
             (widget_ms.clamp(100, 86_400_000)) as u64
         } else {
-            self.update_ms.max(100) as u64
+            self.refresh.update_ms.max(100) as u64
         }
     }
 
@@ -348,63 +519,63 @@ impl Config {
 
         // Clamp integers
         clamp_warn(
-            &mut self.update_ms,
+            &mut self.refresh.update_ms,
             100,
             86_400_000,
             "update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.cpu_update_ms,
+            &mut self.refresh.cpu_update_ms,
             0,
             86_400_000,
             "cpu_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.mem_update_ms,
+            &mut self.refresh.mem_update_ms,
             0,
             86_400_000,
             "mem_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.disk_update_ms,
+            &mut self.refresh.disk_update_ms,
             0,
             86_400_000,
             "disk_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.net_update_ms,
+            &mut self.refresh.net_update_ms,
             0,
             86_400_000,
             "net_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.gpu_update_ms,
+            &mut self.refresh.gpu_update_ms,
             0,
             86_400_000,
             "gpu_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.proc_update_ms,
+            &mut self.refresh.proc_update_ms,
             0,
             86_400_000,
             "proc_update_ms",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.net_download,
+            &mut self.net.net_download,
             0,
             10_000_000,
             "net_download",
             &mut warnings,
         );
         clamp_warn(
-            &mut self.net_upload,
+            &mut self.net.net_upload,
             0,
             10_000_000,
             "net_upload",
@@ -417,7 +588,7 @@ impl Config {
         // fields are typed enums whose validity is enforced by
         // serde at deserialise time.
         validate_choice(
-            &mut self.color_theme,
+            &mut self.ui.color_theme,
             "default",
             crate::theme::THEME_NAMES,
             "color_theme",
@@ -438,14 +609,15 @@ impl Config {
         // Validate disks_filter: surface invalid drive entries as
         // warnings and drop them in place so the saved config
         // matches what the runtime actually uses.
-        let filter = crate::domain::disk::DisksFilter::parse(&self.disks_filter);
+        let filter = crate::domain::disk::DisksFilter::parse(&self.disk.disks_filter);
         if !filter.invalid().is_empty() {
             warnings.push(format!(
                 "Invalid drive entry/entries in 'disks_filter': {}",
                 filter.invalid().join(", ")
             ));
             let invalid_tokens = filter.invalid().to_vec();
-            self.disks_filter
+            self.disk
+                .disks_filter
                 .retain(|tok| !invalid_tokens.contains(tok));
         }
 
@@ -557,13 +729,13 @@ impl Config {
 macro_rules! config_schema {
     (
         bools {
-            $( $bvar:ident => $bname:literal => field $bfield:ident ),* $(,)?
+            $( $bvar:ident => $bname:literal => $bsection:ident . $bfield:ident ),* $(,)?
         }
         ints {
-            $( $ivar:ident => $iname:literal => field $ifield:ident ),* $(,)?
+            $( $ivar:ident => $iname:literal => $isection:ident . $ifield:ident ),* $(,)?
         }
         enums {
-            $( $evar:ident => $ename:literal => field $efield:ident ),* $(,)?
+            $( $evar:ident => $ename:literal => $esection:ident . $efield:ident ),* $(,)?
         }
         strings {
             $( $svar:ident => $sname:literal => { $($sshape:tt)+ } ),* $(,)?
@@ -583,12 +755,14 @@ macro_rules! config_schema {
 
             /// Read the current bool value.
             pub fn get(self, config: &Config) -> bool {
-                match self { $( Self::$bvar => config.$bfield, )* }
+                match self { $( Self::$bvar => config.$bsection.$bfield, )* }
             }
 
             /// Flip the bool in-place.
             pub fn toggle(self, config: &mut Config) {
-                match self { $( Self::$bvar => { config.$bfield = !config.$bfield; } )* }
+                match self {
+                    $( Self::$bvar => { config.$bsection.$bfield = !config.$bsection.$bfield; } )*
+                }
             }
 
             /// Display string for the options menu (`"true"` / `"false"`).
@@ -611,13 +785,13 @@ macro_rules! config_schema {
 
             /// Read the current int value.
             pub fn get(self, config: &Config) -> i64 {
-                match self { $( Self::$ivar => config.$ifield, )* }
+                match self { $( Self::$ivar => config.$isection.$ifield, )* }
             }
 
             /// Write the int value. No clamping — caller should
             /// invoke [`Config::validate`] to apply bounds.
             pub fn set(self, config: &mut Config, value: i64) {
-                match self { $( Self::$ivar => { config.$ifield = value; } )* }
+                match self { $( Self::$ivar => { config.$isection.$ifield = value; } )* }
             }
 
             /// Display string for the options menu (the integer
@@ -643,7 +817,7 @@ macro_rules! config_schema {
             /// Display string for the options menu (the enum's
             /// canonical lowercase name via `Display`).
             pub fn get_display(self, config: &Config) -> String {
-                match self { $( Self::$evar => config.$efield.to_string(), )* }
+                match self { $( Self::$evar => config.$esection.$efield.to_string(), )* }
             }
         }
 
@@ -741,83 +915,86 @@ macro_rules! config_schema {
     };
 
     // === @string_display: dispatch by access shape ===
-    (@string_display $cfg:ident field $f:ident) => { $cfg.$f.clone() };
-    (@string_display $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
-    (@string_display $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
+    (@string_display $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f.clone() };
+    (@string_display $cfg:ident joined_vec $section:ident . $f:ident) => { $cfg.$section.$f.join(" ") };
+    (@string_display $cfg:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i].clone() };
     (@string_display $cfg:ident custom_layout) => { $cfg.custom_layout.to_string() };
 }
 
 config_schema! {
     bools {
-        ThemeBackground => "theme_background" => field theme_background,
-        RoundedCorners => "rounded_corners" => field rounded_corners,
-        ProcReversed => "proc_reversed" => field proc_reversed,
-        ProcTree => "proc_tree" => field proc_tree,
-        ProcColors => "proc_colors" => field proc_colors,
-        ProcGradient => "proc_gradient" => field proc_gradient,
-        ProcPerCore => "proc_per_core" => field proc_per_core,
-        ProcMemBytes => "proc_mem_bytes" => field proc_mem_bytes,
-        ProcAggregate => "proc_aggregate" => field proc_aggregate,
-        KeepDeadProcUsage => "keep_dead_proc_usage" => field keep_dead_proc_usage,
-        CpuInvertLower => "cpu_invert_lower" => field cpu_invert_lower,
-        CpuSingleGraph => "cpu_single_graph" => field cpu_single_graph,
-        CpuAutoScale => "cpu_auto_scale" => field cpu_auto_scale,
-        ShowUptime => "show_uptime" => field show_uptime,
-        ShowCpuWatts => "show_cpu_watts" => field show_cpu_watts,
-        CheckTemp => "check_temp" => field check_temp,
-        ShowCoretemp => "show_coretemp" => field show_coretemp,
-        ShowCpuFreq => "show_cpu_freq" => field show_cpu_freq,
-        ShowSwap => "show_swap" => field show_swap,
-        ShowIoStat => "show_io_stat" => field show_io_stat,
-        IoMode => "io_mode" => field io_mode,
-        IoGraphCombined => "io_graph_combined" => field io_graph_combined,
-        SwapUploadDownload => "swap_upload_download" => field swap_upload_download,
-        Base10Sizes => "base_10_sizes" => field base_10_sizes,
-        NetAuto => "net_auto" => field net_auto,
-        NetSync => "net_sync" => field net_sync,
-        VimKeys => "vim_keys" => field vim_keys,
-        BackgroundUpdate => "background_update" => field background_update,
-        TerminalSync => "terminal_sync" => field terminal_sync,
-        SaveConfigOnExit => "save_config_on_exit" => field save_config_on_exit,
-        DiskIoMode => "disk_io_mode" => field disk_io_mode,
+        ThemeBackground => "theme_background" => ui.theme_background,
+        RoundedCorners => "rounded_corners" => ui.rounded_corners,
+        ProcReversed => "proc_reversed" => proc.proc_reversed,
+        ProcTree => "proc_tree" => proc.proc_tree,
+        ProcColors => "proc_colors" => proc.proc_colors,
+        ProcGradient => "proc_gradient" => proc.proc_gradient,
+        ProcPerCore => "proc_per_core" => proc.proc_per_core,
+        ProcMemBytes => "proc_mem_bytes" => proc.proc_mem_bytes,
+        ProcAggregate => "proc_aggregate" => proc.proc_aggregate,
+        KeepDeadProcUsage => "keep_dead_proc_usage" => proc.keep_dead_proc_usage,
+        CpuInvertLower => "cpu_invert_lower" => cpu.cpu_invert_lower,
+        CpuSingleGraph => "cpu_single_graph" => cpu.cpu_single_graph,
+        CpuAutoScale => "cpu_auto_scale" => cpu.cpu_auto_scale,
+        ShowUptime => "show_uptime" => cpu.show_uptime,
+        ShowCpuWatts => "show_cpu_watts" => cpu.show_cpu_watts,
+        CheckTemp => "check_temp" => cpu.check_temp,
+        ShowCoretemp => "show_coretemp" => cpu.show_coretemp,
+        ShowCpuFreq => "show_cpu_freq" => cpu.show_cpu_freq,
+        ShowSwap => "show_swap" => mem.show_swap,
+        ShowIoStat => "show_io_stat" => disk.show_io_stat,
+        IoMode => "io_mode" => disk.io_mode,
+        IoGraphCombined => "io_graph_combined" => disk.io_graph_combined,
+        SwapUploadDownload => "swap_upload_download" => net.swap_upload_download,
+        Base10Sizes => "base_10_sizes" => ui.base_10_sizes,
+        NetAuto => "net_auto" => net.net_auto,
+        NetSync => "net_sync" => net.net_sync,
+        VimKeys => "vim_keys" => ui.vim_keys,
+        BackgroundUpdate => "background_update" => ui.background_update,
+        TerminalSync => "terminal_sync" => ui.terminal_sync,
+        SaveConfigOnExit => "save_config_on_exit" => ui.save_config_on_exit,
+        DiskIoMode => "disk_io_mode" => disk.disk_io_mode,
     }
     ints {
-        UpdateMs => "update_ms" => field update_ms,
-        CpuUpdateMs => "cpu_update_ms" => field cpu_update_ms,
-        MemUpdateMs => "mem_update_ms" => field mem_update_ms,
-        DiskUpdateMs => "disk_update_ms" => field disk_update_ms,
-        NetUpdateMs => "net_update_ms" => field net_update_ms,
-        GpuUpdateMs => "gpu_update_ms" => field gpu_update_ms,
-        ProcUpdateMs => "proc_update_ms" => field proc_update_ms,
-        NetDownload => "net_download" => field net_download,
-        NetUpload => "net_upload" => field net_upload,
+        UpdateMs => "update_ms" => refresh.update_ms,
+        CpuUpdateMs => "cpu_update_ms" => refresh.cpu_update_ms,
+        MemUpdateMs => "mem_update_ms" => refresh.mem_update_ms,
+        DiskUpdateMs => "disk_update_ms" => refresh.disk_update_ms,
+        NetUpdateMs => "net_update_ms" => refresh.net_update_ms,
+        GpuUpdateMs => "gpu_update_ms" => refresh.gpu_update_ms,
+        ProcUpdateMs => "proc_update_ms" => refresh.proc_update_ms,
+        NetDownload => "net_download" => net.net_download,
+        NetUpload => "net_upload" => net.net_upload,
     }
     enums {
-        GraphSymbol => "graph_symbol" => field graph_symbol,
-        GraphSymbolCpu => "graph_symbol_cpu" => field graph_symbol_cpu,
-        GraphSymbolNet => "graph_symbol_net" => field graph_symbol_net,
-        GraphSymbolDisk => "graph_symbol_disk" => field graph_symbol_disk,
-        ProcSorting => "proc_sorting" => field proc_sorting,
-        CpuGraphUpper => "cpu_graph_upper" => field cpu_graph_upper,
-        CpuGraphLower => "cpu_graph_lower" => field cpu_graph_lower,
-        TempScale => "temp_scale" => field temp_scale,
-        LogLevel => "log_level" => field log_level,
+        GraphSymbol => "graph_symbol" => ui.graph_symbol,
+        GraphSymbolCpu => "graph_symbol_cpu" => cpu.graph_symbol_cpu,
+        GraphSymbolNet => "graph_symbol_net" => net.graph_symbol_net,
+        GraphSymbolDisk => "graph_symbol_disk" => disk.graph_symbol_disk,
+        ProcSorting => "proc_sorting" => proc.proc_sorting,
+        CpuGraphUpper => "cpu_graph_upper" => cpu.cpu_graph_upper,
+        CpuGraphLower => "cpu_graph_lower" => cpu.cpu_graph_lower,
+        TempScale => "temp_scale" => cpu.temp_scale,
+        // `log_level` lives in `LogConfig` purely so the macro can
+        // address it with the same `section.field` shape it uses
+        // for every other key.
+        LogLevel => "log_level" => log.log_level,
     }
     strings {
-        ColorTheme => "color_theme" => { field color_theme },
-        ClockFormat => "clock_format" => { field clock_format },
-        CustomCpuName => "custom_cpu_name" => { field custom_cpu_name },
-        ProcFilter => "proc_filter" => { field proc_filter },
-        DisksFilter => "disks_filter" => { joined_vec disks_filter },
+        ColorTheme => "color_theme" => { field ui.color_theme },
+        ClockFormat => "clock_format" => { field ui.clock_format },
+        CustomCpuName => "custom_cpu_name" => { field cpu.custom_cpu_name },
+        ProcFilter => "proc_filter" => { field proc.proc_filter },
+        DisksFilter => "disks_filter" => { joined_vec disk.disks_filter },
         CustomLayout => "custom_layout" => { custom_layout },
-        CustomGpuName0 => "custom_gpu_name0" => { array custom_gpu_names[0] },
-        CustomGpuName1 => "custom_gpu_name1" => { array custom_gpu_names[1] },
-        CustomGpuName2 => "custom_gpu_name2" => { array custom_gpu_names[2] },
-        CustomGpuName3 => "custom_gpu_name3" => { array custom_gpu_names[3] },
-        CustomGpuName4 => "custom_gpu_name4" => { array custom_gpu_names[4] },
-        CustomGpuName5 => "custom_gpu_name5" => { array custom_gpu_names[5] },
-        CustomGpuName6 => "custom_gpu_name6" => { array custom_gpu_names[6] },
-        CustomGpuName7 => "custom_gpu_name7" => { array custom_gpu_names[7] },
+        CustomGpuName0 => "custom_gpu_name0" => { array gpu.custom_gpu_names[0] },
+        CustomGpuName1 => "custom_gpu_name1" => { array gpu.custom_gpu_names[1] },
+        CustomGpuName2 => "custom_gpu_name2" => { array gpu.custom_gpu_names[2] },
+        CustomGpuName3 => "custom_gpu_name3" => { array gpu.custom_gpu_names[3] },
+        CustomGpuName4 => "custom_gpu_name4" => { array gpu.custom_gpu_names[4] },
+        CustomGpuName5 => "custom_gpu_name5" => { array gpu.custom_gpu_names[5] },
+        CustomGpuName6 => "custom_gpu_name6" => { array gpu.custom_gpu_names[6] },
+        CustomGpuName7 => "custom_gpu_name7" => { array gpu.custom_gpu_names[7] },
     }
 }
 
@@ -911,15 +1088,21 @@ impl EnumKey {
             value: value.to_string(),
         };
         match self {
-            Self::GraphSymbol => config.graph_symbol = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolCpu => config.graph_symbol_cpu = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolNet => config.graph_symbol_net = value.parse().map_err(|_| err())?,
-            Self::GraphSymbolDisk => config.graph_symbol_disk = value.parse().map_err(|_| err())?,
-            Self::ProcSorting => config.proc_sorting = value.parse().map_err(|_| err())?,
-            Self::CpuGraphUpper => config.cpu_graph_upper = value.parse().map_err(|_| err())?,
-            Self::CpuGraphLower => config.cpu_graph_lower = value.parse().map_err(|_| err())?,
-            Self::TempScale => config.temp_scale = value.parse().map_err(|_| err())?,
-            Self::LogLevel => config.log_level = value.parse().map_err(|_| err())?,
+            Self::GraphSymbol => config.ui.graph_symbol = value.parse().map_err(|_| err())?,
+            Self::GraphSymbolCpu => {
+                config.cpu.graph_symbol_cpu = value.parse().map_err(|_| err())?
+            }
+            Self::GraphSymbolNet => {
+                config.net.graph_symbol_net = value.parse().map_err(|_| err())?
+            }
+            Self::GraphSymbolDisk => {
+                config.disk.graph_symbol_disk = value.parse().map_err(|_| err())?
+            }
+            Self::ProcSorting => config.proc.proc_sorting = value.parse().map_err(|_| err())?,
+            Self::CpuGraphUpper => config.cpu.cpu_graph_upper = value.parse().map_err(|_| err())?,
+            Self::CpuGraphLower => config.cpu.cpu_graph_lower = value.parse().map_err(|_| err())?,
+            Self::TempScale => config.cpu.temp_scale = value.parse().map_err(|_| err())?,
+            Self::LogLevel => config.log.log_level = value.parse().map_err(|_| err())?,
         }
         Ok(())
     }
@@ -990,24 +1173,24 @@ impl StringKey {
             value: value.to_string(),
         };
         match self {
-            Self::ColorTheme => config.color_theme = value.to_string(),
-            Self::ClockFormat => config.clock_format = value.to_string(),
-            Self::CustomCpuName => config.custom_cpu_name = value.to_string(),
-            Self::ProcFilter => config.proc_filter = value.to_string(),
+            Self::ColorTheme => config.ui.color_theme = value.to_string(),
+            Self::ClockFormat => config.ui.clock_format = value.to_string(),
+            Self::CustomCpuName => config.cpu.custom_cpu_name = value.to_string(),
+            Self::ProcFilter => config.proc.proc_filter = value.to_string(),
             Self::CustomLayout => {
                 config.set_custom_layout(value).map_err(|_| err())?;
             }
             Self::DisksFilter => {
-                config.disks_filter = parse_disks_filter(value).map_err(|_| err())?;
+                config.disk.disks_filter = parse_disks_filter(value).map_err(|_| err())?;
             }
-            Self::CustomGpuName0 => config.custom_gpu_names[0] = value.to_string(),
-            Self::CustomGpuName1 => config.custom_gpu_names[1] = value.to_string(),
-            Self::CustomGpuName2 => config.custom_gpu_names[2] = value.to_string(),
-            Self::CustomGpuName3 => config.custom_gpu_names[3] = value.to_string(),
-            Self::CustomGpuName4 => config.custom_gpu_names[4] = value.to_string(),
-            Self::CustomGpuName5 => config.custom_gpu_names[5] = value.to_string(),
-            Self::CustomGpuName6 => config.custom_gpu_names[6] = value.to_string(),
-            Self::CustomGpuName7 => config.custom_gpu_names[7] = value.to_string(),
+            Self::CustomGpuName0 => config.gpu.custom_gpu_names[0] = value.to_string(),
+            Self::CustomGpuName1 => config.gpu.custom_gpu_names[1] = value.to_string(),
+            Self::CustomGpuName2 => config.gpu.custom_gpu_names[2] = value.to_string(),
+            Self::CustomGpuName3 => config.gpu.custom_gpu_names[3] = value.to_string(),
+            Self::CustomGpuName4 => config.gpu.custom_gpu_names[4] = value.to_string(),
+            Self::CustomGpuName5 => config.gpu.custom_gpu_names[5] = value.to_string(),
+            Self::CustomGpuName6 => config.gpu.custom_gpu_names[6] = value.to_string(),
+            Self::CustomGpuName7 => config.gpu.custom_gpu_names[7] = value.to_string(),
         }
         Ok(())
     }
@@ -1054,9 +1237,9 @@ mod tests {
         fs::write(&tmp, "").unwrap();
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.update_ms, 2000);
-        assert_eq!(config.color_theme, "default");
-        assert!(config.theme_background);
+        assert_eq!(config.refresh.update_ms, 2000);
+        assert_eq!(config.ui.color_theme, "default");
+        assert!(config.ui.theme_background);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1072,9 +1255,9 @@ mod tests {
 
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.color_theme, "dracula");
-        assert!(!config.theme_background);
-        assert_eq!(config.update_ms, 500);
+        assert_eq!(config.ui.color_theme, "dracula");
+        assert!(!config.ui.theme_background);
+        assert_eq!(config.refresh.update_ms, 500);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1085,7 +1268,7 @@ mod tests {
         fs::write(&tmp, "# this is a comment\nupdate_ms = 1000\n").unwrap();
         let warnings = config.load(&tmp);
         assert!(warnings.is_empty());
-        assert_eq!(config.update_ms, 1000);
+        assert_eq!(config.refresh.update_ms, 1000);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1119,7 +1302,7 @@ mod tests {
         let warnings = config.load(&tmp);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("out of range"));
-        assert_eq!(config.update_ms, 100);
+        assert_eq!(config.refresh.update_ms, 100);
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1137,8 +1320,8 @@ mod tests {
         assert!(warnings[0].contains("Failed to parse config"));
         assert!(warnings[0].contains("graph_symbol"));
         // Defaults preserved.
-        assert_eq!(config.graph_symbol, GraphSymbol::Braille);
-        assert_eq!(config.color_theme, "default");
+        assert_eq!(config.ui.graph_symbol, GraphSymbol::Braille);
+        assert_eq!(config.ui.color_theme, "default");
         let _ = fs::remove_file(&tmp);
     }
 
@@ -1157,37 +1340,37 @@ mod tests {
                 .iter()
                 .any(|w| w.contains("color_theme") && w.contains("foo"))
         );
-        assert_eq!(config.color_theme, "default");
+        assert_eq!(config.ui.color_theme, "default");
         let _ = fs::remove_file(&tmp);
     }
 
     #[test]
     fn write_roundtrip_preserves_values() {
         let mut config = Config::new();
-        config.color_theme = "nord".to_string();
-        config.vim_keys = true;
-        config.update_ms = 1500;
+        config.ui.color_theme = "nord".to_string();
+        config.ui.vim_keys = true;
+        config.refresh.update_ms = 1500;
 
         let tmp = std::env::temp_dir().join("rtop_test_roundtrip.toml");
         config.write(&tmp).unwrap();
 
         let mut config2 = Config::new();
         config2.load(&tmp);
-        assert_eq!(config2.color_theme, "nord");
-        assert!(config2.vim_keys);
-        assert_eq!(config2.update_ms, 1500);
+        assert_eq!(config2.ui.color_theme, "nord");
+        assert!(config2.ui.vim_keys);
+        assert_eq!(config2.refresh.update_ms, 1500);
         let _ = fs::remove_file(&tmp);
     }
 
     #[test]
     fn defaults_are_correct() {
         let config = Config::new();
-        assert!(config.theme_background);
-        assert!(!config.vim_keys);
-        assert_eq!(config.update_ms, 2000);
-        assert_eq!(config.color_theme, "default");
-        assert_eq!(config.graph_symbol, GraphSymbol::Braille);
-        assert_eq!(config.proc_sorting, ProcSort::Cpu);
+        assert!(config.ui.theme_background);
+        assert!(!config.ui.vim_keys);
+        assert_eq!(config.refresh.update_ms, 2000);
+        assert_eq!(config.ui.color_theme, "default");
+        assert_eq!(config.ui.graph_symbol, GraphSymbol::Braille);
+        assert_eq!(config.proc.proc_sorting, ProcSort::Cpu);
         // First-launch cursor lands on the `all` builtin so the
         // user's first `p` press visibly cycles to a different
         // preset, and the cursor name matches the visible layout.
@@ -1201,28 +1384,140 @@ mod tests {
         );
     }
 
+    /// Round-trip an existing-format `rtop.toml` through load to
+    /// verify the per-subsystem split preserves the on-disk
+    /// flat-key format. Asserts each section's fields populate
+    /// correctly from top-level TOML keys.
+    #[test]
+    fn load_existing_flat_format_populates_all_sections() {
+        let mut config = Config::new();
+        let tmp = std::env::temp_dir().join("rtop_test_flat_format.toml");
+        fs::write(
+            &tmp,
+            r#"
+color_theme = "dracula"
+theme_background = false
+vim_keys = true
+update_ms = 500
+cpu_update_ms = 250
+cpu_invert_lower = false
+show_uptime = false
+custom_cpu_name = "My CPU"
+show_swap = false
+io_mode = true
+disks_filter = ["C:", "!D:"]
+net_iface = "Ethernet"
+net_download = 5000
+proc_tree = true
+proc_sorting = "memory"
+proc_filter = "chrome"
+custom_gpu_names = ["RTX 4090", "", "", "", "", "", "", ""]
+log_level = "info"
+hidden_widgets = ["mem", "gpu0"]
+"#,
+        )
+        .unwrap();
+        let warnings = config.load(&tmp);
+        assert!(warnings.is_empty(), "warnings: {warnings:?}");
+
+        // UiConfig
+        assert_eq!(config.ui.color_theme, "dracula");
+        assert!(!config.ui.theme_background);
+        assert!(config.ui.vim_keys);
+
+        // RefreshConfig
+        assert_eq!(config.refresh.update_ms, 500);
+        assert_eq!(config.refresh.cpu_update_ms, 250);
+
+        // CpuConfig
+        assert!(!config.cpu.cpu_invert_lower);
+        assert!(!config.cpu.show_uptime);
+        assert_eq!(config.cpu.custom_cpu_name, "My CPU");
+
+        // MemConfig
+        assert!(!config.mem.show_swap);
+
+        // DiskConfig
+        assert!(config.disk.io_mode);
+        assert_eq!(config.disk.disks_filter, vec!["C:", "!D:"]);
+
+        // NetConfig
+        assert_eq!(config.net.net_iface, "Ethernet");
+        assert_eq!(config.net.net_download, 5000);
+
+        // ProcConfig
+        assert!(config.proc.proc_tree);
+        assert_eq!(config.proc.proc_sorting, ProcSort::Memory);
+        assert_eq!(config.proc.proc_filter, "chrome");
+
+        // GpuConfig
+        assert_eq!(config.gpu.custom_gpu_names[0], "RTX 4090");
+        assert_eq!(config.gpu.custom_gpu_names[1], "");
+
+        // LogConfig
+        assert_eq!(config.log.log_level, LevelFilter::INFO);
+
+        // Top-level
+        assert!(config.hidden_widgets.contains(WidgetKind::Mem));
+        assert!(config.hidden_widgets.contains(WidgetKind::Gpu(0)));
+
+        let _ = fs::remove_file(&tmp);
+    }
+
+    /// Round-trip a Config through write+load to verify the
+    /// serialised form is itself a valid input — the per-subsystem
+    /// split must not introduce any field name drift.
+    #[test]
+    fn write_and_reload_round_trips_cleanly() {
+        let mut original = Config::new();
+        original.ui.color_theme = "nord".to_string();
+        original.ui.vim_keys = true;
+        original.refresh.update_ms = 750;
+        original.proc.proc_tree = true;
+        original.cpu.show_cpu_freq = false;
+        original.gpu.custom_gpu_names[0] = "Test GPU 0".to_string();
+        original.log.log_level = LevelFilter::DEBUG;
+
+        let tmp = std::env::temp_dir().join("rtop_test_subsystem_roundtrip.toml");
+        original.write(&tmp).unwrap();
+
+        let mut loaded = Config::new();
+        let warnings = loaded.load(&tmp);
+        assert!(warnings.is_empty(), "round-trip warnings: {warnings:?}");
+
+        assert_eq!(loaded.ui.color_theme, "nord");
+        assert!(loaded.ui.vim_keys);
+        assert_eq!(loaded.refresh.update_ms, 750);
+        assert!(loaded.proc.proc_tree);
+        assert!(!loaded.cpu.show_cpu_freq);
+        assert_eq!(loaded.gpu.custom_gpu_names[0], "Test GPU 0");
+        assert_eq!(loaded.log.log_level, LevelFilter::DEBUG);
+
+        let _ = fs::remove_file(&tmp);
+    }
+
     #[test]
     fn validate_clamps_ints() {
         let mut config = Config::new();
-        config.update_ms = 50;
-        config.net_download = -1;
+        config.refresh.update_ms = 50;
+        config.net.net_download = -1;
         let warnings = config.validate();
-        assert_eq!(config.update_ms, 100);
-        assert_eq!(config.net_download, 0);
+        assert_eq!(config.refresh.update_ms, 100);
+        assert_eq!(config.net.net_download, 0);
         assert!(warnings.len() >= 2);
     }
 
     #[test]
     fn validate_keeps_valid_disks_filter_unchanged() {
         let mut config = Config::new();
-        config.disks_filter = vec!["C:".into(), "!D:".into()];
+        config.disk.disks_filter = vec!["C:".into(), "!D:".into()];
         let warnings = config.validate();
         assert!(
             !warnings.iter().any(|w| w.contains("disks_filter")),
             "valid disks_filter should not warn, got: {warnings:?}"
         );
         assert_eq!(
-            config.disks_filter,
+            config.disk.disks_filter,
             vec!["C:".to_string(), "!D:".to_string()]
         );
     }
@@ -1230,7 +1525,7 @@ mod tests {
     #[test]
     fn validate_warns_and_strips_invalid_disks_filter_entries() {
         let mut config = Config::new();
-        config.disks_filter = vec![
+        config.disk.disks_filter = vec![
             "C:".into(),
             "abc".into(),
             "D:".into(),
@@ -1246,7 +1541,7 @@ mod tests {
         assert!(disks_warning.contains('3'));
         assert!(disks_warning.contains("!!"));
         assert_eq!(
-            config.disks_filter,
+            config.disk.disks_filter,
             vec!["C:".to_string(), "D:".to_string()]
         );
     }
@@ -1254,10 +1549,10 @@ mod tests {
     #[test]
     fn validate_empty_disks_filter_does_not_warn() {
         let mut config = Config::new();
-        config.disks_filter = Vec::new();
+        config.disk.disks_filter = Vec::new();
         let warnings = config.validate();
         assert!(!warnings.iter().any(|w| w.contains("disks_filter")));
-        assert!(config.disks_filter.is_empty());
+        assert!(config.disk.disks_filter.is_empty());
     }
 
     #[test]
@@ -1616,7 +1911,7 @@ mod tests {
         let mut config = Config::new();
         StringKey::DisksFilter.set(&mut config, "C: !D:").unwrap();
         assert_eq!(
-            config.disks_filter,
+            config.disk.disks_filter,
             vec!["C:".to_string(), "!D:".to_string()]
         );
     }

@@ -80,7 +80,7 @@ pub(crate) fn pull_subsystem_data(
                 if let Some(snap) = manager.proc_slot.latest() {
                     state
                         .process
-                        .update_stale_procs(&snap.procs, config.keep_dead_proc_usage);
+                        .update_stale_procs(&snap.procs, config.proc.keep_dead_proc_usage);
                     state.live.proc_data = Some(snap);
                     if render_ui {
                         state.render.dirty |= Dirty::PROC_WIDGET | Dirty::PROC_LIST;
@@ -110,7 +110,7 @@ pub(crate) fn reconcile_selected_iface(state: &mut AppState, config: &config::Co
     };
     state
         .network
-        .reconcile(&net.nets, &config.net_iface, &mut state.render.dirty);
+        .reconcile(&net.nets, &config.net.net_iface, &mut state.render.dirty);
 }
 
 #[cfg(test)]

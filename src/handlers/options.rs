@@ -71,7 +71,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        Key::Char('k') if ctx.config.vim_keys => {
+        Key::Char('k') if ctx.config.ui.vim_keys => {
             if ctx.overlay.options_selected > 0 {
                 ctx.overlay.options_selected -= 1;
             } else {
@@ -109,7 +109,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             }
             return options_menu_output(ctx);
         }
-        Key::Char('j') if ctx.config.vim_keys => {
+        Key::Char('j') if ctx.config.ui.vim_keys => {
             let sm = menu::options_menu::select_max(
                 ctx.overlay.options_cat,
                 ctx.overlay.options_page,
@@ -179,8 +179,8 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
         }
         Key::Left => return step_selected_option(ctx, -1),
         Key::Right | Key::Space => return step_selected_option(ctx, 1),
-        Key::Char('h') if ctx.config.vim_keys => return step_selected_option(ctx, -1),
-        Key::Char('l') if ctx.config.vim_keys => return step_selected_option(ctx, 1),
+        Key::Char('h') if ctx.config.ui.vim_keys => return step_selected_option(ctx, -1),
+        Key::Char('l') if ctx.config.ui.vim_keys => return step_selected_option(ctx, 1),
         _ => {}
     }
     HandleResult::none()
@@ -338,54 +338,66 @@ pub(crate) fn apply_post_change_effects(
 ) {
     match key {
         ConfigKey::String(StringKey::ColorTheme) => {
-            let name = ctx.config.color_theme.clone();
+            let name = ctx.config.ui.color_theme.clone();
             *ctx.theme = theme::Theme::from_name(&name);
             extra_ops.push(TerminalOp::Raw(
-                ctx.theme.base_style(ctx.config.theme_background),
+                ctx.theme.base_style(ctx.config.ui.theme_background),
             ));
         }
         ConfigKey::Bool(BoolKey::ThemeBackground) => {
             extra_ops.push(TerminalOp::Raw(
-                ctx.theme.base_style(ctx.config.theme_background),
+                ctx.theme.base_style(ctx.config.ui.theme_background),
             ));
         }
         ConfigKey::Bool(BoolKey::RoundedCorners) => {
-            ctx.runtime.rounded = ctx.config.rounded_corners;
+            ctx.runtime.rounded = ctx.config.ui.rounded_corners;
         }
         ConfigKey::Enum(EnumKey::LogLevel) => {
-            crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
+            crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
         }
         ConfigKey::Int(IntKey::UpdateMs) => {
-            ctx.runtime.update_ms = ctx.config.update_ms as u64;
+            ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
             sync_all_intervals(ctx);
         }
         ConfigKey::Int(IntKey::CpuUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.cpu_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.cpu_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Cpu, ms);
         }
         ConfigKey::Int(IntKey::MemUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.mem_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.mem_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Mem, ms);
         }
         ConfigKey::Int(IntKey::DiskUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.disk_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.disk_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Disk, ms);
         }
         ConfigKey::Int(IntKey::NetUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.net_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.net_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Net, ms);
         }
         ConfigKey::Int(IntKey::GpuUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.gpu_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.gpu_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Gpu, ms);
         }
         ConfigKey::Int(IntKey::ProcUpdateMs) => {
-            let ms = ctx.config.effective_interval(ctx.config.proc_update_ms);
+            let ms = ctx
+                .config
+                .effective_interval(ctx.config.refresh.proc_update_ms);
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Proc, ms);
         }

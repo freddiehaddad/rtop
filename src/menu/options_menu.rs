@@ -375,7 +375,7 @@ pub fn draw(p: &DrawParams) -> String {
         title: &tab_title,
         title2: "",
         num: 0,
-        rounded: config.rounded_corners,
+        rounded: config.ui.rounded_corners,
         hi_color: "",
         title_color: "",
     }));

@@ -23,7 +23,7 @@ pub struct GpuWidgetSettings<'a> {
 ///
 /// `index` is the actual `n` from `WidgetKind::Gpu(n)` — used to
 /// look up the user-supplied custom name from
-/// `config.custom_gpu_names[index]`. Co-locates per-widget settings
+/// `config.gpu.custom_gpu_names[index]`. Co-locates per-widget settings
 /// derivation with the widget itself so adding a GPU-widget setting
 /// is a one-file change.
 pub(crate) fn build_settings(
@@ -31,15 +31,16 @@ pub(crate) fn build_settings(
     index: usize,
 ) -> GpuWidgetSettings<'_> {
     let custom_name = config
+        .gpu
         .custom_gpu_names
         .get(index)
         .map(String::as_str)
         .unwrap_or("");
     GpuWidgetSettings {
         index,
-        temp_scale: config.temp_scale,
+        temp_scale: config.cpu.temp_scale,
         custom_name,
-        base_10: config.base_10_sizes,
+        base_10: config.ui.base_10_sizes,
     }
 }
 

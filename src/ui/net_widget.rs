@@ -45,13 +45,13 @@ pub(crate) fn build_settings<'a>(
 ) -> NetWidgetSettings<'a> {
     NetWidgetSettings {
         iface,
-        auto_scale: config.net_auto,
-        sync_scale: config.net_sync,
-        max_download: config.net_download,
-        max_upload: config.net_upload,
-        graph_symbol: GraphMode::from_config(config.graph_symbol_net, config.graph_symbol),
-        swap_dl_ul: config.swap_upload_download,
-        base_10: config.base_10_sizes,
+        auto_scale: config.net.net_auto,
+        sync_scale: config.net.net_sync,
+        max_download: config.net.net_download,
+        max_upload: config.net.net_upload,
+        graph_symbol: GraphMode::from_config(config.net.graph_symbol_net, config.ui.graph_symbol),
+        swap_dl_ul: config.net.swap_upload_download,
+        base_10: config.ui.base_10_sizes,
     }
 }
 

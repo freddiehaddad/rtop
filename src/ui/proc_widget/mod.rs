@@ -42,13 +42,13 @@ pub(crate) fn build_settings(
     total_mem: u64,
 ) -> ProcWidgetSettings {
     ProcWidgetSettings {
-        proc_per_core: config.proc_per_core,
+        proc_per_core: config.proc.proc_per_core,
         core_count,
-        proc_mem_bytes: config.proc_mem_bytes,
+        proc_mem_bytes: config.proc.proc_mem_bytes,
         total_mem,
-        proc_colors: config.proc_colors,
-        proc_gradient: config.proc_gradient,
-        base_10: config.base_10_sizes,
+        proc_colors: config.proc.proc_colors,
+        proc_gradient: config.proc.proc_gradient,
+        base_10: config.ui.base_10_sizes,
     }
 }
 

@@ -88,7 +88,7 @@ pub(crate) fn style_terminal_output(
     config: &config::Config,
     theme: &theme::Theme,
 ) -> String {
-    theme.style_output(output, config.theme_background)
+    theme.style_output(output, config.ui.theme_background)
 }
 
 pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::AppState) {
@@ -96,7 +96,7 @@ pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::Ap
     // (1-9, 0, Shift+R) survive restart. AppState owns the live
     // filter; Config carries the persisted form.
     config.hidden_widgets = state.filter.hidden.clone();
-    if config.save_config_on_exit {
+    if config.ui.save_config_on_exit {
         let conf_path = tools::config_dir().join("rtop.toml");
         match config.write(&conf_path) {
             Ok(()) => tracing::info!(

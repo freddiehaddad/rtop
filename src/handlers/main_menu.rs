@@ -20,7 +20,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
         }
         Key::Up | Key::ShiftTab => {
-            if ctx.config.vim_keys && matches!(key, Key::Up) {
+            if ctx.config.ui.vim_keys && matches!(key, Key::Up) {
                 // Up always works
             }
             ctx.overlay.main_menu_selected = if ctx.overlay.main_menu_selected == 0 {
@@ -36,7 +36,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             );
             return HandleResult::synced(menu_out);
         }
-        Key::Char('k') if ctx.config.vim_keys => {
+        Key::Char('k') if ctx.config.ui.vim_keys => {
             ctx.overlay.main_menu_selected = if ctx.overlay.main_menu_selected == 0 {
                 2
             } else {
@@ -60,7 +60,7 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             );
             return HandleResult::synced(menu_out);
         }
-        Key::Char('j') if ctx.config.vim_keys => {
+        Key::Char('j') if ctx.config.ui.vim_keys => {
             ctx.overlay.main_menu_selected = (ctx.overlay.main_menu_selected + 1) % 3;
             let menu_out = menu::main_menu::draw_with_selection(
                 ctx.tw,

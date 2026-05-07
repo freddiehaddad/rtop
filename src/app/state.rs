@@ -74,8 +74,8 @@ pub(crate) struct RuntimeState {
 impl RuntimeState {
     fn new(config: &config::Config) -> Self {
         Self {
-            rounded: config.rounded_corners,
-            update_ms: config.update_ms as u64,
+            rounded: config.ui.rounded_corners,
+            update_ms: config.refresh.update_ms as u64,
         }
     }
 }
@@ -167,10 +167,10 @@ impl LiveData {
         //   * IO view (`io_mode` toggle or persistent
         //     `disk_io_mode`): 2 rows for separate read+write
         //     graphs; 1 row when `io_graph_combined` merges them.
-        let io_view = config.io_mode || config.disk_io_mode;
+        let io_view = config.disk.io_mode || config.disk.disk_io_mode;
         let disk_rows_per_unit = if io_view {
-            if config.io_graph_combined { 1 } else { 2 }
-        } else if config.show_io_stat {
+            if config.disk.io_graph_combined { 1 } else { 2 }
+        } else if config.disk.show_io_stat {
             2
         } else {
             1
@@ -179,14 +179,14 @@ impl LiveData {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
             disk_count: filtered_disk_count(self.disk.as_deref(), config),
-            has_swap: config.show_swap
+            has_swap: config.mem.show_swap
                 && self
                     .mem
                     .as_ref()
                     .is_some_and(|m| m.info.stats.swap_total > 0),
-            has_cpu_temp: config.check_temp
+            has_cpu_temp: config.cpu.check_temp
                 && self.cpu.as_ref().is_some_and(|c| !c.info.temp.is_empty()),
-            has_cpu_watts: config.show_cpu_watts
+            has_cpu_watts: config.cpu.show_cpu_watts
                 && self
                     .cpu
                     .as_ref()
@@ -206,7 +206,7 @@ pub(crate) fn filtered_disk_count(
     disk: Option<&runner::DiskSnapshot>,
     config: &config::Config,
 ) -> usize {
-    let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
+    let filter = crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter);
     disk.map_or(0, |d| {
         d.info
             .disks
@@ -413,7 +413,7 @@ impl ProcessViewState {
 
         // Build combined procs list with stale entries if keep_dead_proc_usage.
         let stale = self.stale_tracker.stale_procs();
-        let has_stale = config.keep_dead_proc_usage && !stale.is_empty();
+        let has_stale = config.proc.keep_dead_proc_usage && !stale.is_empty();
         if has_stale {
             let combined: Vec<crate::domain::process::ProcInfo> = live_procs
                 .iter()
@@ -427,11 +427,11 @@ impl ProcessViewState {
         let procs: &[crate::domain::process::ProcInfo] =
             self.display_procs.as_deref().unwrap_or(live_procs);
 
-        let sort_by = config.proc_sorting;
-        let reversed = config.proc_reversed;
-        let filter = &config.proc_filter;
-        let tree_mode = config.proc_tree;
-        let aggregate = config.proc_aggregate;
+        let sort_by = config.proc.proc_sorting;
+        let reversed = config.proc.proc_reversed;
+        let filter = &config.proc.proc_filter;
+        let tree_mode = config.proc.proc_tree;
+        let aggregate = config.proc.proc_aggregate;
         self.entries = crate::collect::process_display::build_proc_display_entries(
             procs, sort_by, reversed, filter, tree_mode, aggregate,
         );
@@ -518,8 +518,8 @@ mod tests {
     #[test]
     fn app_state_initializes_from_config() {
         let mut config = config::Config::new();
-        config.rounded_corners = false;
-        config.update_ms = 1_500;
+        config.ui.rounded_corners = false;
+        config.refresh.update_ms = 1_500;
         let now = Instant::now();
 
         let state = AppState::new(&config, now);
@@ -561,28 +561,28 @@ mod tests {
         let state = AppState::new(&config, Instant::now());
 
         // Usage view + show_io_stat on → 2 rows per disk.
-        config.io_mode = false;
-        config.disk_io_mode = false;
-        config.show_io_stat = true;
+        config.disk.io_mode = false;
+        config.disk.disk_io_mode = false;
+        config.disk.show_io_stat = true;
         assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
 
         // Usage view + show_io_stat off → 1 row per disk.
-        config.show_io_stat = false;
+        config.disk.show_io_stat = false;
         assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
 
         // IO view + split graphs → 2 rows per disk regardless of show_io_stat.
-        config.io_mode = true;
-        config.io_graph_combined = false;
+        config.disk.io_mode = true;
+        config.disk.io_graph_combined = false;
         assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
 
         // IO view + combined graph → 1 row per disk.
-        config.io_graph_combined = true;
+        config.disk.io_graph_combined = true;
         assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
 
         // Persistent disk_io_mode behaves the same as runtime io_mode.
-        config.io_mode = false;
-        config.disk_io_mode = true;
-        config.io_graph_combined = false;
+        config.disk.io_mode = false;
+        config.disk.disk_io_mode = true;
+        config.disk.io_graph_combined = false;
         assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
     }
 

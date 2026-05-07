@@ -334,7 +334,7 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
     {
         let area = ui::WidgetArea::from_dim(disk_dim, rounded);
         let disk_settings = ui::disk_widget::build_settings(config);
-        let filter = crate::domain::disk::DisksFilter::parse(&config.disks_filter);
+        let filter = crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter);
         let visible = filter.apply(&disk.info.disks);
         output.push_str(&ui::disk_widget::draw(
             &visible,
@@ -374,10 +374,10 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
         let entries = params.proc_entries;
         let detailed_pid = params.detailed_pid;
-        let sort_by = config.proc_sorting;
-        let reversed = config.proc_reversed;
-        let tree_mode = config.proc_tree;
-        let pf = &config.proc_filter;
+        let sort_by = config.proc.proc_sorting;
+        let reversed = config.proc.proc_reversed;
+        let tree_mode = config.proc.proc_tree;
+        let pf = &config.proc.proc_filter;
         let area = ui::WidgetArea::from_dim(proc_dim, rounded);
         let view = ui::ProcView {
             start: params.proc_start,
