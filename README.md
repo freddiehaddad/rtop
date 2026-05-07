@@ -22,18 +22,18 @@ rtop is a resource monitor that shows CPU, memory, disk, network, GPU, and proce
 
 The UI design is based on [btop](https://github.com/aristocratos/btop) by aristocratos, reimagined in Rust with Windows-native data collection and several enhancements:
 
-- **Disk is a separate widget** — independently toggleable, not embedded in the memory panel
-- **Preset system** — cycle through curated layout presets with `p` / `P`
-- **Custom layouts** — beyond the built-in presets, arrange widgets into rows, columns, and nested panels with adjustable proportions ([details](#custom-layout))
-- **GPU monitoring** — NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL)
+- **Disk is a separate widget**: independently toggleable, not embedded in the memory panel
+- **Preset system**: cycle through curated layout presets with `p` / `P`
+- **Custom layouts**: beyond the built-in presets, arrange widgets into rows, columns, and nested panels with adjustable proportions ([details](#custom-layout))
+- **GPU monitoring**: NVIDIA (NvAPI), AMD (ADL), and Intel (IGCL)
 - **CPU temperature and power** via PawnIO kernel driver
-- **Per-widget dirty rendering** — only redraws what changed
-- **Per-widget refresh rates** — set individual update intervals for each widget
-- **41 bundled themes** — dracula, nord, gruvbox, tokyo-night, and more
-- **Vim key bindings** — optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
-- **Process following** — pin a process with `F` to auto-scroll across refreshes
-- **Clock display** — configurable clock in the CPU widget
-- **Disk IO mode** — toggle between usage meters and throughput graphs
+- **Per-widget dirty rendering**: only redraws what changed
+- **Per-widget refresh rates**: set individual update intervals for each widget
+- **41 bundled themes**: dracula, nord, gruvbox, tokyo-night, and more
+- **Vim key bindings**: optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
+- **Process following**: pin a process with `F` to auto-scroll across refreshes
+- **Clock display**: configurable clock in the CPU widget
+- **Disk IO mode**: toggle between usage meters and throughput graphs
 
 ## Features
 
