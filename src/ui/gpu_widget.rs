@@ -10,38 +10,18 @@ use crate::tools;
 
 use super::WidgetArea;
 
-/// Extracted settings for the GPU widget, decoupled from Config.
-pub struct GpuWidgetSettings<'a> {
+/// Per-frame view passed to [`draw`] for one GPU widget instance.
+///
+/// `index` and `custom_name` are per-instance (resolved at the
+/// call site by indexing `config.gpu.custom_gpu_names[index]`).
+/// `temp_scale` and `base_10` are shared cross-widget settings
+/// lifted into this struct so the renderer doesn't need separate
+/// `&CpuConfig` / `&UiConfig` borrows for one field each.
+pub struct GpuFrame<'a> {
     pub index: usize,
     pub temp_scale: TempScale,
     pub custom_name: &'a str,
     pub base_10: bool,
-}
-
-/// Build [`GpuWidgetSettings`] for the given GPU `index` from the
-/// current [`Config`].
-///
-/// `index` is the actual `n` from `WidgetKind::Gpu(n)` — used to
-/// look up the user-supplied custom name from
-/// `config.gpu.custom_gpu_names[index]`. Co-locates per-widget settings
-/// derivation with the widget itself so adding a GPU-widget setting
-/// is a one-file change.
-pub(crate) fn build_settings(
-    config: &crate::config::Config,
-    index: usize,
-) -> GpuWidgetSettings<'_> {
-    let custom_name = config
-        .gpu
-        .custom_gpu_names
-        .get(index)
-        .map(String::as_str)
-        .unwrap_or("");
-    GpuWidgetSettings {
-        index,
-        temp_scale: config.cpu.temp_scale,
-        custom_name,
-        base_10: config.ui.base_10_sizes,
-    }
 }
 
 /// Preferred intrinsic height for a GPU widget instance, in rows
@@ -80,7 +60,7 @@ pub fn draw(
     gpu: &GpuInfo,
     area: &WidgetArea,
     theme: &Theme,
-    settings: &GpuWidgetSettings,
+    frame: &GpuFrame<'_>,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -100,8 +80,8 @@ pub fn draw(
     let grad_power = theme.gradient(tc::GRAD_GPU_POWER);
     let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
 
-    let title = format!("gpu{}", settings.index);
-    let num = super::GPU_KEY_BASE + settings.index as u8;
+    let title = format!("gpu{}", frame.index);
+    let num = super::GPU_KEY_BASE + frame.index as u8;
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
@@ -128,10 +108,10 @@ pub fn draw(
     }
 
     // GPU name on the top border (right-aligned inset)
-    let name_display = if settings.custom_name.is_empty() {
+    let name_display = if frame.custom_name.is_empty() {
         &gpu.name
     } else {
-        settings.custom_name
+        frame.custom_name
     };
     let max_name_w = inner_w.saturating_sub(title.len() + 6);
     let name_trunc: String = name_display.chars().take(max_name_w).collect();
@@ -185,7 +165,7 @@ pub fn draw(
 
     // Row 3: Temperature
     let temp = gpu.temp.back().copied().unwrap_or(0);
-    let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, settings.temp_scale);
+    let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, frame.temp_scale);
     let temp_pct = temp.clamp(0, 100) as i32;
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
@@ -225,8 +205,8 @@ pub fn draw(
 
     // Row 5: VRAM
     let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0) as i32;
-    let vram_used = fmt_bytes(gpu.mem_used, settings.base_10);
-    let vram_total = fmt_bytes(gpu.mem_total, settings.base_10);
+    let vram_used = fmt_bytes(gpu.mem_used, frame.base_10);
+    let vram_total = fmt_bytes(gpu.mem_total, frame.base_10);
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
             .color(fg)
@@ -297,8 +277,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> GpuWidgetSettings<'static> {
-        GpuWidgetSettings {
+    fn make_frame() -> GpuFrame<'static> {
+        GpuFrame {
             index: 0,
             temp_scale: TempScale::Celsius,
             custom_name: "",
@@ -312,7 +292,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -325,7 +305,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -341,7 +321,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -358,7 +338,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -374,7 +354,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -390,7 +370,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -421,7 +401,7 @@ mod tests {
             &info,
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
 
@@ -469,7 +449,7 @@ mod tests {
             &make_gpu_info(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let fg = theme.color(tc::MAIN_FG);

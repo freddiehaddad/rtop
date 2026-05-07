@@ -1,5 +1,5 @@
 use super::layout::{ProcColumns, ProcWidgetLayout};
-use super::{ProcColors, ProcWidgetSettings};
+use super::{ProcColors, ProcFrame};
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
 use crate::tools;
@@ -12,7 +12,7 @@ pub(super) struct ProcessRowsParams<'a> {
     pub(super) selected: usize,
     pub(super) followed_pid: u32,
     pub(super) tree_mode: bool,
-    pub(super) settings: &'a ProcWidgetSettings,
+    pub(super) settings: &'a ProcFrame,
     pub(super) colors: &'a ProcColors<'a>,
 }
 
@@ -25,7 +25,7 @@ struct ProcessRowParams<'a> {
     selected: usize,
     followed_pid: u32,
     tree_mode: bool,
-    settings: &'a ProcWidgetSettings,
+    settings: &'a ProcFrame,
     colors: &'a ProcColors<'a>,
 }
 
@@ -237,7 +237,7 @@ fn draw_process_name_padding(buf: &mut AnsiBuffer, row: &RowText<'_>, name_w: us
     }
 }
 
-pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcWidgetSettings) -> f64 {
+pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcFrame) -> f64 {
     if !cpu_per_core.is_finite() {
         return 0.0;
     }
@@ -255,7 +255,7 @@ pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcWidgetSettings)
     value.clamp(0.0, max_value)
 }
 
-pub(super) fn format_proc_memory(mem: u64, settings: &ProcWidgetSettings) -> String {
+pub(super) fn format_proc_memory(mem: u64, settings: &ProcFrame) -> String {
     if settings.proc_mem_bytes {
         return if mem > 0 {
             tools::floating_humanizer(mem, true, 0, false, false, settings.base_10)
@@ -277,7 +277,7 @@ fn process_row_color<'a>(
     row_index: usize,
     selected: usize,
     visible_rows: usize,
-    settings: &ProcWidgetSettings,
+    settings: &ProcFrame,
     proc_grad: &'a [String],
     fg: &'a str,
 ) -> &'a str {
@@ -305,8 +305,8 @@ fn process_row_color<'a>(
 mod tests {
     use super::*;
 
-    fn make_settings() -> ProcWidgetSettings {
-        ProcWidgetSettings {
+    fn make_frame() -> ProcFrame {
+        ProcFrame {
             proc_per_core: true,
             core_count: 4,
             proc_mem_bytes: true,
@@ -319,10 +319,10 @@ mod tests {
 
     #[test]
     fn display_proc_cpu_matches_total_power_semantics() {
-        let settings = ProcWidgetSettings {
+        let settings = ProcFrame {
             proc_per_core: false,
             core_count: 24,
-            ..make_settings()
+            ..make_frame()
         };
 
         assert_eq!(display_proc_cpu(300.0, &settings), 12.5);
@@ -331,10 +331,10 @@ mod tests {
 
     #[test]
     fn display_proc_cpu_matches_per_core_semantics() {
-        let settings = ProcWidgetSettings {
+        let settings = ProcFrame {
             proc_per_core: true,
             core_count: 24,
-            ..make_settings()
+            ..make_frame()
         };
 
         assert_eq!(display_proc_cpu(300.0, &settings), 300.0);
@@ -343,10 +343,10 @@ mod tests {
 
     #[test]
     fn display_proc_cpu_handles_invalid_values() {
-        let settings = ProcWidgetSettings {
+        let settings = ProcFrame {
             proc_per_core: false,
             core_count: 0,
-            ..make_settings()
+            ..make_frame()
         };
 
         assert_eq!(display_proc_cpu(f64::NAN, &settings), 0.0);
@@ -357,10 +357,10 @@ mod tests {
     #[test]
     fn proc_gradient_setting_changes_row_color_mode() {
         let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
-        let settings = make_settings();
-        let no_gradient = ProcWidgetSettings {
+        let settings = make_frame();
+        let no_gradient = ProcFrame {
             proc_gradient: false,
-            ..make_settings()
+            ..make_frame()
         };
 
         assert_eq!(

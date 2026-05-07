@@ -22,8 +22,14 @@ fn format_link_speed(bps: u64) -> String {
     }
 }
 
-/// Extracted settings for the network widget, decoupled from Config.
-pub struct NetWidgetSettings<'a> {
+/// Per-frame view passed to [`draw`].
+///
+/// `iface` is the currently-selected interface name (per-frame,
+/// from `NetworkViewState::selected_iface`). `auto_scale` /
+/// `sync_scale` come from `RuntimeView`. `graph_symbol` is
+/// pre-resolved from `NetConfig::graph_symbol_net +
+/// UiConfig::graph_symbol`.
+pub struct NetFrame<'a> {
     pub iface: &'a str,
     pub auto_scale: bool,
     pub sync_scale: bool,
@@ -32,28 +38,6 @@ pub struct NetWidgetSettings<'a> {
     pub graph_symbol: GraphMode,
     pub swap_dl_ul: bool,
     pub base_10: bool,
-}
-
-/// Build [`NetWidgetSettings`] from the current [`Config`] and the
-/// currently-selected interface name.
-///
-/// Co-locates per-widget settings derivation with the widget itself
-/// so adding a network-widget setting is a one-file change.
-pub(crate) fn build_settings<'a>(
-    config: &'a crate::config::Config,
-    view: &crate::app::RuntimeView,
-    iface: &'a str,
-) -> NetWidgetSettings<'a> {
-    NetWidgetSettings {
-        iface,
-        auto_scale: view.net_auto,
-        sync_scale: view.net_sync,
-        max_download: config.net.net_download,
-        max_upload: config.net.net_upload,
-        graph_symbol: GraphMode::from_config(config.net.graph_symbol_net, config.ui.graph_symbol),
-        swap_dl_ul: config.net.swap_upload_download,
-        base_10: config.ui.base_10_sizes,
-    }
 }
 
 /// Draw the network widget into an ANSI string matching btop's layout.
@@ -77,7 +61,7 @@ pub fn draw(
     net: &NetInfo,
     area: &WidgetArea,
     theme: &Theme,
-    settings: &NetWidgetSettings,
+    settings: &NetFrame,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -366,8 +350,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> NetWidgetSettings<'static> {
-        NetWidgetSettings {
+    fn make_frame() -> NetFrame<'static> {
+        NetFrame {
             iface: "Ethernet",
             auto_scale: true,
             sync_scale: false,
@@ -385,7 +369,7 @@ mod tests {
             &make_net_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -398,7 +382,7 @@ mod tests {
             &make_net_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -414,7 +398,7 @@ mod tests {
             &make_net_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -442,7 +426,7 @@ mod tests {
             &make_net_info(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let title = theme.color(tc::TITLE);
@@ -481,7 +465,7 @@ mod tests {
     fn sync_auto_insets_have_no_marker_when_inactive() {
         // Mirror of disk_widget's io_inset_inactive_has_no_star_marker:
         // when both auto and sync are off, neither inset should show a `*`.
-        let mut s = make_settings();
+        let mut s = make_frame();
         s.auto_scale = false;
         s.sync_scale = false;
         let output = draw(
@@ -505,7 +489,7 @@ mod tests {
     #[test]
     fn sync_inset_appends_star_marker_when_active() {
         // Mirror of disk_widget's io_inset_active_appends_star_marker.
-        let mut s = make_settings();
+        let mut s = make_frame();
         s.sync_scale = true;
         let output = draw(
             &make_net_info(),
@@ -523,7 +507,7 @@ mod tests {
 
     #[test]
     fn auto_inset_appends_star_marker_when_active() {
-        let mut s = make_settings();
+        let mut s = make_frame();
         s.auto_scale = true;
         let output = draw(
             &make_net_info(),
@@ -544,7 +528,7 @@ mod tests {
         // `z` is a momentary action (resets totals); it has no
         // toggle state, so the `zero` inset must never grow a `*`.
         for (auto, sync) in [(false, false), (true, false), (false, true), (true, true)] {
-            let mut s = make_settings();
+            let mut s = make_frame();
             s.auto_scale = auto;
             s.sync_scale = sync;
             let output = draw(
@@ -581,7 +565,7 @@ mod tests {
             &info,
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -606,7 +590,7 @@ mod tests {
             &info,
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -629,7 +613,7 @@ mod tests {
             &info,
             &area,
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);

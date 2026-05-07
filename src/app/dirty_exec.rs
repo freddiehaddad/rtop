@@ -280,13 +280,36 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         && let Some(cpu) = params.cpu
     {
         let area = ui::WidgetArea::from_dim(cpu_dim, rounded);
-        let cpu_settings =
-            ui::cpu_widget::build_settings(config, &cpu.info, update_ms, params.filter_active);
+        let cpu_frame = ui::cpu_widget::CpuFrame {
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.cpu.graph_symbol_cpu,
+                config.ui.graph_symbol,
+            ),
+            upper_source: config.cpu.cpu_graph_upper,
+            lower_source: config.cpu.cpu_graph_lower,
+            check_temp: config.cpu.check_temp,
+            show_coretemp: config.cpu.show_coretemp,
+            temp_scale: config.cpu.temp_scale,
+            single_graph: config.cpu.cpu_single_graph,
+            auto_scale: config.cpu.cpu_auto_scale,
+            update_ms,
+            preset_name: config.preset.active().name(),
+            filter_active: params.filter_active,
+            invert_lower: config.cpu.cpu_invert_lower,
+            show_cpu_freq: config.cpu.show_cpu_freq,
+            show_uptime: config.cpu.show_uptime,
+            cpu_name: &cpu.info.cpu_name,
+            custom_cpu_name: &config.cpu.custom_cpu_name,
+            show_cpu_watts: config.cpu.show_cpu_watts,
+            cpu_watts: cpu.info.cpu_watts,
+            cpu_max_watts: cpu.info.cpu_max_watts,
+            clock_format: &config.ui.clock_format,
+        };
         output.push_str(&ui::cpu_widget::draw(
             &cpu.info,
             &area,
             theme,
-            &cpu_settings,
+            &cpu_frame,
             &cpu.status,
         ));
     }
@@ -309,12 +332,23 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
                 continue;
             };
             let area = ui::WidgetArea::from_dim(gpu_dim, rounded);
-            let gpu_settings = ui::gpu_widget::build_settings(config, n);
+            let custom_name = config
+                .gpu
+                .custom_gpu_names
+                .get(n)
+                .map(String::as_str)
+                .unwrap_or("");
+            let gpu_frame = ui::gpu_widget::GpuFrame {
+                index: n,
+                temp_scale: config.cpu.temp_scale,
+                custom_name,
+                base_10: config.ui.base_10_sizes,
+            };
             output.push_str(&ui::gpu_widget::draw(
                 gpu_info,
                 &area,
                 theme,
-                &gpu_settings,
+                &gpu_frame,
                 &gpu.status,
             ));
         }
@@ -329,7 +363,10 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
             &mem.info,
             &area,
             theme,
-            &ui::mem_widget::build_settings(config),
+            &ui::mem_widget::MemFrame {
+                config: &config.mem,
+                base_10: config.ui.base_10_sizes,
+            },
             &mem.status,
         ));
     }
@@ -339,14 +376,24 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         && let Some(disk) = params.disk
     {
         let area = ui::WidgetArea::from_dim(disk_dim, rounded);
-        let disk_settings = ui::disk_widget::build_settings(config, params.view);
+        let disk_frame = ui::disk_widget::DiskFrame {
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.disk.graph_symbol_disk,
+                config.ui.graph_symbol,
+            ),
+            base_10: config.ui.base_10_sizes,
+            show_io_stat: config.disk.show_io_stat,
+            io_mode: params.view.io_mode,
+            disk_io_mode: config.disk.disk_io_mode,
+            io_graph_combined: config.disk.io_graph_combined,
+        };
         let filter = crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter);
         let visible = filter.apply(&disk.info.disks);
         output.push_str(&ui::disk_widget::draw(
             &visible,
             &area,
             theme,
-            &disk_settings,
+            &disk_frame,
             &disk.status,
         ));
     }
@@ -363,12 +410,24 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
             .find(|n| n.name == iface)
             .unwrap_or(&default_net);
         let area = ui::WidgetArea::from_dim(net_dim, rounded);
-        let net_settings = ui::net_widget::build_settings(config, params.view, iface);
+        let net_frame = ui::net_widget::NetFrame {
+            iface,
+            auto_scale: params.view.net_auto,
+            sync_scale: params.view.net_sync,
+            max_download: config.net.net_download,
+            max_upload: config.net.net_upload,
+            graph_symbol: crate::draw::graph::GraphMode::from_config(
+                config.net.graph_symbol_net,
+                config.ui.graph_symbol,
+            ),
+            swap_dl_ul: config.net.swap_upload_download,
+            base_10: config.ui.base_10_sizes,
+        };
         output.push_str(&ui::net_widget::draw(
             net_info,
             &area,
             theme,
-            &net_settings,
+            &net_frame,
             &net.status,
         ));
     }
@@ -402,18 +461,21 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
                 .unwrap_or(""),
             armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
         };
-        let proc_settings = ui::proc_widget::build_settings(
-            config,
-            params.view,
-            params.core_count,
-            params.total_mem,
-        );
+        let proc_frame = ui::proc_widget::ProcFrame {
+            proc_per_core: params.view.proc_per_core,
+            core_count: params.core_count,
+            proc_mem_bytes: config.proc.proc_mem_bytes,
+            total_mem: params.total_mem,
+            proc_colors: config.proc.proc_colors,
+            proc_gradient: config.proc.proc_gradient,
+            base_10: config.ui.base_10_sizes,
+        };
         output.push_str(&ui::proc_widget::draw(
             procs,
             entries,
             &area,
             theme,
-            &proc_settings,
+            &proc_frame,
             &view,
             &proc_snap.status,
         ));

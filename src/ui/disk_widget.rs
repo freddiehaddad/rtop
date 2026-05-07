@@ -31,33 +31,19 @@ const MIN_METER_W: usize = 5;
 /// Minimum graph width in IO mode.
 const MIN_IO_GRAPH_W: usize = 3;
 
-/// Extracted settings for the disk widget, decoupled from Config.
-pub struct DiskWidgetSettings {
+/// Per-frame view passed to [`draw`].
+///
+/// `graph_symbol` is pre-resolved from `DiskConfig::graph_symbol_disk +
+/// UiConfig::graph_symbol` (per-widget override falls back to the
+/// global default). `io_mode` lives in `RuntimeView` (it's a runtime
+/// toggle); the rest mirror `DiskConfig` / `UiConfig` fields.
+pub struct DiskFrame {
     pub graph_symbol: GraphMode,
     pub base_10: bool,
     pub show_io_stat: bool,
     pub io_mode: bool,
     pub disk_io_mode: bool,
     pub io_graph_combined: bool,
-}
-
-/// Build [`DiskWidgetSettings`] from the current [`Config`] +
-/// runtime view-state.
-///
-/// Co-locates per-widget settings derivation with the widget itself
-/// so adding a disk-widget setting is a one-file change.
-pub(crate) fn build_settings(
-    config: &crate::config::Config,
-    view: &crate::app::RuntimeView,
-) -> DiskWidgetSettings {
-    DiskWidgetSettings {
-        graph_symbol: GraphMode::from_config(config.disk.graph_symbol_disk, config.ui.graph_symbol),
-        base_10: config.ui.base_10_sizes,
-        show_io_stat: config.disk.show_io_stat,
-        io_mode: view.io_mode,
-        disk_io_mode: config.disk.disk_io_mode,
-        io_graph_combined: config.disk.io_graph_combined,
-    }
 }
 
 /// Preferred intrinsic height for the disk widget given the
@@ -101,7 +87,7 @@ pub fn draw(
     disks: &[&DiskInfo],
     area: &WidgetArea,
     theme: &Theme,
-    settings: &DiskWidgetSettings,
+    settings: &DiskFrame,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -347,7 +333,7 @@ struct PerfRowParams<'a> {
     row_y: usize,
     inner_w: usize,
     theme: &'a Theme,
-    settings: &'a DiskWidgetSettings,
+    settings: &'a DiskFrame,
     read_grad: &'a [String],
     write_grad: &'a [String],
     busy_grad: &'a [String],
@@ -587,8 +573,8 @@ mod tests {
         }
     }
 
-    fn settings() -> DiskWidgetSettings {
-        DiskWidgetSettings {
+    fn frame() -> DiskFrame {
+        DiskFrame {
             graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: true,
@@ -613,7 +599,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -634,7 +620,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &theme,
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let title = theme.color(tc::TITLE);
@@ -665,7 +651,7 @@ mod tests {
         // switch after `i`), and the trailing label is `o*`.
         let data = make_disk_data();
         let theme = Theme::default();
-        let mut s = settings();
+        let mut s = frame();
         s.io_mode = true;
         let output = draw(
             &all_disks(&data),
@@ -700,7 +686,7 @@ mod tests {
         // view is active.
         let data = make_disk_data();
         let theme = Theme::default();
-        let mut s = settings();
+        let mut s = frame();
         s.disk_io_mode = true;
         let output = draw(
             &all_disks(&data),
@@ -723,7 +709,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -738,7 +724,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -755,7 +741,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -785,7 +771,7 @@ mod tests {
             &all_disks(&data),
             &area,
             &theme,
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let avail_grad = theme.gradient(tc::GRAD_AVAILABLE);
@@ -814,7 +800,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &theme,
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let read_grad = theme.gradient(tc::GRAD_DISK_READ);
@@ -896,7 +882,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &theme,
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -965,7 +951,7 @@ mod tests {
             height: 12,
             rounded: true,
         };
-        let s = DiskWidgetSettings {
+        let s = DiskFrame {
             graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: false,
@@ -1057,7 +1043,7 @@ mod tests {
             height: 8,
             rounded: true,
         };
-        let s = DiskWidgetSettings {
+        let s = DiskFrame {
             graph_symbol: GraphMode::Braille,
             base_10: false,
             show_io_stat: false,
@@ -1089,7 +1075,7 @@ mod tests {
             &all_disks(&data),
             &make_area(),
             &theme,
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let fg = theme.color(tc::MAIN_FG);
@@ -1129,7 +1115,7 @@ mod tests {
             &visible,
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1153,7 +1139,7 @@ mod tests {
             &visible,
             &make_area(),
             &Theme::default(),
-            &settings(),
+            &frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);

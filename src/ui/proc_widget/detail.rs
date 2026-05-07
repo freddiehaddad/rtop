@@ -1,4 +1,4 @@
-use super::ProcWidgetSettings;
+use super::ProcFrame;
 use super::rows::{display_proc_cpu, format_proc_memory};
 use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
@@ -30,7 +30,7 @@ pub(super) fn draw_detail_panel(
     y: usize,
     width: usize,
     rows: usize,
-    settings: &ProcWidgetSettings,
+    settings: &ProcFrame,
     theme: &Theme,
 ) -> String {
     let fg = theme.color(tc::MAIN_FG);
@@ -147,7 +147,7 @@ fn draw_detail_header(
 
 fn detail_fields<'a>(
     proc: &ProcInfo,
-    settings: &ProcWidgetSettings,
+    settings: &ProcFrame,
     fg: &'a str,
     hi: &'a str,
     proc_grad: &'a [String],
@@ -352,8 +352,8 @@ mod tests {
         ]
     }
 
-    fn make_settings() -> ProcWidgetSettings {
-        ProcWidgetSettings {
+    fn make_frame() -> ProcFrame {
+        ProcFrame {
             proc_per_core: true,
             core_count: 4,
             proc_mem_bytes: true,
@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn detail_panel_right_aligns_pid_header() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &make_settings(), &Theme::default());
+        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &make_frame(), &Theme::default());
         let plain = strip_ansi(&output);
         let expected_gap = 76 - "alpha.exe".len() - "PID 100".len();
         let expected = format!("alpha.exe{}PID 100", " ".repeat(expected_gap));
@@ -383,7 +383,7 @@ mod tests {
         let mut procs = make_procs();
         procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(80));
 
-        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &make_settings(), &Theme::default());
+        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &make_frame(), &Theme::default());
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("Cmd      alpha.exe"));
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn detail_panel_narrow_mode_keeps_high_priority_fields() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &make_settings(), &Theme::default());
+        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &make_frame(), &Theme::default());
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("User     Admin"));

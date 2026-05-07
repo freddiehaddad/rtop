@@ -13,8 +13,16 @@ use std::collections::VecDeque;
 
 use super::WidgetArea;
 
-/// Extracted settings for the CPU widget, decoupled from Config.
-pub struct CpuWidgetSettings<'a> {
+/// Per-frame view passed to [`draw`].
+///
+/// Bundles `CpuConfig` / `UiConfig` field reads with per-frame
+/// computed values (preset name, filter-active, current CPU
+/// snapshot fields). Constructed inline at the call site —
+/// there's no `build_settings` helper because every entry maps
+/// to either a fixed lookup (e.g., `config.cpu.cpu_invert_lower`)
+/// or a per-frame computation (e.g.,
+/// `config.preset.active().name()`).
+pub struct CpuFrame<'a> {
     pub graph_symbol: GraphMode,
     pub upper_source: CpuGraphSource,
     pub lower_source: CpuGraphSource,
@@ -46,41 +54,6 @@ pub struct CpuWidgetSettings<'a> {
     pub cpu_watts: Option<f64>,
     pub cpu_max_watts: Option<f64>,
     pub clock_format: &'a str,
-}
-
-/// Build [`CpuWidgetSettings`] from the current [`Config`], the
-/// CPU snapshot, and the effective frame interval.
-///
-/// Co-locates per-widget settings derivation with the widget itself
-/// so adding a CPU-widget setting is a one-file change.
-pub(crate) fn build_settings<'a>(
-    config: &'a crate::config::Config,
-    cpu_info: &'a CpuInfo,
-    update_ms: u64,
-    filter_active: bool,
-) -> CpuWidgetSettings<'a> {
-    CpuWidgetSettings {
-        graph_symbol: GraphMode::from_config(config.cpu.graph_symbol_cpu, config.ui.graph_symbol),
-        upper_source: config.cpu.cpu_graph_upper,
-        lower_source: config.cpu.cpu_graph_lower,
-        check_temp: config.cpu.check_temp,
-        show_coretemp: config.cpu.show_coretemp,
-        temp_scale: config.cpu.temp_scale,
-        single_graph: config.cpu.cpu_single_graph,
-        auto_scale: config.cpu.cpu_auto_scale,
-        update_ms,
-        preset_name: config.preset.active().name(),
-        filter_active,
-        invert_lower: config.cpu.cpu_invert_lower,
-        show_cpu_freq: config.cpu.show_cpu_freq,
-        show_uptime: config.cpu.show_uptime,
-        cpu_name: &cpu_info.cpu_name,
-        custom_cpu_name: &config.cpu.custom_cpu_name,
-        show_cpu_watts: config.cpu.show_cpu_watts,
-        cpu_watts: cpu_info.cpu_watts,
-        cpu_max_watts: cpu_info.cpu_max_watts,
-        clock_format: &config.ui.clock_format,
-    }
 }
 
 /// Label width for stats meter rows (matches GPU widget).
@@ -351,7 +324,7 @@ pub fn draw(
     cpu: &CpuInfo,
     area: &WidgetArea,
     theme: &Theme,
-    settings: &CpuWidgetSettings,
+    settings: &CpuFrame,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -1121,8 +1094,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> CpuWidgetSettings<'static> {
-        CpuWidgetSettings {
+    fn make_frame() -> CpuFrame<'static> {
+        CpuFrame {
             graph_symbol: GraphMode::Braille,
             upper_source: CpuGraphSource::User,
             lower_source: CpuGraphSource::System,
@@ -1152,7 +1125,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1165,7 +1138,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1193,7 +1166,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1209,7 +1182,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         assert!(!output.is_empty(), "draw output should not be empty");
@@ -1221,7 +1194,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1235,7 +1208,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1255,7 +1228,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1268,7 +1241,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1284,7 +1257,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
@@ -1303,7 +1276,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let title = theme.color(tc::TITLE);
@@ -1356,7 +1329,7 @@ mod tests {
             &make_cpu_info(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &CollectStatus::Ok,
         );
         let cpu_grad = theme.gradient(tc::GRAD_CPU_UPPER);
@@ -1382,7 +1355,7 @@ mod tests {
         // text stays MAIN_FG, not coloured by any gradient. This guards the
         // exception against future refactors.
         let theme = Theme::default();
-        let mut settings = make_settings();
+        let mut settings = make_frame();
         settings.show_cpu_watts = true;
         settings.cpu_watts = Some(42.5);
         settings.cpu_max_watts = None;
@@ -1417,7 +1390,7 @@ mod tests {
         // look identical to widget title insets and section dividers; the
         // shift creates a clean two-tier visual hierarchy.
         let theme = Theme::default();
-        let mut settings = make_settings();
+        let mut settings = make_frame();
         settings.show_cpu_watts = true;
         settings.cpu_watts = Some(42.5);
         settings.cpu_max_watts = Some(125.0);
@@ -1514,11 +1487,11 @@ mod tests {
         cpu.cpu_percent.user = low.clone();
         cpu.cpu_percent.system = low;
 
-        let mut s_off = make_settings();
+        let mut s_off = make_frame();
         s_off.auto_scale = false;
         let out_off = draw(&cpu, &area, &theme, &s_off, &CollectStatus::Ok);
 
-        let mut s_on = make_settings();
+        let mut s_on = make_frame();
         s_on.auto_scale = true;
         let out_on = draw(&cpu, &area, &theme, &s_on, &CollectStatus::Ok);
 

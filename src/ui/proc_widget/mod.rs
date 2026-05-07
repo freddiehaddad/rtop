@@ -20,8 +20,8 @@ use super::{ProcView, WidgetArea};
 
 pub(crate) use layout::visible_row_count;
 
-/// Process widget display settings derived from the current config and snapshot.
-pub struct ProcWidgetSettings {
+/// Process widget per-frame view passed to [`draw`].
+pub struct ProcFrame {
     pub proc_per_core: bool,
     pub core_count: usize,
     pub proc_mem_bytes: bool,
@@ -29,28 +29,6 @@ pub struct ProcWidgetSettings {
     pub proc_colors: bool,
     pub proc_gradient: bool,
     pub base_10: bool,
-}
-
-/// Build [`ProcWidgetSettings`] from the current [`Config`] and the
-/// hardware-derived `core_count` / `total_mem` snapshot constants.
-///
-/// Co-locates per-widget settings derivation with the widget itself
-/// so adding a process-widget setting is a one-file change.
-pub(crate) fn build_settings(
-    config: &crate::config::Config,
-    view: &crate::app::RuntimeView,
-    core_count: usize,
-    total_mem: u64,
-) -> ProcWidgetSettings {
-    ProcWidgetSettings {
-        proc_per_core: view.proc_per_core,
-        core_count,
-        proc_mem_bytes: config.proc.proc_mem_bytes,
-        total_mem,
-        proc_colors: config.proc.proc_colors,
-        proc_gradient: config.proc.proc_gradient,
-        base_10: config.ui.base_10_sizes,
-    }
 }
 
 /// Draw the process list widget into an ANSI string matching btop's layout.
@@ -68,7 +46,7 @@ pub fn draw(
     entries: &[ProcDisplayEntry],
     area: &WidgetArea,
     theme: &Theme,
-    settings: &ProcWidgetSettings,
+    settings: &ProcFrame,
     view: &ProcView,
     status: &CollectStatus,
 ) -> String {
@@ -149,7 +127,7 @@ struct DetailSectionParams<'a> {
     entries: &'a [ProcDisplayEntry],
     layout: &'a ProcWidgetLayout,
     detailed_pid: u32,
-    settings: &'a ProcWidgetSettings,
+    settings: &'a ProcFrame,
     theme: &'a Theme,
 }
 
@@ -207,7 +185,7 @@ fn draw_header(
     buf: &mut AnsiBuffer,
     layout: &ProcWidgetLayout,
     view: &ProcView,
-    settings: &ProcWidgetSettings,
+    settings: &ProcFrame,
     colors: &ProcColors<'_>,
 ) {
     let sort = SortState::new(view);
@@ -298,7 +276,7 @@ fn draw_header(
         .reset();
 }
 
-fn mem_header_label(settings: &ProcWidgetSettings) -> &'static str {
+fn mem_header_label(settings: &ProcFrame) -> &'static str {
     if settings.proc_mem_bytes {
         "Mem"
     } else {
@@ -492,8 +470,8 @@ mod tests {
         }
     }
 
-    fn make_settings() -> ProcWidgetSettings {
-        ProcWidgetSettings {
+    fn make_frame() -> ProcFrame {
+        ProcFrame {
             proc_per_core: true,
             core_count: 4,
             proc_mem_bytes: true,
@@ -511,7 +489,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -526,7 +504,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -552,7 +530,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -570,7 +548,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -583,7 +561,7 @@ mod tests {
             &make_entries(),
             &narrow_area,
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -605,7 +583,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &detail_view,
             &CollectStatus::Ok,
         );
@@ -614,7 +592,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -643,7 +621,7 @@ mod tests {
             &entries,
             &area,
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -666,7 +644,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );
@@ -689,7 +667,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -698,10 +676,10 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &ProcWidgetSettings {
+            &ProcFrame {
                 proc_per_core: false,
                 core_count: 4,
-                ..make_settings()
+                ..make_frame()
             },
             &make_view(),
             &CollectStatus::Ok,
@@ -718,7 +696,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -727,10 +705,10 @@ mod tests {
             &make_entries(),
             &make_area(),
             &Theme::default(),
-            &ProcWidgetSettings {
+            &ProcFrame {
                 proc_mem_bytes: false,
                 total_mem: 1024 * 1024 * 1024,
-                ..make_settings()
+                ..make_frame()
             },
             &make_view(),
             &CollectStatus::Ok,
@@ -757,9 +735,9 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &ProcWidgetSettings {
+            &ProcFrame {
                 proc_gradient: false,
-                ..make_settings()
+                ..make_frame()
             },
             &view,
             &CollectStatus::Ok,
@@ -769,9 +747,9 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &ProcWidgetSettings {
+            &ProcFrame {
                 proc_colors: false,
-                ..make_settings()
+                ..make_frame()
             },
             &view,
             &CollectStatus::Ok,
@@ -792,7 +770,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -820,7 +798,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );
@@ -855,7 +833,7 @@ mod tests {
             &entries,
             &area,
             &theme,
-            &make_settings(),
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );
@@ -889,7 +867,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );
@@ -916,7 +894,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &make_view(),
             &CollectStatus::Ok,
         );
@@ -946,7 +924,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &make_settings(),
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );

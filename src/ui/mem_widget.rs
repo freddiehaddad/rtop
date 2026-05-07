@@ -9,21 +9,19 @@ use crate::tools;
 
 use super::WidgetArea;
 
-/// Extracted settings for the memory widget, decoupled from Config.
-pub struct MemWidgetSettings {
-    pub show_swap: bool,
-    pub base_10: bool,
-}
-
-/// Build [`MemWidgetSettings`] from the current [`Config`].
+/// Per-frame view passed to [`draw`].
 ///
-/// Co-locates per-widget settings derivation with the widget itself
-/// so adding a memory-widget setting is a one-file change.
-pub(crate) fn build_settings(config: &crate::config::Config) -> MemWidgetSettings {
-    MemWidgetSettings {
-        show_swap: config.mem.show_swap,
-        base_10: config.ui.base_10_sizes,
-    }
+/// Borrows the [`MemConfig`] section directly (no field-by-field
+/// copy). Adding a `MemConfig` field is automatically available to
+/// the renderer with no `MemFrame` change.
+///
+/// `base_10` is read from `UiConfig` because byte-unit rendering is
+/// a global UI concern, not a memory-widget setting; it's lifted
+/// into this struct so the renderer doesn't need a `&UiConfig`
+/// borrow just for the one field.
+pub struct MemFrame<'a> {
+    pub config: &'a crate::config::MemConfig,
+    pub base_10: bool,
 }
 
 /// Preferred intrinsic height for the memory widget given the
@@ -52,7 +50,7 @@ pub fn draw(
     mem: &MemInfo,
     area: &WidgetArea,
     theme: &Theme,
-    settings: &MemWidgetSettings,
+    frame: &MemFrame<'_>,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -92,7 +90,7 @@ pub fn draw(
     let total_bytes = mem.stats.used + mem.stats.available;
 
     // Total memory inset on top border (like CPU frequency)
-    let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, settings.base_10);
+    let total_str = tools::floating_humanizer(total_bytes, true, 0, false, false, frame.base_10);
     let inset = box_drawing::title_inset(&total_str, border_color, title_color, false);
     let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&total_str));
     buf.mv(inset_x, y + 1).text(&inset);
@@ -132,7 +130,7 @@ pub fn draw(
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct);
-    let used_str = tools::floating_humanizer(used, true, 0, false, false, settings.base_10);
+    let used_str = tools::floating_humanizer(used, true, 0, false, false, frame.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -151,7 +149,7 @@ pub fn draw(
     let avail = mem.stats.available;
     let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let avail_color = gradient_color(avail_grad, avail_pct);
-    let avail_str = tools::floating_humanizer(avail, true, 0, false, false, settings.base_10);
+    let avail_str = tools::floating_humanizer(avail, true, 0, false, false, frame.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -171,7 +169,7 @@ pub fn draw(
     if cached > 0 && row < inner_h {
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
         let cache_color = gradient_color(cached_grad, cached_pct);
-        let cached_str = tools::floating_humanizer(cached, true, 0, false, false, settings.base_10);
+        let cached_str = tools::floating_humanizer(cached, true, 0, false, false, frame.base_10);
         render_row(
             &mut buf,
             "Cache ",
@@ -189,7 +187,7 @@ pub fn draw(
     let free = mem.stats.free;
     let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let free_color = gradient_color(free_grad, free_pct);
-    let free_str = tools::floating_humanizer(free, true, 0, false, false, settings.base_10);
+    let free_str = tools::floating_humanizer(free, true, 0, false, false, frame.base_10);
     if row < inner_h {
         render_row(
             &mut buf,
@@ -205,7 +203,7 @@ pub fn draw(
     }
 
     // Swap (no blank line, no separate total line — meter shows ratio)
-    if settings.show_swap {
+    if frame.config.show_swap {
         let swap_used = mem.stats.swap_used;
         let swap_total = mem.stats.swap_total;
         let swap_pct = if swap_total > 0 {
@@ -214,8 +212,7 @@ pub fn draw(
             0
         };
         let swap_color = gradient_color(used_grad, swap_pct);
-        let swap_str =
-            tools::floating_humanizer(swap_used, true, 0, false, false, settings.base_10);
+        let swap_str = tools::floating_humanizer(swap_used, true, 0, false, false, frame.base_10);
         if row < inner_h {
             render_row(
                 &mut buf,
@@ -290,8 +287,8 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemWidgetSettings {
-                show_swap: true,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: true },
                 base_10: false,
             },
             &CollectStatus::Ok,
@@ -306,8 +303,8 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemWidgetSettings {
-                show_swap: true,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: true },
                 base_10: false,
             },
             &CollectStatus::Ok,
@@ -322,8 +319,8 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemWidgetSettings {
-                show_swap: true,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: true },
                 base_10: false,
             },
             &CollectStatus::Ok,
@@ -341,8 +338,8 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &Theme::default(),
-            &MemWidgetSettings {
-                show_swap: false,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: false },
                 base_10: false,
             },
             &CollectStatus::Ok,
@@ -367,8 +364,8 @@ mod tests {
             &info,
             &make_area(),
             &theme,
-            &MemWidgetSettings {
-                show_swap: true,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: true },
                 base_10: false,
             },
             &CollectStatus::Ok,
@@ -391,8 +388,8 @@ mod tests {
             &make_mem_info(),
             &make_area(),
             &theme,
-            &MemWidgetSettings {
-                show_swap: true,
+            &MemFrame {
+                config: &crate::config::MemConfig { show_swap: true },
                 base_10: false,
             },
             &CollectStatus::Ok,
