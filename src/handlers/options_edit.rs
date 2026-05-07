@@ -149,38 +149,20 @@ impl OptionEditState {
     }
 }
 
-/// Handle a single keystroke while [`MenuState::OptionsEdit`] is
-/// active.
-pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
-    match *key {
-        Key::Escape => cancel(ctx),
-        Key::Enter => commit(ctx),
-        Key::Backspace => mutate(ctx, OptionEditState::backspace),
-        Key::Delete => mutate(ctx, OptionEditState::delete),
-        Key::Left => mutate(ctx, OptionEditState::move_left),
-        Key::Right => mutate(ctx, OptionEditState::move_right),
-        Key::Home => mutate(ctx, OptionEditState::move_home),
-        Key::End => mutate(ctx, OptionEditState::move_end),
-        // Any key that maps to a typed character (regular Char or
-        // the standalone Space variant) is inserted into the
-        // buffer. See `Key::typed_char` for the bridge that
-        // prevents Space from silently being dropped.
-        // Tab, PageUp, PageDown, function keys etc. are intentionally
-        // ignored: silently switching categories on Tab could surprise
-        // a user who has an invalid buffer but has not yet noticed.
-        other => match other.typed_char() {
-            Some(c) => insert(ctx, c),
-            None => HandleResult::none(),
-        },
-    }
-}
-
-fn cancel(ctx: &mut InputContext) -> HandleResult {
+/// Handler for the `Esc` keybinding while in
+/// [`MenuState::OptionsEdit`]: discards the in-progress edit and
+/// returns to the options menu without committing any change.
+pub(super) fn cancel_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.overlay.exit_option_edit();
     redraw_options(ctx)
 }
 
-fn commit(ctx: &mut InputContext) -> HandleResult {
+/// Handler for the `Enter` keybinding: validate the buffer, commit
+/// the value via the appropriate typed sub-enum's `set` /
+/// `set_canonical`, run [`apply_post_change_effects`], and return
+/// to the options menu. On validation failure, attaches an error
+/// to the edit state and stays in the editor.
+pub(super) fn commit_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     let Some(edit) = ctx.overlay.option_edit() else {
         return HandleResult::none();
     };
@@ -285,6 +267,46 @@ fn commit(ctx: &mut InputContext) -> HandleResult {
     }
 }
 
+pub(super) fn backspace_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::backspace)
+}
+
+pub(super) fn delete_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::delete)
+}
+
+pub(super) fn move_left_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::move_left)
+}
+
+pub(super) fn move_right_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::move_right)
+}
+
+pub(super) fn move_home_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::move_home)
+}
+
+pub(super) fn move_end_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    mutate(ctx, OptionEditState::move_end)
+}
+
+/// Dispatcher fallback for [`MenuState::OptionsEdit`]. Any key
+/// whose [`Key::typed_char`] is `Some(c)` is offered to the active
+/// edit state's `accepts_char` filter; if accepted, the char is
+/// inserted at the cursor. Tab, PageUp, PageDown, function keys,
+/// and other non-printable keys fall through as no-ops.
+///
+/// Tab is intentionally ignored: silently switching options
+/// categories on Tab could surprise a user who has an invalid
+/// buffer but has not yet noticed.
+pub(crate) fn fallback_typed_char(key: &Key, ctx: &mut InputContext) -> HandleResult {
+    let Some(c) = key.typed_char() else {
+        return HandleResult::none();
+    };
+    insert(ctx, c)
+}
+
 fn insert(ctx: &mut InputContext, c: char) -> HandleResult {
     let accepted = ctx
         .overlay
@@ -327,8 +349,8 @@ fn render_options_menu(ctx: &InputContext) -> String {
 
 // `MenuState` transitions for entering/leaving OptionsEdit are
 // enforced by `OverlayState::enter_option_edit` and
-// `OverlayState::exit_option_edit`, which is why this handler
-// never references `MenuState` directly.
+// `OverlayState::exit_option_edit`, which is why these handlers
+// never reference `MenuState` directly.
 
 #[cfg(test)]
 mod tests {

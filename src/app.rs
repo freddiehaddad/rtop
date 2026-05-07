@@ -29,7 +29,7 @@ pub(crate) use state::{
 
 use crate::config;
 use crate::event::{AppEvent, PerSubsystem};
-use crate::handlers::{self, InputContext, MenuState};
+use crate::handlers::{self, InputContext};
 use crate::input;
 use crate::runner;
 use crate::term;
@@ -227,12 +227,5 @@ fn handle_input_key(
 }
 
 fn dispatch_handler(key: &input::Key, ctx: &mut InputContext) -> handlers::HandleResult {
-    match ctx.overlay.menu_state {
-        MenuState::Main => handlers::main_menu::handle(key, ctx),
-        MenuState::Help => handlers::help::handle(key, ctx),
-        MenuState::Options => handlers::options::handle(key, ctx),
-        MenuState::OptionsEdit => handlers::options_edit::handle(key, ctx),
-        MenuState::Filter => handlers::filter::handle(key, ctx),
-        MenuState::None => handlers::normal::handle(key, ctx),
-    }
+    handlers::keybinds::dispatch(key, ctx)
 }

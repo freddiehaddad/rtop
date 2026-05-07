@@ -1,190 +1,173 @@
+//! Per-action handlers for the options overlay and the helpers
+//! shared with the inline-editor overlay
+//! (`apply_post_change_effects`).
+
 use crate::{
     config::{BoolKey, ConfigKey, EnumKey, IntKey, StringKey},
     dirty::Dirty,
+    handlers::normal::sync_all_intervals,
     handlers::options_edit::{EditKind, OptionEditState},
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
     input::Key,
     menu, theme,
 };
 
-use super::normal::sync_all_intervals;
+const OPTIONS_CATEGORY_COUNT: usize = 7;
 
-/// Handle input while the options overlay is visible.
-pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
-    match *key {
-        Key::Char('q') => return HandleResult::quit(),
-        Key::Escape | Key::Backspace | Key::Char('o') | Key::F(2) => {
-            let return_to = ctx.overlay.menu_return_to;
-            ctx.overlay.set_menu_state(return_to);
-            tracing::debug!(
-                subsystem = %crate::log::Subsystem::Ui,
-                menu = "options",
-                opened = false,
-                "menu transition",
-            );
-            if return_to == MenuState::None {
-                ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
-            }
-            return HandleResult::redraw();
-        }
-        Key::Tab => {
-            ctx.overlay.options_cat = (ctx.overlay.options_cat + 1) % 7;
-            ctx.overlay.options_page = 0;
-            ctx.overlay.options_selected = 0;
-            return options_menu_output(ctx);
-        }
-        Key::ShiftTab => {
-            ctx.overlay.options_cat = if ctx.overlay.options_cat == 0 {
-                6
-            } else {
-                ctx.overlay.options_cat - 1
-            };
-            ctx.overlay.options_page = 0;
-            ctx.overlay.options_selected = 0;
-            return options_menu_output(ctx);
-        }
-        Key::Char(c @ '0'..='6') => {
-            let new_cat = (c as usize) - ('0' as usize);
-            if new_cat != ctx.overlay.options_cat {
-                ctx.overlay.options_cat = new_cat;
-                ctx.overlay.options_page = 0;
-                ctx.overlay.options_selected = 0;
-            }
-            return options_menu_output(ctx);
-        }
-        Key::Up => {
-            if ctx.overlay.options_selected > 0 {
-                ctx.overlay.options_selected -= 1;
-            } else {
-                // wrap to previous page or last page
-                let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-                if ctx.overlay.options_page > 0 {
-                    ctx.overlay.options_page -= 1;
-                } else if pages > 1 {
-                    ctx.overlay.options_page = pages - 1;
-                }
-                ctx.overlay.options_selected = menu::options_menu::select_max(
-                    ctx.overlay.options_cat,
-                    ctx.overlay.options_page,
-                    ctx.th,
-                );
-            }
-            return options_menu_output(ctx);
-        }
-        Key::Char('k') if ctx.config.ui.vim_keys => {
-            if ctx.overlay.options_selected > 0 {
-                ctx.overlay.options_selected -= 1;
-            } else {
-                let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-                if ctx.overlay.options_page > 0 {
-                    ctx.overlay.options_page -= 1;
-                } else if pages > 1 {
-                    ctx.overlay.options_page = pages - 1;
-                }
-                ctx.overlay.options_selected = menu::options_menu::select_max(
-                    ctx.overlay.options_cat,
-                    ctx.overlay.options_page,
-                    ctx.th,
-                );
-            }
-            return options_menu_output(ctx);
-        }
-        Key::Down => {
-            let sm = menu::options_menu::select_max(
-                ctx.overlay.options_cat,
-                ctx.overlay.options_page,
-                ctx.th,
-            );
-            if ctx.overlay.options_selected < sm {
-                ctx.overlay.options_selected += 1;
-            } else {
-                // wrap to next page or first page
-                let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-                if ctx.overlay.options_page < pages - 1 {
-                    ctx.overlay.options_page += 1;
-                } else if pages > 1 {
-                    ctx.overlay.options_page = 0;
-                }
-                ctx.overlay.options_selected = 0;
-            }
-            return options_menu_output(ctx);
-        }
-        Key::Char('j') if ctx.config.ui.vim_keys => {
-            let sm = menu::options_menu::select_max(
-                ctx.overlay.options_cat,
-                ctx.overlay.options_page,
-                ctx.th,
-            );
-            if ctx.overlay.options_selected < sm {
-                ctx.overlay.options_selected += 1;
-            } else {
-                let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-                if ctx.overlay.options_page < pages - 1 {
-                    ctx.overlay.options_page += 1;
-                } else if pages > 1 {
-                    ctx.overlay.options_page = 0;
-                }
-                ctx.overlay.options_selected = 0;
-            }
-            return options_menu_output(ctx);
-        }
-        Key::PageUp => {
-            let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-            if pages > 1 {
-                ctx.overlay.options_page = if ctx.overlay.options_page > 0 {
-                    ctx.overlay.options_page - 1
-                } else {
-                    pages - 1
-                };
-                ctx.overlay.options_selected = 0;
-            }
-            return options_menu_output(ctx);
-        }
-        Key::PageDown => {
-            let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
-            if pages > 1 {
-                ctx.overlay.options_page = if ctx.overlay.options_page < pages - 1 {
-                    ctx.overlay.options_page + 1
-                } else {
-                    0
-                };
-                ctx.overlay.options_selected = 0;
-            }
-            return options_menu_output(ctx);
-        }
-        Key::Enter => {
-            // Enter on Int / StringVal opens the inline editor.
-            // Enter on Bool / Browsable falls through to the same
-            // step-right behaviour as the arrow keys.
-            if let Some(opt_key) = menu::options_menu::opt_key(
-                ctx.overlay.options_cat,
-                ctx.overlay.options_page,
-                ctx.overlay.options_selected,
-                ctx.th,
-            ) {
-                let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
-                match kind {
-                    menu::options_menu::OptKind::Int => {
-                        return enter_inline_edit(ctx, opt_key, EditKind::Integer);
-                    }
-                    menu::options_menu::OptKind::StringVal => {
-                        return enter_inline_edit(ctx, opt_key, EditKind::Text);
-                    }
-                    menu::options_menu::OptKind::Bool | menu::options_menu::OptKind::Browsable => {
-                        return step_selected_option(ctx, 1);
-                    }
-                }
-            }
-            return HandleResult::none();
-        }
-        Key::Left => return step_selected_option(ctx, -1),
-        Key::Right | Key::Space => return step_selected_option(ctx, 1),
-        Key::Char('h') if ctx.config.ui.vim_keys => return step_selected_option(ctx, -1),
-        Key::Char('l') if ctx.config.ui.vim_keys => return step_selected_option(ctx, 1),
-        _ => {}
-    }
-    HandleResult::none()
+// ---------------------------------------------------------------------------
+// Per-action handlers (referenced by handlers/keybinds/table.rs)
+// ---------------------------------------------------------------------------
+
+pub(super) fn quit_action(_ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    HandleResult::quit()
 }
+
+pub(super) fn close_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    let return_to = ctx.overlay.menu_return_to;
+    ctx.overlay.set_menu_state(return_to);
+    tracing::debug!(
+        subsystem = %crate::log::Subsystem::Ui,
+        menu = "options",
+        opened = false,
+        "menu transition",
+    );
+    if return_to == MenuState::None {
+        ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    }
+    HandleResult::redraw()
+}
+
+pub(super) fn cat_next_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    ctx.overlay.options_cat = (ctx.overlay.options_cat + 1) % OPTIONS_CATEGORY_COUNT;
+    ctx.overlay.options_page = 0;
+    ctx.overlay.options_selected = 0;
+    options_menu_output(ctx)
+}
+
+pub(super) fn cat_prev_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    ctx.overlay.options_cat = if ctx.overlay.options_cat == 0 {
+        OPTIONS_CATEGORY_COUNT - 1
+    } else {
+        ctx.overlay.options_cat - 1
+    };
+    ctx.overlay.options_page = 0;
+    ctx.overlay.options_selected = 0;
+    options_menu_output(ctx)
+}
+
+pub(super) fn cat_select_digit_action(ctx: &mut InputContext, key: &Key) -> HandleResult {
+    let Key::Char(c) = key else {
+        return HandleResult::none();
+    };
+    let new_cat = (*c as usize) - ('0' as usize);
+    if new_cat >= OPTIONS_CATEGORY_COUNT {
+        return HandleResult::none();
+    }
+    if new_cat != ctx.overlay.options_cat {
+        ctx.overlay.options_cat = new_cat;
+        ctx.overlay.options_page = 0;
+        ctx.overlay.options_selected = 0;
+    }
+    options_menu_output(ctx)
+}
+
+pub(super) fn select_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    if ctx.overlay.options_selected > 0 {
+        ctx.overlay.options_selected -= 1;
+    } else {
+        // wrap to previous page or last page
+        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+        if ctx.overlay.options_page > 0 {
+            ctx.overlay.options_page -= 1;
+        } else if pages > 1 {
+            ctx.overlay.options_page = pages - 1;
+        }
+        ctx.overlay.options_selected = menu::options_menu::select_max(
+            ctx.overlay.options_cat,
+            ctx.overlay.options_page,
+            ctx.th,
+        );
+    }
+    options_menu_output(ctx)
+}
+
+pub(super) fn select_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    let sm =
+        menu::options_menu::select_max(ctx.overlay.options_cat, ctx.overlay.options_page, ctx.th);
+    if ctx.overlay.options_selected < sm {
+        ctx.overlay.options_selected += 1;
+    } else {
+        // wrap to next page or first page
+        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+        if ctx.overlay.options_page < pages - 1 {
+            ctx.overlay.options_page += 1;
+        } else if pages > 1 {
+            ctx.overlay.options_page = 0;
+        }
+        ctx.overlay.options_selected = 0;
+    }
+    options_menu_output(ctx)
+}
+
+pub(super) fn page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+    if pages > 1 {
+        ctx.overlay.options_page = if ctx.overlay.options_page > 0 {
+            ctx.overlay.options_page - 1
+        } else {
+            pages - 1
+        };
+        ctx.overlay.options_selected = 0;
+    }
+    options_menu_output(ctx)
+}
+
+pub(super) fn page_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+    if pages > 1 {
+        ctx.overlay.options_page = if ctx.overlay.options_page < pages - 1 {
+            ctx.overlay.options_page + 1
+        } else {
+            0
+        };
+        ctx.overlay.options_selected = 0;
+    }
+    options_menu_output(ctx)
+}
+
+pub(super) fn enter_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    // Enter on Int / StringVal opens the inline editor.
+    // Enter on Bool / Browsable falls through to the same
+    // step-right behaviour as the arrow keys.
+    let Some(opt_key) = menu::options_menu::opt_key(
+        ctx.overlay.options_cat,
+        ctx.overlay.options_page,
+        ctx.overlay.options_selected,
+        ctx.th,
+    ) else {
+        return HandleResult::none();
+    };
+    let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
+    match kind {
+        menu::options_menu::OptKind::Int => enter_inline_edit(ctx, opt_key, EditKind::Integer),
+        menu::options_menu::OptKind::StringVal => enter_inline_edit(ctx, opt_key, EditKind::Text),
+        menu::options_menu::OptKind::Bool | menu::options_menu::OptKind::Browsable => {
+            step_selected_option(ctx, 1)
+        }
+    }
+}
+
+pub(super) fn step_left_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    step_selected_option(ctx, -1)
+}
+
+pub(super) fn step_right_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
+    step_selected_option(ctx, 1)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 /// Build a HandleResult that redraws the options menu overlay.
 fn options_menu_output(ctx: &mut InputContext) -> HandleResult {

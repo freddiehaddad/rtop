@@ -1,5 +1,6 @@
 pub(crate) mod filter;
 pub(crate) mod help;
+pub(crate) mod keybinds;
 pub(crate) mod main_menu;
 pub(crate) mod normal;
 pub(crate) mod options;
@@ -16,7 +17,7 @@ use crate::{
 };
 
 /// The current menu overlay state.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum MenuState {
     None,
     Main,
