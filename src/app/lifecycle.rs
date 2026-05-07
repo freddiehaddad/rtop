@@ -99,20 +99,18 @@ pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::Ap
     // Mirror RuntimeView -> config.view so runtime-toggle state
     // (proc_tree, io_mode, net_iface, etc.) survives restart.
     state.view.sync_to_config(&mut config.view);
-    if config.ui.save_config_on_exit {
-        let conf_path = tools::config_dir().join("rtop.toml");
-        match config.write(&conf_path) {
-            Ok(()) => tracing::info!(
-                subsystem = %crate::log::Subsystem::Config,
-                path = %conf_path.display(),
-                "config saved",
-            ),
-            Err(e) => tracing::warn!(
-                subsystem = %crate::log::Subsystem::Config,
-                error = %e,
-                path = %conf_path.display(),
-                "config save failed",
-            ),
-        }
+    let conf_path = tools::config_dir().join("rtop.toml");
+    match config.write(&conf_path) {
+        Ok(()) => tracing::info!(
+            subsystem = %crate::log::Subsystem::Config,
+            path = %conf_path.display(),
+            "config saved",
+        ),
+        Err(e) => tracing::warn!(
+            subsystem = %crate::log::Subsystem::Config,
+            error = %e,
+            path = %conf_path.display(),
+            "config save failed",
+        ),
     }
 }

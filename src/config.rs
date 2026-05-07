@@ -114,7 +114,6 @@ pub struct UiConfig {
     pub vim_keys: bool,
     pub terminal_sync: bool,
     pub background_update: bool,
-    pub save_config_on_exit: bool,
     pub base_10_sizes: bool,
     /// Default graph drawing style; per-widget `graph_symbol_*`
     /// fields override this when set to a non-`Default` value.
@@ -133,7 +132,6 @@ impl Default for UiConfig {
             vim_keys: false,
             terminal_sync: true,
             background_update: true,
-            save_config_on_exit: true,
             base_10_sizes: false,
             graph_symbol: GraphSymbol::Braille,
             clock_format: "%X".to_string(),
@@ -333,7 +331,7 @@ impl Default for DiskConfig {
 /// 3. Committing an options-menu edit copies
 ///    `Config::view -> RuntimeView` so the runtime picks up the
 ///    user's change.
-/// 4. `save_config_on_exit` copies `RuntimeView -> Config::view`
+/// 4. Process exit copies `RuntimeView -> Config::view`
 ///    before serialising so the on-disk form is current.
 ///
 /// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
@@ -1061,7 +1059,6 @@ config_schema! {
         VimKeys => "vim_keys" => ui.vim_keys,
         BackgroundUpdate => "background_update" => ui.background_update,
         TerminalSync => "terminal_sync" => ui.terminal_sync,
-        SaveConfigOnExit => "save_config_on_exit" => ui.save_config_on_exit,
         DiskIoMode => "disk_io_mode" => disk.disk_io_mode,
     }
     ints {

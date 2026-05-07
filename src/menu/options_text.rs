@@ -269,14 +269,6 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: on.",
         ],
-        ConfigKey::Bool(BoolKey::SaveConfigOnExit) => &[
-            "Write settings to disk on exit.",
-            "",
-            "Off keeps your changes to runtime settings",
-            "only — they revert at the next launch.",
-            "",
-            "Default: on.",
-        ],
         ConfigKey::Bool(BoolKey::DiskIoMode) => &[
             "Persistent IO graph view.",
             "",
@@ -695,7 +687,6 @@ mod tests {
         "vim_keys",
         "background_update",
         "terminal_sync",
-        "save_config_on_exit",
         "disk_io_mode",
         "update_ms",
         "cpu_update_ms",

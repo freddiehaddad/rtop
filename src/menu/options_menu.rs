@@ -78,7 +78,6 @@ pub const GENERAL: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::Base10Sizes),
     ConfigKey::Bool(BoolKey::BackgroundUpdate),
     ConfigKey::Enum(EnumKey::LogLevel),
-    ConfigKey::Bool(BoolKey::SaveConfigOnExit),
 ];
 
 /// Options in the "cpu" category.

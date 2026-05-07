@@ -93,9 +93,8 @@ impl AppState {
 ///    `config.view -> RuntimeView`
 ///    ([`RuntimeView::sync_from_config`]) so the runtime picks up
 ///    the user's change.
-/// 4. `save_config_on_exit` runs `sync_to_config` before
-///    serialising so the on-disk form reflects the current
-///    runtime values.
+/// 4. Process exit runs `sync_to_config` before serialising so the
+///    on-disk form reflects the current runtime values.
 ///
 /// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
 /// `s`, Tab, `f`/`/`) mutate this struct only — they never reach

@@ -177,7 +177,7 @@ rtop stores its config at:
 | Config | `%APPDATA%\rtop\rtop.toml` (or `$XDG_CONFIG_HOME/rtop/`) |
 | Logs | `%LOCALAPPDATA%\rtop\` (or `$XDG_STATE_HOME/rtop/`) |
 
-The config file is created automatically on first run when `save_config_on_exit` is enabled (default). All options are editable from the built-in options menu (`o` / `F2`).
+The config file is created automatically on first run and updated on every clean exit. All options are editable from the built-in options menu (`o` / `F2`).
 
 To print the default config:
 
