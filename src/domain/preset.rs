@@ -3,11 +3,12 @@
 //!
 //! Presets are read-only and ship with rtop. There is no runtime
 //! "save preset" or "delete preset" — users who need a different
-//! layout edit the `[layout] shape = "..."` DSL string in
-//! `rtop.toml` directly (or via the options-menu `shape` key) or
-//! cycle to the custom preset (the slot beyond `BuiltinPreset::COUNT`).
-//! The only preset state persisted across runs is `Config::preset`,
-//! a [`PresetField`] storing the active cursor by canonical name.
+//! layout edit the `custom_layout = "..."` DSL string in
+//! `rtop.toml` directly (or via the options-menu `custom_layout`
+//! key) or cycle to the custom preset (the slot beyond
+//! `BuiltinPreset::COUNT`). The only preset state persisted across
+//! runs is `Config::preset`, a [`PresetField`] storing the active
+//! cursor by canonical name.
 
 use crate::domain::layout_spec::{HStackChild, Slot};
 use crate::domain::widget_kind::WidgetKind;
@@ -174,7 +175,7 @@ fn cpu_gpu_proc_layout_spec() -> Slot {
 
 /// Cursor identifying which preset is currently active. The
 /// builtins are shaped data; `Custom` is the user's mutable slot
-/// whose layout lives in `Config::custom` (a [`CustomLayout`]).
+/// whose layout lives in `Config::custom_layout` (a [`Slot`] tree).
 ///
 /// The cycle order (`Self::next` / `Self::prev`) visits every
 /// builtin in [`BuiltinPreset::ALL`] order, then `Custom`, then
@@ -184,10 +185,8 @@ fn cpu_gpu_proc_layout_spec() -> Slot {
 /// First-launch default is [`BuiltinPreset::All`] (the dashboard
 /// view) so the very first `p` keypress visibly cycles to a
 /// different preset, and the cursor name matches what the user is
-/// looking at. Custom is reached by either cycling all the way
-/// around or by editing the layout (toggle keys, options menu, or
-/// `shape` DSL string in `rtop.toml`), at which point the cursor
-/// auto-promotes.
+/// looking at. Custom is reached only by cycling — there is no
+/// auto-promotion from any layout-editing path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActivePreset {
     Builtin(BuiltinPreset),
@@ -327,48 +326,15 @@ impl<'de> Deserialize<'de> for PresetField {
     }
 }
 
-/// The persisted layout for the custom preset slot.
-///
-/// Stored as a single [`Slot`] tree — the canonical layout
-/// representation. Serialised as a TOML `[layout]` table with one
-/// `shape` field carrying the DSL string form of the tree:
-///
-/// ```toml
-/// [layout]
-/// shape = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
-/// ```
-///
-/// On first launch (no `[layout]` table in `rtop.toml`) the default
-/// is `BuiltinPreset::All`'s tree, matching the previous default of
-/// "every widget visible".
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct CustomLayout {
-    /// The custom layout's [`Slot`] tree. Persisted under the
-    /// `shape` TOML key (the user-facing name); the field name
-    /// `root` is the type-internal moniker.
-    #[serde(rename = "shape")]
-    pub root: Slot,
-}
-
-impl Default for CustomLayout {
-    /// First-launch default: clone the `all` preset's tree so the
-    /// user sees the dashboard view straight away. Toggling
-    /// individual widgets off (`1`-`9`) edits this tree in place;
-    /// the user can also rewrite the `shape` DSL string directly.
-    fn default() -> Self {
-        Self {
-            root: BuiltinPreset::All.layout_spec(),
-        }
-    }
-}
-
-impl CustomLayout {
-    /// Borrow this custom layout's [`Slot`] tree as an owned clone
-    /// for engine consumption. The engine takes the tree by value;
-    /// custom layouts can be edited in place between frames.
-    pub fn layout_spec(&self) -> Slot {
-        self.root.clone()
-    }
+/// First-launch default for the custom preset's layout tree.
+/// Clones the `all` preset's tree so the user sees the dashboard
+/// view straight away. Replaces the previous `CustomLayout`
+/// wrapper struct — the wrapper held only one field and existed
+/// solely to host a `#[serde(rename = "shape")]` attribute that
+/// no longer applies (the field is now `Config.custom_layout: Slot`
+/// at the top level).
+pub fn default_custom_layout() -> Slot {
+    BuiltinPreset::All.layout_spec()
 }
 
 #[cfg(test)]
@@ -693,41 +659,10 @@ mod tests {
         }
     }
 
-    // -- CustomLayout --
+    // -- default_custom_layout --
 
     #[test]
-    fn custom_layout_default_is_all_preset_tree() {
-        let layout = CustomLayout::default();
-        assert_eq!(layout.root, BuiltinPreset::All.layout_spec());
-    }
-
-    #[test]
-    fn custom_layout_round_trips_through_toml_via_dsl_string() {
-        let layout = CustomLayout {
-            root: Slot::VStack(vec![
-                Slot::Widget(WidgetKind::Cpu),
-                Slot::Widget(WidgetKind::Mem),
-            ]),
-        };
-        let value = toml::Value::try_from(&layout).unwrap();
-        // Persisted as `shape = "vstack(cpu, mem)"` — a TOML table
-        // with one string field.
-        let table = value
-            .as_table()
-            .expect("CustomLayout serialises as a table");
-        assert_eq!(
-            table.get("shape").and_then(|v| v.as_str()),
-            Some("vstack(cpu, mem)"),
-        );
-        let loaded: CustomLayout = value.try_into().unwrap();
-        assert_eq!(loaded, layout);
-    }
-
-    #[test]
-    fn custom_layout_layout_spec_returns_root_clone() {
-        let layout = CustomLayout {
-            root: Slot::Widget(WidgetKind::Cpu),
-        };
-        assert_eq!(layout.layout_spec(), Slot::Widget(WidgetKind::Cpu));
+    fn default_custom_layout_is_all_preset_tree() {
+        assert_eq!(default_custom_layout(), BuiltinPreset::All.layout_spec());
     }
 }

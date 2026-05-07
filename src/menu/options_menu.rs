@@ -60,7 +60,7 @@ pub const GENERAL: &[ConfigKey] = &[
     ConfigKey::ColorTheme,
     ConfigKey::ThemeBackground,
     ConfigKey::VimKeys,
-    ConfigKey::Shape,
+    ConfigKey::CustomLayout,
     ConfigKey::UpdateMs,
     ConfigKey::RoundedCorners,
     ConfigKey::TerminalSync,

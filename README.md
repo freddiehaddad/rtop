@@ -192,18 +192,18 @@ Want a layout that's different from the built-in presets? rtop lets you describe
 The grammar:
 
 ```
-shape := widget                                            # a single widget
-       | vstack(shape, shape, ...)                         # children stacked top-to-bottom
-       | hstack(weight:shape, weight:shape, ...)           # children laid out left-to-right
-                                                           # weight is 1..255 (relative width share)
+layout := widget                                          # a single widget
+        | vstack(layout, layout, ...)                     # children stacked top-to-bottom
+        | hstack(weight:layout, weight:layout, ...)       # children laid out left-to-right
+                                                          # weight is 1..255 (relative width share)
 ```
 
-Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu0`..`gpu7`. Each widget kind may appear at most once in a shape.
+Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu0`..`gpu7`. Each widget kind may appear at most once.
 
 Edit the custom layout two ways:
 
-1. **Options menu** (`o` or `F2`) → general → `shape` — type a new DSL expression and press Enter. Cycle to the `custom` preset (`p` / `P`) to see the result.
-2. **`rtop.toml`** — set `preset = "custom"` and edit the `shape` string under `[layout]`.
+1. **Options menu** (`o` or `F2`) → general → `custom_layout` — type a new expression and press Enter. Cycle to the `custom` preset (`p` / `P`) to see the result.
+2. **`rtop.toml`** — set `preset = "custom"` and edit the `custom_layout` string at the top level.
 
 #### Example 1 — minimal
 
@@ -211,9 +211,7 @@ CPU graph on top, processes filling the rest:
 
 ```toml
 preset = "custom"
-
-[layout]
-shape = "vstack(cpu, proc)"
+custom_layout = "vstack(cpu, proc)"
 ```
 
 #### Example 2 — two-column dashboard with custom proportions
@@ -222,16 +220,14 @@ CPU spans the full width on top. Below, a left column stacks memory, network, an
 
 ```toml
 preset = "custom"
-
-[layout]
-shape = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
+custom_layout = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
 ```
 
 ### Hiding widgets at runtime
 
 The number keys (`1`–`5` for cpu/mem/net/proc/disk, `6`–`9` for gpu0–3, `0` for gpu4–7) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The CPU widget shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
 
-Hide is purely a viewing operation — it never modifies your saved layout. The Custom preset's shape is only changed by the two paths above.
+Hide is purely a viewing operation — it never modifies your saved layout. The custom layout is only changed by the two paths above.
 
 ---
 
