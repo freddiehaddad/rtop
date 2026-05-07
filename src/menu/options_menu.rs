@@ -21,8 +21,9 @@ pub enum OptKind {
 }
 
 // Each category is a `&[ConfigKey]`. The per-key help text lives on
-// `ConfigKey::desc()` and the editable shape is derived from
-// `ConfigKey::kind()` plus `browsable_values(key)`.
+// `ConfigKey::kind()` and the per-key options-menu help text lives
+// in `crate::menu::options_text::desc`. The editable shape is
+// derived from `ConfigKey::kind()` plus `browsable_values(key)`.
 
 // ---------------------------------------------------------------------------
 // Browsable option value lists
@@ -507,7 +508,7 @@ pub fn draw(p: &DrawParams) -> String {
                 let desc_top = y + 8 + 1;
                 let desc_bottom = y + 6 + height;
                 let mut row = desc_top;
-                for (di, desc_line) in key.desc().iter().enumerate() {
+                for (di, desc_line) in crate::menu::options_text::desc(key).iter().enumerate() {
                     if row >= desc_bottom {
                         break;
                     }
@@ -558,7 +559,7 @@ pub fn draw(p: &DrawParams) -> String {
 
                 // Description in right panel
                 out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
-                for (di, desc_line) in key.desc().iter().enumerate() {
+                for (di, desc_line) in crate::menu::options_text::desc(key).iter().enumerate() {
                     let desc_row = y + 8 + 1 + di; // start at the row after the divider
                     if desc_row >= y + 6 + height {
                         break;
