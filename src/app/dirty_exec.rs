@@ -14,7 +14,7 @@ use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::{AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeView};
 use crate::config;
-use crate::dirty::Dirty;
+use crate::dirty::RenderDirty;
 use crate::domain::process::ProcDisplayEntry;
 use crate::draw;
 use crate::handlers::MenuState;
@@ -28,11 +28,11 @@ pub(crate) fn execute_dirty_work(
     config: &mut config::Config,
     size: TerminalSize,
 ) {
-    if state.render.dirty.contains(Dirty::PROC_LIST) {
+    if state.render.dirty.needs_proc_list() {
         rebuild_proc_list(state, config);
     }
 
-    if state.render.dirty.contains(Dirty::LAYOUT) || state.render.cached_layout.is_none() {
+    if state.render.dirty.needs_layout() || state.render.cached_layout.is_none() {
         state.render.cached_layout = Some(calculate_layout(state, config, size));
     }
 
@@ -107,7 +107,7 @@ fn render_dirty_frame(
         .expect("layout must be initialized before rendering");
     let mut output = String::new();
 
-    if state.render.dirty.contains(Dirty::LAYOUT) {
+    if state.render.dirty.needs_layout() {
         output.push_str(term::CLEAR_SCREEN);
     }
 
@@ -158,7 +158,7 @@ fn clamp_proc_selection(
 
 /// Parameters for rendering the UI widgets.
 pub(crate) struct RenderParams<'a> {
-    pub(crate) dirty: Dirty,
+    pub(crate) dirty: RenderDirty,
     pub(crate) layout: &'a draw::layout::Layout,
     pub(crate) cpu: Option<&'a runner::CpuSnapshot>,
     pub(crate) mem: Option<&'a runner::MemSnapshot>,
@@ -202,7 +202,7 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
     /// Which widgets to render this frame.
-    pub(crate) dirty: Dirty,
+    pub(crate) dirty: RenderDirty,
     /// `true` while the user is in `MenuState::Filter` so the proc
     /// widget can show its inline filter prompt.
     pub(crate) is_filtering: bool,
@@ -264,7 +264,7 @@ impl<'a> RenderInputs<'a> {
 pub(crate) fn render_all(params: &RenderParams) -> String {
     let mut output = String::new();
     for widget in ui::WIDGETS {
-        if params.dirty.contains(widget.dirty_flag()) {
+        if widget.is_dirty(&params.dirty) {
             widget.render(params, &mut output);
         }
     }

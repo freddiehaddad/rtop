@@ -7,7 +7,7 @@
 
 use crate::{
     collect::process_display::ProcSort,
-    dirty::Dirty,
+    dirty::RenderDirty,
     domain::widget_kind::WidgetKind,
     event::SubsystemKind,
     handlers::{HandleResult, InputContext, MenuState},
@@ -109,7 +109,7 @@ fn cycle_preset(ctx: &mut InputContext, forward: bool) -> HandleResult {
         preset = ctx.config.active_preset().name(),
         "preset action",
     );
-    ctx.render.dirty |= Dirty::FULL;
+    ctx.render.dirty = RenderDirty::full();
     HandleResult::none()
 }
 
@@ -137,7 +137,7 @@ pub(super) fn config_reload_action(ctx: &mut InputContext, _key: &Key) -> Handle
     // to hide. Treat reload as a fresh slate and clear the filter.
     ctx.filter.hidden.clear();
     tracing::info!(subsystem = %crate::log::Subsystem::Config, "config reloaded");
-    ctx.render.dirty |= Dirty::FULL;
+    ctx.render.dirty = RenderDirty::full();
     HandleResult::raw(base)
 }
 
@@ -164,7 +164,7 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) -> HandleResult {
         update_ms = new_ms,
         "update interval changed",
     );
-    ctx.render.dirty |= Dirty::CPU_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Cpu);
     HandleResult::none()
 }
 
@@ -175,7 +175,7 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) -> HandleResult {
 pub(super) fn nav_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     if ctx.process.selected > 0 {
         ctx.process.selected -= 1;
-        ctx.render.dirty |= Dirty::PROC_WIDGET;
+        ctx.render.dirty.mark_proc_widget();
     }
     HandleResult::none()
 }
@@ -184,7 +184,7 @@ pub(super) fn nav_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResul
     let count = ctx.process.entries.len();
     if ctx.process.selected + 1 < count {
         ctx.process.selected += 1;
-        ctx.render.dirty |= Dirty::PROC_WIDGET;
+        ctx.render.dirty.mark_proc_widget();
     }
     HandleResult::none()
 }
@@ -192,7 +192,7 @@ pub(super) fn nav_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResul
 pub(super) fn nav_page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     let page = ctx.size.height.saturating_sub(10);
     ctx.process.selected = ctx.process.selected.saturating_sub(page);
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -200,7 +200,7 @@ pub(super) fn nav_page_down_action(ctx: &mut InputContext, _key: &Key) -> Handle
     let page = ctx.size.height.saturating_sub(10);
     let count = ctx.process.entries.len();
     ctx.process.selected = (ctx.process.selected + page).min(count.saturating_sub(1));
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -209,7 +209,7 @@ pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _key: &Key) -> H
     let half = page / 2;
     let count = ctx.process.entries.len();
     ctx.process.selected = (ctx.process.selected + half).min(count.saturating_sub(1));
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -217,21 +217,21 @@ pub(super) fn nav_half_page_up_action(ctx: &mut InputContext, _key: &Key) -> Han
     let page = ctx.size.height.saturating_sub(10);
     let half = page / 2;
     ctx.process.selected = ctx.process.selected.saturating_sub(half);
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
 pub(super) fn nav_home_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.process.selected = 0;
     ctx.process.start = 0;
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
 pub(super) fn nav_end_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     let count = ctx.process.entries.len();
     ctx.process.selected = count.saturating_sub(1);
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -242,31 +242,31 @@ pub(super) fn nav_end_action(ctx: &mut InputContext, _key: &Key) -> HandleResult
 pub(super) fn open_filter_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.overlay.set_menu_state(MenuState::Filter);
     ctx.process.filter_text = ctx.view.proc_filter.clone();
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
 pub(super) fn toggle_tree_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.proc_tree = !ctx.view.proc_tree;
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
 pub(super) fn toggle_reverse_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.proc_reversed = !ctx.view.proc_reversed;
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
 pub(super) fn toggle_per_core_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.proc_per_core = !ctx.view.proc_per_core;
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
 pub(super) fn toggle_io_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.io_mode = !ctx.view.io_mode;
-    ctx.render.dirty |= Dirty::DISK_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Disk);
     HandleResult::none()
 }
 
@@ -294,7 +294,7 @@ fn cycle_sort(ctx: &mut InputContext, dir: isize) -> HandleResult {
         (idx + 1) % ProcSort::ALL.len()
     };
     ctx.view.proc_sorting = ProcSort::ALL[new_idx];
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
@@ -311,7 +311,7 @@ pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) -> HandleResu
     } else if let Some((pid, name)) = ctx.selected_proc_info() {
         ctx.process.armed_terminate = Some((pid, name.to_string(), false));
     }
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -328,7 +328,7 @@ pub(super) fn kill_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     } else if let Some((pid, name)) = ctx.selected_proc_info() {
         ctx.process.armed_terminate = Some((pid, name.to_string(), true));
     }
-    ctx.render.dirty |= Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_widget();
     HandleResult::none()
 }
 
@@ -341,7 +341,7 @@ pub(super) fn follow_action(ctx: &mut InputContext, _key: &Key) -> HandleResult 
         } else {
             ctx.process.followed_pid = pid;
         }
-        ctx.render.dirty |= Dirty::PROC_WIDGET;
+        ctx.render.dirty.mark_proc_widget();
     }
     HandleResult::none()
 }
@@ -357,7 +357,7 @@ pub(super) fn detail_action(ctx: &mut InputContext, _key: &Key) -> HandleResult 
         } else {
             ctx.process.detailed_pid = pid;
         }
-        ctx.render.dirty |= Dirty::PROC_WIDGET;
+        ctx.render.dirty.mark_proc_widget();
     }
     HandleResult::none()
 }
@@ -416,7 +416,7 @@ pub(super) fn toggle_widget_gpu_high_action(ctx: &mut InputContext, _key: &Key) 
         r#widget = "gpu_extras",
         "widget visibility toggled",
     );
-    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    ctx.render.dirty.mark_layout();
     HandleResult::none()
 }
 
@@ -429,7 +429,7 @@ fn toggle_widget(ctx: &mut InputContext, kind: WidgetKind) {
         shown = !now_hidden,
         "widget visibility toggled",
     );
-    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    ctx.render.dirty.mark_layout();
 }
 
 pub(super) fn restore_widgets_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
@@ -445,7 +445,7 @@ pub(super) fn restore_widgets_action(ctx: &mut InputContext, _key: &Key) -> Hand
         action = "widget_filter_reset",
         "all hidden widgets restored",
     );
-    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    ctx.render.dirty.mark_layout();
     HandleResult::none()
 }
 
@@ -472,19 +472,19 @@ fn cycle_iface(ctx: &mut InputContext, direction: isize) -> HandleResult {
         iface = %ctx.network.selected_iface,
         "network interface switched",
     );
-    ctx.render.dirty |= Dirty::NET_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Net);
     HandleResult::none()
 }
 
 pub(super) fn net_auto_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.net_auto = !ctx.view.net_auto;
-    ctx.render.dirty |= Dirty::NET_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Net);
     HandleResult::none()
 }
 
 pub(super) fn net_sync_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.view.net_sync = !ctx.view.net_sync;
-    ctx.render.dirty |= Dirty::NET_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Net);
     HandleResult::none()
 }
 
@@ -494,7 +494,7 @@ pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) -> HandleResul
     }
     ctx.manager
         .reset_net_totals(ctx.network.selected_iface.clone());
-    ctx.render.dirty |= Dirty::NET_WIDGET;
+    ctx.render.dirty.mark_widget(WidgetKind::Net);
     HandleResult::none()
 }
 

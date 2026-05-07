@@ -516,7 +516,6 @@ name = "rtop"
 version = "0.16.0"
 dependencies = [
  "arc-swap",
- "bitflags",
  "clap",
  "crossterm",
  "directories",

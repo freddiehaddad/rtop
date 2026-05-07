@@ -173,10 +173,6 @@ pub fn draw(
 pub struct DiskWidget;
 
 impl super::Widget for DiskWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::DISK_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         const KINDS: &[crate::domain::widget_kind::WidgetKind] =
             &[crate::domain::widget_kind::WidgetKind::Disk];

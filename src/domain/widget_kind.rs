@@ -88,6 +88,23 @@ impl WidgetKind {
         }
     }
 
+    /// Iterate over every supported [`WidgetKind`] in canonical
+    /// order: the five base widgets followed by `Gpu(0..MAX_GPUS)`.
+    /// Used by [`crate::dirty::RenderDirty`] for "all widgets"
+    /// operations and by anywhere else that needs to walk the full
+    /// universe of widget kinds.
+    pub fn all() -> impl Iterator<Item = WidgetKind> {
+        const BASE: [WidgetKind; 5] = [
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
+        ];
+        BASE.into_iter()
+            .chain((0..MAX_GPUS as u8).map(WidgetKind::Gpu))
+    }
+
     /// Intrinsic sizing classification — see [`WidgetSizing`].
     ///
     /// This is the **only** place the layout engine asks a widget
@@ -213,7 +230,11 @@ impl<'de> Deserialize<'de> for WidgetKind {
 /// The five base widgets each occupy a single field; GPU
 /// widgets occupy a fixed-size `[T; MAX_GPUS]` array indexed
 /// by the variant payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// `Copy`-derived when `T: Copy` so that container types built
+/// on top (e.g. [`crate::dirty::RenderDirty`]) can be cheaply
+/// passed by value through the per-frame render pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PerWidget<T> {
     cpu: T,
     mem: T,

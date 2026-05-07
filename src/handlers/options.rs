@@ -4,7 +4,6 @@
 
 use crate::{
     config::{BoolKey, ConfigKey, EnumKey, IntKey, StringKey},
-    dirty::Dirty,
     handlers::normal::sync_all_intervals,
     handlers::options_edit::{EditKind, OptionEditState},
     handlers::{HandleResult, InputContext, MenuState, TerminalOp},
@@ -32,7 +31,7 @@ pub(super) fn close_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
         "menu transition",
     );
     if return_to == MenuState::None {
-        ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+        ctx.render.dirty.mark_layout();
     }
     HandleResult::redraw()
 }
@@ -413,7 +412,7 @@ pub(crate) fn apply_post_change_effects(
             | ConfigKey::Bool(BoolKey::ProcColors)
             | ConfigKey::Bool(BoolKey::ProcPerCore)
     ) {
-        ctx.render.dirty |= Dirty::PROC_LIST;
+        ctx.render.dirty.mark_proc_data_changed();
     }
 }
 

@@ -1,7 +1,6 @@
 //! Per-action handlers for the help-menu overlay.
 
 use crate::{
-    dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
 };
@@ -16,7 +15,7 @@ pub(super) fn close_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
         "menu transition",
     );
     if return_to == MenuState::None {
-        ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+        ctx.render.dirty.mark_layout();
     }
     HandleResult::redraw()
 }

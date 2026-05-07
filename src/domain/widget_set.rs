@@ -32,7 +32,7 @@ use crate::config::MAX_GPUS;
 use crate::domain::widget_kind::{PerWidget, WidgetKind};
 
 /// A set of [`WidgetKind`]s with inline `O(1)` membership.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct WidgetSet {
     members: PerWidget<bool>,
 }
@@ -275,7 +275,7 @@ mod tests {
         set.insert(WidgetKind::Net);
         set.insert(WidgetKind::Cpu);
         set.insert(WidgetKind::Gpu(2));
-        let toml = toml::Value::try_from(&set).unwrap();
+        let toml = toml::Value::try_from(set).unwrap();
         assert_eq!(
             toml,
             toml::Value::Array(vec![
@@ -289,7 +289,7 @@ mod tests {
     #[test]
     fn serialise_empty_set_emits_empty_array() {
         let set = WidgetSet::new();
-        let toml = toml::Value::try_from(&set).unwrap();
+        let toml = toml::Value::try_from(set).unwrap();
         assert_eq!(toml, toml::Value::Array(vec![]));
     }
 
@@ -319,7 +319,7 @@ mod tests {
         original.insert(WidgetKind::Disk);
         original.insert(WidgetKind::Gpu(0));
         original.insert(WidgetKind::Gpu(7));
-        let toml = toml::Value::try_from(&original).unwrap();
+        let toml = toml::Value::try_from(original).unwrap();
         let loaded: WidgetSet = toml.try_into().unwrap();
         assert_eq!(loaded, original);
     }

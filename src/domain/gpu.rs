@@ -50,6 +50,52 @@ impl Default for GpuInfo {
     }
 }
 
+impl GpuInfo {
+    /// Hash representing the **values currently rendered** by
+    /// [`crate::ui::gpu_widget`]. Used by the per-frame pull
+    /// pipeline to decide which GPU widget instances actually
+    /// need to redraw.
+    ///
+    /// Today's GPU widget renders only the **latest** sample of
+    /// each history (`.back()`), plus the scalar fields. This
+    /// fingerprint mirrors that contract: the time-series
+    /// histories themselves are *not* hashed because two snapshots
+    /// that share the same trailing sample render identically,
+    /// even if the historical window has rolled forward.
+    ///
+    /// **MUST be updated** if [`crate::ui::gpu_widget::draw`]
+    /// starts rendering additional fields (e.g. an in-cell
+    /// history graph). Without that update the renderer would
+    /// skip frames whose history changed but whose latest sample
+    /// did not, producing a stale graph.
+    pub fn render_fingerprint(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        self.name.hash(&mut hasher);
+        self.gpu_percent
+            .utilization
+            .back()
+            .copied()
+            .hash(&mut hasher);
+        self.gpu_percent.vram.back().copied().hash(&mut hasher);
+        self.gpu_percent.power.back().copied().hash(&mut hasher);
+        self.gpu_clock_speed.hash(&mut hasher);
+        self.gpu_max_clock_speed.hash(&mut hasher);
+        self.pwr_usage.hash(&mut hasher);
+        self.pwr_max_usage.hash(&mut hasher);
+        self.temp.back().copied().hash(&mut hasher);
+        self.mem_total.hash(&mut hasher);
+        self.mem_used.hash(&mut hasher);
+        self.mem_utilization_percent
+            .back()
+            .copied()
+            .hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +106,63 @@ mod tests {
         assert!(gpu.gpu_percent.utilization.is_empty());
         assert!(gpu.gpu_percent.vram.is_empty());
         assert!(gpu.gpu_percent.power.is_empty());
+    }
+
+    fn make_gpu(util: i64, temp: i64, clock: u32, mem_used: u64) -> GpuInfo {
+        let mut g = GpuInfo::default();
+        g.gpu_percent.utilization.push_back(util);
+        g.temp.push_back(temp);
+        g.gpu_clock_speed = clock;
+        g.mem_used = mem_used;
+        g
+    }
+
+    #[test]
+    fn render_fingerprint_changes_when_displayed_value_changes() {
+        let a = make_gpu(50, 60, 1500, 1024 * 1024);
+        let b = make_gpu(51, 60, 1500, 1024 * 1024);
+        assert_ne!(
+            a.render_fingerprint(),
+            b.render_fingerprint(),
+            "utilization change must shift the fingerprint",
+        );
+    }
+
+    #[test]
+    fn render_fingerprint_stable_for_equal_displayed_values() {
+        let a = make_gpu(50, 60, 1500, 1024 * 1024);
+        let b = make_gpu(50, 60, 1500, 1024 * 1024);
+        assert_eq!(a.render_fingerprint(), b.render_fingerprint());
+    }
+
+    #[test]
+    fn render_fingerprint_ignores_stale_history_window() {
+        // Today's gpu_widget renders only `.back()` of every
+        // history. Two snapshots whose latest samples are identical
+        // but whose history windows differ MUST hash equal — the
+        // user would see no visual difference.
+        let mut a = make_gpu(50, 60, 1500, 1024 * 1024);
+        a.gpu_percent.utilization.push_front(10);
+        a.gpu_percent.utilization.push_front(20);
+        let b = make_gpu(50, 60, 1500, 1024 * 1024);
+        assert_eq!(
+            a.render_fingerprint(),
+            b.render_fingerprint(),
+            "history-window roll must NOT shift the fingerprint",
+        );
+    }
+
+    #[test]
+    fn render_fingerprint_includes_temperature_changes() {
+        let a = make_gpu(50, 60, 1500, 1024 * 1024);
+        let b = make_gpu(50, 65, 1500, 1024 * 1024);
+        assert_ne!(a.render_fingerprint(), b.render_fingerprint());
+    }
+
+    #[test]
+    fn render_fingerprint_includes_mem_used_changes() {
+        let a = make_gpu(50, 60, 1500, 1024 * 1024);
+        let b = make_gpu(50, 60, 1500, 2 * 1024 * 1024);
+        assert_ne!(a.render_fingerprint(), b.render_fingerprint());
     }
 }

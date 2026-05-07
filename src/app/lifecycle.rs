@@ -95,7 +95,7 @@ pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::Ap
     // Mirror runtime view filter into config so toggle gestures
     // (1-9, 0, Shift+R) survive restart. AppState owns the live
     // filter; Config carries the persisted form.
-    config.hidden_widgets = state.filter.hidden.clone();
+    config.hidden_widgets = state.filter.hidden;
     // Mirror RuntimeView -> config.view so runtime-toggle state
     // (proc_tree, io_mode, net_iface, etc.) survives restart.
     state.view.sync_to_config(&mut config.view);

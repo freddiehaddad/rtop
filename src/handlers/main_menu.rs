@@ -1,7 +1,6 @@
 //! Per-action handlers for the main-menu overlay.
 
 use crate::{
-    dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
     menu,
@@ -21,7 +20,7 @@ pub(super) fn close_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
         opened = false,
         "menu transition",
     );
-    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    ctx.render.dirty.mark_layout();
     HandleResult::none()
 }
 

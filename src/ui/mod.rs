@@ -125,11 +125,6 @@ pub struct ProcView<'a> {
 /// snapshot lookup, layout-slot lookup, frame construction, and
 /// per-instance iteration live.
 pub trait Widget: Sync {
-    /// The dirty bit this widget responds to. The dispatcher only
-    /// invokes [`Self::render`] when this bit is set in
-    /// `params.dirty`.
-    fn dirty_flag(&self) -> crate::dirty::Dirty;
-
     /// The widget kinds this renderer handles. Most widgets return
     /// a single-element slice; per-instance widgets (today: GPU)
     /// return one entry per instance index.
@@ -138,6 +133,20 @@ pub trait Widget: Sync {
     /// it has a [`crate::domain::widget_kind::WidgetKind`] and
     /// needs that widget's intrinsic sizing (preferred / min).
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind];
+
+    /// Whether this widget needs to be re-rendered this frame.
+    /// Default impl returns `true` if any of the widget's claimed
+    /// [`Self::kinds`] is dirty in `dirty`.
+    ///
+    /// **Multi-kind widgets** (today: [`gpu_widget::GpuWidget`])
+    /// must additionally filter inside [`Self::render`] — the
+    /// dispatcher only gates on "any kind dirty", so a single
+    /// dirty GPU instance still calls `render` for the whole
+    /// widget. The widget's render loop is responsible for
+    /// skipping clean instances.
+    fn is_dirty(&self, dirty: &crate::dirty::RenderDirty) -> bool {
+        self.kinds().iter().any(|k| dirty.is_widget_dirty(*k))
+    }
 
     /// Preferred intrinsic height in rows (including borders).
     /// The layout engine clamps this against per-widget `Preferred`
@@ -179,7 +188,7 @@ pub mod proc_widget;
 ///
 /// [`crate::app::dirty_exec::render_all`] iterates this slice and
 /// calls [`Widget::render`] on each entry whose
-/// [`Widget::dirty_flag`] is currently set. The layout engine's
+/// [`Widget::is_dirty`] returns `true`. The layout engine's
 /// per-kind sizing helpers ([`widget_for_kind`]) look up the
 /// matching widget by [`Widget::kinds`].
 ///

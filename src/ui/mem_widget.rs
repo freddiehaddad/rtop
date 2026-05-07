@@ -239,10 +239,6 @@ pub fn draw(
 pub struct MemWidget;
 
 impl super::Widget for MemWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::MEM_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         const KINDS: &[crate::domain::widget_kind::WidgetKind] =
             &[crate::domain::widget_kind::WidgetKind::Mem];

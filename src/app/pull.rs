@@ -8,7 +8,7 @@
 
 use crate::app::state::AppState;
 use crate::config;
-use crate::dirty::Dirty;
+use crate::domain::widget_kind::WidgetKind;
 use crate::event::{PerSubsystem, SubsystemKind};
 use crate::runner;
 
@@ -35,7 +35,7 @@ pub(crate) fn pull_subsystem_data(
                     state.live.core_count = snap.info.core_count;
                     state.live.cpu = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::CPU_WIDGET;
+                        state.render.dirty.mark_widget(WidgetKind::Cpu);
                     }
                 }
             }
@@ -48,7 +48,7 @@ pub(crate) fn pull_subsystem_data(
                         .saturating_add(snap.info.stats.available);
                     state.live.mem = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::MEM_WIDGET;
+                        state.render.dirty.mark_widget(WidgetKind::Mem);
                     }
                 }
             }
@@ -56,7 +56,7 @@ pub(crate) fn pull_subsystem_data(
                 if let Some(snap) = manager.disk_slot.latest() {
                     state.live.disk = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::DISK_WIDGET;
+                        state.render.dirty.mark_widget(WidgetKind::Disk);
                     }
                 }
             }
@@ -64,16 +64,52 @@ pub(crate) fn pull_subsystem_data(
                 if let Some(snap) = manager.net_slot.latest() {
                     state.live.net = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::NET_WIDGET;
+                        state.render.dirty.mark_widget(WidgetKind::Net);
                     }
                 }
             }
             SubsystemKind::Gpu => {
                 if let Some(snap) = manager.gpu_slot.latest() {
-                    state.live.gpu = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::GPU_WIDGET;
+                        // Per-instance GPU dirty: compare each GPU's
+                        // render fingerprint against the previous
+                        // snapshot. Mark only those whose displayed
+                        // values changed. First publish (no previous)
+                        // marks every present GPU dirty. A change
+                        // in GPU count or in collector status forces
+                        // a layout recompute (which marks every
+                        // widget dirty too).
+                        let prev = state.live.gpu.as_ref();
+                        let new_count = snap.gpus.len();
+                        let prev_count = prev.map_or(0, |s| s.gpus.len());
+                        let status_changed = prev.is_none_or(|s| s.status != snap.status);
+
+                        if new_count != prev_count {
+                            // Layout sizing depends on `gpu_count`
+                            // via `LiveData::layout_hints`; a GPU
+                            // appearing or vanishing changes the
+                            // visible widget set. The layout-hint
+                            // check at the bottom of this fn would
+                            // catch it on the *next* poll, but
+                            // marking layout here too means the
+                            // first frame after the change is
+                            // already correct.
+                            state.render.dirty.mark_layout();
+                        }
+
+                        for (i, gpu) in snap.gpus.iter().enumerate() {
+                            let fingerprint_changed = prev
+                                .and_then(|s| s.gpus.get(i))
+                                .map(|p| p.render_fingerprint() != gpu.render_fingerprint())
+                                .unwrap_or(true);
+                            if (fingerprint_changed || status_changed)
+                                && let Some(kind) = WidgetKind::gpu(i)
+                            {
+                                state.render.dirty.mark_widget(kind);
+                            }
+                        }
                     }
+                    state.live.gpu = Some(snap);
                 }
             }
             SubsystemKind::Proc => {
@@ -83,7 +119,7 @@ pub(crate) fn pull_subsystem_data(
                         .update_stale_procs(&snap.procs, config.proc.keep_dead_proc_usage);
                     state.live.proc_data = Some(snap);
                     if render_ui {
-                        state.render.dirty |= Dirty::PROC_WIDGET | Dirty::PROC_LIST;
+                        state.render.dirty.mark_proc_data_changed();
                     }
                 }
             }
@@ -97,7 +133,7 @@ pub(crate) fn pull_subsystem_data(
         .last_layout_hints
         .is_none_or(|hints| hints != new_hints)
     {
-        state.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+        state.render.dirty.mark_layout();
     }
     state.render.last_layout_hints = Some(new_hints);
 
@@ -141,7 +177,7 @@ mod tests {
         reconcile_selected_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
-        assert!(state.render.dirty.contains(Dirty::NET_WIDGET));
+        assert!(state.render.dirty.is_widget_dirty(WidgetKind::Net));
     }
 
     #[test]

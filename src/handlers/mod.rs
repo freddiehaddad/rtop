@@ -12,7 +12,7 @@ use crate::{
         TerminalSize,
     },
     config,
-    dirty::Dirty,
+    dirty::RenderDirty,
     runner, term, theme,
 };
 
@@ -181,7 +181,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             filter: ctx.filter,
             config: ctx.config,
             theme: ctx.theme,
-            dirty: Dirty::ALL_WIDGETS,
+            dirty: RenderDirty::all_widgets(),
             is_filtering: false,
         }
         .build();

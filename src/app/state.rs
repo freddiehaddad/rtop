@@ -18,7 +18,7 @@
 //! [`NetworkViewState`] for the full policy.
 
 use crate::config;
-use crate::dirty::Dirty;
+use crate::dirty::RenderDirty;
 use crate::domain::process::ProcDisplayEntry;
 use crate::domain::widget_kind::WidgetKind;
 use crate::domain::widget_set::WidgetSet;
@@ -53,7 +53,7 @@ impl AppState {
             // empty set, so a "reset and restart clean" cycle
             // works without manual config editing.
             filter: WidgetFilter {
-                hidden: config.hidden_widgets.clone(),
+                hidden: config.hidden_widgets,
             },
         }
     }
@@ -161,7 +161,7 @@ impl RuntimeView {
 }
 
 pub(crate) struct RenderState {
-    pub(crate) dirty: Dirty,
+    pub(crate) dirty: RenderDirty,
     pub(crate) cached_layout: Option<draw::layout::Layout>,
     pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
 }
@@ -169,18 +169,18 @@ pub(crate) struct RenderState {
 impl RenderState {
     fn new() -> Self {
         Self {
-            dirty: Dirty::FULL,
+            dirty: RenderDirty::full(),
             cached_layout: None,
             last_layout_hints: None,
         }
     }
 
     pub(crate) fn mark_resize(&mut self) {
-        self.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+        self.dirty.mark_layout();
     }
 
     pub(crate) fn clear_dirty(&mut self) {
-        self.dirty = Dirty::empty();
+        self.dirty.clear();
     }
 }
 
@@ -581,12 +581,12 @@ impl NetworkViewState {
         &mut self,
         nets: &[crate::domain::network::NetInfo],
         preferred: &str,
-        dirty: &mut Dirty,
+        dirty: &mut RenderDirty,
     ) {
         if nets.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
-                *dirty |= Dirty::NET_WIDGET;
+                dirty.mark_widget(WidgetKind::Net);
             }
             return;
         }
@@ -598,13 +598,13 @@ impl NetworkViewState {
             && nets.iter().any(|n| n.name == preferred)
         {
             self.selected_iface = preferred.to_string();
-            *dirty |= Dirty::NET_WIDGET;
+            dirty.mark_widget(WidgetKind::Net);
             return;
         }
 
         if self.selected_iface.is_empty() || !nets.iter().any(|n| n.name == self.selected_iface) {
             self.selected_iface = nets[0].name.clone();
-            *dirty |= Dirty::NET_WIDGET;
+            dirty.mark_widget(WidgetKind::Net);
         }
     }
 }
@@ -622,7 +622,7 @@ mod tests {
         let state = AppState::new(&config);
 
         assert!(state.overlay.menu_state == MenuState::None);
-        assert_eq!(state.render.dirty, Dirty::FULL);
+        assert_eq!(state.render.dirty, RenderDirty::full());
         assert!(state.render.cached_layout.is_none());
         assert!(!state.live.is_ready());
         assert!(state.process.entries.is_empty());
@@ -864,8 +864,8 @@ mod tests {
 
         state.render.mark_resize();
 
-        assert!(state.render.dirty.contains(Dirty::LAYOUT));
-        assert!(state.render.dirty.intersects(Dirty::ALL_WIDGETS));
+        assert!(state.render.dirty.needs_layout());
+        assert!(state.render.dirty.is_any_widget_dirty());
     }
 
     fn make_proc(pid: u32) -> crate::domain::process::ProcInfo {

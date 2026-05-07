@@ -17,7 +17,6 @@ use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::AppState;
 use crate::config;
-use crate::dirty::Dirty;
 use crate::term;
 use crate::theme;
 use crate::theme_keys as tc;
@@ -53,9 +52,7 @@ pub(crate) fn render_if_dirty_small(
     size: TerminalSize,
     min_size: (usize, usize),
 ) {
-    if state.render.dirty.contains(Dirty::LAYOUT)
-        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
-    {
+    if state.render.dirty.needs_layout() || state.render.dirty.is_any_widget_dirty() {
         let output = style_terminal_output(&render_too_small(size, min_size, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {
             tracing::warn!(
@@ -89,9 +86,7 @@ pub(crate) fn render_if_dirty_waiting(
     theme: &theme::Theme,
     size: TerminalSize,
 ) {
-    if state.render.dirty.contains(Dirty::LAYOUT)
-        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
-    {
+    if state.render.dirty.needs_layout() || state.render.dirty.is_any_widget_dirty() {
         let output =
             style_terminal_output(&render_waiting_for_snapshot(size, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {
@@ -210,9 +205,7 @@ pub(crate) fn render_if_dirty_all_hidden(
     theme: &theme::Theme,
     size: TerminalSize,
 ) {
-    if state.render.dirty.contains(Dirty::LAYOUT)
-        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
-    {
+    if state.render.dirty.needs_layout() || state.render.dirty.is_any_widget_dirty() {
         let active = config.layout_spec().clone();
         let output = style_terminal_output(&render_all_hidden(size, &active, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {

@@ -376,10 +376,6 @@ use insets::draw_bottom_hints;
 pub struct CpuWidget;
 
 impl super::Widget for CpuWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::CPU_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         const KINDS: &[crate::domain::widget_kind::WidgetKind] =
             &[crate::domain::widget_kind::WidgetKind::Cpu];

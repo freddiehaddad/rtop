@@ -298,10 +298,6 @@ pub fn draw(
 pub struct NetWidget;
 
 impl super::Widget for NetWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::NET_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         const KINDS: &[crate::domain::widget_kind::WidgetKind] =
             &[crate::domain::widget_kind::WidgetKind::Net];

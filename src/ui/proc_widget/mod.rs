@@ -349,10 +349,6 @@ fn draw_proc_borders(
 pub struct ProcWidget;
 
 impl super::Widget for ProcWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::PROC_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         const KINDS: &[crate::domain::widget_kind::WidgetKind] =
             &[crate::domain::widget_kind::WidgetKind::Proc];

@@ -6,14 +6,13 @@
 //! [`crate::handlers::keybinds::BINDINGS`].
 
 use crate::{
-    dirty::Dirty,
     handlers::{HandleResult, InputContext, MenuState},
     input::Key,
 };
 
 pub(super) fn cancel_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.overlay.set_menu_state(MenuState::None);
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
@@ -28,7 +27,7 @@ pub(super) fn commit_action(ctx: &mut InputContext, _key: &Key) -> HandleResult 
         filter = %ctx.view.proc_filter,
         "filter applied",
     );
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
@@ -37,7 +36,7 @@ pub(super) fn backspace_action(ctx: &mut InputContext, _key: &Key) -> HandleResu
     ctx.view.proc_filter = ctx.process.filter_text.clone();
     ctx.process.selected = 0;
     ctx.process.start = 0;
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
@@ -51,7 +50,7 @@ pub(super) fn delete_clear_action(ctx: &mut InputContext, _key: &Key) -> HandleR
         action = "filter_clear",
         "filter cleared",
     );
-    ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+    ctx.render.dirty.mark_proc_data_changed();
     HandleResult::none()
 }
 
@@ -64,7 +63,7 @@ pub(crate) fn fallback_typed_char(key: &Key, ctx: &mut InputContext) -> HandleRe
         ctx.view.proc_filter = ctx.process.filter_text.clone();
         ctx.process.selected = 0;
         ctx.process.start = 0;
-        ctx.render.dirty |= Dirty::PROC_LIST | Dirty::PROC_WIDGET;
+        ctx.render.dirty.mark_proc_data_changed();
     }
     HandleResult::none()
 }

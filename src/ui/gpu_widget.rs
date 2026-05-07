@@ -235,10 +235,6 @@ pub fn draw(
 pub struct GpuWidget;
 
 impl super::Widget for GpuWidget {
-    fn dirty_flag(&self) -> crate::dirty::Dirty {
-        crate::dirty::Dirty::GPU_WIDGET
-    }
-
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
         // Every supported GPU index is one of this widget's kinds.
         // The layout engine asks "which widget handles `Gpu(N)`?";
@@ -280,6 +276,14 @@ impl super::Widget for GpuWidget {
         // against an older device count.
         for n in 0..crate::config::MAX_GPUS {
             let kind = crate::domain::widget_kind::WidgetKind::Gpu(n as u8);
+            // Per-instance dirty filter: only redraw the GPU(s)
+            // whose snapshot actually changed. Pull-side
+            // (`app::pull`) computes the change mask via
+            // `GpuInfo::render_fingerprint` and marks each
+            // changed kind dirty individually.
+            if !params.dirty.is_widget_dirty(kind) {
+                continue;
+            }
             let Some(gpu_dim) = params.layout.dims_for(kind) else {
                 continue;
             };
