@@ -33,7 +33,7 @@ pub(crate) fn execute_dirty_work(
     }
 
     if state.render.dirty.contains(Dirty::LAYOUT) || state.render.cached_layout.is_none() {
-        state.render.cached_layout = Some(calculate_layout(config, &state.live, size));
+        state.render.cached_layout = Some(calculate_layout(state, config, size));
     }
 
     // Pre-render normalisation: clamp the proc widget's view-state to
@@ -64,15 +64,16 @@ fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
 }
 
 fn calculate_layout(
+    state: &AppState,
     config: &config::Config,
-    live: &LiveData,
     size: TerminalSize,
 ) -> draw::layout::Layout {
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
         root: config.layout_spec(),
-        hints: live.layout_hints(config),
+        hints: state.live.layout_hints(config),
+        hidden: state.compose_hidden(config),
     })
 }
 

@@ -8,6 +8,8 @@
 use crate::config;
 use crate::dirty::Dirty;
 use crate::domain::process::ProcDisplayEntry;
+use crate::domain::widget_kind::WidgetKind;
+use crate::domain::widget_set::WidgetSet;
 use crate::draw;
 use crate::handlers::MenuState;
 use crate::runner;
@@ -22,6 +24,7 @@ pub(crate) struct AppState {
     pub(crate) overlay: OverlayState,
     pub(crate) process: ProcessViewState,
     pub(crate) network: NetworkViewState,
+    pub(crate) filter: WidgetFilter,
 }
 
 impl AppState {
@@ -33,7 +36,26 @@ impl AppState {
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
+            filter: WidgetFilter::default(),
         }
+    }
+
+    /// Compose the engine's per-frame `hidden` [`WidgetSet`] from
+    /// every visibility source: hardware absence (GPUs without a
+    /// backing device, derived from `LiveData`'s detected GPU count)
+    /// unioned with the user's runtime view filter.
+    ///
+    /// The engine consumes the result without caring why a widget
+    /// is hidden — there is one source of truth per frame, built
+    /// here.
+    pub(crate) fn compose_hidden(&self, config: &config::Config) -> WidgetSet {
+        let hints = self.live.layout_hints(config);
+        let mut hidden = WidgetSet::new();
+        for n in (hints.gpu_count as u8)..(crate::config::MAX_GPUS as u8) {
+            hidden.insert(WidgetKind::Gpu(n));
+        }
+        hidden.extend_from(&self.filter.hidden);
+        hidden
     }
 }
 
@@ -73,6 +95,24 @@ impl RenderState {
     pub(crate) fn clear_dirty(&mut self) {
         self.dirty = Dirty::empty();
     }
+}
+
+/// Runtime view filter — the set of widgets the user has chosen to
+/// hide via the toggle keys (`1`-`9`, `0`).
+///
+/// Lives in [`AppState`] (not [`config::Config`]) because it's a
+/// transient view operation, not a persisted layout edit. Hiding a
+/// widget never mutates the active preset; the user's saved layout
+/// stays exactly as they wrote it. `Shift+R` clears the filter.
+///
+/// The filter is global across preset cycles: "hide this" means
+/// "hide this", regardless of which preset is active. If a hidden
+/// widget isn't in the active layout, the entry is harmless — it
+/// only takes effect if the user later cycles to a preset that
+/// includes the widget.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct WidgetFilter {
+    pub(crate) hidden: WidgetSet,
 }
 
 pub(crate) struct LiveData {

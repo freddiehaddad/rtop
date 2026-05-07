@@ -127,6 +127,7 @@ pub(crate) struct InputContext<'a> {
     pub(crate) overlay: &'a mut OverlayState,
     pub(crate) process: &'a mut ProcessViewState,
     pub(crate) network: &'a mut NetworkViewState,
+    pub(crate) filter: &'a mut crate::app::WidgetFilter,
     pub(crate) tw: usize,
     pub(crate) th: usize,
 }

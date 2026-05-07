@@ -2,7 +2,6 @@ use crate::collect::process_display::ProcSort;
 use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
 use crate::domain::layout_spec::Slot;
 use crate::domain::preset::CustomLayout;
-use crate::domain::widget_kind::WidgetKind;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -467,35 +466,10 @@ impl Config {
         self.preset.set(next);
     }
 
-    /// Toggle a single widget on or off in the custom preset.
-    /// Auto-promotes from a builtin preset to the custom one
-    /// (copying the active builtin's tree into custom first) so the
-    /// user's edit always lands somewhere persistent.
-    ///
-    /// Toggling **off** the only visible widget is a no-op — every
-    /// custom layout must contain at least one widget; users who want
-    /// a different layout entirely should edit `shape` directly.
-    pub fn toggle_widget(&mut self, kind: WidgetKind) {
-        let custom = self.promote_to_custom();
-        if custom.root.contains(kind) {
-            // Remove. Skip if pruning would empty the tree.
-            if let Some(pruned) = custom.root.clone().pruned(kind) {
-                custom.root = pruned;
-            }
-        } else {
-            // Add. `append_widget` no-ops if the widget is already
-            // present (defensive — `contains` already gated us).
-            custom.root = custom.root.clone().append_widget(kind);
-        }
-    }
-
-    /// Replace the live layout's [`Slot`] tree with one parsed from
-    /// the DSL string `value`.
-    ///
-    /// No-op if the parsed tree equals the live tree — preserves the
-    /// cursor on a builtin so an "edit" that doesn't actually change
-    /// anything doesn't surprise-promote. Otherwise promotes-to-custom
-    /// and writes the new tree.
+    /// Replace the custom preset's [`Slot`] tree with one parsed
+    /// from the DSL string `value`. Always writes to `custom.root`
+    /// regardless of the active preset cursor; the cursor is never
+    /// touched by this method.
     ///
     /// Returns `Err` if the DSL fails to parse or fails post-parse
     /// validation (duplicate widget kinds, etc.).
@@ -503,27 +477,8 @@ impl Config {
         &mut self,
         value: &str,
     ) -> Result<(), crate::domain::layout_spec::SlotParseError> {
-        let next: Slot = value.parse()?;
-        if self.layout_spec() == next {
-            return Ok(());
-        }
-        self.promote_to_custom().root = next;
+        self.custom.root = value.parse()?;
         Ok(())
-    }
-
-    /// Move the cursor to `Custom`, copying the active builtin's
-    /// [`Slot`] tree into `self.custom` on first promotion, and return
-    /// a mutable borrow of the custom slot. Already-on-Custom is a
-    /// no-op (no copy). Used by every layout-mutating operation so
-    /// the user's edit always lands in the persistent slot.
-    fn promote_to_custom(&mut self) -> &mut CustomLayout {
-        if let crate::domain::preset::ActivePreset::Builtin(b) = self.preset.active() {
-            self.custom = CustomLayout {
-                root: b.layout_spec(),
-            };
-            self.preset.set(crate::domain::preset::ActivePreset::Custom);
-        }
-        &mut self.custom
     }
 }
 
@@ -656,7 +611,7 @@ macro_rules! config_schema {
     (@display String $cfg:ident field $f:ident) => { $cfg.$f.clone() };
     (@display String $cfg:ident joined_vec $f:ident) => { $cfg.$f.join(" ") };
     (@display String $cfg:ident array $f:ident [$i:literal]) => { $cfg.$f[$i].clone() };
-    (@display String $cfg:ident shape) => { $cfg.layout_spec().to_string() };
+    (@display String $cfg:ident shape) => { $cfg.custom.root.to_string() };
 
     // === @toggle: only Bool variants do anything; others panic ===
     (@toggle $self:ident Bool $cfg:ident field $f:ident) => { $cfg.$f = !$cfg.$f };
@@ -986,12 +941,17 @@ config_schema! {
 
     // -- string, layout-virtual --
     Shape => "shape" : String { shape } [
-        "Layout shape (DSL).",
+        "Custom layout shape.",
         "",
-        "Recursive composition of vstack(...)",
-        "and hstack(N:..., ...) wrappers around",
-        "widget names: cpu, mem, net, proc,",
-        "disk, gpu0..gpu7. Example:",
+        "Edits the `custom` preset's layout.",
+        "Switch to the custom preset (p / P)",
+        "to see your changes on screen.",
+        "",
+        "Compose vstack(...) and hstack(N:...,",
+        "...) around widget names: cpu, mem,",
+        "net, proc, disk, gpu0..gpu7.",
+        "",
+        "Example:",
         "vstack(cpu, hstack(40:mem, 60:proc))",
     ],
 
@@ -1301,6 +1261,7 @@ fn bool_display(v: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::widget_kind::WidgetKind;
 
     #[test]
     fn load_empty_file_uses_defaults() {
@@ -1513,80 +1474,6 @@ mod tests {
         let warnings = config.validate();
         assert!(!warnings.iter().any(|w| w.contains("disks_filter")));
         assert!(config.disks_filter.is_empty());
-    }
-
-    #[test]
-    fn toggle_widget_adds_when_missing() {
-        use crate::domain::preset::ActivePreset;
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Custom);
-        // Start from a controlled custom layout (Cpu + Mem only).
-        config.custom.root = Slot::VStack(vec![
-            Slot::Widget(WidgetKind::Cpu),
-            Slot::Widget(WidgetKind::Mem),
-        ]);
-        config.toggle_widget(WidgetKind::Net);
-        assert!(config.layout_spec().contains(WidgetKind::Net));
-        assert!(config.custom.root.contains(WidgetKind::Net));
-    }
-
-    #[test]
-    fn toggle_widget_removes_when_present() {
-        use crate::domain::preset::ActivePreset;
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Custom);
-        config.custom.root = Slot::VStack(vec![
-            Slot::Widget(WidgetKind::Cpu),
-            Slot::Widget(WidgetKind::Mem),
-            Slot::Widget(WidgetKind::Net),
-        ]);
-        config.toggle_widget(WidgetKind::Net);
-        assert!(!config.layout_spec().contains(WidgetKind::Net));
-        assert!(!config.custom.root.contains(WidgetKind::Net));
-    }
-
-    #[test]
-    fn toggle_widget_does_not_empty_the_tree() {
-        // Toggling off the only visible widget is a no-op — every
-        // custom layout must contain at least one widget.
-        use crate::domain::preset::ActivePreset;
-        let mut config = Config::new();
-        config.preset.set(ActivePreset::Custom);
-        config.custom.root = Slot::Widget(WidgetKind::Cpu);
-        config.toggle_widget(WidgetKind::Cpu);
-        assert!(
-            config.custom.root.contains(WidgetKind::Cpu),
-            "single-widget tree must not be emptiable",
-        );
-    }
-
-    #[test]
-    fn toggle_widget_on_builtin_promotes_to_custom() {
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        // Move to a builtin ("all") explicitly.
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        // Pre-condition: live layout includes CPU.
-        assert!(config.layout_spec().contains(WidgetKind::Cpu));
-
-        config.toggle_widget(WidgetKind::Cpu);
-
-        // Cursor switched to custom and custom dropped CPU.
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
-        assert!(!config.custom.root.contains(WidgetKind::Cpu));
-        assert!(!config.layout_spec().contains(WidgetKind::Cpu));
-    }
-
-    #[test]
-    fn toggle_widget_on_custom_does_not_change_cursor() {
-        use crate::domain::preset::ActivePreset;
-        let mut config = Config::new();
-        // Cursor must be on Custom for this contract to hold —
-        // first-launch default is the `all` builtin.
-        config.preset.set(ActivePreset::Custom);
-        let before = config.preset.active();
-        config.toggle_widget(WidgetKind::Cpu);
-        assert_eq!(config.preset.active(), before);
     }
 
     #[test]
@@ -1869,30 +1756,22 @@ mod tests {
     }
 
     #[test]
-    fn set_shape_no_op_keeps_builtin_cursor() {
+    fn set_shape_writes_to_custom_root_without_touching_cursor_from_builtin() {
+        // From a builtin cursor, set_shape mutates `custom.root`
+        // without moving the cursor or affecting the active layout.
+        // The user must explicitly cycle to Custom to see the
+        // result of their edit.
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         let cursor = ActivePreset::Builtin(BuiltinPreset::All);
         config.preset.set(cursor);
-        // Setting shape to the live value must not promote.
-        let live = config.layout_spec().to_string();
-        config.set_shape(&live).unwrap();
-        assert_eq!(
-            config.preset.active(),
-            cursor,
-            "no-op must not promote to custom"
-        );
-    }
-
-    #[test]
-    fn set_shape_change_promotes_builtin_to_custom() {
-        use crate::domain::preset::{ActivePreset, BuiltinPreset};
-        let mut config = Config::new();
-        config
-            .preset
-            .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
+        let active_before = config.layout_spec();
         config.set_shape("vstack(cpu, mem)").unwrap();
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        // Cursor unchanged.
+        assert_eq!(config.preset.active(), cursor);
+        // Active layout unchanged (still the builtin).
+        assert_eq!(config.layout_spec(), active_before);
+        // But custom.root captured the edit.
         assert_eq!(
             config.custom.root,
             Slot::VStack(vec![
@@ -1903,26 +1782,30 @@ mod tests {
     }
 
     #[test]
-    fn set_shape_on_custom_writes_without_changing_cursor() {
+    fn set_shape_on_custom_writes_root_and_changes_active_layout() {
         use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
         config.preset.set(ActivePreset::Custom);
         config.set_shape("cpu").unwrap();
         assert_eq!(config.preset.active(), ActivePreset::Custom);
         assert_eq!(config.custom.root, Slot::Widget(WidgetKind::Cpu));
+        assert_eq!(config.layout_spec(), Slot::Widget(WidgetKind::Cpu));
     }
 
     #[test]
     fn set_string_shape_via_inline_editor_path() {
+        // Inline editor commit goes through ConfigKey::Shape.set_string
+        // which calls Config::set_shape. Same no-promote semantics.
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config
-            .preset
-            .set(ActivePreset::Builtin(BuiltinPreset::CpuProc));
+        let cursor = ActivePreset::Builtin(BuiltinPreset::CpuProc);
+        config.preset.set(cursor);
         ConfigKey::Shape
             .set_string(&mut config, "vstack(cpu, mem, disk)")
             .unwrap();
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        // Cursor unchanged.
+        assert_eq!(config.preset.active(), cursor);
+        // custom.root captured the edit.
         assert_eq!(
             config.custom.root,
             Slot::VStack(vec![

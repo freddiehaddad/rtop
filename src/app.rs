@@ -23,7 +23,8 @@ mod state;
 
 pub(crate) use dirty_exec::{RenderInputs, render_all};
 pub(crate) use state::{
-    AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState,
+    AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState,
+    RuntimeState, WidgetFilter,
 };
 
 use crate::config;
@@ -108,6 +109,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             term_height: size.height,
             root: config.layout_spec(),
             hints: state.live.layout_hints(config),
+            hidden: state.compose_hidden(config),
         });
 
         // Handle too-small terminal: render message, only accept quit.
@@ -181,6 +183,7 @@ fn handle_input_key(
         overlay: &mut state.overlay,
         process: &mut state.process,
         network: &mut state.network,
+        filter: &mut state.filter,
         tw: size.width,
         th: size.height,
     };

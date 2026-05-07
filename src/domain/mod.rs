@@ -8,3 +8,4 @@ pub mod network;
 pub mod preset;
 pub mod process;
 pub mod widget_kind;
+pub mod widget_set;

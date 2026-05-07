@@ -25,6 +25,9 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
     if let Some(result) = handle_config_reload(key, ctx) {
         return result;
     }
+    if let Some(result) = handle_filter_reset(key, ctx) {
+        return result;
+    }
     handle_process_nav(key, ctx);
     handle_process_keys(key, ctx);
     handle_widget_toggles(key, ctx);
@@ -135,6 +138,10 @@ fn handle_config_reload(key: &Key, ctx: &mut InputContext) -> Option<HandleResul
     ctx.runtime.rounded = ctx.config.rounded_corners;
     sync_update_ms(ctx);
     crate::log::set_level(ctx.config.log_level).expect("log level change must succeed");
+    // Reload may load a different active layout; the runtime view
+    // filter no longer applies to widgets the user didn't choose
+    // to hide. Treat reload as a fresh slate and clear the filter.
+    ctx.filter.hidden.clear();
     tracing::info!(subsystem = %crate::log::Subsystem::Config, "config reloaded");
     ctx.render.dirty |= Dirty::FULL;
     Some(HandleResult::raw(base))
@@ -391,10 +398,13 @@ fn handle_widget_toggles(key: &Key, ctx: &mut InputContext) {
         Key::Char('0') => {
             // The `0` key toggles the second half of GPU slots
             // (indices 4..MAX_GPUS) as a single batch action so users
-            // with many GPUs can collapse them quickly.
+            // with many GPUs can collapse them quickly. A single
+            // batch flips every Gpu(4..MAX_GPUS) — if any is hidden
+            // they all become visible; otherwise they all become
+            // hidden. (Pre-existing semantics.)
             for i in 4..crate::config::MAX_GPUS {
                 if let Some(gpu_kind) = WidgetKind::gpu(i) {
-                    ctx.config.toggle_widget(gpu_kind);
+                    ctx.filter.hidden.toggle(gpu_kind);
                 }
             }
             tracing::info!(
@@ -408,16 +418,37 @@ fn handle_widget_toggles(key: &Key, ctx: &mut InputContext) {
         }
         _ => return,
     };
-    ctx.config.toggle_widget(kind);
-    let shown = ctx.config.layout_spec().contains(kind);
+    let now_hidden = ctx.filter.hidden.toggle(kind);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "widget_toggle",
         r#widget = %kind,
-        shown,
+        shown = !now_hidden,
         "widget visibility toggled",
     );
     ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+}
+
+// --- Widget filter reset ---
+
+fn handle_filter_reset(key: &Key, ctx: &mut InputContext) -> Option<HandleResult> {
+    if *key != Key::Char('R') {
+        return None;
+    }
+    if ctx.filter.hidden.is_empty() {
+        // Idempotent: if nothing is hidden, do nothing visible —
+        // and don't mark dirty. Avoids a redundant repaint on
+        // accidental presses.
+        return Some(HandleResult::none());
+    }
+    ctx.filter.hidden.clear();
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "widget_filter_reset",
+        "all hidden widgets restored",
+    );
+    ctx.render.dirty |= Dirty::LAYOUT | Dirty::ALL_WIDGETS;
+    Some(HandleResult::none())
 }
 
 // --- Network ---
