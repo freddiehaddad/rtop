@@ -41,12 +41,13 @@ pub struct NetWidgetSettings<'a> {
 /// so adding a network-widget setting is a one-file change.
 pub(crate) fn build_settings<'a>(
     config: &'a crate::config::Config,
+    view: &crate::app::RuntimeView,
     iface: &'a str,
 ) -> NetWidgetSettings<'a> {
     NetWidgetSettings {
         iface,
-        auto_scale: config.net.net_auto,
-        sync_scale: config.net.net_sync,
+        auto_scale: view.net_auto,
+        sync_scale: view.net_sync,
         max_download: config.net.net_download,
         max_upload: config.net.net_upload,
         graph_symbol: GraphMode::from_config(config.net.graph_symbol_net, config.ui.graph_symbol),

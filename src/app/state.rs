@@ -19,6 +19,7 @@ use std::time::Instant;
 
 pub(crate) struct AppState {
     pub(crate) runtime: RuntimeState,
+    pub(crate) view: RuntimeView,
     pub(crate) render: RenderState,
     pub(crate) live: LiveData,
     pub(crate) overlay: OverlayState,
@@ -31,6 +32,7 @@ impl AppState {
     pub(crate) fn new(config: &config::Config, _now: Instant) -> Self {
         Self {
             runtime: RuntimeState::new(config),
+            view: RuntimeView::from_config(&config.view),
             render: RenderState::new(),
             live: LiveData::new(),
             overlay: OverlayState::new(),
@@ -56,7 +58,7 @@ impl AppState {
     /// is hidden — there is one source of truth per frame, built
     /// here.
     pub(crate) fn compose_hidden(&self, config: &config::Config) -> WidgetSet {
-        let hints = self.live.layout_hints(config);
+        let hints = self.live.layout_hints(config, &self.view);
         let mut hidden = WidgetSet::new();
         for n in (hints.gpu_count as u8)..(crate::config::MAX_GPUS as u8) {
             hidden.insert(WidgetKind::Gpu(n));
@@ -77,6 +79,89 @@ impl RuntimeState {
             rounded: config.ui.rounded_corners,
             update_ms: config.refresh.update_ms as u64,
         }
+    }
+}
+
+/// Runtime view-state — the user's current toggle/select gestures
+/// for fields that mirror back to [`crate::config::ViewConfig`] on
+/// save.
+///
+/// **Sync contract** (see [`crate::config::ViewConfig`] for the
+/// rationale):
+///
+/// 1. `AppState::new` initialises this from `config.view`
+///    ([`RuntimeView::from_config`]).
+/// 2. Opening the options menu copies `RuntimeView -> config.view`
+///    ([`RuntimeView::sync_to_config`]) so the menu shows current
+///    values.
+/// 3. Committing an options-menu edit copies
+///    `config.view -> RuntimeView`
+///    ([`RuntimeView::sync_from_config`]) so the runtime picks up
+///    the user's change.
+/// 4. `save_config_on_exit` runs `sync_to_config` before
+///    serialising so the on-disk form reflects the current
+///    runtime values.
+///
+/// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
+/// `s`, Tab, `f`/`/`) mutate this struct only — they never reach
+/// `&mut Config`.
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeView {
+    pub(crate) proc_tree: bool,
+    pub(crate) proc_reversed: bool,
+    pub(crate) proc_per_core: bool,
+    pub(crate) proc_sorting: crate::collect::process_display::ProcSort,
+    pub(crate) proc_filter: String,
+    pub(crate) io_mode: bool,
+    pub(crate) net_auto: bool,
+    pub(crate) net_sync: bool,
+    pub(crate) net_iface: String,
+}
+
+impl RuntimeView {
+    /// Initialise from a freshly loaded `ViewConfig` (typically at
+    /// `AppState::new` or after `Config::reload`).
+    pub(crate) fn from_config(view: &crate::config::ViewConfig) -> Self {
+        Self {
+            proc_tree: view.proc_tree,
+            proc_reversed: view.proc_reversed,
+            proc_per_core: view.proc_per_core,
+            proc_sorting: view.proc_sorting,
+            proc_filter: view.proc_filter.clone(),
+            io_mode: view.io_mode,
+            net_auto: view.net_auto,
+            net_sync: view.net_sync,
+            net_iface: view.net_iface.clone(),
+        }
+    }
+
+    /// Copy `self` into `view` — the persisted snapshot. Called
+    /// before opening the options menu (so the menu shows current
+    /// values) and before saving.
+    pub(crate) fn sync_to_config(&self, view: &mut crate::config::ViewConfig) {
+        view.proc_tree = self.proc_tree;
+        view.proc_reversed = self.proc_reversed;
+        view.proc_per_core = self.proc_per_core;
+        view.proc_sorting = self.proc_sorting;
+        view.proc_filter.clone_from(&self.proc_filter);
+        view.io_mode = self.io_mode;
+        view.net_auto = self.net_auto;
+        view.net_sync = self.net_sync;
+        view.net_iface.clone_from(&self.net_iface);
+    }
+
+    /// Copy `view` into `self`. Called after the user commits an
+    /// options-menu edit so the runtime picks up the change.
+    pub(crate) fn sync_from_config(&mut self, view: &crate::config::ViewConfig) {
+        self.proc_tree = view.proc_tree;
+        self.proc_reversed = view.proc_reversed;
+        self.proc_per_core = view.proc_per_core;
+        self.proc_sorting = view.proc_sorting;
+        self.proc_filter.clone_from(&view.proc_filter);
+        self.io_mode = view.io_mode;
+        self.net_auto = view.net_auto;
+        self.net_sync = view.net_sync;
+        self.net_iface.clone_from(&view.net_iface);
     }
 }
 
@@ -159,15 +244,19 @@ impl LiveData {
             && self.proc_data.is_some()
     }
 
-    pub(crate) fn layout_hints(&self, config: &config::Config) -> draw::layout::LayoutHints {
+    pub(crate) fn layout_hints(
+        &self,
+        config: &config::Config,
+        view: &RuntimeView,
+    ) -> draw::layout::LayoutHints {
         // Disk widget rows-per-disk depends on which view is active:
         //   * Usage view (default): 2 rows when `show_io_stat` adds
         //     the inline read/write/busy row under each capacity
         //     meter; 1 row otherwise.
-        //   * IO view (`io_mode` toggle or persistent
-        //     `disk_io_mode`): 2 rows for separate read+write
+        //   * IO view (`view.io_mode` runtime toggle or persistent
+        //     `disk.disk_io_mode`): 2 rows for separate read+write
         //     graphs; 1 row when `io_graph_combined` merges them.
-        let io_view = config.disk.io_mode || config.disk.disk_io_mode;
+        let io_view = view.io_mode || config.disk.disk_io_mode;
         let disk_rows_per_unit = if io_view {
             if config.disk.io_graph_combined { 1 } else { 2 }
         } else if config.disk.show_io_stat {
@@ -404,6 +493,7 @@ impl ProcessViewState {
         &mut self,
         procs: Option<&[crate::domain::process::ProcInfo]>,
         config: &config::Config,
+        view: &RuntimeView,
     ) {
         let Some(live_procs) = procs else {
             self.entries.clear();
@@ -427,10 +517,10 @@ impl ProcessViewState {
         let procs: &[crate::domain::process::ProcInfo] =
             self.display_procs.as_deref().unwrap_or(live_procs);
 
-        let sort_by = config.proc.proc_sorting;
-        let reversed = config.proc.proc_reversed;
-        let filter = &config.proc.proc_filter;
-        let tree_mode = config.proc.proc_tree;
+        let sort_by = view.proc_sorting;
+        let reversed = view.proc_reversed;
+        let filter = &view.proc_filter;
+        let tree_mode = view.proc_tree;
         let aggregate = config.proc.proc_aggregate;
         self.entries = crate::collect::process_display::build_proc_display_entries(
             procs, sort_by, reversed, filter, tree_mode, aggregate,
@@ -535,6 +625,80 @@ mod tests {
     }
 
     #[test]
+    fn runtime_view_initialises_from_config_view() {
+        // AppState::new should mirror config.view into state.view at
+        // startup so the runtime mirror matches the loaded TOML.
+        let mut config = config::Config::new();
+        config.view.proc_tree = true;
+        config.view.proc_filter = "chrome".to_string();
+        config.view.io_mode = true;
+        config.view.net_iface = "Ethernet".to_string();
+
+        let state = AppState::new(&config, Instant::now());
+
+        assert!(state.view.proc_tree);
+        assert_eq!(state.view.proc_filter, "chrome");
+        assert!(state.view.io_mode);
+        assert_eq!(state.view.net_iface, "Ethernet");
+    }
+
+    #[test]
+    fn runtime_view_sync_to_config_mirrors_back() {
+        // After handler runtime toggles, sync_to_config copies the
+        // RuntimeView state back into config.view so the persisted
+        // form matches the runtime values (used at save).
+        let mut config = config::Config::new();
+        let mut view = RuntimeView::from_config(&config.view);
+
+        // Simulate handler-side runtime toggles.
+        view.proc_tree = true;
+        view.proc_reversed = true;
+        view.proc_per_core = true;
+        view.proc_sorting = crate::collect::process_display::ProcSort::Memory;
+        view.proc_filter = "rtop".to_string();
+        view.io_mode = true;
+        view.net_auto = false;
+        view.net_sync = true;
+        view.net_iface = "Wi-Fi".to_string();
+
+        view.sync_to_config(&mut config.view);
+
+        assert!(config.view.proc_tree);
+        assert!(config.view.proc_reversed);
+        assert!(config.view.proc_per_core);
+        assert_eq!(
+            config.view.proc_sorting,
+            crate::collect::process_display::ProcSort::Memory
+        );
+        assert_eq!(config.view.proc_filter, "rtop");
+        assert!(config.view.io_mode);
+        assert!(!config.view.net_auto);
+        assert!(config.view.net_sync);
+        assert_eq!(config.view.net_iface, "Wi-Fi");
+    }
+
+    #[test]
+    fn runtime_view_sync_from_config_picks_up_menu_edit() {
+        // After the user edits a runtime-toggle field via the
+        // options menu (which mutates config.view via the typed-
+        // key API), sync_from_config copies the new value into
+        // RuntimeView so handlers see it.
+        let mut config = config::Config::new();
+        let mut view = RuntimeView::from_config(&config.view);
+
+        // Simulate options-menu edits (BoolKey::toggle, etc.).
+        config.view.proc_tree = true;
+        config.view.io_mode = true;
+        config.view.net_iface = "Ethernet".to_string();
+
+        view.sync_from_config(&config.view);
+
+        assert!(view.proc_tree);
+        assert!(view.io_mode);
+        assert_eq!(view.net_iface, "Ethernet");
+    }
+
+    #[test]
     fn app_state_render_ui_only_for_normal_and_filter() {
         let config = config::Config::new();
         let mut state = AppState::new(&config, Instant::now());
@@ -558,32 +722,65 @@ mod tests {
     #[test]
     fn layout_hints_disk_rows_per_unit_covers_all_four_view_modes() {
         let mut config = config::Config::new();
-        let state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config, Instant::now());
 
         // Usage view + show_io_stat on → 2 rows per disk.
-        config.disk.io_mode = false;
+        // (`io_mode` lives on `RuntimeView` not `Config` after the
+        //  view-state extraction; mutate both so the layout-hint
+        //  arithmetic sees the same value.)
+        state.view.io_mode = false;
         config.disk.disk_io_mode = false;
         config.disk.show_io_stat = true;
-        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
+        assert_eq!(
+            state
+                .live
+                .layout_hints(&config, &state.view)
+                .disk_rows_per_unit,
+            2
+        );
 
         // Usage view + show_io_stat off → 1 row per disk.
         config.disk.show_io_stat = false;
-        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
+        assert_eq!(
+            state
+                .live
+                .layout_hints(&config, &state.view)
+                .disk_rows_per_unit,
+            1
+        );
 
         // IO view + split graphs → 2 rows per disk regardless of show_io_stat.
-        config.disk.io_mode = true;
+        state.view.io_mode = true;
         config.disk.io_graph_combined = false;
-        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
+        assert_eq!(
+            state
+                .live
+                .layout_hints(&config, &state.view)
+                .disk_rows_per_unit,
+            2
+        );
 
         // IO view + combined graph → 1 row per disk.
         config.disk.io_graph_combined = true;
-        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 1);
+        assert_eq!(
+            state
+                .live
+                .layout_hints(&config, &state.view)
+                .disk_rows_per_unit,
+            1
+        );
 
         // Persistent disk_io_mode behaves the same as runtime io_mode.
-        config.disk.io_mode = false;
+        state.view.io_mode = false;
         config.disk.disk_io_mode = true;
         config.disk.io_graph_combined = false;
-        assert_eq!(state.live.layout_hints(&config).disk_rows_per_unit, 2);
+        assert_eq!(
+            state
+                .live
+                .layout_hints(&config, &state.view)
+                .disk_rows_per_unit,
+            2
+        );
     }
 
     #[test]

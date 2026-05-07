@@ -77,6 +77,9 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
                     ctx.overlay.options_cat = 0;
                     ctx.overlay.options_selected = 0;
                     ctx.overlay.options_page = 0;
+                    // Sync RuntimeView -> config.view so the menu
+                    // shows current values for runtime-toggle keys.
+                    ctx.view.sync_to_config(&mut ctx.config.view);
                     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
                         term_width: ctx.tw,
                         term_height: ctx.th,
@@ -122,6 +125,9 @@ pub(crate) fn handle(key: &Key, ctx: &mut InputContext) -> HandleResult {
             ctx.overlay.options_cat = 0;
             ctx.overlay.options_selected = 0;
             ctx.overlay.options_page = 0;
+            // Sync RuntimeView -> config.view so the menu shows
+            // current values for runtime-toggle keys.
+            ctx.view.sync_to_config(&mut ctx.config.view);
             let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
                 term_width: ctx.tw,
                 term_height: ctx.th,

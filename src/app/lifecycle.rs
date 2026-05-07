@@ -96,6 +96,9 @@ pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::Ap
     // (1-9, 0, Shift+R) survive restart. AppState owns the live
     // filter; Config carries the persisted form.
     config.hidden_widgets = state.filter.hidden.clone();
+    // Mirror RuntimeView -> config.view so runtime-toggle state
+    // (proc_tree, io_mode, net_iface, etc.) survives restart.
+    state.view.sync_to_config(&mut config.view);
     if config.ui.save_config_on_exit {
         let conf_path = tools::config_dir().join("rtop.toml");
         match config.write(&conf_path) {

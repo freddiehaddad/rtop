@@ -12,7 +12,9 @@
 
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
-use crate::app::state::{AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeState};
+use crate::app::state::{
+    AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeState, RuntimeView,
+};
 use crate::config;
 use crate::dirty::Dirty;
 use crate::domain::process::ProcDisplayEntry;
@@ -60,7 +62,7 @@ pub(crate) fn execute_dirty_work(
 
 fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
     let procs = state.live.proc_data.as_ref().map(|s| s.procs.as_slice());
-    state.process.rebuild_entries(procs, config);
+    state.process.rebuild_entries(procs, config, &state.view);
 }
 
 fn calculate_layout(
@@ -72,7 +74,7 @@ fn calculate_layout(
         term_width: size.width,
         term_height: size.height,
         root: config.layout_spec(),
-        hints: state.live.layout_hints(config),
+        hints: state.live.layout_hints(config, &state.view),
         hidden: state.compose_hidden(config),
     })
 }
@@ -117,6 +119,7 @@ fn render_dirty_frame(
         process: &state.process,
         network: &state.network,
         runtime: &state.runtime,
+        view: &state.view,
         filter: &state.filter,
         config,
         theme,
@@ -170,6 +173,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) proc_display_procs: Option<&'a [crate::domain::process::ProcInfo]>,
     pub(crate) selected_iface: &'a str,
     pub(crate) config: &'a config::Config,
+    pub(crate) view: &'a RuntimeView,
     pub(crate) theme: &'a theme::Theme,
     pub(crate) rounded: bool,
     pub(crate) update_ms: u64,
@@ -197,6 +201,7 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) process: &'a ProcessViewState,
     pub(crate) network: &'a NetworkViewState,
     pub(crate) runtime: &'a RuntimeState,
+    pub(crate) view: &'a RuntimeView,
     pub(crate) filter: &'a crate::app::WidgetFilter,
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
@@ -229,6 +234,7 @@ impl<'a> RenderInputs<'a> {
             proc_display_procs: self.process.display_procs.as_deref(),
             selected_iface: self.network.selected_iface.as_str(),
             config: self.config,
+            view: self.view,
             theme: self.theme,
             rounded: self.runtime.rounded,
             update_ms: self.runtime.update_ms,
@@ -333,7 +339,7 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         && let Some(disk) = params.disk
     {
         let area = ui::WidgetArea::from_dim(disk_dim, rounded);
-        let disk_settings = ui::disk_widget::build_settings(config);
+        let disk_settings = ui::disk_widget::build_settings(config, params.view);
         let filter = crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter);
         let visible = filter.apply(&disk.info.disks);
         output.push_str(&ui::disk_widget::draw(
@@ -357,7 +363,7 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
             .find(|n| n.name == iface)
             .unwrap_or(&default_net);
         let area = ui::WidgetArea::from_dim(net_dim, rounded);
-        let net_settings = ui::net_widget::build_settings(config, iface);
+        let net_settings = ui::net_widget::build_settings(config, params.view, iface);
         output.push_str(&ui::net_widget::draw(
             net_info,
             &area,
@@ -374,10 +380,10 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
         let entries = params.proc_entries;
         let detailed_pid = params.detailed_pid;
-        let sort_by = config.proc.proc_sorting;
-        let reversed = config.proc.proc_reversed;
-        let tree_mode = config.proc.proc_tree;
-        let pf = &config.proc.proc_filter;
+        let sort_by = params.view.proc_sorting;
+        let reversed = params.view.proc_reversed;
+        let tree_mode = params.view.proc_tree;
+        let pf = &params.view.proc_filter;
         let area = ui::WidgetArea::from_dim(proc_dim, rounded);
         let view = ui::ProcView {
             start: params.proc_start,
@@ -396,8 +402,12 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
                 .unwrap_or(""),
             armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
         };
-        let proc_settings =
-            ui::proc_widget::build_settings(config, params.core_count, params.total_mem);
+        let proc_settings = ui::proc_widget::build_settings(
+            config,
+            params.view,
+            params.core_count,
+            params.total_mem,
+        );
         output.push_str(&ui::proc_widget::draw(
             procs,
             entries,

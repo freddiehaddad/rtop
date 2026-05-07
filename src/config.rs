@@ -223,6 +223,12 @@ impl Default for MemConfig {
 }
 
 /// Network widget settings (`net` options-menu tab).
+///
+/// Runtime-mutable network bits (`net_auto`, `net_sync`,
+/// `net_iface`) live on [`ViewConfig`] / `AppState::runtime` —
+/// they're toggled outside the options menu (`a`, `s`, Tab keys)
+/// and the architecture treats them as session view-state that
+/// mirrors back to the persisted form on save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NetConfig {
@@ -230,12 +236,6 @@ pub struct NetConfig {
     pub swap_upload_download: bool,
     pub net_download: i64,
     pub net_upload: i64,
-    pub net_auto: bool,
-    pub net_sync: bool,
-    /// Preferred network interface name. `"auto"` picks the first
-    /// available interface; any other value is the user's pinned
-    /// selection (cycled at runtime via `Tab` / `Shift+Tab`).
-    pub net_iface: String,
 }
 
 impl Default for NetConfig {
@@ -245,42 +245,36 @@ impl Default for NetConfig {
             swap_upload_download: false,
             net_download: 100,
             net_upload: 100,
-            net_auto: true,
-            net_sync: false,
-            net_iface: "auto".to_string(),
         }
     }
 }
 
 /// Process widget settings (`proc` options-menu tab).
+///
+/// Runtime-mutable process bits (`proc_tree`, `proc_reversed`,
+/// `proc_per_core`, `proc_sorting`, `proc_filter`) live on
+/// [`ViewConfig`] / `AppState::runtime` — they're toggled outside
+/// the options menu (`e`, `r`, `c`, Left/Right, `f`/`/` keys) and
+/// the architecture treats them as session view-state that
+/// mirrors back to the persisted form on save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProcConfig {
-    pub proc_sorting: ProcSort,
-    pub proc_reversed: bool,
-    pub proc_tree: bool,
     pub proc_aggregate: bool,
     pub proc_colors: bool,
     pub proc_gradient: bool,
-    pub proc_per_core: bool,
     pub proc_mem_bytes: bool,
     pub keep_dead_proc_usage: bool,
-    pub proc_filter: String,
 }
 
 impl Default for ProcConfig {
     fn default() -> Self {
         Self {
-            proc_sorting: ProcSort::Cpu,
-            proc_reversed: false,
-            proc_tree: false,
             proc_aggregate: false,
             proc_colors: true,
             proc_gradient: true,
-            proc_per_core: false,
             proc_mem_bytes: true,
             keep_dead_proc_usage: false,
-            proc_filter: String::new(),
         }
     }
 }
@@ -293,12 +287,16 @@ pub struct GpuConfig {
 }
 
 /// Disk widget settings (`disk` options-menu tab).
+///
+/// Runtime-mutable disk bits (`io_mode`) live on [`ViewConfig`] /
+/// `AppState::runtime` — `i` toggles it outside the options menu
+/// and the architecture treats it as session view-state that
+/// mirrors back to the persisted form on save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DiskConfig {
     pub graph_symbol_disk: GraphSymbol,
     pub show_io_stat: bool,
-    pub io_mode: bool,
     pub io_graph_combined: bool,
     pub disk_io_mode: bool,
     pub disks_filter: Vec<String>,
@@ -309,10 +307,64 @@ impl Default for DiskConfig {
         Self {
             graph_symbol_disk: GraphSymbol::Default,
             show_io_stat: true,
-            io_mode: false,
             io_graph_combined: false,
             disk_io_mode: false,
             disks_filter: Vec::new(),
+        }
+    }
+}
+
+/// View-state config: fields the user toggles outside the
+/// options menu (process tree mode, sort, filter, IO mode,
+/// network auto-scale / sync / interface).
+///
+/// These fields persist across restarts (so toggle gestures
+/// survive the next launch) but their *runtime* mutation goes
+/// through [`crate::app::RuntimeView`] in `AppState`, not
+/// directly through `Config`. Sync points:
+///
+/// 1. `AppState::new` initialises `RuntimeView` from
+///    `Config::view`.
+/// 2. Opening the options menu copies `RuntimeView ->
+///    Config::view` so the menu shows the current values.
+/// 3. Committing an options-menu edit copies
+///    `Config::view -> RuntimeView` so the runtime picks up the
+///    user's change.
+/// 4. `save_config_on_exit` copies `RuntimeView -> Config::view`
+///    before serialising so the on-disk form is current.
+///
+/// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
+/// `s`, Tab, `f`/`/`) mutate `RuntimeView` only — they never
+/// reach `&mut Config`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewConfig {
+    pub proc_tree: bool,
+    pub proc_reversed: bool,
+    pub proc_per_core: bool,
+    pub proc_sorting: ProcSort,
+    pub proc_filter: String,
+    pub io_mode: bool,
+    pub net_auto: bool,
+    pub net_sync: bool,
+    /// Preferred network interface name. `"auto"` picks the first
+    /// available interface; any other value is the user's pinned
+    /// selection (cycled at runtime via `Tab` / `Shift+Tab`).
+    pub net_iface: String,
+}
+
+impl Default for ViewConfig {
+    fn default() -> Self {
+        Self {
+            proc_tree: false,
+            proc_reversed: false,
+            proc_per_core: false,
+            proc_sorting: ProcSort::Cpu,
+            proc_filter: String::new(),
+            io_mode: false,
+            net_auto: true,
+            net_sync: false,
+            net_iface: "auto".to_string(),
         }
     }
 }
@@ -373,6 +425,11 @@ pub struct Config {
     pub disk: DiskConfig,
     #[serde(flatten)]
     pub log: LogConfig,
+    /// View-state (runtime-toggle) section. Mirrored at runtime
+    /// by [`crate::app::RuntimeView`]; see [`ViewConfig`] for the
+    /// sync-point contract.
+    #[serde(flatten)]
+    pub view: ViewConfig,
 
     /// Cursor over the active preset (one of the builtins, or the
     /// custom slot). Persisted by canonical name.
@@ -423,6 +480,7 @@ impl Default for Config {
             gpu: GpuConfig::default(),
             disk: DiskConfig::default(),
             log: LogConfig::default(),
+            view: ViewConfig::default(),
 
             // First-launch cursor lands on the `all` builtin so the
             // very first `p` keypress visibly cycles to a different
@@ -925,11 +983,11 @@ config_schema! {
     bools {
         ThemeBackground => "theme_background" => ui.theme_background,
         RoundedCorners => "rounded_corners" => ui.rounded_corners,
-        ProcReversed => "proc_reversed" => proc.proc_reversed,
-        ProcTree => "proc_tree" => proc.proc_tree,
+        ProcReversed => "proc_reversed" => view.proc_reversed,
+        ProcTree => "proc_tree" => view.proc_tree,
         ProcColors => "proc_colors" => proc.proc_colors,
         ProcGradient => "proc_gradient" => proc.proc_gradient,
-        ProcPerCore => "proc_per_core" => proc.proc_per_core,
+        ProcPerCore => "proc_per_core" => view.proc_per_core,
         ProcMemBytes => "proc_mem_bytes" => proc.proc_mem_bytes,
         ProcAggregate => "proc_aggregate" => proc.proc_aggregate,
         KeepDeadProcUsage => "keep_dead_proc_usage" => proc.keep_dead_proc_usage,
@@ -943,12 +1001,12 @@ config_schema! {
         ShowCpuFreq => "show_cpu_freq" => cpu.show_cpu_freq,
         ShowSwap => "show_swap" => mem.show_swap,
         ShowIoStat => "show_io_stat" => disk.show_io_stat,
-        IoMode => "io_mode" => disk.io_mode,
+        IoMode => "io_mode" => view.io_mode,
         IoGraphCombined => "io_graph_combined" => disk.io_graph_combined,
         SwapUploadDownload => "swap_upload_download" => net.swap_upload_download,
         Base10Sizes => "base_10_sizes" => ui.base_10_sizes,
-        NetAuto => "net_auto" => net.net_auto,
-        NetSync => "net_sync" => net.net_sync,
+        NetAuto => "net_auto" => view.net_auto,
+        NetSync => "net_sync" => view.net_sync,
         VimKeys => "vim_keys" => ui.vim_keys,
         BackgroundUpdate => "background_update" => ui.background_update,
         TerminalSync => "terminal_sync" => ui.terminal_sync,
@@ -971,7 +1029,7 @@ config_schema! {
         GraphSymbolCpu => "graph_symbol_cpu" => cpu.graph_symbol_cpu,
         GraphSymbolNet => "graph_symbol_net" => net.graph_symbol_net,
         GraphSymbolDisk => "graph_symbol_disk" => disk.graph_symbol_disk,
-        ProcSorting => "proc_sorting" => proc.proc_sorting,
+        ProcSorting => "proc_sorting" => view.proc_sorting,
         CpuGraphUpper => "cpu_graph_upper" => cpu.cpu_graph_upper,
         CpuGraphLower => "cpu_graph_lower" => cpu.cpu_graph_lower,
         TempScale => "temp_scale" => cpu.temp_scale,
@@ -984,7 +1042,7 @@ config_schema! {
         ColorTheme => "color_theme" => { field ui.color_theme },
         ClockFormat => "clock_format" => { field ui.clock_format },
         CustomCpuName => "custom_cpu_name" => { field cpu.custom_cpu_name },
-        ProcFilter => "proc_filter" => { field proc.proc_filter },
+        ProcFilter => "proc_filter" => { field view.proc_filter },
         DisksFilter => "disks_filter" => { joined_vec disk.disks_filter },
         CustomLayout => "custom_layout" => { custom_layout },
         CustomGpuName0 => "custom_gpu_name0" => { array gpu.custom_gpu_names[0] },
@@ -1098,7 +1156,7 @@ impl EnumKey {
             Self::GraphSymbolDisk => {
                 config.disk.graph_symbol_disk = value.parse().map_err(|_| err())?
             }
-            Self::ProcSorting => config.proc.proc_sorting = value.parse().map_err(|_| err())?,
+            Self::ProcSorting => config.view.proc_sorting = value.parse().map_err(|_| err())?,
             Self::CpuGraphUpper => config.cpu.cpu_graph_upper = value.parse().map_err(|_| err())?,
             Self::CpuGraphLower => config.cpu.cpu_graph_lower = value.parse().map_err(|_| err())?,
             Self::TempScale => config.cpu.temp_scale = value.parse().map_err(|_| err())?,
@@ -1176,7 +1234,7 @@ impl StringKey {
             Self::ColorTheme => config.ui.color_theme = value.to_string(),
             Self::ClockFormat => config.ui.clock_format = value.to_string(),
             Self::CustomCpuName => config.cpu.custom_cpu_name = value.to_string(),
-            Self::ProcFilter => config.proc.proc_filter = value.to_string(),
+            Self::ProcFilter => config.view.proc_filter = value.to_string(),
             Self::CustomLayout => {
                 config.set_custom_layout(value).map_err(|_| err())?;
             }
@@ -1370,7 +1428,7 @@ mod tests {
         assert_eq!(config.refresh.update_ms, 2000);
         assert_eq!(config.ui.color_theme, "default");
         assert_eq!(config.ui.graph_symbol, GraphSymbol::Braille);
-        assert_eq!(config.proc.proc_sorting, ProcSort::Cpu);
+        assert_eq!(config.view.proc_sorting, ProcSort::Cpu);
         // First-launch cursor lands on the `all` builtin so the
         // user's first `p` press visibly cycles to a different
         // preset, and the cursor name matches the visible layout.
@@ -1438,17 +1496,17 @@ hidden_widgets = ["mem", "gpu0"]
         assert!(!config.mem.show_swap);
 
         // DiskConfig
-        assert!(config.disk.io_mode);
+        assert!(config.view.io_mode);
         assert_eq!(config.disk.disks_filter, vec!["C:", "!D:"]);
 
         // NetConfig
-        assert_eq!(config.net.net_iface, "Ethernet");
+        assert_eq!(config.view.net_iface, "Ethernet");
         assert_eq!(config.net.net_download, 5000);
 
         // ProcConfig
-        assert!(config.proc.proc_tree);
-        assert_eq!(config.proc.proc_sorting, ProcSort::Memory);
-        assert_eq!(config.proc.proc_filter, "chrome");
+        assert!(config.view.proc_tree);
+        assert_eq!(config.view.proc_sorting, ProcSort::Memory);
+        assert_eq!(config.view.proc_filter, "chrome");
 
         // GpuConfig
         assert_eq!(config.gpu.custom_gpu_names[0], "RTX 4090");
@@ -1473,7 +1531,7 @@ hidden_widgets = ["mem", "gpu0"]
         original.ui.color_theme = "nord".to_string();
         original.ui.vim_keys = true;
         original.refresh.update_ms = 750;
-        original.proc.proc_tree = true;
+        original.view.proc_tree = true;
         original.cpu.show_cpu_freq = false;
         original.gpu.custom_gpu_names[0] = "Test GPU 0".to_string();
         original.log.log_level = LevelFilter::DEBUG;
@@ -1488,7 +1546,7 @@ hidden_widgets = ["mem", "gpu0"]
         assert_eq!(loaded.ui.color_theme, "nord");
         assert!(loaded.ui.vim_keys);
         assert_eq!(loaded.refresh.update_ms, 750);
-        assert!(loaded.proc.proc_tree);
+        assert!(loaded.view.proc_tree);
         assert!(!loaded.cpu.show_cpu_freq);
         assert_eq!(loaded.gpu.custom_gpu_names[0], "Test GPU 0");
         assert_eq!(loaded.log.log_level, LevelFilter::DEBUG);

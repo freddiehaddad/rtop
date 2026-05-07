@@ -62,7 +62,7 @@ fn main() {
         config.refresh.update_ms = ms as i64;
     }
     if let Some(ref f) = cli.filter {
-        config.proc.proc_filter = f.clone();
+        config.view.proc_filter = f.clone();
     }
 
     let mut terminal = match term::Terminal::init(config.ui.terminal_sync) {

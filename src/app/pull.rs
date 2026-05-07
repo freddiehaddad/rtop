@@ -91,7 +91,7 @@ pub(crate) fn pull_subsystem_data(
     }
 
     // Check layout hints for changes.
-    let new_hints = state.live.layout_hints(config);
+    let new_hints = state.live.layout_hints(config, &state.view);
     if state
         .render
         .last_layout_hints
@@ -101,16 +101,16 @@ pub(crate) fn pull_subsystem_data(
     }
     state.render.last_layout_hints = Some(new_hints);
 
-    reconcile_selected_iface(state, config);
+    reconcile_selected_iface(state);
 }
 
-pub(crate) fn reconcile_selected_iface(state: &mut AppState, config: &config::Config) {
+pub(crate) fn reconcile_selected_iface(state: &mut AppState) {
     let Some(net) = state.live.net.as_ref() else {
         return;
     };
     state
         .network
-        .reconcile(&net.nets, &config.net.net_iface, &mut state.render.dirty);
+        .reconcile(&net.nets, &state.view.net_iface, &mut state.render.dirty);
 }
 
 #[cfg(test)]
@@ -138,7 +138,7 @@ mod tests {
             status: crate::collect::CollectStatus::Ok,
         }));
 
-        reconcile_selected_iface(&mut state, &config);
+        reconcile_selected_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
         assert!(state.render.dirty.contains(Dirty::NET_WIDGET));

@@ -24,7 +24,7 @@ mod state;
 pub(crate) use dirty_exec::{RenderInputs, render_all};
 pub(crate) use state::{
     AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState,
-    RuntimeState, WidgetFilter,
+    RuntimeState, RuntimeView, WidgetFilter,
 };
 
 use crate::config;
@@ -109,7 +109,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             term_width: size.width,
             term_height: size.height,
             root: config.layout_spec(),
-            hints: state.live.layout_hints(config),
+            hints: state.live.layout_hints(config, &state.view),
             hidden: state.compose_hidden(config),
         });
 
@@ -195,6 +195,7 @@ fn handle_input_key(
         manager,
         live: &state.live,
         runtime: &mut state.runtime,
+        view: &mut state.view,
         render: &mut state.render,
         overlay: &mut state.overlay,
         process: &mut state.process,

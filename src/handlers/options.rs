@@ -404,6 +404,14 @@ pub(crate) fn apply_post_change_effects(
         _ => {}
     }
 
+    // Sync RuntimeView <- config.view if the change touched a
+    // runtime-toggle key. This keeps the runtime mirror current
+    // after the user edits a view-state field via the options
+    // menu.
+    if is_view_key(key) {
+        ctx.view.sync_from_config(&ctx.config.view);
+    }
+
     if matches!(
         key,
         ConfigKey::String(StringKey::ProcFilter)
@@ -419,4 +427,21 @@ pub(crate) fn apply_post_change_effects(
     ) {
         ctx.render.dirty |= Dirty::PROC_LIST;
     }
+}
+
+/// `true` for any [`ConfigKey`] backed by a [`crate::config::ViewConfig`]
+/// field. After the options menu mutates one of these, the runtime
+/// mirror in [`crate::app::RuntimeView`] needs to pick up the change.
+fn is_view_key(key: ConfigKey) -> bool {
+    matches!(
+        key,
+        ConfigKey::Bool(BoolKey::ProcTree)
+            | ConfigKey::Bool(BoolKey::ProcReversed)
+            | ConfigKey::Bool(BoolKey::ProcPerCore)
+            | ConfigKey::Bool(BoolKey::IoMode)
+            | ConfigKey::Bool(BoolKey::NetAuto)
+            | ConfigKey::Bool(BoolKey::NetSync)
+            | ConfigKey::Enum(EnumKey::ProcSorting)
+            | ConfigKey::String(StringKey::ProcFilter)
+    )
 }

@@ -38,11 +38,12 @@ pub struct ProcWidgetSettings {
 /// so adding a process-widget setting is a one-file change.
 pub(crate) fn build_settings(
     config: &crate::config::Config,
+    view: &crate::app::RuntimeView,
     core_count: usize,
     total_mem: u64,
 ) -> ProcWidgetSettings {
     ProcWidgetSettings {
-        proc_per_core: config.proc.proc_per_core,
+        proc_per_core: view.proc_per_core,
         core_count,
         proc_mem_bytes: config.proc.proc_mem_bytes,
         total_mem,

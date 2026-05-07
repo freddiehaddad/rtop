@@ -6,7 +6,10 @@ pub(crate) mod options;
 pub(crate) mod options_edit;
 
 use crate::{
-    app::{LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState},
+    app::{
+        LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState,
+        RuntimeView,
+    },
     config,
     dirty::Dirty,
     runner, term, theme,
@@ -123,6 +126,7 @@ pub(crate) struct InputContext<'a> {
     pub(crate) live: &'a LiveData,
     pub(crate) manager: &'a runner::CollectorManager,
     pub(crate) runtime: &'a mut RuntimeState,
+    pub(crate) view: &'a mut RuntimeView,
     pub(crate) render: &'a mut RenderState,
     pub(crate) overlay: &'a mut OverlayState,
     pub(crate) process: &'a mut ProcessViewState,
@@ -175,6 +179,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             process: ctx.process,
             network: ctx.network,
             runtime: ctx.runtime,
+            view: ctx.view,
             filter: ctx.filter,
             config: ctx.config,
             theme: ctx.theme,
