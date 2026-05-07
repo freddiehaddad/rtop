@@ -91,7 +91,11 @@ pub(crate) fn style_terminal_output(
     theme.style_output(output, config.theme_background)
 }
 
-pub(crate) fn save_config_on_exit(config: &config::Config) {
+pub(crate) fn save_config_on_exit(config: &mut config::Config, state: &super::AppState) {
+    // Mirror runtime view filter into config so toggle gestures
+    // (1-9, 0, Shift+R) survive restart. AppState owns the live
+    // filter; Config carries the persisted form.
+    config.hidden_widgets = state.filter.hidden.clone();
     if config.save_config_on_exit {
         let conf_path = tools::config_dir().join("rtop.toml");
         match config.write(&conf_path) {

@@ -83,6 +83,26 @@ impl Layout {
         self.dims.get(kind).as_ref()
     }
 
+    /// `true` when no widget has been placed this frame. The
+    /// engine produces an empty layout in two cases: a degenerate
+    /// terminal size (handled by `app::run`'s `is_too_small`
+    /// gate); or every leaf of the active slot tree is in
+    /// `LayoutConfig::hidden`. Callers (currently the
+    /// hidden-everything overlay gate in `app::run`) use this to
+    /// detect the latter and substitute a help message.
+    pub fn is_empty(&self) -> bool {
+        const BASE: [WidgetKind; 5] = [
+            WidgetKind::Cpu,
+            WidgetKind::Mem,
+            WidgetKind::Net,
+            WidgetKind::Proc,
+            WidgetKind::Disk,
+        ];
+        BASE.iter().all(|k| self.dims_for(*k).is_none())
+            && (0..crate::config::MAX_GPUS as u8)
+                .all(|n| self.dims_for(WidgetKind::Gpu(n)).is_none())
+    }
+
     /// Assign dimensions to `kind` for this frame.
     fn set(&mut self, kind: WidgetKind, dim: WidgetDimensions) {
         *self.dims.get_mut(kind) = Some(dim);
@@ -865,6 +885,22 @@ mod tests {
         );
         let layout = calc_sizes(&cfg);
         assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
+        assert!(layout.is_empty(), "fully-hidden layout reports empty");
+    }
+
+    #[test]
+    fn layout_is_empty_returns_false_when_any_widget_placed() {
+        let cfg = lc(100, 30, Slot::Widget(WidgetKind::Cpu));
+        let layout = calc_sizes(&cfg);
+        assert!(!layout.is_empty());
+    }
+
+    #[test]
+    fn layout_is_empty_returns_true_for_default() {
+        // Default Layout has no placements — degenerate
+        // terminal-too-small case in the engine returns one.
+        let layout = Layout::default();
+        assert!(layout.is_empty());
     }
 
     // ────────────────────────────────────────────────────────────

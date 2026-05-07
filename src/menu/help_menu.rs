@@ -83,6 +83,11 @@ pub const KEYBINDS: &[Keybind] = &[
         desc: "Toggle GPU 4-7",
         section: "Global",
     },
+    Keybind {
+        key: "Shift-R",
+        desc: "Restore all hidden widgets",
+        section: "Global",
+    },
     // Process
     Keybind {
         key: "Up/Down",

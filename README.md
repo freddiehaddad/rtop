@@ -58,6 +58,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `1`–`5` | Toggle widgets (cpu/mem/net/proc/disk) |
 | `6`–`9` | Toggle GPU 0–3 |
 | `0` | Toggle GPU 4–7 |
+| `Shift+R` | Restore all hidden widgets |
 | `p` / `P` | Cycle presets forward/back |
 | `Ctrl+R` | Reload config from file |
 | `+` / `-` | Adjust update speed |
@@ -199,11 +200,10 @@ shape := widget                                            # a single widget
 
 Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu0`..`gpu7`. Each widget kind may appear at most once in a shape.
 
-Edit your layout three ways:
+Edit the custom layout two ways:
 
-1. **Toggle keys** (`1`–`9`, `0`) — add/remove individual widgets in place.
-2. **Options menu** (`o` or `F2`) → general → `shape` — type a new DSL expression and press Enter.
-3. **`rtop.toml`** — set `preset = "custom"` and edit the `shape` string under `[layout]`.
+1. **Options menu** (`o` or `F2`) → general → `shape` — type a new DSL expression and press Enter. Cycle to the `custom` preset (`p` / `P`) to see the result.
+2. **`rtop.toml`** — set `preset = "custom"` and edit the `shape` string under `[layout]`.
 
 #### Example 1 — minimal
 
@@ -227,7 +227,11 @@ preset = "custom"
 shape = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
 ```
 
-Toggle widgets at runtime with `1`–`5` (cpu/mem/net/proc/disk), `6`–`9` (gpu0–3), and `0` (gpu4–7). Cycle through the curated builtin presets with `p` / `P`.
+### Hiding widgets at runtime
+
+The number keys (`1`–`5` for cpu/mem/net/proc/disk, `6`–`9` for gpu0–3, `0` for gpu4–7) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The CPU widget shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
+
+Hide is purely a viewing operation — it never modifies your saved layout. The Custom preset's shape is only changed by the two paths above.
 
 ---
 

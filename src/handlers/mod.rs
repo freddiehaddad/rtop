@@ -175,6 +175,7 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             process: ctx.process,
             network: ctx.network,
             runtime: ctx.runtime,
+            filter: ctx.filter,
             config: ctx.config,
             theme: ctx.theme,
             dirty: Dirty::ALL_WIDGETS,

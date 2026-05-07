@@ -117,6 +117,7 @@ fn render_dirty_frame(
         process: &state.process,
         network: &state.network,
         runtime: &state.runtime,
+        filter: &state.filter,
         config,
         theme,
         dirty: state.render.dirty,
@@ -173,6 +174,10 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) rounded: bool,
     pub(crate) update_ms: u64,
     pub(crate) is_filtering: bool,
+    /// `true` when the runtime view filter has at least one widget
+    /// in it. Threaded into the CPU widget settings so the bottom
+    /// preset hint can render a `*` suffix on the preset name.
+    pub(crate) filter_active: bool,
     pub(crate) core_count: usize,
     pub(crate) total_mem: u64,
     pub(crate) detailed_pid: u32,
@@ -192,6 +197,7 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) process: &'a ProcessViewState,
     pub(crate) network: &'a NetworkViewState,
     pub(crate) runtime: &'a RuntimeState,
+    pub(crate) filter: &'a crate::app::WidgetFilter,
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
     /// Which widgets to render this frame.
@@ -227,6 +233,7 @@ impl<'a> RenderInputs<'a> {
             rounded: self.runtime.rounded,
             update_ms: self.runtime.update_ms,
             is_filtering: self.is_filtering,
+            filter_active: !self.filter.hidden.is_empty(),
             core_count: self.live.core_count,
             total_mem: self.live.total_mem,
             detailed_pid: self.process.detailed_pid,
@@ -267,7 +274,8 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
         && let Some(cpu) = params.cpu
     {
         let area = ui::WidgetArea::from_dim(cpu_dim, rounded);
-        let cpu_settings = ui::cpu_widget::build_settings(config, &cpu.info, update_ms);
+        let cpu_settings =
+            ui::cpu_widget::build_settings(config, &cpu.info, update_ms, params.filter_active);
         output.push_str(&ui::cpu_widget::draw(
             &cpu.info,
             &area,

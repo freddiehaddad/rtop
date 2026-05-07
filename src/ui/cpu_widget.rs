@@ -32,6 +32,11 @@ pub struct CpuWidgetSettings<'a> {
     /// "custom"). Rendered in the bottom-border preset hint as
     /// `← P NAME p →`.
     pub preset_name: &'a str,
+    /// `true` when the runtime view filter has at least one widget
+    /// in it. Renders as a `*` suffix on `preset_name` in the
+    /// bottom-border preset hint so the user has a persistent
+    /// signal that the on-screen layout is filtered.
+    pub filter_active: bool,
     pub invert_lower: bool,
     pub show_cpu_freq: bool,
     pub show_uptime: bool,
@@ -52,6 +57,7 @@ pub(crate) fn build_settings<'a>(
     config: &'a crate::config::Config,
     cpu_info: &'a CpuInfo,
     update_ms: u64,
+    filter_active: bool,
 ) -> CpuWidgetSettings<'a> {
     CpuWidgetSettings {
         graph_symbol: GraphMode::from_config(config.graph_symbol_cpu, config.graph_symbol),
@@ -64,6 +70,7 @@ pub(crate) fn build_settings<'a>(
         auto_scale: config.cpu_auto_scale,
         update_ms,
         preset_name: config.preset.active().name(),
+        filter_active,
         invert_lower: config.cpu_invert_lower,
         show_cpu_freq: config.show_cpu_freq,
         show_uptime: config.show_uptime,
@@ -625,6 +632,7 @@ pub fn draw(
         y + height,
         settings.update_ms,
         settings.preset_name,
+        settings.filter_active,
         theme,
     ));
 
@@ -898,6 +906,7 @@ fn draw_bottom_hints(
     bottom_y: usize,
     update_ms: u64,
     preset_name: &str,
+    filter_active: bool,
     theme: &Theme,
 ) -> String {
     let border_color = theme.color(tc::CPU_WIDGET);
@@ -905,12 +914,19 @@ fn draw_bottom_hints(
     let hi = theme.color(tc::HI_FG);
 
     let menu_inset = box_drawing::keybind_inset("menu", border_color, hi, title_color, true);
+    // `*` suffix on the preset name signals an active runtime view
+    // filter — at least one widget is hidden via the toggle keys.
+    // Cleared by `Shift+R` (and on Ctrl+R config reload). The
+    // suffix is one byte so it has no visible-width impact on the
+    // surrounding layout maths.
+    let suffix = if filter_active { "*" } else { "" };
     let preset_text = format!(
-        "{} {}P{} {} {}p{} {}",
+        "{} {}P{} {}{} {}p{} {}",
         symbols::LEFT_ARROW,
         hi,
         title_color,
         preset_name,
+        suffix,
         hi,
         title_color,
         symbols::RIGHT_ARROW,
@@ -1117,6 +1133,7 @@ mod tests {
             auto_scale: false,
             update_ms: 2000,
             preset_name: "all",
+            filter_active: false,
             invert_lower: true,
             show_cpu_freq: true,
             show_uptime: true,

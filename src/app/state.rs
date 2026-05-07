@@ -36,7 +36,14 @@ impl AppState {
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
-            filter: WidgetFilter::default(),
+            // Restore the persisted view filter at startup. Toggle
+            // gestures during the previous session are picked up
+            // here; `Shift+R` cleared the filter and saved an
+            // empty set, so a "reset and restart clean" cycle
+            // works without manual config editing.
+            filter: WidgetFilter {
+                hidden: config.hidden_widgets.clone(),
+            },
         }
     }
 

@@ -134,6 +134,19 @@ pub struct Config {
     #[serde(rename = "layout")]
     pub custom: CustomLayout,
 
+    /// Persisted runtime view filter. The user toggles widgets in
+    /// or out of this set with `1`-`9` / `0` / `Shift+R`; the set
+    /// survives restart so a hidden-on-Monday widget stays hidden
+    /// on Tuesday. The cursor and active layout are unaffected by
+    /// filter membership — see `AppState::filter` for the live
+    /// runtime mirror and the engine-side composition.
+    ///
+    /// Serialised as a top-level `hidden_widgets` array of widget
+    /// names. Empty array (the default) writes the field on save
+    /// to make the persistence behaviour discoverable.
+    #[serde(default)]
+    pub hidden_widgets: crate::domain::widget_set::WidgetSet,
+
     // -- strings --
     pub color_theme: String,
     pub graph_symbol: GraphSymbol,
@@ -226,6 +239,12 @@ impl Default for Config {
             // cursor is on `all` builtin by default so this slot is
             // dormant until the user edits something.
             custom: CustomLayout::default(),
+
+            // First-launch view filter is empty — every widget the
+            // active preset exposes is visible. The field is
+            // persisted so toggle gestures (1-9, 0, Shift+R)
+            // survive restart.
+            hidden_widgets: crate::domain::widget_set::WidgetSet::new(),
 
             // strings
             color_theme: "default".to_string(),

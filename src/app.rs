@@ -139,7 +139,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             {
                 tracing::info!(subsystem = %crate::log::Subsystem::Startup, "exiting");
                 manager.shutdown();
-                lifecycle::save_config_on_exit(config);
+                lifecycle::save_config_on_exit(config, &state);
                 return;
             }
         }
@@ -147,13 +147,28 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         // Render dirty widgets.
         if state.overlay.render_ui() && !state.render.dirty.is_empty() {
             dirty_exec::execute_dirty_work(&mut state, config, size);
-            dirty_exec::write_dirty_frame(&mut state, config, terminal, theme);
+            // If the runtime view filter has hidden every widget in
+            // the active layout, the engine produces an empty
+            // Layout. Substitute a centered help overlay so the
+            // user sees something actionable instead of a blank
+            // screen — Shift+R restores everything, and the per-
+            // widget toggle keys for the active preset are listed.
+            let layout_empty = state
+                .render
+                .cached_layout
+                .as_ref()
+                .is_some_and(|l| l.is_empty());
+            if layout_empty {
+                render_gates::render_if_dirty_all_hidden(&mut state, config, terminal, theme, size);
+            } else {
+                dirty_exec::write_dirty_frame(&mut state, config, terminal, theme);
+            }
         }
     }
 
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "exiting");
     manager.shutdown();
-    lifecycle::save_config_on_exit(config);
+    lifecycle::save_config_on_exit(config, &state);
 }
 
 fn terminal_size(terminal: &term::Terminal) -> TerminalSize {

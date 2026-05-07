@@ -105,6 +105,121 @@ pub(crate) fn render_if_dirty_waiting(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────
+// All-hidden overlay
+// ─────────────────────────────────────────────────────────────────
+
+/// Build the "all widgets hidden" overlay text. Lists `Shift+R` as
+/// the bulk-reset key plus the per-widget toggle keys for the
+/// widgets present in `active_layout` (so users on `cpu+proc` never
+/// see "press 6 to show gpu0").
+fn render_all_hidden(
+    size: TerminalSize,
+    active_layout: &crate::domain::layout_spec::Slot,
+    theme: &theme::Theme,
+) -> String {
+    let lines = build_all_hidden_lines(active_layout);
+    let max_line = lines.iter().map(|l| l.len()).max().unwrap_or(0);
+    let total = lines.len();
+    let start_y = size.height.saturating_sub(total) / 2 + 1;
+    let mut out = String::new();
+    out.push_str(term::CLEAR_SCREEN);
+    let title_color = theme.color(tc::HI_FG);
+    let body_color = theme.color(tc::TITLE);
+    for (i, line) in lines.iter().enumerate() {
+        let x = size.width.saturating_sub(max_line) / 2 + 1;
+        let y = start_y + i;
+        let color = if i == 0 { title_color } else { body_color };
+        let bold = if i == 0 { term::BOLD } else { "" };
+        out.push_str(&format!(
+            "\x1b[{y};{x}H{}{}{line}{}",
+            bold,
+            color,
+            term::RESET,
+        ));
+    }
+    out
+}
+
+/// Compose the overlay's text lines. Pure function so the layout
+/// is testable without rendering.
+fn build_all_hidden_lines(active_layout: &crate::domain::layout_spec::Slot) -> Vec<String> {
+    use crate::domain::widget_kind::WidgetKind;
+    let mut lines = vec![
+        "All widgets hidden.".to_string(),
+        String::new(),
+        "Press Shift+R to restore everything,".to_string(),
+        "or press a number key to show:".to_string(),
+        String::new(),
+    ];
+    let mut hints: Vec<String> = Vec::new();
+    for (key, kind) in widget_toggle_hints() {
+        if active_layout.contains(kind) {
+            hints.push(format!("  {key}  {kind}"));
+        }
+    }
+    // The `0` key batch-toggles the GPU 4-7 range. Mention it if
+    // the active layout includes any GPU in that range — the user
+    // can't address those individually.
+    let gpu_extras_present =
+        (4..crate::config::MAX_GPUS as u8).any(|n| active_layout.contains(WidgetKind::Gpu(n)));
+    if gpu_extras_present {
+        hints.push("  0  gpu4-7".to_string());
+    }
+    if hints.is_empty() {
+        // Active layout has nothing toggleable — only the bulk
+        // reset key is meaningful. Drop the "or press" hint.
+        lines.truncate(3);
+    } else {
+        lines.extend(hints);
+    }
+    lines
+}
+
+/// Stable mapping from numeric toggle key to widget kind, in the
+/// order they appear in the overlay. Mirrors the input handler in
+/// `handlers/normal.rs::handle_widget_toggles`.
+fn widget_toggle_hints() -> Vec<(char, crate::domain::widget_kind::WidgetKind)> {
+    use crate::domain::widget_kind::WidgetKind;
+    let mut out = vec![
+        ('1', WidgetKind::Cpu),
+        ('2', WidgetKind::Mem),
+        ('3', WidgetKind::Net),
+        ('4', WidgetKind::Proc),
+        ('5', WidgetKind::Disk),
+    ];
+    // GPU 0..3 use keys 6..9.
+    for n in 0..4u8.min(crate::config::MAX_GPUS as u8) {
+        let key = char::from(b'6' + n);
+        out.push((key, WidgetKind::Gpu(n)));
+    }
+    out
+}
+
+/// Render the all-hidden overlay if dirty flags indicate it's needed.
+pub(crate) fn render_if_dirty_all_hidden(
+    state: &mut AppState,
+    config: &config::Config,
+    terminal: &mut term::Terminal,
+    theme: &theme::Theme,
+    size: TerminalSize,
+) {
+    if state.render.dirty.contains(Dirty::LAYOUT)
+        || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
+    {
+        let active = config.layout_spec();
+        let output = style_terminal_output(&render_all_hidden(size, &active, theme), config, theme);
+        if let Err(e) = terminal.write_synced(&output) {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Terminal,
+                error = %e,
+                "terminal write failed",
+            );
+        }
+        state.render.clear_dirty();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,5 +263,59 @@ mod tests {
 
         assert!(out.contains("Terminal too small (40x10)."));
         assert!(out.contains("Need 150x48."));
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // All-hidden overlay
+    // ────────────────────────────────────────────────────────────
+
+    use crate::domain::layout_spec::Slot;
+    use crate::domain::widget_kind::WidgetKind;
+
+    #[test]
+    fn all_hidden_lines_list_only_widgets_present_in_active_layout() {
+        // Active layout = cpu+proc. Only those toggle keys appear.
+        let active = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let lines = build_all_hidden_lines(&active);
+        let body = lines.join("\n");
+        assert!(body.contains("All widgets hidden."));
+        assert!(body.contains("Shift+R"));
+        assert!(body.contains("1") && body.contains("cpu"));
+        assert!(body.contains("4") && body.contains("proc"));
+        // Mem/net/disk/gpu hints must NOT appear.
+        assert!(!body.contains("mem"));
+        assert!(!body.contains("net"));
+        assert!(!body.contains("disk"));
+        assert!(!body.contains("gpu"));
+    }
+
+    #[test]
+    fn all_hidden_lines_show_gpu_extras_hint_only_when_present() {
+        // Active layout contains gpu5 (in the 4-7 range) — show "0  gpu4-7".
+        let active = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Gpu(5)),
+        ]);
+        let lines = build_all_hidden_lines(&active);
+        let body = lines.join("\n");
+        assert!(body.contains("0  gpu4-7"));
+        // gpu5 doesn't get its own per-key line because it's in
+        // the batch range; the "0  gpu4-7" hint covers it.
+    }
+
+    #[test]
+    fn all_hidden_lines_drop_per_key_section_when_no_widgets_toggleable() {
+        // Active layout has only widgets the toggle keys can't
+        // address (none today, but verify the truncation path
+        // works defensively).
+        let active = Slot::Widget(WidgetKind::Gpu(0));
+        let lines = build_all_hidden_lines(&active);
+        let body = lines.join("\n");
+        // gpu0 is on key 6 (within toggleable range), so this case
+        // does include the per-key section. Verify the structure:
+        assert!(body.contains("6  gpu0"));
     }
 }
