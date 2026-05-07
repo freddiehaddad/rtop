@@ -65,6 +65,29 @@ impl WidgetKind {
         }
     }
 
+    /// Numeric keybind that toggles this widget's visibility from
+    /// the normal view. `1`-`5` for the base widgets, `6`-`9` for
+    /// the first four GPU slots; `Gpu(4..MAX_GPUS)` returns `None`
+    /// because they are addressed only via the `0` batch toggle
+    /// (and via the options menu's widget filter). Mirrors
+    /// [`crate::handlers::normal::toggle_widget_main_action`] /
+    /// [`crate::handlers::normal::toggle_widget_gpu_low_action`].
+    pub const fn toggle_key(self) -> Option<char> {
+        match self {
+            Self::Cpu => Some('1'),
+            Self::Mem => Some('2'),
+            Self::Net => Some('3'),
+            Self::Proc => Some('4'),
+            Self::Disk => Some('5'),
+            Self::Gpu(n) if n < 4 => {
+                // 6-9 for Gpu(0..4). `b'6' + n` is unambiguously
+                // ASCII for n < 4.
+                Some((b'6' + n) as char)
+            }
+            Self::Gpu(_) => None,
+        }
+    }
+
     /// Intrinsic sizing classification — see [`WidgetSizing`].
     ///
     /// This is the **only** place the layout engine asks a widget

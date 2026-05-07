@@ -435,8 +435,11 @@ pub struct Config {
     pub view: ViewConfig,
 
     /// Cursor over the active preset (one of the builtins, or the
-    /// custom slot). Persisted by canonical name.
-    pub preset: crate::domain::preset::PresetField,
+    /// custom slot). Persisted by canonical name. Private so all
+    /// writes go through [`Self::cycle_preset`] /
+    /// [`Self::set_active_preset`], which keep the layout cache in
+    /// sync. Read access is via [`Self::active_preset`].
+    preset: crate::domain::preset::PresetField,
 
     /// Persisted layout for the `Custom` preset slot. Stored as a
     /// flat top-level `custom_layout` TOML key carrying the DSL
@@ -464,6 +467,16 @@ pub struct Config {
     /// to make the persistence behaviour discoverable.
     #[serde(default)]
     pub hidden_widgets: crate::domain::widget_set::WidgetSet,
+
+    /// Cached active layout. Materialised by [`Self::layout_spec`]
+    /// from `preset` + `custom_layout`. Invalidated by every
+    /// mutating method that touches those two fields
+    /// ([`Self::cycle_preset`], [`Self::set_active_preset`],
+    /// [`Self::set_custom_layout`], [`Self::apply_defaults`],
+    /// [`Self::load`]). Per-frame `layout_spec()` borrows from this
+    /// cache so the engine never re-clones the `Slot` tree.
+    #[serde(skip)]
+    layout_cache: std::cell::OnceCell<Slot>,
 
     /// Path to the loaded config file (for `reload()`). Not
     /// persisted — populated by `load()` at startup.
@@ -505,6 +518,8 @@ impl Default for Config {
             // persisted so toggle gestures (1-9, 0, Shift+R)
             // survive restart.
             hidden_widgets: crate::domain::widget_set::WidgetSet::new(),
+
+            layout_cache: std::cell::OnceCell::new(),
 
             conf_file: None,
         }
@@ -706,12 +721,33 @@ impl Config {
     ///
     /// Builtins return a static tree from
     /// [`crate::domain::preset::BuiltinPreset::layout_spec`]; the
-    /// custom preset returns a clone of its persisted tree.
-    pub fn layout_spec(&self) -> Slot {
-        match self.preset.active() {
-            crate::domain::preset::ActivePreset::Builtin(b) => b.layout_spec(),
-            crate::domain::preset::ActivePreset::Custom => self.custom_layout.clone(),
-        }
+    /// custom preset returns a clone of its persisted tree. Cached
+    /// after first call; mutators ([`Self::cycle_preset`],
+    /// [`Self::set_active_preset`], [`Self::set_custom_layout`])
+    /// invalidate via [`Self::invalidate_layout_cache`].
+    pub fn layout_spec(&self) -> &Slot {
+        self.layout_cache
+            .get_or_init(|| match self.preset.active() {
+                crate::domain::preset::ActivePreset::Builtin(b) => b.layout_spec(),
+                crate::domain::preset::ActivePreset::Custom => self.custom_layout.clone(),
+            })
+    }
+
+    /// Drop the cached active layout. Called automatically by every
+    /// mutator that touches `preset` or `custom_layout` ([`Self::cycle_preset`],
+    /// [`Self::set_active_preset`], [`Self::set_custom_layout`]),
+    /// so callers normally don't need to invoke this directly.
+    /// Public so future code paths that mutate cache inputs in
+    /// non-method form (e.g. test helpers, custom deserialise hooks)
+    /// can keep the cache honest.
+    pub fn invalidate_layout_cache(&mut self) {
+        self.layout_cache = std::cell::OnceCell::new();
+    }
+
+    /// Read the active preset cursor. Replaces the previous direct
+    /// `config.active_preset()` access now that `preset` is private.
+    pub fn active_preset(&self) -> crate::domain::preset::ActivePreset {
+        self.preset.active()
     }
 
     /// Move the preset cursor one position in the cycle. `forward`
@@ -725,6 +761,17 @@ impl Config {
             self.preset.active().prev()
         };
         self.preset.set(next);
+        self.invalidate_layout_cache();
+    }
+
+    /// Snap the preset cursor to a specific [`crate::domain::preset::ActivePreset`].
+    /// Tests use this to land on a known preset; production code
+    /// only ever cycles via [`Self::cycle_preset`], so this method
+    /// is `#[cfg(test)]`-gated to keep the public surface small.
+    #[cfg(test)]
+    pub fn set_active_preset(&mut self, preset: crate::domain::preset::ActivePreset) {
+        self.preset.set(preset);
+        self.invalidate_layout_cache();
     }
 
     /// Replace the custom preset's [`Slot`] tree with one parsed
@@ -739,6 +786,7 @@ impl Config {
         value: &str,
     ) -> Result<(), crate::domain::layout_spec::SlotParseError> {
         self.custom_layout = value.parse()?;
+        self.invalidate_layout_cache();
         Ok(())
     }
 }
@@ -1436,11 +1484,11 @@ mod tests {
         // user's first `p` press visibly cycles to a different
         // preset, and the cursor name matches the visible layout.
         assert_eq!(
-            config.preset.active(),
+            config.active_preset(),
             crate::domain::preset::ActivePreset::Builtin(crate::domain::preset::BuiltinPreset::All)
         );
         assert_eq!(
-            config.layout_spec(),
+            *config.layout_spec(),
             crate::domain::preset::BuiltinPreset::All.layout_spec(),
         );
     }
@@ -1620,7 +1668,7 @@ hidden_widgets = ["mem", "gpu0"]
     fn preset_default_is_all_builtin() {
         let config = Config::new();
         assert_eq!(
-            config.preset.active(),
+            config.active_preset(),
             crate::domain::preset::ActivePreset::Builtin(crate::domain::preset::BuiltinPreset::All)
         );
     }
@@ -1629,19 +1677,19 @@ hidden_widgets = ["mem", "gpu0"]
     fn cycle_preset_forward_walks_full_cycle_then_wraps() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
+        config.set_active_preset(ActivePreset::Builtin(BuiltinPreset::All));
         for _ in 0..ActivePreset::CYCLE_LEN {
             config.cycle_preset(true);
         }
         // After one full lap forward we are back where we started.
         assert_eq!(
-            config.preset.active(),
+            config.active_preset(),
             ActivePreset::Builtin(BuiltinPreset::All)
         );
         config.cycle_preset(false);
         // One step backward from "all" lands on Custom (the slot
         // immediately before the first builtin in cycle order).
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert_eq!(config.active_preset(), ActivePreset::Custom);
     }
 
     #[test]
@@ -1652,13 +1700,13 @@ hidden_widgets = ["mem", "gpu0"]
             Slot::Widget(WidgetKind::Mem),
             Slot::Widget(WidgetKind::Proc),
         ]);
-        config.preset.set(ActivePreset::Custom);
+        config.set_active_preset(ActivePreset::Custom);
         // On custom, live = custom.
-        assert_eq!(config.layout_spec(), config.custom_layout);
+        assert_eq!(*config.layout_spec(), config.custom_layout);
 
         // Cycle to builtin "all". Live now reads from the builtin.
-        config.preset.set(ActivePreset::Builtin(BuiltinPreset::All));
-        assert_eq!(config.layout_spec(), BuiltinPreset::All.layout_spec());
+        config.set_active_preset(ActivePreset::Builtin(BuiltinPreset::All));
+        assert_eq!(*config.layout_spec(), BuiltinPreset::All.layout_spec());
         assert!(config.layout_spec().contains(WidgetKind::Cpu));
         assert!(config.layout_spec().contains(WidgetKind::Disk));
         // Custom storage is untouched by cycling.
@@ -1680,14 +1728,14 @@ hidden_widgets = ["mem", "gpu0"]
             Slot::Widget(WidgetKind::Proc),
             Slot::Widget(WidgetKind::Gpu(0)),
         ]);
-        config.preset.set(ActivePreset::Custom);
+        config.set_active_preset(ActivePreset::Custom);
 
         // Visit a builtin and come back.
         config.cycle_preset(true);
         config.cycle_preset(false);
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert_eq!(config.active_preset(), ActivePreset::Custom);
         assert_eq!(
-            config.layout_spec(),
+            *config.layout_spec(),
             Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Proc),
@@ -1704,7 +1752,7 @@ hidden_widgets = ["mem", "gpu0"]
         let warnings = config.load(&path);
 
         assert_eq!(
-            config.preset.active(),
+            config.active_preset(),
             crate::domain::preset::ActivePreset::Custom
         );
         assert!(
@@ -1723,7 +1771,7 @@ hidden_widgets = ["mem", "gpu0"]
         // custom.root after the round-trip — first-launch default
         // is the `all` builtin, which would otherwise mask
         // custom.root entirely.
-        config.preset.set(ActivePreset::Custom);
+        config.set_active_preset(ActivePreset::Custom);
         config.custom_layout = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
             Slot::Widget(WidgetKind::Mem),
@@ -1733,9 +1781,9 @@ hidden_widgets = ["mem", "gpu0"]
 
         let mut loaded = Config::new();
         loaded.load(&tmp);
-        assert_eq!(loaded.preset.active(), ActivePreset::Custom);
+        assert_eq!(loaded.active_preset(), ActivePreset::Custom);
         assert_eq!(
-            loaded.layout_spec(),
+            *loaded.layout_spec(),
             Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Cpu),
                 Slot::Widget(WidgetKind::Mem),
@@ -1901,13 +1949,13 @@ hidden_widgets = ["mem", "gpu0"]
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         let cursor = ActivePreset::Builtin(BuiltinPreset::All);
-        config.preset.set(cursor);
-        let active_before = config.layout_spec();
+        config.set_active_preset(cursor);
+        let active_before = config.layout_spec().clone();
         config.set_custom_layout("vstack(cpu, mem)").unwrap();
         // Cursor unchanged.
-        assert_eq!(config.preset.active(), cursor);
+        assert_eq!(config.active_preset(), cursor);
         // Active layout unchanged (still the builtin).
-        assert_eq!(config.layout_spec(), active_before);
+        assert_eq!(*config.layout_spec(), active_before);
         // But custom.root captured the edit.
         assert_eq!(
             config.custom_layout,
@@ -1922,11 +1970,11 @@ hidden_widgets = ["mem", "gpu0"]
     fn set_custom_layout_on_custom_writes_root_and_changes_active_layout() {
         use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        config.preset.set(ActivePreset::Custom);
+        config.set_active_preset(ActivePreset::Custom);
         config.set_custom_layout("cpu").unwrap();
-        assert_eq!(config.preset.active(), ActivePreset::Custom);
+        assert_eq!(config.active_preset(), ActivePreset::Custom);
         assert_eq!(config.custom_layout, Slot::Widget(WidgetKind::Cpu));
-        assert_eq!(config.layout_spec(), Slot::Widget(WidgetKind::Cpu));
+        assert_eq!(*config.layout_spec(), Slot::Widget(WidgetKind::Cpu));
     }
 
     #[test]
@@ -1937,12 +1985,12 @@ hidden_widgets = ["mem", "gpu0"]
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
         let cursor = ActivePreset::Builtin(BuiltinPreset::CpuProc);
-        config.preset.set(cursor);
+        config.set_active_preset(cursor);
         StringKey::CustomLayout
             .set(&mut config, "vstack(cpu, mem, disk)")
             .unwrap();
         // Cursor unchanged.
-        assert_eq!(config.preset.active(), cursor);
+        assert_eq!(config.active_preset(), cursor);
         // custom.root captured the edit.
         assert_eq!(
             config.custom_layout,

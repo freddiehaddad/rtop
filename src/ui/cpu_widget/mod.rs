@@ -1,6 +1,6 @@
 use crate::collect::CollectStatus;
 use crate::domain::config_enums::{CpuGraphSource, TempScale};
-use crate::domain::cpu::{CpuInfo, get_cpu_series};
+use crate::domain::cpu::CpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::box_drawing::symbols;
 use crate::draw::buffer::AnsiBuffer;
@@ -97,16 +97,8 @@ pub fn draw(
     let cpu_lower_gradient = theme.gradient(tc::GRAD_CPU_LOWER);
     let graph_text_color = theme.color(tc::GRAPH_TEXT);
     let graph_sym = settings.graph_symbol;
-    let upper_key = match settings.upper_source {
-        CpuGraphSource::User => "user",
-        CpuGraphSource::System => "system",
-        CpuGraphSource::Auto | CpuGraphSource::Total => "total",
-    };
-    let lower_key = match settings.lower_source {
-        CpuGraphSource::User => "user",
-        CpuGraphSource::System => "system",
-        CpuGraphSource::Auto | CpuGraphSource::Total => "total",
-    };
+    let upper_label = settings.upper_source.display_label();
+    let lower_label = settings.lower_source.display_label();
 
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
@@ -230,10 +222,8 @@ pub fn draw(
     }
 
     // Upper graph (normal orientation)
-    if upper_h > 0
-        && graph_width > 0
-        && let Some(data) = get_cpu_series(&cpu.cpu_percent, upper_key)
-    {
+    if upper_h > 0 && graph_width > 0 {
+        let data = cpu.cpu_percent.series(settings.upper_source);
         let max = graph_max(data, graph_width, settings.auto_scale);
         let mut graph = Graph::new(graph_width, upper_h, graph_sym, false, max, 0);
         let rows = graph.render_rows(data, cpu_upper_gradient);
@@ -244,10 +234,13 @@ pub fn draw(
 
     // Upper graph overlay label
     if upper_h > 0 && graph_width > 0 {
-        let upper_pct = get_cpu_series(&cpu.cpu_percent, upper_key)
-            .and_then(|d| d.back().copied())
+        let upper_pct = cpu
+            .cpu_percent
+            .series(settings.upper_source)
+            .back()
+            .copied()
             .unwrap_or(0);
-        let label = format!("{} {}%", upper_key, upper_pct);
+        let label = format!("{} {}%", upper_label, upper_pct);
         let label_vis = tools::ulen(&label, false);
         let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let upper_color = if !cpu_upper_gradient.is_empty() {
@@ -259,10 +252,8 @@ pub fn draw(
     }
 
     // Lower graph (inverted orientation)
-    if lower_h > 0
-        && graph_width > 0
-        && let Some(data) = get_cpu_series(&cpu.cpu_percent, lower_key)
-    {
+    if lower_h > 0 && graph_width > 0 {
+        let data = cpu.cpu_percent.series(settings.lower_source);
         let lower_start_y = y + 2 + upper_h;
         let max = graph_max(data, graph_width, settings.auto_scale);
         let mut graph = Graph::new(
@@ -280,7 +271,7 @@ pub fn draw(
 
         // Lower graph overlay label
         let lower_pct = data.back().copied().unwrap_or(0);
-        let label = format!("{} {}%", lower_key, lower_pct);
+        let label = format!("{} {}%", lower_label, lower_pct);
         let label_vis = tools::ulen(&label, false);
         let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let label_y = lower_start_y + lower_h - 1;
@@ -435,7 +426,7 @@ impl super::Widget for CpuWidget {
             single_graph: params.config.cpu.cpu_single_graph,
             auto_scale: params.config.cpu.cpu_auto_scale,
             update_ms: params.update_ms,
-            preset_name: params.config.preset.active().name(),
+            preset_name: params.config.active_preset().name(),
             filter_active: params.filter_active,
             invert_lower: params.config.cpu.cpu_invert_lower,
             show_cpu_freq: params.config.cpu.show_cpu_freq,

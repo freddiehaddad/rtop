@@ -71,7 +71,7 @@ fn calculate_layout(
     draw::layout::calc_sizes(&draw::layout::LayoutConfig {
         term_width: size.width,
         term_height: size.height,
-        root: config.layout_spec(),
+        root: config.layout_spec().clone(),
         hints: state.live.layout_hints(config, &state.view),
         hidden: state.compose_hidden(config),
     })

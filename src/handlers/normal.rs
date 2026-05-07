@@ -106,7 +106,7 @@ fn cycle_preset(ctx: &mut InputContext, forward: bool) -> HandleResult {
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "preset_cycle",
-        preset = ctx.config.preset.active().name(),
+        preset = ctx.config.active_preset().name(),
         "preset action",
     );
     ctx.render.dirty |= Dirty::FULL;

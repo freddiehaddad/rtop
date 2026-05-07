@@ -262,7 +262,8 @@ impl LiveData {
         draw::layout::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
-            disk_count: filtered_disk_count(self.disk.as_deref(), config),
+            disk_count: crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter)
+                .count_matching(self.disk.as_ref().map_or(&[], |d| &d.info.disks)),
             has_swap: config.mem.show_swap
                 && self
                     .mem
@@ -280,25 +281,8 @@ impl LiveData {
     }
 }
 
-/// Count the disks that pass the user's `disks_filter`.
-///
-/// Used by both layout sizing (`calculate_layout` and `LayoutHints`) and
-/// dirty-flag change detection so the disk widget height tracks the
-/// post-filter row count, not the raw drive count. Returns 0 when no
-/// disk snapshot is available.
-pub(crate) fn filtered_disk_count(
-    disk: Option<&runner::DiskSnapshot>,
-    config: &config::Config,
-) -> usize {
-    let filter = crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter);
-    disk.map_or(0, |d| {
-        d.info
-            .disks
-            .iter()
-            .filter(|info| filter.matches(&info.name))
-            .count()
-    })
-}
+// `filtered_disk_count` was inlined into the only remaining caller
+// (`LiveData::layout_hints`) — see the `disk_count:` field above.
 
 pub(crate) struct OverlayState {
     pub(crate) menu_state: MenuState,

@@ -1,4 +1,5 @@
 use crate::term;
+use std::fmt::Write;
 
 /// A buffer for building ANSI terminal output with fluent positioning and color API.
 ///
@@ -18,7 +19,12 @@ impl AnsiBuffer {
 
     /// Move cursor to column x, row y (1-based).
     pub fn mv(&mut self, x: usize, y: usize) -> &mut Self {
-        self.buf.push_str(&format!("\x1b[{y};{x}H"));
+        // Writing into a `String` is infallible by construction —
+        // `String`'s `fmt::Write` impl never returns `Err`. We
+        // assert this rather than `unwrap_or_default()` so a future
+        // change that swaps the writer for a fallible one fails
+        // loudly.
+        write!(self.buf, "\x1b[{y};{x}H").expect("writing into a String is infallible");
         self
     }
 

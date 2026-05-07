@@ -107,7 +107,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
         let min_size = crate::draw::layout::min_terminal_size(&crate::draw::layout::LayoutConfig {
             term_width: size.width,
             term_height: size.height,
-            root: config.layout_spec(),
+            root: config.layout_spec().clone(),
             hints: state.live.layout_hints(config, &state.view),
             hidden: state.compose_hidden(config),
         });

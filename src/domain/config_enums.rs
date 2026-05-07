@@ -189,6 +189,18 @@ impl CpuGraphSource {
             CpuGraphSource::System => "system",
         }
     }
+
+    /// User-facing graph-overlay label. `Auto` resolves to `"total"`
+    /// (the underlying data series does too — see
+    /// [`crate::domain::cpu::CpuPercent::series`]) so the on-screen
+    /// label always names the actual series being plotted.
+    pub const fn display_label(self) -> &'static str {
+        match self {
+            CpuGraphSource::User => "user",
+            CpuGraphSource::System => "system",
+            CpuGraphSource::Auto | CpuGraphSource::Total => "total",
+        }
+    }
 }
 
 impl fmt::Display for CpuGraphSource {

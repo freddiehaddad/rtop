@@ -1,5 +1,7 @@
 use std::collections::VecDeque;
 
+use crate::domain::config_enums::CpuGraphSource;
+
 /// Aggregate CPU usage histories by category.
 #[derive(Debug, Clone, Default)]
 pub struct CpuPercent {
@@ -9,14 +11,18 @@ pub struct CpuPercent {
     pub idle: VecDeque<i64>,
 }
 
-/// Look up a `CpuPercent` field by name.
-pub fn get_cpu_series<'a>(cpu: &'a CpuPercent, key: &str) -> Option<&'a VecDeque<i64>> {
-    match key {
-        "total" => Some(&cpu.total),
-        "user" => Some(&cpu.user),
-        "system" => Some(&cpu.system),
-        "idle" => Some(&cpu.idle),
-        _ => Some(&cpu.total),
+impl CpuPercent {
+    /// Look up the per-source history for a graph row. `Auto` and
+    /// `Total` both map to the aggregate `total` series; `User` and
+    /// `System` map to their respective fields. `Idle` is intentionally
+    /// not exposed via [`CpuGraphSource`] (the upper/lower-graph
+    /// option-menu choices are User/System/Total/Auto only).
+    pub fn series(&self, source: CpuGraphSource) -> &VecDeque<i64> {
+        match source {
+            CpuGraphSource::User => &self.user,
+            CpuGraphSource::System => &self.system,
+            CpuGraphSource::Auto | CpuGraphSource::Total => &self.total,
+        }
     }
 }
 
@@ -76,19 +82,19 @@ mod tests {
     }
 
     #[test]
-    fn get_cpu_series_returns_correct_fields() {
+    fn cpu_percent_series_returns_correct_field() {
+        use crate::domain::config_enums::CpuGraphSource;
         let mut pct = CpuPercent::default();
         pct.total.push_back(42);
         pct.user.push_back(10);
         pct.system.push_back(20);
         pct.idle.push_back(30);
 
-        assert_eq!(get_cpu_series(&pct, "total").unwrap().back(), Some(&42));
-        assert_eq!(get_cpu_series(&pct, "user").unwrap().back(), Some(&10));
-        assert_eq!(get_cpu_series(&pct, "system").unwrap().back(), Some(&20));
-        assert_eq!(get_cpu_series(&pct, "idle").unwrap().back(), Some(&30));
-        // Unknown key falls back to total
-        assert_eq!(get_cpu_series(&pct, "unknown").unwrap().back(), Some(&42));
+        assert_eq!(pct.series(CpuGraphSource::Total).back(), Some(&42));
+        assert_eq!(pct.series(CpuGraphSource::User).back(), Some(&10));
+        assert_eq!(pct.series(CpuGraphSource::System).back(), Some(&20));
+        // Auto resolves to total — same series as Total.
+        assert_eq!(pct.series(CpuGraphSource::Auto).back(), Some(&42));
     }
 
     #[test]

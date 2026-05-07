@@ -176,22 +176,28 @@ fn build_all_hidden_lines(active_layout: &crate::domain::layout_spec::Slot) -> V
     lines
 }
 
-/// Stable mapping from numeric toggle key to widget kind, in the
-/// order they appear in the overlay. Mirrors the input handler in
-/// `handlers/normal.rs::handle_widget_toggles`.
+/// All numeric toggle keybinds in display order. Built from
+/// [`WidgetKind::toggle_key`] so the overlay listing cannot drift
+/// from the actual normal-mode bindings — adding a new individually-
+/// addressable widget requires only updating `toggle_key`.
 fn widget_toggle_hints() -> Vec<(char, crate::domain::widget_kind::WidgetKind)> {
     use crate::domain::widget_kind::WidgetKind;
-    let mut out = vec![
-        ('1', WidgetKind::Cpu),
-        ('2', WidgetKind::Mem),
-        ('3', WidgetKind::Net),
-        ('4', WidgetKind::Proc),
-        ('5', WidgetKind::Disk),
+    let base = [
+        WidgetKind::Cpu,
+        WidgetKind::Mem,
+        WidgetKind::Net,
+        WidgetKind::Proc,
+        WidgetKind::Disk,
     ];
-    // GPU 0..3 use keys 6..9.
-    for n in 0..4u8.min(crate::config::MAX_GPUS as u8) {
-        let key = char::from(b'6' + n);
-        out.push((key, WidgetKind::Gpu(n)));
+    let mut out: Vec<(char, WidgetKind)> = base
+        .into_iter()
+        .filter_map(|k| k.toggle_key().map(|c| (c, k)))
+        .collect();
+    for n in 0..crate::config::MAX_GPUS as u8 {
+        let kind = WidgetKind::Gpu(n);
+        if let Some(c) = kind.toggle_key() {
+            out.push((c, kind));
+        }
     }
     out
 }
@@ -207,7 +213,7 @@ pub(crate) fn render_if_dirty_all_hidden(
     if state.render.dirty.contains(Dirty::LAYOUT)
         || state.render.dirty.intersects(Dirty::ALL_WIDGETS)
     {
-        let active = config.layout_spec();
+        let active = config.layout_spec().clone();
         let output = style_terminal_output(&render_all_hidden(size, &active, theme), config, theme);
         if let Err(e) = terminal.write_synced(&output) {
             tracing::warn!(
