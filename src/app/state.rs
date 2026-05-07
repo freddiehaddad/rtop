@@ -2,8 +2,20 @@
 //!
 //! `AppState` bundles the structs that live for the entire process
 //! lifetime and are mutated by the input handlers and the data-pull
-//! pipeline. Each sub-struct is a focused container; the split is
-//! purely about borrow scopes and ownership clarity, not policy.
+//! pipeline. Each sub-struct is a focused container grouped by
+//! responsibility — collected snapshots ([`LiveData`]),
+//! runtime-toggle view state ([`RuntimeView`]), per-frame render
+//! cache ([`RenderState`]), overlay/menu state ([`OverlayState`]),
+//! process-list view state ([`ProcessViewState`]), the active
+//! network interface ([`NetworkViewState`]), and the user's
+//! widget-visibility filter ([`WidgetFilter`]).
+//!
+//! Note that [`RuntimeView`] holds the **persisted/preferred**
+//! interface name in `net_iface`, while [`NetworkViewState`] holds
+//! the **effective/displayed** interface in `selected_iface` —
+//! these can diverge when the saved interface isn't currently
+//! present (e.g. unplugged Ethernet, disabled Wi-Fi). See
+//! [`NetworkViewState`] for the full policy.
 
 use crate::config;
 use crate::dirty::Dirty;
@@ -15,10 +27,8 @@ use crate::handlers::MenuState;
 use crate::runner;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Instant;
 
 pub(crate) struct AppState {
-    pub(crate) runtime: RuntimeState,
     pub(crate) view: RuntimeView,
     pub(crate) render: RenderState,
     pub(crate) live: LiveData,
@@ -29,9 +39,8 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
-    pub(crate) fn new(config: &config::Config, _now: Instant) -> Self {
+    pub(crate) fn new(config: &config::Config) -> Self {
         Self {
-            runtime: RuntimeState::new(config),
             view: RuntimeView::from_config(&config.view),
             render: RenderState::new(),
             live: LiveData::new(),
@@ -65,20 +74,6 @@ impl AppState {
         }
         hidden.extend_from(&self.filter.hidden);
         hidden
-    }
-}
-
-pub(crate) struct RuntimeState {
-    pub(crate) rounded: bool,
-    pub(crate) update_ms: u64,
-}
-
-impl RuntimeState {
-    fn new(config: &config::Config) -> Self {
-        Self {
-            rounded: config.ui.rounded_corners,
-            update_ms: config.refresh.update_ms as u64,
-        }
     }
 }
 
@@ -558,6 +553,35 @@ impl ProcessViewState {
     }
 }
 
+/// Effective network-interface selection — the interface
+/// currently being **displayed**.
+///
+/// This is **not** always the interface the user has saved as
+/// their preference. Two roles must be distinguished:
+///
+/// * [`RuntimeView::net_iface`] — the **persisted/preferred**
+///   interface name. Initialised from `config.view.net_iface`,
+///   mirrored back on save. Mutated by `cycle_iface_*_action`
+///   handlers when the user explicitly cycles to a new interface.
+/// * [`NetworkViewState::selected_iface`] — the **effective**
+///   interface for this frame. Mutated by
+///   [`Self::reconcile`] when the preferred interface isn't
+///   currently present (cable unplugged, Wi-Fi disabled), and by
+///   the same cycle handlers (which keep both fields in sync).
+///
+/// User-visible policy this implements:
+///
+/// * Saved `Ethernet`, unplug Ethernet → display falls back to
+///   Wi-Fi; `rtop.toml` still says `Ethernet`. Plug Ethernet back
+///   in *next session* → it auto-selects.
+/// * Cycle to Wi-Fi explicitly → both fields update; `rtop.toml`
+///   on quit says `Wi-Fi`.
+///
+/// In-session "fall forward" (preferred iface reappears →
+/// auto-switch back) is **not** implemented — once
+/// `selected_iface` is non-empty and present in the live list,
+/// reconcile leaves it alone. The user's saved preference re-asserts
+/// only at the next process restart.
 pub(crate) struct NetworkViewState {
     pub(crate) selected_iface: String,
 }
@@ -610,12 +634,9 @@ mod tests {
         let mut config = config::Config::new();
         config.ui.rounded_corners = false;
         config.refresh.update_ms = 1_500;
-        let now = Instant::now();
 
-        let state = AppState::new(&config, now);
+        let state = AppState::new(&config);
 
-        assert!(!state.runtime.rounded);
-        assert_eq!(state.runtime.update_ms, 1_500);
         assert!(state.overlay.menu_state == MenuState::None);
         assert_eq!(state.render.dirty, Dirty::FULL);
         assert!(state.render.cached_layout.is_none());
@@ -634,7 +655,7 @@ mod tests {
         config.view.io_mode = true;
         config.view.net_iface = "Ethernet".to_string();
 
-        let state = AppState::new(&config, Instant::now());
+        let state = AppState::new(&config);
 
         assert!(state.view.proc_tree);
         assert_eq!(state.view.proc_filter, "chrome");
@@ -701,7 +722,7 @@ mod tests {
     #[test]
     fn app_state_render_ui_only_for_normal_and_filter() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
 
         state.overlay.menu_state = MenuState::None;
         assert!(state.overlay.render_ui());
@@ -722,7 +743,7 @@ mod tests {
     #[test]
     fn layout_hints_disk_rows_per_unit_covers_all_four_view_modes() {
         let mut config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
 
         // Usage view + show_io_stat on → 2 rows per disk.
         // (`io_mode` lives on `RuntimeView` not `Config` after the
@@ -788,7 +809,7 @@ mod tests {
         use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
 
         // Start in Options (precondition for entering edit mode).
         state.overlay.set_menu_state(MenuState::Main);
@@ -816,7 +837,7 @@ mod tests {
         use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
 
         state.overlay.set_menu_state(MenuState::Main);
         state.overlay.set_menu_state(MenuState::Options);
@@ -837,7 +858,7 @@ mod tests {
         use crate::config::{ConfigKey, StringKey};
         use crate::handlers::options_edit::{EditKind, OptionEditState};
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
 
         state.overlay.set_menu_state(MenuState::Main);
         state.overlay.set_menu_state(MenuState::Options);
@@ -854,7 +875,7 @@ mod tests {
     #[test]
     fn mark_resize_sets_layout_and_all_widgets() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
 
         state.render.mark_resize();

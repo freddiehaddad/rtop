@@ -58,8 +58,8 @@ pub(super) fn open_help_action(ctx: &mut InputContext, _key: &Key) -> HandleResu
 
 fn redraw(ctx: &mut InputContext) -> HandleResult {
     let menu_out = menu::main_menu::draw_with_selection(
-        ctx.tw,
-        ctx.th,
+        ctx.size.width,
+        ctx.size.height,
         ctx.overlay.main_menu_selected,
         ctx.theme,
     );
@@ -74,8 +74,8 @@ fn open_options_from_main(ctx: &mut InputContext) -> HandleResult {
     // values for runtime-toggle keys.
     ctx.view.sync_to_config(&mut ctx.config.view);
     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,
@@ -95,7 +95,12 @@ fn open_options_from_main(ctx: &mut InputContext) -> HandleResult {
 }
 
 fn open_help_from_main(ctx: &mut InputContext) -> HandleResult {
-    let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
+    let menu_out = menu::help_menu::draw(
+        ctx.size.width,
+        ctx.size.height,
+        ctx.theme,
+        ctx.config.ui.rounded_corners,
+    );
     ctx.overlay.menu_return_to = MenuState::Main;
     ctx.overlay.set_menu_state(MenuState::Help);
     tracing::debug!(

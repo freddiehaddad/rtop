@@ -225,10 +225,11 @@ impl Default for MemConfig {
 /// Network widget settings (`net` options-menu tab).
 ///
 /// Runtime-mutable network bits (`net_auto`, `net_sync`,
-/// `net_iface`) live on [`ViewConfig`] / `AppState::runtime` —
-/// they're toggled outside the options menu (`a`, `s`, Tab keys)
-/// and the architecture treats them as session view-state that
-/// mirrors back to the persisted form on save.
+/// `net_iface`) live on [`ViewConfig`] / `AppState::view`
+/// ([`crate::app::RuntimeView`]) — they're toggled outside the
+/// options menu (`a`, `s`, Tab keys) and the architecture treats
+/// them as session view-state that mirrors back to the persisted
+/// form on save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct NetConfig {
@@ -253,10 +254,11 @@ impl Default for NetConfig {
 ///
 /// Runtime-mutable process bits (`proc_tree`, `proc_reversed`,
 /// `proc_per_core`, `proc_sorting`, `proc_filter`) live on
-/// [`ViewConfig`] / `AppState::runtime` — they're toggled outside
-/// the options menu (`e`, `r`, `c`, Left/Right, `f`/`/` keys) and
-/// the architecture treats them as session view-state that
-/// mirrors back to the persisted form on save.
+/// [`ViewConfig`] / `AppState::view` ([`crate::app::RuntimeView`])
+/// — they're toggled outside the options menu (`e`, `r`, `c`,
+/// Left/Right, `f`/`/` keys) and the architecture treats them as
+/// session view-state that mirrors back to the persisted form on
+/// save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ProcConfig {
@@ -289,9 +291,10 @@ pub struct GpuConfig {
 /// Disk widget settings (`disk` options-menu tab).
 ///
 /// Runtime-mutable disk bits (`io_mode`) live on [`ViewConfig`] /
-/// `AppState::runtime` — `i` toggles it outside the options menu
-/// and the architecture treats it as session view-state that
-/// mirrors back to the persisted form on save.
+/// `AppState::view` ([`crate::app::RuntimeView`]) — `i` toggles it
+/// outside the options menu and the architecture treats it as
+/// session view-state that mirrors back to the persisted form on
+/// save.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DiskConfig {

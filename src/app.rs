@@ -23,8 +23,8 @@ mod state;
 
 pub(crate) use dirty_exec::{RenderInputs, RenderParams, render_all};
 pub(crate) use state::{
-    AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState,
-    RuntimeState, RuntimeView, WidgetFilter,
+    AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeView,
+    WidgetFilter,
 };
 
 use crate::config;
@@ -34,7 +34,6 @@ use crate::input;
 use crate::runner;
 use crate::term;
 use crate::theme;
-use std::time::Instant;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TerminalSize {
@@ -61,7 +60,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     let mut manager =
         runner::CollectorManager::start(config.refresh.update_ms as u64, event_tx.clone());
     lifecycle::spawn_input_thread(event_tx);
-    let mut state = AppState::new(config, Instant::now());
+    let mut state = AppState::new(config);
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
 
     while let Ok(first) = event_rx.recv() {
@@ -194,15 +193,13 @@ fn handle_input_key(
         theme,
         manager,
         live: &state.live,
-        runtime: &mut state.runtime,
         view: &mut state.view,
         render: &mut state.render,
         overlay: &mut state.overlay,
         process: &mut state.process,
         network: &mut state.network,
         filter: &mut state.filter,
-        tw: size.width,
-        th: size.height,
+        size,
     };
     let result = dispatch_handler(key, &mut ctx);
     terminal.set_sync(ctx.config.ui.terminal_sync);

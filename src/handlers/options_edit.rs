@@ -336,8 +336,8 @@ fn redraw_options(ctx: &mut InputContext) -> HandleResult {
 
 fn render_options_menu(ctx: &InputContext) -> String {
     menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,

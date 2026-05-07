@@ -117,30 +117,85 @@ pub(crate) fn reconcile_selected_iface(state: &mut AppState) {
 mod tests {
     use super::*;
     use std::sync::Arc;
-    use std::time::Instant;
+
+    fn net_snap(names: &[&str]) -> Arc<runner::NetSnapshot> {
+        Arc::new(runner::NetSnapshot {
+            nets: names
+                .iter()
+                .map(|n| crate::domain::network::NetInfo {
+                    name: (*n).into(),
+                    ..Default::default()
+                })
+                .collect(),
+            status: crate::collect::CollectStatus::Ok,
+        })
+    }
 
     #[test]
     fn reconcile_selected_iface_selects_first_available_interface() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, Instant::now());
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
-        state.live.net = Some(Arc::new(runner::NetSnapshot {
-            nets: vec![
-                crate::domain::network::NetInfo {
-                    name: "Ethernet".into(),
-                    ..Default::default()
-                },
-                crate::domain::network::NetInfo {
-                    name: "Wi-Fi".into(),
-                    ..Default::default()
-                },
-            ],
-            status: crate::collect::CollectStatus::Ok,
-        }));
+        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
         reconcile_selected_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
         assert!(state.render.dirty.contains(Dirty::NET_WIDGET));
+    }
+
+    #[test]
+    fn reconcile_uses_preferred_iface_when_present() {
+        // RuntimeView.net_iface holds the persisted/preferred
+        // interface; reconcile must honour it when the iface is
+        // currently in the live list.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.view.net_iface = "Wi-Fi".into();
+        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
+
+        reconcile_selected_iface(&mut state);
+
+        assert_eq!(state.network.selected_iface, "Wi-Fi");
+    }
+
+    #[test]
+    fn reconcile_falls_back_when_preferred_iface_missing_but_preserves_preference() {
+        // Saved preference is `Ethernet` but the live list only
+        // has `Wi-Fi`. The displayed iface falls back to `Wi-Fi`,
+        // BUT the persisted `RuntimeView.net_iface` must remain
+        // `Ethernet` so the user's preference re-asserts on the
+        // next process restart (when Ethernet may be back).
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.view.net_iface = "Ethernet".into();
+        state.live.net = Some(net_snap(&["Wi-Fi"]));
+
+        reconcile_selected_iface(&mut state);
+
+        assert_eq!(state.network.selected_iface, "Wi-Fi");
+        assert_eq!(
+            state.view.net_iface, "Ethernet",
+            "preferred iface must NOT be overwritten by auto-fallback"
+        );
+    }
+
+    #[test]
+    fn reconcile_keeps_existing_selection_when_still_present() {
+        // Once `selected_iface` is non-empty and present in the
+        // live list, reconcile must not switch to a different
+        // iface — even if the preferred iface reappears mid-
+        // session (the user's saved preference re-asserts only
+        // at the next restart).
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.network.selected_iface = "Wi-Fi".into();
+        state.view.net_iface = "Ethernet".into();
+        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
+
+        reconcile_selected_iface(&mut state);
+
+        assert_eq!(state.network.selected_iface, "Wi-Fi");
+        assert_eq!(state.view.net_iface, "Ethernet");
     }
 }

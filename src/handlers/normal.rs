@@ -26,8 +26,8 @@ pub(super) fn quit_action(_ctx: &mut InputContext, _key: &Key) -> HandleResult {
 pub(super) fn open_main_menu_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
     ctx.overlay.main_menu_selected = 0;
     let menu_out = menu::main_menu::draw_with_selection(
-        ctx.tw,
-        ctx.th,
+        ctx.size.width,
+        ctx.size.height,
         ctx.overlay.main_menu_selected,
         ctx.theme,
     );
@@ -42,7 +42,12 @@ pub(super) fn open_main_menu_action(ctx: &mut InputContext, _key: &Key) -> Handl
 }
 
 pub(super) fn open_help_menu_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let menu_out = menu::help_menu::draw(ctx.tw, ctx.th, ctx.theme, ctx.runtime.rounded);
+    let menu_out = menu::help_menu::draw(
+        ctx.size.width,
+        ctx.size.height,
+        ctx.theme,
+        ctx.config.ui.rounded_corners,
+    );
     ctx.overlay.menu_return_to = MenuState::None;
     ctx.overlay.set_menu_state(MenuState::Help);
     tracing::debug!(
@@ -63,8 +68,8 @@ pub(super) fn open_options_menu_action(ctx: &mut InputContext, _key: &Key) -> Ha
     // net_iface, etc.).
     ctx.view.sync_to_config(&mut ctx.config.view);
     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,
@@ -120,7 +125,6 @@ pub(super) fn config_reload_action(ctx: &mut InputContext, _key: &Key) -> Handle
     let theme_name = ctx.config.ui.color_theme.clone();
     *ctx.theme = theme::Theme::from_name(&theme_name);
     let base = ctx.theme.base_style(ctx.config.ui.theme_background);
-    ctx.runtime.rounded = ctx.config.ui.rounded_corners;
     sync_update_ms(ctx);
     crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
     // Re-initialise RuntimeView from the freshly loaded config so
@@ -146,14 +150,13 @@ pub(super) fn update_rate_down_action(ctx: &mut InputContext, _key: &Key) -> Han
 }
 
 fn step_update_rate(ctx: &mut InputContext, delta: i64) -> HandleResult {
-    let step = if ctx.runtime.update_ms > 2000 {
+    let step = if ctx.config.refresh.update_ms > 2000 {
         1000
     } else {
         100
     };
-    let new_ms = (ctx.runtime.update_ms as i64 + delta * step).clamp(100, 86_400_000);
+    let new_ms = (ctx.config.refresh.update_ms + delta * step).clamp(100, 86_400_000);
     ctx.config.refresh.update_ms = new_ms;
-    ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
     sync_all_intervals(ctx);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
@@ -187,14 +190,14 @@ pub(super) fn nav_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResul
 }
 
 pub(super) fn nav_page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let page = ctx.th.saturating_sub(10);
+    let page = ctx.size.height.saturating_sub(10);
     ctx.process.selected = ctx.process.selected.saturating_sub(page);
     ctx.render.dirty |= Dirty::PROC_WIDGET;
     HandleResult::none()
 }
 
 pub(super) fn nav_page_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let page = ctx.th.saturating_sub(10);
+    let page = ctx.size.height.saturating_sub(10);
     let count = ctx.process.entries.len();
     ctx.process.selected = (ctx.process.selected + page).min(count.saturating_sub(1));
     ctx.render.dirty |= Dirty::PROC_WIDGET;
@@ -202,7 +205,7 @@ pub(super) fn nav_page_down_action(ctx: &mut InputContext, _key: &Key) -> Handle
 }
 
 pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let page = ctx.th.saturating_sub(10);
+    let page = ctx.size.height.saturating_sub(10);
     let half = page / 2;
     let count = ctx.process.entries.len();
     ctx.process.selected = (ctx.process.selected + half).min(count.saturating_sub(1));
@@ -211,7 +214,7 @@ pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _key: &Key) -> H
 }
 
 pub(super) fn nav_half_page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let page = ctx.th.saturating_sub(10);
+    let page = ctx.size.height.saturating_sub(10);
     let half = page / 2;
     ctx.process.selected = ctx.process.selected.saturating_sub(half);
     ctx.render.dirty |= Dirty::PROC_WIDGET;
@@ -520,7 +523,6 @@ pub(crate) fn sync_all_intervals(ctx: &mut InputContext) {
 }
 
 fn sync_update_ms(ctx: &mut InputContext) {
-    ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
     sync_all_intervals(ctx);
 }
 

@@ -76,7 +76,7 @@ pub(super) fn select_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResu
         ctx.overlay.options_selected -= 1;
     } else {
         // wrap to previous page or last page
-        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.size.height);
         if ctx.overlay.options_page > 0 {
             ctx.overlay.options_page -= 1;
         } else if pages > 1 {
@@ -85,20 +85,23 @@ pub(super) fn select_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResu
         ctx.overlay.options_selected = menu::options_menu::select_max(
             ctx.overlay.options_cat,
             ctx.overlay.options_page,
-            ctx.th,
+            ctx.size.height,
         );
     }
     options_menu_output(ctx)
 }
 
 pub(super) fn select_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let sm =
-        menu::options_menu::select_max(ctx.overlay.options_cat, ctx.overlay.options_page, ctx.th);
+    let sm = menu::options_menu::select_max(
+        ctx.overlay.options_cat,
+        ctx.overlay.options_page,
+        ctx.size.height,
+    );
     if ctx.overlay.options_selected < sm {
         ctx.overlay.options_selected += 1;
     } else {
         // wrap to next page or first page
-        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+        let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.size.height);
         if ctx.overlay.options_page < pages - 1 {
             ctx.overlay.options_page += 1;
         } else if pages > 1 {
@@ -110,7 +113,7 @@ pub(super) fn select_down_action(ctx: &mut InputContext, _key: &Key) -> HandleRe
 }
 
 pub(super) fn page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.size.height);
     if pages > 1 {
         ctx.overlay.options_page = if ctx.overlay.options_page > 0 {
             ctx.overlay.options_page - 1
@@ -123,7 +126,7 @@ pub(super) fn page_up_action(ctx: &mut InputContext, _key: &Key) -> HandleResult
 }
 
 pub(super) fn page_down_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
-    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.th);
+    let pages = menu::options_menu::page_count(ctx.overlay.options_cat, ctx.size.height);
     if pages > 1 {
         ctx.overlay.options_page = if ctx.overlay.options_page < pages - 1 {
             ctx.overlay.options_page + 1
@@ -143,7 +146,7 @@ pub(super) fn enter_action(ctx: &mut InputContext, _key: &Key) -> HandleResult {
         ctx.overlay.options_cat,
         ctx.overlay.options_page,
         ctx.overlay.options_selected,
-        ctx.th,
+        ctx.size.height,
     ) else {
         return HandleResult::none();
     };
@@ -172,8 +175,8 @@ pub(super) fn step_right_action(ctx: &mut InputContext, _key: &Key) -> HandleRes
 /// Build a HandleResult that redraws the options menu overlay.
 fn options_menu_output(ctx: &mut InputContext) -> HandleResult {
     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,
@@ -194,15 +197,15 @@ fn step_selected_option(ctx: &mut InputContext, dir: i64) -> HandleResult {
         ctx.overlay.options_cat,
         ctx.overlay.options_page,
         ctx.overlay.options_selected,
-        ctx.th,
+        ctx.size.height,
     ) {
         let kind = menu::options_menu::opt_kind(opt_key, ctx.config);
         apply_option_change(opt_key, kind, dir, ctx, &mut extra_ops);
     }
 
     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,
@@ -236,8 +239,8 @@ fn enter_inline_edit(
         "inline editor opened",
     );
     let menu_out = menu::options_menu::draw(&menu::options_menu::DrawParams {
-        term_width: ctx.tw,
-        term_height: ctx.th,
+        term_width: ctx.size.width,
+        term_height: ctx.size.height,
         cat: ctx.overlay.options_cat,
         selected: ctx.overlay.options_selected,
         page: ctx.overlay.options_page,
@@ -333,13 +336,15 @@ pub(crate) fn apply_post_change_effects(
             ));
         }
         ConfigKey::Bool(BoolKey::RoundedCorners) => {
-            ctx.runtime.rounded = ctx.config.ui.rounded_corners;
+            // No runtime mirror to update — `rounded_corners` is
+            // read directly from `config.ui.rounded_corners` at
+            // every render. The toggle's effect lands on the next
+            // frame.
         }
         ConfigKey::Enum(EnumKey::LogLevel) => {
             crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
         }
         ConfigKey::Int(IntKey::UpdateMs) => {
-            ctx.runtime.update_ms = ctx.config.refresh.update_ms as u64;
             sync_all_intervals(ctx);
         }
         ConfigKey::Int(IntKey::CpuUpdateMs) => {

@@ -8,8 +8,8 @@ pub(crate) mod options_edit;
 
 use crate::{
     app::{
-        LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeState,
-        RuntimeView,
+        LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeView,
+        TerminalSize,
     },
     config,
     dirty::Dirty,
@@ -126,15 +126,13 @@ pub(crate) struct InputContext<'a> {
     pub(crate) theme: &'a mut theme::Theme,
     pub(crate) live: &'a LiveData,
     pub(crate) manager: &'a runner::CollectorManager,
-    pub(crate) runtime: &'a mut RuntimeState,
     pub(crate) view: &'a mut RuntimeView,
     pub(crate) render: &'a mut RenderState,
     pub(crate) overlay: &'a mut OverlayState,
     pub(crate) process: &'a mut ProcessViewState,
     pub(crate) network: &'a mut NetworkViewState,
     pub(crate) filter: &'a mut crate::app::WidgetFilter,
-    pub(crate) tw: usize,
-    pub(crate) th: usize,
+    pub(crate) size: TerminalSize,
 }
 
 impl InputContext<'_> {
@@ -179,7 +177,6 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
             live: ctx.live,
             process: ctx.process,
             network: ctx.network,
-            runtime: ctx.runtime,
             view: ctx.view,
             filter: ctx.filter,
             config: ctx.config,
@@ -192,8 +189,8 @@ pub(crate) fn redraw_after_overlay(ctx: &mut InputContext) -> String {
         out.push_str(&render_all(&params));
         if ctx.overlay.menu_return_to == MenuState::Main {
             out.push_str(&crate::menu::main_menu::draw_with_selection(
-                ctx.tw,
-                ctx.th,
+                ctx.size.width,
+                ctx.size.height,
                 ctx.overlay.main_menu_selected,
                 ctx.theme,
             ));

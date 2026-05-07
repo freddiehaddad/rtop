@@ -12,9 +12,7 @@
 
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
-use crate::app::state::{
-    AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeState, RuntimeView,
-};
+use crate::app::state::{AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeView};
 use crate::config;
 use crate::dirty::Dirty;
 use crate::domain::process::ProcDisplayEntry;
@@ -118,7 +116,6 @@ fn render_dirty_frame(
         live: &state.live,
         process: &state.process,
         network: &state.network,
-        runtime: &state.runtime,
         view: &state.view,
         filter: &state.filter,
         config,
@@ -200,7 +197,6 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) live: &'a LiveData,
     pub(crate) process: &'a ProcessViewState,
     pub(crate) network: &'a NetworkViewState,
-    pub(crate) runtime: &'a RuntimeState,
     pub(crate) view: &'a RuntimeView,
     pub(crate) filter: &'a crate::app::WidgetFilter,
     pub(crate) config: &'a config::Config,
@@ -236,8 +232,8 @@ impl<'a> RenderInputs<'a> {
             config: self.config,
             view: self.view,
             theme: self.theme,
-            rounded: self.runtime.rounded,
-            update_ms: self.runtime.update_ms,
+            rounded: self.config.ui.rounded_corners,
+            update_ms: self.config.refresh.update_ms as u64,
             is_filtering: self.is_filtering,
             filter_active: !self.filter.hidden.is_empty(),
             core_count: self.live.core_count,
