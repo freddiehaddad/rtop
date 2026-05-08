@@ -10,7 +10,7 @@ mod event;
 mod handlers;
 mod input;
 mod log;
-mod menu;
+mod overlay;
 mod runner;
 mod term;
 mod theme;

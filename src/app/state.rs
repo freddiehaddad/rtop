@@ -23,7 +23,7 @@ use crate::domain::process::ProcDisplayEntry;
 use crate::domain::widget_kind::WidgetKind;
 use crate::domain::widget_set::WidgetSet;
 use crate::draw;
-use crate::handlers::MenuState;
+use crate::overlay::ActiveModal;
 use crate::runner;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -163,6 +163,18 @@ pub(crate) struct RenderState {
     pub(crate) dirty: RenderDirty,
     pub(crate) cached_layout: Option<draw::layout::Layout>,
     pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
+    /// Cached dimmed snapshot of the widget layer. Populated on
+    /// the first render after a centered modal opens, held until
+    /// the modal closes or the terminal resizes. The cache lets
+    /// modal-internal navigation (selection moves, page changes,
+    /// edit buffer keystrokes) repaint only the modal layer
+    /// without re-rendering the underlay every frame.
+    pub(crate) cached_dimmed_underlay: Option<String>,
+    /// The previous frame's `dims_underlay()` result. Used by the
+    /// render dispatch to detect modal open/close transitions and
+    /// invalidate the cached dimmed underlay reactively — no
+    /// handler-side bookkeeping required.
+    pub(crate) last_dims_underlay: bool,
 }
 
 impl RenderState {
@@ -171,15 +183,29 @@ impl RenderState {
             dirty: RenderDirty::full(),
             cached_layout: None,
             last_layout_hints: None,
+            cached_dimmed_underlay: None,
+            last_dims_underlay: false,
         }
     }
 
     pub(crate) fn mark_resize(&mut self) {
         self.dirty.mark_layout();
+        // Resize while a modal is open invalidates the cached
+        // dimmed underlay (its layout no longer matches the
+        // terminal). The next overlay-active render will rebuild
+        // it at the new size.
+        self.cached_dimmed_underlay = None;
     }
 
     pub(crate) fn clear_dirty(&mut self) {
         self.dirty.clear();
+    }
+
+    /// Discard the cached dimmed underlay. Called by overlay
+    /// transitions: opening a centered modal must capture a fresh
+    /// snapshot, and closing one frees the cache.
+    pub(crate) fn invalidate_dimmed_underlay(&mut self) {
+        self.cached_dimmed_underlay = None;
     }
 }
 
@@ -283,92 +309,35 @@ impl LiveData {
 // `filtered_disk_count` was inlined into the only remaining caller
 // (`LiveData::layout_hints`) — see the `disk_count:` field above.
 
+/// Overlay/menu state for the application.
+///
+/// [`ActiveModal`] is the single source of truth for "what overlay
+/// is open and what is its state." Per-overlay state lives inside
+/// the appropriate [`ActiveModal`] variant.
 pub(crate) struct OverlayState {
-    pub(crate) menu_state: MenuState,
-    pub(crate) menu_return_to: MenuState,
-    pub(crate) main_menu_selected: usize,
-    pub(crate) options_cat: usize,
-    pub(crate) options_selected: usize,
-    pub(crate) options_page: usize,
-    /// Mutable buffer for an in-progress inline option edit.
-    ///
-    /// Invariant maintained by [`Self::enter_option_edit`] and
-    /// [`Self::exit_option_edit`]: this is `Some` if and only if
-    /// `menu_state == MenuState::OptionsEdit`. The check is also
-    /// re-asserted in [`Self::set_menu_state`] to catch any future
-    /// caller that bypasses the helpers.
-    option_edit: Option<crate::handlers::options_edit::OptionEditState>,
+    pub(crate) active: ActiveModal,
 }
 
 impl OverlayState {
     fn new() -> Self {
         Self {
-            menu_state: MenuState::None,
-            menu_return_to: MenuState::None,
-            main_menu_selected: 0,
-            options_cat: 0,
-            options_selected: 0,
-            options_page: 0,
-            option_edit: None,
+            active: ActiveModal::None,
         }
     }
 
-    pub(crate) fn set_menu_state(&mut self, new: MenuState) {
-        debug_assert!(
-            self.menu_state.can_transition_to(new),
-            "invalid menu transition: {:?} → {:?}",
-            self.menu_state,
-            new,
-        );
-        // The buffer-invariant check is `assert!`, not `debug_assert!`,
-        // because release builds must crash on a dangling
-        // `option_edit` rather than silently render with inconsistent
-        // state. Cost is one boolean per menu transition (handled on
-        // user keystrokes, not per frame), which is negligible.
-        assert!(
-            new == MenuState::OptionsEdit || self.option_edit.is_none(),
-            "option_edit must be cleared before transitioning to {:?}",
-            new,
-        );
-        self.menu_state = new;
-    }
-
-    /// Begin an inline option edit: store the buffer state and
-    /// transition to [`MenuState::OptionsEdit`] in one atomic step.
-    pub(crate) fn enter_option_edit(
-        &mut self,
-        state: crate::handlers::options_edit::OptionEditState,
-    ) {
-        // Set the buffer first so the debug_assert in
-        // set_menu_state sees the new invariant satisfied.
-        self.option_edit = Some(state);
-        self.set_menu_state(MenuState::OptionsEdit);
-    }
-
-    /// End an inline option edit: discard the buffer and return to
-    /// [`MenuState::Options`] in one atomic step. Returns the
-    /// discarded state for callers who need to inspect it (e.g.
-    /// log the cancelled value).
-    pub(crate) fn exit_option_edit(
-        &mut self,
-    ) -> Option<crate::handlers::options_edit::OptionEditState> {
-        let edit = self.option_edit.take();
-        self.set_menu_state(MenuState::Options);
-        edit
-    }
-
-    pub(crate) fn option_edit(&self) -> Option<&crate::handlers::options_edit::OptionEditState> {
-        self.option_edit.as_ref()
-    }
-
-    pub(crate) fn option_edit_mut(
-        &mut self,
-    ) -> Option<&mut crate::handlers::options_edit::OptionEditState> {
-        self.option_edit.as_mut()
-    }
-
+    /// `true` when the widget layer should render at full
+    /// brightness (no centered modal active). Filter mode does not
+    /// dim — it's an inline prompt — so it returns `true` too.
     pub(crate) fn render_ui(&self) -> bool {
-        self.menu_state == MenuState::None || self.menu_state == MenuState::Filter
+        !self.active.dims_underlay()
+    }
+
+    /// Snapshot of the active overlay used by render and dispatch
+    /// paths that need an [`ActiveModal`] reference. The `_filter_text`
+    /// argument is reserved for the future state-consolidation
+    /// step that moves the filter input into [`FilterState`].
+    pub(crate) fn active(&self, _filter_text: &str) -> &ActiveModal {
+        &self.active
     }
 }
 
@@ -620,7 +589,7 @@ mod tests {
 
         let state = AppState::new(&config);
 
-        assert!(state.overlay.menu_state == MenuState::None);
+        assert!(matches!(state.overlay.active, ActiveModal::None));
         assert_eq!(state.render.dirty, RenderDirty::full());
         assert!(state.render.cached_layout.is_none());
         assert!(!state.live.is_ready());
@@ -704,22 +673,26 @@ mod tests {
 
     #[test]
     fn app_state_render_ui_only_for_normal_and_filter() {
+        use crate::overlay::{
+            ReturnTarget, filter::FilterState, help::HelpState, main_menu::MainMenuState,
+            options::OptionsState,
+        };
         let config = config::Config::new();
         let mut state = AppState::new(&config);
 
-        state.overlay.menu_state = MenuState::None;
+        state.overlay.active = ActiveModal::None;
         assert!(state.overlay.render_ui());
 
-        state.overlay.menu_state = MenuState::Filter;
+        state.overlay.active = ActiveModal::Filter(FilterState);
         assert!(state.overlay.render_ui());
 
-        state.overlay.menu_state = MenuState::Main;
+        state.overlay.active = ActiveModal::Main(MainMenuState::new());
         assert!(!state.overlay.render_ui());
 
-        state.overlay.menu_state = MenuState::Help;
+        state.overlay.active = ActiveModal::Help(HelpState::new(ReturnTarget::Normal));
         assert!(!state.overlay.render_ui());
 
-        state.overlay.menu_state = MenuState::Options;
+        state.overlay.active = ActiveModal::Options(OptionsState::new(ReturnTarget::Normal));
         assert!(!state.overlay.render_ui());
     }
 
@@ -785,74 +758,6 @@ mod tests {
                 .disk_rows_per_unit,
             2
         );
-    }
-
-    #[test]
-    fn enter_option_edit_transitions_and_stores_buffer() {
-        use crate::config::{ConfigKey, StringKey};
-        use crate::handlers::options_edit::{EditKind, OptionEditState};
-        let config = config::Config::new();
-        let mut state = AppState::new(&config);
-
-        // Start in Options (precondition for entering edit mode).
-        state.overlay.set_menu_state(MenuState::Main);
-        state.overlay.set_menu_state(MenuState::Options);
-        assert_eq!(state.overlay.menu_state, MenuState::Options);
-        assert!(state.overlay.option_edit().is_none());
-
-        let edit = OptionEditState::new(
-            ConfigKey::String(StringKey::ClockFormat),
-            EditKind::Text,
-            "%H:%M".into(),
-        );
-        state.overlay.enter_option_edit(edit);
-        assert_eq!(state.overlay.menu_state, MenuState::OptionsEdit);
-        let stored = state
-            .overlay
-            .option_edit()
-            .expect("option_edit must be Some after enter_option_edit");
-        assert_eq!(stored.buffer, "%H:%M");
-        assert_eq!(stored.key, ConfigKey::String(StringKey::ClockFormat));
-    }
-
-    #[test]
-    fn exit_option_edit_clears_buffer_and_returns_to_options() {
-        use crate::config::{ConfigKey, StringKey};
-        use crate::handlers::options_edit::{EditKind, OptionEditState};
-        let config = config::Config::new();
-        let mut state = AppState::new(&config);
-
-        state.overlay.set_menu_state(MenuState::Main);
-        state.overlay.set_menu_state(MenuState::Options);
-        state.overlay.enter_option_edit(OptionEditState::new(
-            ConfigKey::String(StringKey::ProcFilter),
-            EditKind::Text,
-            String::new(),
-        ));
-        let returned = state.overlay.exit_option_edit();
-        assert!(returned.is_some(), "exit must return the discarded buffer");
-        assert_eq!(state.overlay.menu_state, MenuState::Options);
-        assert!(state.overlay.option_edit().is_none());
-    }
-
-    #[test]
-    #[should_panic(expected = "option_edit must be cleared")]
-    fn set_menu_state_panics_if_option_edit_is_dangling() {
-        use crate::config::{ConfigKey, StringKey};
-        use crate::handlers::options_edit::{EditKind, OptionEditState};
-        let config = config::Config::new();
-        let mut state = AppState::new(&config);
-
-        state.overlay.set_menu_state(MenuState::Main);
-        state.overlay.set_menu_state(MenuState::Options);
-        state.overlay.enter_option_edit(OptionEditState::new(
-            ConfigKey::String(StringKey::ProcFilter),
-            EditKind::Text,
-            String::new(),
-        ));
-        // Bypassing exit_option_edit (which would clear option_edit
-        // first) must trip the invariant assertion in set_menu_state.
-        state.overlay.set_menu_state(MenuState::Options);
     }
 
     #[test]

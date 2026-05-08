@@ -24,19 +24,23 @@
 //!   characters into the buffer. The validation test
 //!   `text_states_have_no_printable_bindings` enforces this.
 
-use crate::handlers::{MenuState, filter, help, main_menu, normal, options, options_edit};
+use crate::handlers::normal;
 use crate::input::Key;
+use crate::overlay::{
+    OverlayKind, filter, help, main_menu,
+    options::{self, edit as options_edit},
+};
 
 use super::{Binding, HelpEntry, KeySpec, Prehook, prehooks};
 
-const NORMAL: &[MenuState] = &[MenuState::None];
-const MAIN: &[MenuState] = &[MenuState::Main];
-const HELP: &[MenuState] = &[MenuState::Help];
-const OPTIONS: &[MenuState] = &[MenuState::Options];
-const OPTIONS_EDIT: &[MenuState] = &[MenuState::OptionsEdit];
-const FILTER: &[MenuState] = &[MenuState::Filter];
+const NORMAL: &[OverlayKind] = &[OverlayKind::None];
+const MAIN: &[OverlayKind] = &[OverlayKind::Main];
+const HELP: &[OverlayKind] = &[OverlayKind::Help];
+const OPTIONS: &[OverlayKind] = &[OverlayKind::Options];
+const OPTIONS_EDIT: &[OverlayKind] = &[OverlayKind::OptionsEdit];
+const FILTER: &[OverlayKind] = &[OverlayKind::Filter];
 
-const NORMAL_OR_MAIN: &[MenuState] = &[MenuState::None, MenuState::Main];
+const NORMAL_OR_MAIN: &[OverlayKind] = &[OverlayKind::None, OverlayKind::Main];
 
 pub(crate) static PREHOOKS: &[Prehook] = &[
     Prehook {
@@ -581,4 +585,4 @@ pub(crate) static BINDINGS: &[Binding] = &[
 // -----------------------------------------------------------------
 // Keep the unused-import linter quiet for the convenience constants
 // -----------------------------------------------------------------
-const _: &[MenuState] = NORMAL_OR_MAIN;
+const _: &[OverlayKind] = NORMAL_OR_MAIN;

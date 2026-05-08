@@ -1,9 +1,12 @@
+use crate::app::TerminalSize;
 use crate::config::{BoolKey, Config, ConfigKey, EnumKey, IntKey, KeyKind, StringKey};
 use crate::draw::box_drawing::{self, symbols};
-use crate::handlers::options_edit::OptionEditState;
 use crate::term;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
+
+use super::OptionsState;
+use super::edit::OptionEditState;
 
 // ---------------------------------------------------------------------------
 // Option type classification
@@ -22,7 +25,7 @@ pub enum OptKind {
 
 // Each category is a `&[ConfigKey]`. The per-key help text lives on
 // `ConfigKey::kind()` and the per-key options-menu help text lives
-// in `crate::menu::options_text::desc`. The editable shape is
+// in `crate::overlay::options::options_text::desc`. The editable shape is
 // derived from `ConfigKey::kind()` plus `browsable_values(key)`.
 
 // ---------------------------------------------------------------------------
@@ -304,6 +307,26 @@ pub struct DrawParams<'a> {
     pub option_edit: Option<&'a OptionEditState>,
 }
 
+/// Render the options overlay to an unstyled ANSI buffer using
+/// the typed [`OptionsState`].
+///
+/// Thin wrapper around [`draw`] that constructs [`DrawParams`]
+/// from the typed state — keeps the legacy (cat, selected, page,
+/// option_edit) parameterisation in the body of the renderer
+/// while exposing the typed entry point at the module boundary.
+pub fn render(state: &OptionsState, term: TerminalSize, config: &Config, theme: &Theme) -> String {
+    draw(&DrawParams {
+        term_width: term.width,
+        term_height: term.height,
+        cat: state.cat(),
+        selected: state.selected(),
+        page: state.page(),
+        config,
+        theme,
+        option_edit: state.edit(),
+    })
+}
+
 /// Draw the btop-style options menu.
 ///
 /// The box is 78 chars wide, centered on screen.
@@ -311,11 +334,11 @@ pub struct DrawParams<'a> {
 /// Right panel: description of selected option.
 /// Vertical divider at column x+30.
 ///
-/// `option_edit` (in [`DrawParams`]) is `Some` only while
-/// [`crate::handlers::MenuState::OptionsEdit`] is active. When set,
-/// the value cell on the matching row is rendered as a left-aligned
-/// editable buffer with an underline cursor; the right panel
-/// additionally shows any validation error.
+/// `option_edit` (in [`DrawParams`]) is `Some` only while the
+/// options overlay is in inline-edit sub-state. When set, the value
+/// cell on the matching row is rendered as a left-aligned editable
+/// buffer with an underline cursor; the right panel additionally
+/// shows any validation error.
 pub fn draw(p: &DrawParams) -> String {
     let term_width = p.term_width;
     let term_height = p.term_height;
@@ -502,7 +525,7 @@ pub fn draw(p: &DrawParams) -> String {
         //     aligned editable buffer with underline cursor
         let val_row = cy_start + c * 2 + 1;
         let active_edit: Option<&OptionEditState> = if is_selected {
-            option_edit.filter(|e| e.key == key)
+            option_edit.filter(|e| e.key() == key)
         } else {
             None
         };
@@ -513,8 +536,8 @@ pub fn draw(p: &DrawParams) -> String {
             // matches `main_bg` (without the bg the cell would be
             // foreground-on-foreground and invisible — see
             // `themes/greyscale.toml` for the canonical case).
-            let value_color = if edit.error.is_some() { hi } else { sel_fg };
-            let cell = render_edit_value(&edit.buffer, edit.cursor, 25);
+            let value_color = if edit.error().is_some() { hi } else { sel_fg };
+            let cell = render_edit_value(edit.buffer(), edit.cursor(), 25);
             out.push_str(&format!(
                 "{}{}{}  {}{}",
                 term::mv(x + 2, val_row),
@@ -556,7 +579,7 @@ pub fn draw(p: &DrawParams) -> String {
                 let desc_top = y + 8 + 1;
                 let desc_bottom = y + 6 + height;
                 let mut row = desc_top;
-                for (di, desc_line) in crate::menu::options_text::desc(key).iter().enumerate() {
+                for (di, desc_line) in super::options_text::desc(key).iter().enumerate() {
                     if row >= desc_bottom {
                         break;
                     }
@@ -566,7 +589,7 @@ pub fn draw(p: &DrawParams) -> String {
                     out.push_str(&format!("{}{}", term::mv(x + 33, row + 1), desc_line));
                     row += 1;
                 }
-                if let Some(msg) = edit.error
+                if let Some(msg) = edit.error()
                     && row + 1 < desc_bottom
                 {
                     out.push_str(&format!(
@@ -616,7 +639,7 @@ pub fn draw(p: &DrawParams) -> String {
 
                 // Description in right panel
                 out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
-                for (di, desc_line) in crate::menu::options_text::desc(key).iter().enumerate() {
+                for (di, desc_line) in super::options_text::desc(key).iter().enumerate() {
                     let desc_row = y + 8 + 1 + di; // start at the row after the divider
                     if desc_row >= y + 6 + height {
                         break;

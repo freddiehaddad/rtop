@@ -8,7 +8,7 @@
 //! can possibly be set). The state filter is enforced declaratively
 //! in [`super::PREHOOKS`].
 
-use crate::handlers::{HandleResult, InputContext};
+use crate::handlers::InputContext;
 use crate::input::Key;
 
 use super::PrehookOutcome;
@@ -21,7 +21,7 @@ pub(super) fn armed_terminate_disarm(key: &Key, ctx: &mut InputContext) -> Preho
     if ctx.process.armed_terminate.is_some() && !matches!(key, Key::Char('t' | 'T')) {
         ctx.process.armed_terminate = None;
         ctx.render.dirty.mark_proc_widget();
-        return PrehookOutcome::Consume(HandleResult::none());
+        return PrehookOutcome::Consume;
     }
     PrehookOutcome::Continue
 }

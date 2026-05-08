@@ -6,23 +6,23 @@
 //! * No two bindings claim the same `(state, key, vim-condition)`
 //!   tuple — the dispatcher uses first-match semantics, so a
 //!   duplicate would silently shadow.
-//! * No binding in [`MenuState::Filter`] or [`MenuState::OptionsEdit`]
+//! * No binding in [`OverlayKind::Filter`] or [`OverlayKind::OptionsEdit`]
 //!   is triggered by a printable `Key::Char(_)` or `Key::Space`
 //!   trigger — those would silently steal text input from the
 //!   per-state `fallback_typed_char`.
 //! * Help-menu metadata is internally consistent.
 
 use super::{BINDINGS, Binding, HelpEntry, KeySpec, PREHOOKS, Prehook};
-use crate::handlers::MenuState;
 use crate::input::Key;
+use crate::overlay::OverlayKind;
 
-const ALL_STATES: &[MenuState] = &[
-    MenuState::None,
-    MenuState::Main,
-    MenuState::Help,
-    MenuState::Options,
-    MenuState::OptionsEdit,
-    MenuState::Filter,
+const ALL_STATES: &[OverlayKind] = &[
+    OverlayKind::None,
+    OverlayKind::Main,
+    OverlayKind::Help,
+    OverlayKind::Options,
+    OverlayKind::OptionsEdit,
+    OverlayKind::Filter,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -41,7 +41,7 @@ fn key_specs(binding: &Binding) -> impl Iterator<Item = (Key, VimCondition)> + '
 #[test]
 fn no_duplicate_state_key_bindings() {
     use std::collections::HashMap;
-    let mut seen: HashMap<(MenuState, Key, VimCondition), usize> = HashMap::new();
+    let mut seen: HashMap<(OverlayKind, Key, VimCondition), usize> = HashMap::new();
     for (idx, binding) in BINDINGS.iter().enumerate() {
         for state in binding.states {
             for (key, vim) in key_specs(binding) {
@@ -63,7 +63,7 @@ fn text_states_have_no_printable_bindings() {
         let touches_text_state = binding
             .states
             .iter()
-            .any(|s| matches!(s, MenuState::Filter | MenuState::OptionsEdit));
+            .any(|s| matches!(s, OverlayKind::Filter | OverlayKind::OptionsEdit));
         if !touches_text_state {
             continue;
         }
@@ -150,22 +150,22 @@ fn prehooks_target_at_least_one_state() {
 fn matches_respects_vim_flag() {
     let binding = Binding {
         keys: &[KeySpec::VimOnly(Key::Char('j'))],
-        states: &[MenuState::None],
+        states: &[OverlayKind::None],
         help: None,
-        action: |_, _| crate::handlers::HandleResult::none(),
+        action: |_, _| {},
     };
-    assert!(binding.matches(&Key::Char('j'), MenuState::None, true));
-    assert!(!binding.matches(&Key::Char('j'), MenuState::None, false));
+    assert!(binding.matches(&Key::Char('j'), OverlayKind::None, true));
+    assert!(!binding.matches(&Key::Char('j'), OverlayKind::None, false));
 }
 
 #[test]
 fn matches_respects_state_filter() {
     let binding = Binding {
         keys: &[KeySpec::Always(Key::Char('q'))],
-        states: &[MenuState::Help],
+        states: &[OverlayKind::Help],
         help: None,
-        action: |_, _| crate::handlers::HandleResult::none(),
+        action: |_, _| {},
     };
-    assert!(binding.matches(&Key::Char('q'), MenuState::Help, false));
-    assert!(!binding.matches(&Key::Char('q'), MenuState::None, false));
+    assert!(binding.matches(&Key::Char('q'), OverlayKind::Help, false));
+    assert!(!binding.matches(&Key::Char('q'), OverlayKind::None, false));
 }

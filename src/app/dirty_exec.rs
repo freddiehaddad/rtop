@@ -17,7 +17,7 @@ use crate::config;
 use crate::dirty::RenderDirty;
 use crate::domain::process::ProcDisplayEntry;
 use crate::draw;
-use crate::handlers::MenuState;
+use crate::overlay::ActiveModal;
 use crate::runner;
 use crate::term;
 use crate::theme;
@@ -82,9 +82,27 @@ pub(crate) fn write_dirty_frame(
     config: &config::Config,
     terminal: &mut term::Terminal,
     theme: &theme::Theme,
+    size: TerminalSize,
 ) {
-    let output = render_dirty_frame(state, config, theme);
-    let output = style_terminal_output(&output, config, theme);
+    // Clone to break the borrow on `state.overlay` so we can also
+    // mutate `state.render` below. `ActiveModal` is cheap to
+    // clone — variants are unit-like or carry small state.
+    let active = state.overlay.active.clone();
+    let dims_now = active.dims_underlay();
+    if dims_now != state.render.last_dims_underlay {
+        // Crossing the modal-open / modal-close boundary. Either
+        // direction invalidates the cached dimmed underlay: opens
+        // need a fresh capture, closes free the snapshot so
+        // memory isn't held across an unbounded "no modal" period.
+        state.render.invalidate_dimmed_underlay();
+        state.render.last_dims_underlay = dims_now;
+    }
+    let output = if dims_now {
+        compose_modal_frame(state, config, theme, &active, size)
+    } else {
+        let raw = render_dirty_frame(state, config, theme);
+        style_terminal_output(&raw, config, theme)
+    };
     if let Err(e) = terminal.write_synced(&output) {
         tracing::warn!(
             subsystem = %crate::log::Subsystem::Terminal,
@@ -93,6 +111,77 @@ pub(crate) fn write_dirty_frame(
         );
     }
     state.render.clear_dirty();
+}
+
+/// Compose a single atomic frame consisting of a dimmed snapshot of
+/// the widget layer plus the active modal painted on top at full
+/// brightness.
+///
+/// The dimmed underlay is cached in
+/// [`crate::app::RenderState::cached_dimmed_underlay`] and held
+/// across the lifetime of the modal — modal-internal navigation
+/// repaints only the modal layer. The cache is invalidated by
+/// modal open/close transitions and by terminal resize.
+fn compose_modal_frame(
+    state: &mut AppState,
+    config: &config::Config,
+    theme: &theme::Theme,
+    active: &crate::overlay::ActiveModal,
+    size: TerminalSize,
+) -> String {
+    if state.render.cached_dimmed_underlay.is_none() {
+        // Build a fresh underlay: render every widget, theme-style
+        // the result, then run the dim transform. Order matters —
+        // theme styling runs before dim so the base style
+        // (including theme bg) is dimmed too; otherwise every
+        // `\x1b[0m` reset in the underlay would re-apply the
+        // full-brightness base style and leave bright halos.
+        let raw = render_widget_layer_full(state, config, theme);
+        let styled = style_terminal_output(&raw, config, theme);
+        state.render.cached_dimmed_underlay = Some(crate::draw::dim::dim_truecolor(&styled));
+    }
+    let dimmed = state
+        .render
+        .cached_dimmed_underlay
+        .as_deref()
+        .expect("cached_dimmed_underlay just populated above");
+
+    let raw_modal = crate::overlay::render(active, size, config, theme);
+    let styled_modal = style_terminal_output(&raw_modal, config, theme);
+
+    format!("{}{}{}", term::CLEAR_SCREEN, dimmed, styled_modal)
+}
+
+/// Render every widget at full intensity, ignoring the per-widget
+/// dirty bits (the dim cache must be a complete snapshot, not a
+/// partial repaint of only the dirty widgets).
+fn render_widget_layer_full(
+    state: &AppState,
+    config: &config::Config,
+    theme: &theme::Theme,
+) -> String {
+    let layout = state
+        .render
+        .cached_layout
+        .as_ref()
+        .expect("layout must be initialized before rendering");
+    let params = RenderInputs {
+        layout,
+        live: &state.live,
+        process: &state.process,
+        network: &state.network,
+        view: &state.view,
+        filter: &state.filter,
+        config,
+        theme,
+        dirty: RenderDirty::all_widgets(),
+        is_filtering: false,
+    }
+    .build();
+    let mut output = String::new();
+    output.push_str(term::CLEAR_SCREEN);
+    output.push_str(&render_all(&params));
+    output
 }
 
 fn render_dirty_frame(
@@ -121,7 +210,7 @@ fn render_dirty_frame(
         config,
         theme,
         dirty: state.render.dirty,
-        is_filtering: state.overlay.menu_state == MenuState::Filter,
+        is_filtering: matches!(state.overlay.active, ActiveModal::Filter(_)),
     }
     .build();
     output.push_str(&render_all(&params));
@@ -203,7 +292,7 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) theme: &'a theme::Theme,
     /// Which widgets to render this frame.
     pub(crate) dirty: RenderDirty,
-    /// `true` while the user is in `MenuState::Filter` so the proc
+    /// `true` while the user is in the filter overlay so the proc
     /// widget can show its inline filter prompt.
     pub(crate) is_filtering: bool,
 }

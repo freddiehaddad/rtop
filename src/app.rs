@@ -21,7 +21,7 @@ mod pull;
 mod render_gates;
 mod state;
 
-pub(crate) use dirty_exec::{RenderInputs, RenderParams, render_all};
+pub(crate) use dirty_exec::RenderParams;
 pub(crate) use state::{
     AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeView,
     WidgetFilter,
@@ -144,8 +144,16 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             }
         }
 
-        // Render dirty widgets.
-        if state.overlay.render_ui() && !state.render.dirty.is_empty() {
+        // Render dirty widgets / overlay.
+        //
+        // The render gate now always runs when something is
+        // dirty, regardless of overlay state. The new compose
+        // path in `dirty_exec::write_dirty_frame` handles the
+        // overlay case: when a centered modal is active it
+        // composes a dimmed widget snapshot + the modal layer
+        // into one atomic frame; otherwise it takes the
+        // pre-existing widget-only path.
+        if !state.render.dirty.is_empty() {
             dirty_exec::execute_dirty_work(&mut state, config, size);
             // If the runtime view filter has hidden every widget in
             // the active layout, the engine produces an empty
@@ -153,15 +161,19 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             // user sees something actionable instead of a blank
             // screen — Shift+R restores everything, and the per-
             // widget toggle keys for the active preset are listed.
+            //
+            // This gate only applies when no centered modal is
+            // active (otherwise we want the modal-with-dim
+            // composition).
             let layout_empty = state
                 .render
                 .cached_layout
                 .as_ref()
                 .is_some_and(|l| l.is_empty());
-            if layout_empty {
+            if layout_empty && state.overlay.render_ui() {
                 render_gates::render_if_dirty_all_hidden(&mut state, config, terminal, theme, size);
             } else {
-                dirty_exec::write_dirty_frame(&mut state, config, terminal, theme);
+                dirty_exec::write_dirty_frame(&mut state, config, terminal, theme, size);
             }
         }
     }
@@ -188,41 +200,29 @@ fn handle_input_key(
     manager: &runner::CollectorManager,
     size: TerminalSize,
 ) -> AppCommand {
-    let mut ctx = InputContext {
-        config,
-        theme,
-        manager,
-        live: &state.live,
-        view: &mut state.view,
-        render: &mut state.render,
-        overlay: &mut state.overlay,
-        process: &mut state.process,
-        network: &mut state.network,
-        filter: &mut state.filter,
-        size,
-    };
-    let result = dispatch_handler(key, &mut ctx);
-    terminal.set_sync(ctx.config.ui.terminal_sync);
-    lifecycle::execute_terminal_ops(terminal, ctx.config, ctx.theme, &result);
-    if result.redraw_overlay {
-        let out = handlers::redraw_after_overlay(&mut ctx);
-        let out = lifecycle::style_terminal_output(&out, ctx.config, ctx.theme);
-        if let Err(e) = terminal.write_synced(&out) {
-            tracing::warn!(
-                subsystem = %crate::log::Subsystem::Terminal,
-                error = %e,
-                "terminal write failed",
-            );
-        }
+    let mut quit = false;
+    {
+        let mut ctx = InputContext {
+            config,
+            theme,
+            manager,
+            live: &state.live,
+            view: &mut state.view,
+            render: &mut state.render,
+            overlay: &mut state.overlay,
+            process: &mut state.process,
+            network: &mut state.network,
+            filter: &mut state.filter,
+            size,
+            quit: &mut quit,
+        };
+        handlers::keybinds::dispatch(key, &mut ctx);
     }
+    terminal.set_sync(config.ui.terminal_sync);
 
-    if result.quit {
+    if quit {
         AppCommand::Quit
     } else {
         AppCommand::Continue
     }
-}
-
-fn dispatch_handler(key: &input::Key, ctx: &mut InputContext) -> handlers::HandleResult {
-    handlers::keybinds::dispatch(key, ctx)
 }

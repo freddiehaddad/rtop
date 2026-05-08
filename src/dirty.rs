@@ -35,13 +35,17 @@
 use crate::domain::widget_kind::WidgetKind;
 use crate::domain::widget_set::WidgetSet;
 
-/// Per-frame dirty state: layout, proc-list rebuild, and per-widget
-/// render bits.
+/// Per-frame dirty state: layout, proc-list rebuild, per-widget
+/// render bits, plus overlay tracking.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RenderDirty {
     layout: bool,
     proc_list: bool,
     widgets: WidgetSet,
+    /// Overlay layer needs to be repainted this frame. Set on
+    /// overlay open/close and on overlay-internal navigation
+    /// (selection, page change, edit buffer mutation).
+    overlay: bool,
 }
 
 impl RenderDirty {
@@ -80,6 +84,7 @@ impl RenderDirty {
         self.layout = false;
         self.proc_list = false;
         self.widgets.clear();
+        self.overlay = false;
     }
 
     /// Mark the layout dirty. Always sets every widget dirty too,
@@ -128,11 +133,17 @@ impl RenderDirty {
         self.widgets.insert(WidgetKind::Proc);
     }
 
-    // ---- queries -----------------------------------------------------
+    /// Mark the overlay layer dirty: the next frame should
+    /// recompose the modal/dimmed-underlay layer. Set on overlay
+    /// open/close transitions and (in handler code) on
+    /// overlay-internal navigation.
+    pub fn mark_overlay(&mut self) {
+        self.overlay = true;
+    }
 
     /// `true` if no dirty state is set.
     pub fn is_empty(&self) -> bool {
-        !self.layout && !self.proc_list && self.widgets.is_empty()
+        !self.layout && !self.proc_list && self.widgets.is_empty() && !self.overlay
     }
 
     /// `true` if the layout needs to be recomputed this frame.

@@ -9,9 +9,7 @@
 
 use crate::config;
 use crate::event::AppEvent;
-use crate::handlers;
 use crate::input;
-use crate::term;
 use crate::theme;
 use crate::tools;
 use crossterm::event::Event;
@@ -46,41 +44,6 @@ pub(crate) fn spawn_input_thread(tx: std::sync::mpsc::Sender<AppEvent>) {
             }
         }
     });
-}
-
-pub(crate) fn execute_terminal_ops(
-    terminal: &mut term::Terminal,
-    config: &config::Config,
-    theme: &theme::Theme,
-    result: &handlers::HandleResult,
-) {
-    for op in &result.ops {
-        let styled = match op {
-            handlers::TerminalOp::Raw(s) | handlers::TerminalOp::Synced(s) => {
-                style_terminal_output(s, config, theme)
-            }
-        };
-        match op {
-            handlers::TerminalOp::Raw(_) => {
-                if let Err(e) = terminal.write_raw(&styled) {
-                    tracing::warn!(
-                        subsystem = %crate::log::Subsystem::Terminal,
-                        error = %e,
-                        "terminal write failed",
-                    );
-                }
-            }
-            handlers::TerminalOp::Synced(_) => {
-                if let Err(e) = terminal.write_synced(&styled) {
-                    tracing::warn!(
-                        subsystem = %crate::log::Subsystem::Terminal,
-                        error = %e,
-                        "terminal write failed",
-                    );
-                }
-            }
-        }
-    }
 }
 
 pub(crate) fn style_terminal_output(

@@ -8,20 +8,20 @@
 //! ## How input flows
 //!
 //! ```text
-//! Key  ─► PREHOOKS ─► BINDINGS ─► fallback_for(state) ─► HandleResult
+//! Key  ─► PREHOOKS ─► BINDINGS ─► fallback_for(state) ─► state mutation
 //! ```
 //!
 //! 1. Each [`Prehook`] runs in order. A prehook may mutate state
 //!    (e.g. cancel follow-mode on a navigation key) and either
-//!    *consume* the key (short-circuit dispatch with a pre-built
-//!    `HandleResult`) or *continue* into the binding scan.
+//!    *consume* the key (short-circuit dispatch) or *continue* into
+//!    the binding scan.
 //! 2. The dispatcher walks [`BINDINGS`] in declaration order and
 //!    invokes the first binding whose [`Binding::matches`] returns
-//!    `true` for the current `(key, menu_state, vim_keys)`.
+//!    `true` for the current `(key, overlay-kind, vim_keys)`.
 //! 3. If no binding matched and the current state has a fallback
 //!    (registered in [`fallback_for`]), the fallback consumes the
-//!    key — used by the text-input states ([`MenuState::Filter`]
-//!    and [`MenuState::OptionsEdit`]) to append typed characters
+//!    key — used by the text-input states ([`OverlayKind::Filter`]
+//!    and [`OverlayKind::OptionsEdit`]) to append typed characters
 //!    to their buffers.
 //!
 //! ## Adding a binding
@@ -32,11 +32,12 @@
 //!
 //! Binding actions take `&mut InputContext` and the matched `&Key`
 //! (so a binding with multiple triggers — e.g. the per-digit widget
-//! toggle — can branch on which digit fired). Actions return a
-//! [`HandleResult`] just like the old per-state handlers did.
+//! toggle — can branch on which digit fired). Actions return `()`
+//! and signal application exit by setting `*ctx.quit = true`.
 
-use crate::handlers::{HandleResult, InputContext, MenuState};
+use crate::handlers::InputContext;
 use crate::input::Key;
+use crate::overlay::OverlayKind;
 
 /// How a single key trigger participates in matching.
 ///
@@ -70,21 +71,25 @@ pub(crate) struct HelpEntry {
 /// and the matched key (so a binding triggered by multiple keys can
 /// branch on which one fired — e.g. extracting a digit from
 /// `Key::Char(c @ '1'..='9')` for widget-toggle).
-pub(crate) type ActionFn = fn(&mut InputContext, &Key) -> HandleResult;
+///
+/// Actions mutate state and may set `*ctx.quit = true` to signal
+/// application exit. They never return terminal output — the central
+/// render path repaints based on the dirty flags they set.
+pub(crate) type ActionFn = fn(&mut InputContext, &Key);
 
 /// One keybind. Multiple `keys`, multiple `states` — a single entry
 /// covers every (key, state) pair that should run the same action.
 pub(crate) struct Binding {
     pub keys: &'static [KeySpec],
-    pub states: &'static [MenuState],
+    pub states: &'static [OverlayKind],
     pub help: Option<HelpEntry>,
     pub action: ActionFn,
 }
 
 impl Binding {
-    /// Whether this binding should fire for the given key, menu
-    /// state, and vim-mode flag.
-    pub fn matches(&self, key: &Key, state: MenuState, vim: bool) -> bool {
+    /// Whether this binding should fire for the given key, overlay
+    /// kind, and vim-mode flag.
+    pub fn matches(&self, key: &Key, state: OverlayKind, vim: bool) -> bool {
         if !self.states.contains(&state) {
             return false;
         }
@@ -96,13 +101,13 @@ impl Binding {
 }
 
 /// Pre-dispatch hook outcome. `Consume` short-circuits dispatch
-/// with a pre-built result; `Continue` lets the binding scan
-/// proceed (used for state-mutating side effects like
+/// (the key is considered handled); `Continue` lets the binding
+/// scan proceed (used for state-mutating side effects like
 /// `cancel_follow_on_nav`, where the key should also drive the
 /// matched navigation binding).
 pub(crate) enum PrehookOutcome {
     Continue,
-    Consume(HandleResult),
+    Consume,
 }
 
 pub(crate) type PrehookFn = fn(&Key, &mut InputContext) -> PrehookOutcome;
@@ -110,12 +115,12 @@ pub(crate) type PrehookFn = fn(&Key, &mut InputContext) -> PrehookOutcome;
 /// One pre-dispatch hook. State scoping is explicit so the hook
 /// table is auditable in one place.
 pub(crate) struct Prehook {
-    pub states: &'static [MenuState],
+    pub states: &'static [OverlayKind],
     pub hook: PrehookFn,
 }
 
 impl Prehook {
-    fn matches(&self, state: MenuState) -> bool {
+    fn matches(&self, state: OverlayKind) -> bool {
         self.states.contains(&state)
     }
 }
@@ -123,23 +128,22 @@ impl Prehook {
 /// Catch-all handler for a state that intentionally consumes any
 /// key not bound in [`BINDINGS`] — used by the text-input states
 /// to append typed characters to their buffers.
-pub(crate) type FallbackFn = fn(&Key, &mut InputContext) -> HandleResult;
+pub(crate) type FallbackFn = fn(&Key, &mut InputContext);
 
 /// Registered fallback for `state`, or `None` if the state has no
 /// catch-all (most states don't).
-fn fallback_for(state: MenuState) -> Option<FallbackFn> {
+fn fallback_for(state: OverlayKind) -> Option<FallbackFn> {
     match state {
-        MenuState::Filter => Some(crate::handlers::filter::fallback_typed_char),
-        MenuState::OptionsEdit => Some(crate::handlers::options_edit::fallback_typed_char),
+        OverlayKind::Filter => Some(crate::overlay::filter::fallback_typed_char),
+        OverlayKind::OptionsEdit => Some(crate::overlay::options::edit::fallback_typed_char),
         _ => None,
     }
 }
 
 /// Dispatch a single key event through the prehooks, the binding
-/// table, and any state-specific fallback. Returns the
-/// [`HandleResult`] the application loop will execute.
-pub(crate) fn dispatch(key: &Key, ctx: &mut InputContext) -> HandleResult {
-    let state = ctx.overlay.menu_state;
+/// table, and any state-specific fallback.
+pub(crate) fn dispatch(key: &Key, ctx: &mut InputContext) {
+    let state = ctx.overlay.active(&ctx.process.filter_text).kind();
     let vim = ctx.config.ui.vim_keys;
 
     for prehook in PREHOOKS {
@@ -147,28 +151,27 @@ pub(crate) fn dispatch(key: &Key, ctx: &mut InputContext) -> HandleResult {
             continue;
         }
         match (prehook.hook)(key, ctx) {
-            PrehookOutcome::Consume(result) => return result,
+            PrehookOutcome::Consume => return,
             PrehookOutcome::Continue => {}
         }
     }
 
     for binding in BINDINGS {
         if binding.matches(key, state, vim) {
-            return (binding.action)(ctx, key);
+            (binding.action)(ctx, key);
+            return;
         }
     }
 
     if let Some(fallback) = fallback_for(state) {
-        return fallback(key, ctx);
+        fallback(key, ctx);
     }
-
-    HandleResult::none()
 }
 
 mod prehooks;
 mod table;
 
-pub(crate) use table::{BINDINGS, PREHOOKS};
-
 #[cfg(test)]
 mod tests;
+
+pub(crate) use table::{BINDINGS, PREHOOKS};
