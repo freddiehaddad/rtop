@@ -1,82 +1,45 @@
 use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
-use std::{
-    collections::HashMap,
-    ffi::c_void,
-    mem::{MaybeUninit, size_of},
-    slice,
-};
+use std::{collections::HashMap, ffi::c_void, mem::size_of};
 use thiserror::Error;
 
 use super::{
     Collector,
-    win::{CounterDelta, OwnedHandle, checked_u32_size, counter_delta, exact_byte_count},
+    win::{CounterDelta, OwnedHandle, counter_delta},
 };
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{HANDLE, UNICODE_STRING};
 
 const TOKEN_QUERY_ACCESS: u32 = 0x0008;
-const PROCESS_BASIC_INFORMATION_CLASS: u32 = 0;
-const MAX_REMOTE_COMMAND_LINE_BYTES: usize = u16::MAX as usize - 1;
 
-#[cfg(target_pointer_width = "64")]
-const PEB_PROCESS_PARAMETERS_OFFSET_X64: usize = 0x20;
-#[cfg(target_pointer_width = "64")]
-const RTL_USER_PROCESS_PARAMETERS_COMMAND_LINE_OFFSET_X64: usize = 0x70;
+/// `PROCESSINFOCLASS::ProcessCommandLineInformation`. Available on Windows 8.1
+/// and later; queries on Windows 8 also accept it. Returns a
+/// `UNICODE_STRING` followed by the command-line bytes; `Buffer` points
+/// just past the struct, inside the same allocation.
+const PROCESS_COMMAND_LINE_INFORMATION_CLASS: u32 = 60;
 
-#[repr(C)]
-struct ProcessBasicInformation {
-    reserved1: usize,
-    peb_base_address: usize,
-    reserved2: [usize; 2],
-    unique_process_id: usize,
-    reserved3: usize,
-}
+/// `STATUS_INFO_LENGTH_MISMATCH` — reported by `NtQueryInformationProcess`
+/// when the supplied buffer is too small. The required size is written
+/// to `ReturnLength` regardless of return status.
+const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004u32 as i32;
 
-#[cfg(target_pointer_width = "64")]
-#[repr(C)]
-#[derive(Clone, Copy)]
-struct RemoteUnicodeString64 {
-    length: u16,
-    maximum_length: u16,
-    padding: u32,
-    buffer: u64,
-}
-
-#[cfg(target_pointer_width = "64")]
-const _: () = assert!(size_of::<RemoteUnicodeString64>() == 16);
+/// Sanity cap on the buffer the kernel may request for a remote command
+/// line. 64 KiB is well above any realistic command-line length and
+/// matches the historical `RTL_USER_PROCESS_PARAMETERS.CommandLine`
+/// upper bound (`u16::MAX` bytes).
+const MAX_CMDLINE_BUFFER_BYTES: u32 = 64 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 enum CmdlineReadError {
-    #[cfg(not(target_pointer_width = "64"))]
-    #[error("unsupported architecture for remote command-line read")]
-    UnsupportedArchitecture,
-    #[error("OpenProcess failed")]
-    OpenProcess,
-    #[error("NtQueryInformationProcess (ProcessBasicInformation) failed")]
-    QueryBasicInfo,
-    #[error("invalid pointer encountered while traversing PEB")]
-    InvalidPointer,
-    #[error("integer overflow while computing remote read size")]
-    IntegerOverflow,
-    #[error("ReadProcessMemory returned fewer bytes than requested")]
-    ShortRead,
-    #[error("UNICODE_STRING in remote process is invalid")]
+    #[error("NtQueryInformationProcess (ProcessCommandLineInformation) failed")]
+    Query,
+    #[error("UNICODE_STRING returned by NtQueryInformationProcess is invalid")]
     InvalidUnicodeString,
+    #[error("kernel reported a buffer size larger than the cmdline cap")]
+    BufferTooLarge,
 }
 
 #[link(name = "advapi32")]
 unsafe extern "system" {
     fn OpenProcessToken(process: HANDLE, access: u32, token: *mut HANDLE) -> i32;
-}
-
-#[link(name = "kernel32")]
-unsafe extern "system" {
-    fn ReadProcessMemory(
-        process: HANDLE,
-        base: usize,
-        buffer: *mut c_void,
-        size: usize,
-        bytes_read: *mut usize,
-    ) -> i32;
 }
 
 #[link(name = "ntdll")]
@@ -297,123 +260,109 @@ fn get_process_details(
             // Username
             user = get_process_user(handle.get());
 
-            // Command line
-            cmd = get_process_cmdline(pid);
+            // Command line — reuse the same handle (the API is documented
+            // to work with PROCESS_QUERY_LIMITED_INFORMATION on Win 10+).
+            cmd = get_process_cmdline(handle.get());
         }
     }
 
     (cpu_p, cpu_time, mem, priority, user, cmd)
 }
 
-fn query_process_basic_info(handle: HANDLE) -> Result<ProcessBasicInformation, CmdlineReadError> {
-    let mut pbi = MaybeUninit::<ProcessBasicInformation>::uninit();
-    let mut ret_len: u32 = 0;
-    let info_len = checked_u32_size(size_of::<ProcessBasicInformation>())
-        .ok_or(CmdlineReadError::IntegerOverflow)?;
+/// Read the full command line of a process via
+/// `NtQueryInformationProcess(ProcessCommandLineInformation)`. Returns
+/// an empty string if the query fails (access denied, protected
+/// process, kernel rejection, …) so the caller falls back to the
+/// process name.
+fn get_process_cmdline(handle: HANDLE) -> String {
+    try_get_process_cmdline(handle).unwrap_or_default()
+}
 
-    // SAFETY: pbi points to writable storage for ProcessBasicInformation and
-    // info_len matches that storage size. The return status and byte count are
-    // checked before the structure is assumed initialized.
+fn try_get_process_cmdline(handle: HANDLE) -> Result<String, CmdlineReadError> {
+    // Probe call: a null info pointer with size 0 returns
+    // STATUS_INFO_LENGTH_MISMATCH along with the required size.
+    let mut needed: u32 = 0;
+    // SAFETY: passing a null info pointer with size 0 is the documented
+    // probe shape for variable-size NtQueryInformationProcess outputs;
+    // the kernel writes the required size to `needed` regardless of
+    // return status.
     let status = unsafe {
         NtQueryInformationProcess(
             handle,
-            PROCESS_BASIC_INFORMATION_CLASS,
-            pbi.as_mut_ptr().cast::<c_void>(),
-            info_len,
-            &mut ret_len,
+            PROCESS_COMMAND_LINE_INFORMATION_CLASS,
+            std::ptr::null_mut(),
+            0,
+            &mut needed,
         )
     };
-    if status != 0 || ret_len as usize != size_of::<ProcessBasicInformation>() {
-        return Err(CmdlineReadError::QueryBasicInfo);
+    if status != STATUS_INFO_LENGTH_MISMATCH || (needed as usize) < size_of::<UNICODE_STRING>() {
+        return Err(CmdlineReadError::Query);
+    }
+    if needed > MAX_CMDLINE_BUFFER_BYTES {
+        return Err(CmdlineReadError::BufferTooLarge);
     }
 
-    // SAFETY: NtQueryInformationProcess succeeded and reported that it wrote
-    // exactly a full ProcessBasicInformation record.
-    let pbi = unsafe { pbi.assume_init() };
-    if pbi.peb_base_address == 0 {
-        return Err(CmdlineReadError::InvalidPointer);
-    }
-    Ok(pbi)
-}
+    // `Vec<u64>`-backed storage so that the kernel-supplied
+    // `UNICODE_STRING.Buffer` pointer (which the kernel writes inside
+    // our allocation) lands on a u16-aligned address.
+    let words = (needed as usize).div_ceil(size_of::<u64>());
+    let mut storage: Vec<u64> = vec![0; words];
+    let buf_ptr = storage.as_mut_ptr().cast::<u8>();
+    let buf_len = words * size_of::<u64>();
 
-fn read_process_memory_exact(
-    handle: HANDLE,
-    base: usize,
-    buffer: &mut [u8],
-) -> Result<(), CmdlineReadError> {
-    if base == 0 || buffer.is_empty() {
-        return Err(CmdlineReadError::InvalidPointer);
-    }
-
-    let mut bytes_read = 0usize;
-    // SAFETY: buffer is a valid local writable byte slice. The remote address
-    // belongs to the target process handle; ReadProcessMemory validates that
-    // address and reports how many bytes it copied.
-    let ok = unsafe {
-        ReadProcessMemory(
+    let mut written: u32 = 0;
+    // SAFETY: buf_ptr addresses `buf_len` >= `needed` bytes of writable,
+    // u64-aligned storage owned by `storage`. `written` is a stack-
+    // allocated u32. The status is checked before any field of the
+    // returned UNICODE_STRING is read.
+    let status = unsafe {
+        NtQueryInformationProcess(
             handle,
-            base,
-            buffer.as_mut_ptr().cast::<c_void>(),
-            buffer.len(),
-            &mut bytes_read,
+            PROCESS_COMMAND_LINE_INFORMATION_CLASS,
+            buf_ptr.cast::<c_void>(),
+            needed,
+            &mut written,
         )
     };
-    if ok == 0 || !exact_byte_count(bytes_read, buffer.len()) {
-        return Err(CmdlineReadError::ShortRead);
+    if status != 0 || (written as usize) < size_of::<UNICODE_STRING>() {
+        return Err(CmdlineReadError::Query);
     }
 
-    Ok(())
-}
-
-unsafe fn read_remote_copy<T: Copy>(handle: HANDLE, base: usize) -> Result<T, CmdlineReadError> {
-    let mut value = MaybeUninit::<T>::uninit();
-    // SAFETY: the byte slice covers only the uninitialized local storage for T.
-    // The caller guarantees T is an integer-only FFI layout where any bit
-    // pattern is valid before assume_init below.
-    let bytes =
-        unsafe { slice::from_raw_parts_mut(value.as_mut_ptr().cast::<u8>(), size_of::<T>()) };
-    read_process_memory_exact(handle, base, bytes)?;
-    // SAFETY: read_process_memory_exact wrote exactly size_of::<T>() bytes into
-    // value, and the caller constrained T to an all-bit-pattern-valid layout.
-    Ok(unsafe { value.assume_init() })
-}
-
-fn read_remote_utf16(
-    handle: HANDLE,
-    base: usize,
-    units: usize,
-) -> Result<Vec<u16>, CmdlineReadError> {
-    if units == 0 {
+    // SAFETY: the kernel wrote at least `size_of::<UNICODE_STRING>()`
+    // bytes into `storage`. `UNICODE_STRING` is a POD layout (two u16,
+    // padding, raw pointer); any bit pattern is well-defined for read.
+    let header: UNICODE_STRING =
+        unsafe { std::ptr::read_unaligned(buf_ptr.cast::<UNICODE_STRING>()) };
+    let length_bytes = header.Length as usize;
+    if length_bytes == 0 {
+        return Ok(String::new());
+    }
+    if !length_bytes.is_multiple_of(size_of::<u16>()) {
         return Err(CmdlineReadError::InvalidUnicodeString);
     }
 
-    let mut buf = vec![0u16; units];
-    // SAFETY: the byte slice covers the initialized local UTF-16 buffer. The
-    // byte length is units * size_of::<u16>(), which cannot overflow because it
-    // was validated from a u16 byte count.
-    let bytes = unsafe {
-        slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<u8>(), units * size_of::<u16>())
-    };
-    read_process_memory_exact(handle, base, bytes)?;
-    Ok(buf)
-}
-
-fn command_line_utf16_units(
-    length: u16,
-    maximum_length: u16,
-    buffer: usize,
-) -> Result<usize, CmdlineReadError> {
-    let length = usize::from(length);
-    let maximum_length = usize::from(maximum_length);
-    if buffer == 0
-        || length == 0
-        || length % size_of::<u16>() != 0
-        || length > maximum_length
-        || length > MAX_REMOTE_COMMAND_LINE_BYTES
+    // Validate that `header.Buffer` points inside our allocation and
+    // that the claimed range is reachable.
+    let alloc_start = buf_ptr as usize;
+    let alloc_end = alloc_start + buf_len;
+    let buffer_addr = header.Buffer.0 as usize;
+    if buffer_addr < alloc_start
+        || buffer_addr
+            .checked_add(length_bytes)
+            .is_none_or(|end| end > alloc_end)
     {
         return Err(CmdlineReadError::InvalidUnicodeString);
     }
-    Ok(length / size_of::<u16>())
+
+    let units = length_bytes / size_of::<u16>();
+    // SAFETY: the bounds check above proved
+    // `buffer_addr .. buffer_addr + length_bytes` lies inside
+    // `storage`. The address is u16-aligned because `storage` is
+    // u64-aligned (8 % 2 == 0) and the kernel writes
+    // `header.Buffer` immediately after the UNICODE_STRING struct,
+    // whose size is a multiple of 2 on every supported architecture.
+    let utf16 = unsafe { std::slice::from_raw_parts(header.Buffer.0.cast_const(), units) };
+    Ok(sanitize_command_line(&String::from_utf16_lossy(utf16)))
 }
 
 fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
@@ -498,57 +447,6 @@ fn get_process_user(handle: windows::Win32::Foundation::HANDLE) -> String {
         }
     }
     String::new()
-}
-
-/// Read the full command line of a process via NtQueryInformationProcess.
-/// Returns empty string if access is denied or the process is protected.
-fn get_process_cmdline(pid: u32) -> String {
-    try_get_process_cmdline(pid).unwrap_or_default()
-}
-
-#[cfg(target_pointer_width = "64")]
-fn try_get_process_cmdline(pid: u32) -> Result<String, CmdlineReadError> {
-    use windows::Win32::System::Threading::*;
-
-    // SAFETY: OpenProcess is called with query/read rights for a PID provided by
-    // process enumeration. The returned handle is checked before use and owned
-    // by OwnedHandle.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, false, pid) }
-        .ok()
-        .and_then(OwnedHandle::new)
-        .ok_or(CmdlineReadError::OpenProcess)?;
-
-    let pbi = query_process_basic_info(handle.get())?;
-    let params_ptr_addr = pbi
-        .peb_base_address
-        .checked_add(PEB_PROCESS_PARAMETERS_OFFSET_X64)
-        .ok_or(CmdlineReadError::IntegerOverflow)?;
-    // SAFETY: usize is an integer pointer-sized value; every bit pattern is
-    // valid. read_remote_copy verifies the exact byte count before returning.
-    let params_ptr: usize = unsafe { read_remote_copy(handle.get(), params_ptr_addr)? };
-    if params_ptr == 0 {
-        return Err(CmdlineReadError::InvalidPointer);
-    }
-
-    let cmdline_addr = params_ptr
-        .checked_add(RTL_USER_PROCESS_PARAMETERS_COMMAND_LINE_OFFSET_X64)
-        .ok_or(CmdlineReadError::IntegerOverflow)?;
-    // SAFETY: RemoteUnicodeString64 is a repr(C) integer-only mirror of the x64
-    // UNICODE_STRING layout embedded in RTL_USER_PROCESS_PARAMETERS.
-    let cmdline: RemoteUnicodeString64 = unsafe { read_remote_copy(handle.get(), cmdline_addr)? };
-
-    let char_count = command_line_utf16_units(
-        cmdline.length,
-        cmdline.maximum_length,
-        cmdline.buffer as usize,
-    )?;
-    let cmd_buf = read_remote_utf16(handle.get(), cmdline.buffer as usize, char_count)?;
-    Ok(sanitize_command_line(&String::from_utf16_lossy(&cmd_buf)))
-}
-
-#[cfg(not(target_pointer_width = "64"))]
-fn try_get_process_cmdline(_pid: u32) -> Result<String, CmdlineReadError> {
-    Err(CmdlineReadError::UnsupportedArchitecture)
 }
 
 /// Replace every Unicode control character (`U+0000`–`U+001F`, `U+007F` DEL,
@@ -659,31 +557,6 @@ mod tests {
     #[test]
     fn cpu_percent_zero_after_counter_reset() {
         assert_eq!(cpu_percent_from_times(200, 100, 1.0, 1), 0.0);
-    }
-
-    #[test]
-    fn command_line_utf16_units_accepts_valid_even_length() {
-        assert_eq!(command_line_utf16_units(8, 10, 0x1000), Ok(4));
-    }
-
-    #[test]
-    fn command_line_utf16_units_rejects_invalid_metadata() {
-        assert_eq!(
-            command_line_utf16_units(0, 10, 0x1000),
-            Err(CmdlineReadError::InvalidUnicodeString)
-        );
-        assert_eq!(
-            command_line_utf16_units(7, 10, 0x1000),
-            Err(CmdlineReadError::InvalidUnicodeString)
-        );
-        assert_eq!(
-            command_line_utf16_units(12, 10, 0x1000),
-            Err(CmdlineReadError::InvalidUnicodeString)
-        );
-        assert_eq!(
-            command_line_utf16_units(8, 10, 0),
-            Err(CmdlineReadError::InvalidUnicodeString)
-        );
     }
 
     #[test]

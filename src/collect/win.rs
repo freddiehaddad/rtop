@@ -192,10 +192,6 @@ pub(crate) fn bytes_per_sec(current: u64, previous: u64, elapsed_secs: f64) -> u
     (delta as f64 / elapsed_secs).clamp(0.0, u64::MAX as f64) as u64
 }
 
-pub(crate) fn exact_byte_count(bytes_read: usize, expected: usize) -> bool {
-    expected > 0 && bytes_read == expected
-}
-
 pub(crate) fn checked_u32_size(size: usize) -> Option<u32> {
     u32::try_from(size).ok()
 }
@@ -259,13 +255,6 @@ mod tests {
         assert_eq!(percent_u64(50, 100), 50);
         assert_eq!(percent_u64(1, 0), 0);
         assert_eq!(percent_u64(u64::MAX, u64::MAX), 100);
-    }
-
-    #[test]
-    fn exact_byte_count_requires_full_nonzero_read() {
-        assert!(exact_byte_count(8, 8));
-        assert!(!exact_byte_count(7, 8));
-        assert!(!exact_byte_count(0, 0));
     }
 
     #[test]
