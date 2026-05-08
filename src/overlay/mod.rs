@@ -20,7 +20,7 @@
 //!
 //! [`ReturnTarget`] is the close-target for overlays that can be
 //! reached either directly (e.g. `?` opens Help from Normal mode) or
-//! via the main menu (Esc → ↓ → Enter opens Help from Main). On
+//! via the main menu (`m` → ↓ → Enter opens Help from Main). On
 //! close, the overlay returns to wherever it was opened from.
 
 pub mod filter;

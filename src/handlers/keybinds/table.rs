@@ -65,10 +65,16 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::quit_action,
     },
     Binding {
-        keys: &[KeySpec::Always(Key::Escape), KeySpec::Always(Key::Char('m'))],
+        keys: &[KeySpec::Always(Key::Char('m'))],
         states: NORMAL,
-        help: Some(HelpEntry { category: "Global", keys: "m / Esc", description: "Toggle main menu" }),
+        help: Some(HelpEntry { category: "Global", keys: "m", description: "Toggle main menu" }),
         action: normal::open_main_menu_action,
+    },
+    Binding {
+        keys: &[KeySpec::Always(Key::Escape)],
+        states: NORMAL,
+        help: Some(HelpEntry { category: "Global", keys: "Esc", description: "Close detail panel" }),
+        action: normal::close_detail_action,
     },
     Binding {
         keys: &[KeySpec::Always(Key::Char('?')), KeySpec::Always(Key::F(1))],

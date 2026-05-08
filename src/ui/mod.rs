@@ -1,4 +1,5 @@
 use crate::collect::CollectStatus;
+use crate::domain::process::ProcInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 
@@ -65,6 +66,24 @@ pub fn draw_status_inset(
     buf.mv(title_end_x, y + 1).text(&inset);
 }
 
+/// Resolved input for the proc widget's detail panel.
+///
+/// When `Some`, the proc widget reserves space for the panel and
+/// renders it from `proc`. When `None`, the panel is closed and the
+/// layout reclaims the rows.
+///
+/// `dead` is computed upstream as
+/// `!live_snapshot.contains(open_pid)`. When `true`, the renderer
+/// inserts the `✗ Process exited` status row. The flag is computed
+/// the same way in both paused and live modes — see the
+/// `DetailPanel` enum on `ProcessViewState` and the resolver in
+/// `RenderInputs::build`.
+#[derive(Clone, Copy)]
+pub struct DetailView<'a> {
+    pub proc: &'a ProcInfo,
+    pub dead: bool,
+}
+
 /// Display state for the process list view.
 pub struct ProcView<'a> {
     pub start: usize,
@@ -72,7 +91,8 @@ pub struct ProcView<'a> {
     pub sort_by: crate::collect::process_display::ProcSort,
     pub sort_reversed: bool,
     pub tree_mode: bool,
-    pub detailed_pid: u32,
+    /// Resolved detail panel input. `None` when closed.
+    pub detail: Option<DetailView<'a>>,
     pub followed_pid: u32,
     pub filter: &'a str,
     pub filtering: bool,

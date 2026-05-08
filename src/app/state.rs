@@ -19,7 +19,7 @@
 
 use crate::config;
 use crate::dirty::RenderDirty;
-use crate::domain::process::ProcDisplayEntry;
+use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::domain::widget_kind::WidgetKind;
 use crate::domain::widget_set::WidgetSet;
 use crate::draw;
@@ -409,7 +409,15 @@ impl OverlayState {
 pub(crate) struct ProcessViewState {
     pub(crate) start: usize,
     pub(crate) selected: usize,
-    pub(crate) detailed_pid: u32,
+    /// Detail panel state.
+    ///
+    /// Replaces an earlier `detailed_pid: u32` field whose `0`
+    /// sentinel meant "panel closed". The enum makes the
+    /// open/closed split explicit at the type level and lets the
+    /// `Open` variant carry the cached `ProcInfo` needed to keep
+    /// rendering after the watched process exits — see
+    /// [`DetailPanel`] for the full invariant.
+    pub(crate) detail: DetailPanel,
     pub(crate) selected_pid: u32,
     pub(crate) followed_pid: u32,
     pub(crate) filter_text: String,
@@ -442,6 +450,45 @@ pub(crate) struct ProcessViewState {
     pub(crate) pause: Option<PauseState>,
 }
 
+/// Process detail panel state.
+///
+/// Two-state machine that controls whether the proc widget renders
+/// the detail panel above the process list.
+///
+/// * `Closed` — no panel; layout reserves no detail rows.
+/// * `Open` — a panel is visible for the PID inside [`OpenDetail`].
+///   The variant carries a cached `ProcInfo` (`last_seen`) that the
+///   renderer uses as the data source. The cache is refreshed every
+///   cycle the active procs source contains the PID and is preserved
+///   as-is once the PID disappears, so the panel keeps rendering its
+///   last-known values with a `✗ Process exited` annotation in both
+///   live (non-paused) and paused modes.
+///
+/// Together with the `dead` flag computed at render time
+/// (`dead = !live_snapshot.contains(pid)`) this gives a single
+/// unified rule across paused and live modes: the panel persists
+/// once opened and surfaces the dead state through the same status
+/// line in both modes.
+#[derive(Debug, Clone)]
+pub(crate) enum DetailPanel {
+    Closed,
+    Open(OpenDetail),
+}
+
+/// Inner state for [`DetailPanel::Open`].
+#[derive(Debug, Clone)]
+pub(crate) struct OpenDetail {
+    /// PID the panel is currently inspecting.
+    pub(crate) pid: u32,
+    /// Most recent [`ProcInfo`] observed for `pid` from the active
+    /// procs source (paused snapshot when paused, live snapshot
+    /// otherwise). Refreshed by
+    /// [`ProcessViewState::refresh_detail_cache`] every time the
+    /// source contains the PID; preserved as-is when the source
+    /// omits it.
+    pub(crate) last_seen: ProcInfo,
+}
+
 /// Pause state captured the moment the user toggled pause on. Lives
 /// on [`ProcessViewState`]; see the `pause` field's doc comment for
 /// the full snapshot-freeze invariant.
@@ -464,7 +511,7 @@ impl ProcessViewState {
         Self {
             start: 0,
             selected: 0,
-            detailed_pid: 0,
+            detail: DetailPanel::Closed,
             selected_pid: 0,
             followed_pid: 0,
             filter_text: String::new(),
@@ -472,6 +519,97 @@ impl ProcessViewState {
             armed_terminate: None,
             pause: None,
         }
+    }
+
+    /// Open the detail panel for `info.pid`, seeding `last_seen`
+    /// from `info`. Caller is responsible for marking the proc
+    /// widget dirty.
+    ///
+    /// The caller resolves the `ProcInfo` from the active procs
+    /// source (typically the row under the cursor), so this method
+    /// never has to look up by PID and cannot fail. This keeps the
+    /// open-detail path total — no `expect`, no `Option` shuffle.
+    pub(crate) fn open_detail(&mut self, info: ProcInfo) {
+        let pid = info.pid;
+        self.detail = DetailPanel::Open(OpenDetail {
+            pid,
+            last_seen: info,
+        });
+    }
+
+    /// Close the detail panel. No-op when already closed.
+    pub(crate) fn close_detail(&mut self) {
+        self.detail = DetailPanel::Closed;
+    }
+
+    /// `true` if `pid` is the currently open detail PID.
+    pub(crate) fn detail_pid_is(&self, pid: u32) -> bool {
+        matches!(&self.detail, DetailPanel::Open(d) if d.pid == pid)
+    }
+
+    /// Borrow the resolved detail proc info, or `None` when closed.
+    /// The returned reference points at the cached `last_seen`
+    /// value, which mirrors the latest observation from the active
+    /// procs source (or the value at the moment the process exited
+    /// when the source no longer contains the PID).
+    pub(crate) fn detail_info(&self) -> Option<&ProcInfo> {
+        match &self.detail {
+            DetailPanel::Closed => None,
+            DetailPanel::Open(d) => Some(&d.last_seen),
+        }
+    }
+
+    /// Refresh `last_seen` from `source` if the source contains the
+    /// open PID. No-op when closed or when the source does not
+    /// contain the PID — in that case the cached value is preserved
+    /// so the panel continues rendering the last-known values for an
+    /// exited process.
+    pub(crate) fn refresh_detail_cache(&mut self, source: &[ProcInfo]) {
+        let DetailPanel::Open(open) = &mut self.detail else {
+            return;
+        };
+        if let Some(info) = source.iter().find(|p| p.pid == open.pid) {
+            open.last_seen = info.clone();
+        }
+    }
+
+    /// Toggle the detail panel against `info`.
+    ///
+    /// If the panel is already open for `info.pid`, close it and
+    /// clear the follow target (matches the manual Enter-to-close
+    /// gesture's coupling: a dead PID is unfollowable, and closing
+    /// the inspector also releases the follow lock). Otherwise
+    /// open the panel for `info`.
+    ///
+    /// Returns the new open state (`true` = open after toggle) so
+    /// callers can drive logging or further dirty-flag work; the
+    /// caller is always responsible for marking the proc widget
+    /// dirty.
+    pub(crate) fn toggle_detail(&mut self, info: ProcInfo) -> bool {
+        if self.detail_pid_is(info.pid) {
+            self.close_detail();
+            self.followed_pid = 0;
+            false
+        } else {
+            self.open_detail(info);
+            true
+        }
+    }
+
+    /// Close the detail panel and clear the follow target.
+    ///
+    /// Returns `true` when the panel transitioned from open to
+    /// closed — the caller should then mark the proc widget dirty
+    /// to repaint without the panel rows. Returns `false` when the
+    /// panel was already closed; the caller should consume the
+    /// keystroke without dirtying anything.
+    pub(crate) fn close_detail_and_unfollow(&mut self) -> bool {
+        if matches!(self.detail, DetailPanel::Closed) {
+            return false;
+        }
+        self.close_detail();
+        self.followed_pid = 0;
+        true
     }
 
     /// Toggle pause on or off. Returns the new pause state (`true`
@@ -1023,5 +1161,180 @@ mod tests {
         state.live.proc_data = Some(snap(&[10, 20, 30]));
         let src = state.process.procs_source(&state.live).unwrap();
         assert_eq!(src.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![10, 20]);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Detail panel state — DetailPanel enum and helpers
+    // ─────────────────────────────────────────────────────────────
+
+    fn proc_with(pid: u32, name: &str) -> crate::domain::process::ProcInfo {
+        crate::domain::process::ProcInfo {
+            pid,
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn detail_panel_starts_closed() {
+        let mut state = ProcessViewState::new();
+        assert!(matches!(state.detail, DetailPanel::Closed));
+        assert!(state.detail_info().is_none());
+        assert!(!state.detail_pid_is(0));
+        assert!(!state.detail_pid_is(42));
+        // Closing a closed panel is a no-op and stays Closed.
+        state.close_detail();
+        assert!(matches!(state.detail, DetailPanel::Closed));
+    }
+
+    #[test]
+    fn open_detail_seeds_last_seen_and_records_pid() {
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+
+        let info = state
+            .detail_info()
+            .expect("panel should be open after open_detail");
+        assert_eq!(info.pid, 100);
+        assert_eq!(info.name, "alpha");
+        assert!(state.detail_pid_is(100));
+        assert!(!state.detail_pid_is(200));
+    }
+
+    #[test]
+    fn refresh_detail_cache_updates_when_source_contains_pid() {
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+
+        // New observation: same PID, different name (e.g. process
+        // self-renamed, or initial info had a stale value).
+        let source = vec![proc_with(100, "alpha-renamed"), proc_with(200, "beta")];
+        state.refresh_detail_cache(&source);
+
+        let info = state.detail_info().expect("panel still open");
+        assert_eq!(info.pid, 100);
+        assert_eq!(info.name, "alpha-renamed");
+    }
+
+    #[test]
+    fn refresh_detail_cache_preserves_last_seen_when_source_omits_pid() {
+        // The "process just exited" case: the live snapshot no
+        // longer contains the open PID. The cache must keep the
+        // previous values so the panel can render the last-known
+        // state with the dead annotation.
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+
+        let source_without = vec![proc_with(200, "beta")];
+        state.refresh_detail_cache(&source_without);
+
+        let info = state.detail_info().expect("panel still open");
+        assert_eq!(info.pid, 100);
+        assert_eq!(
+            info.name, "alpha",
+            "last_seen must survive when source omits the PID"
+        );
+    }
+
+    #[test]
+    fn refresh_detail_cache_is_noop_when_closed() {
+        let mut state = ProcessViewState::new();
+        let source = vec![proc_with(100, "alpha")];
+        state.refresh_detail_cache(&source);
+        assert!(matches!(state.detail, DetailPanel::Closed));
+    }
+
+    #[test]
+    fn close_detail_clears_panel() {
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+        assert!(matches!(state.detail, DetailPanel::Open(_)));
+
+        state.close_detail();
+        assert!(matches!(state.detail, DetailPanel::Closed));
+        assert!(state.detail_info().is_none());
+        assert!(!state.detail_pid_is(100));
+    }
+
+    #[test]
+    fn open_detail_replaces_previous_open() {
+        // Opening for a different PID swaps the cached info wholesale.
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+        state.open_detail(proc_with(200, "beta"));
+
+        assert!(state.detail_pid_is(200));
+        let info = state.detail_info().unwrap();
+        assert_eq!(info.pid, 200);
+        assert_eq!(info.name, "beta");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Detail panel — toggle and close-and-unfollow (handler logic
+    // exposed as state methods so the action handlers can stay
+    // thin and these can be tested without InputContext mocking).
+    // ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn toggle_detail_opens_when_closed() {
+        let mut state = ProcessViewState::new();
+        state.followed_pid = 42;
+        let opened = state.toggle_detail(proc_with(100, "alpha"));
+        assert!(opened);
+        assert!(state.detail_pid_is(100));
+        assert_eq!(
+            state.followed_pid, 42,
+            "opening the panel must NOT clear an existing follow target"
+        );
+    }
+
+    #[test]
+    fn toggle_detail_closes_when_open_for_same_pid_and_clears_follow() {
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+        state.followed_pid = 100;
+        let opened = state.toggle_detail(proc_with(100, "alpha"));
+        assert!(!opened);
+        assert!(matches!(state.detail, DetailPanel::Closed));
+        assert_eq!(state.followed_pid, 0, "closing must clear follow target");
+    }
+
+    #[test]
+    fn toggle_detail_replaces_when_open_for_different_pid() {
+        // Opening detail for a different PID swaps the panel
+        // without touching follow state.
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+        state.followed_pid = 100;
+        let opened = state.toggle_detail(proc_with(200, "beta"));
+        assert!(opened);
+        assert!(state.detail_pid_is(200));
+        assert_eq!(
+            state.followed_pid, 100,
+            "swapping panel target must NOT clear follow"
+        );
+    }
+
+    #[test]
+    fn close_detail_and_unfollow_returns_false_when_already_closed() {
+        let mut state = ProcessViewState::new();
+        state.followed_pid = 7;
+        let changed = state.close_detail_and_unfollow();
+        assert!(!changed);
+        assert_eq!(
+            state.followed_pid, 7,
+            "no-op path must NOT touch follow state"
+        );
+    }
+
+    #[test]
+    fn close_detail_and_unfollow_closes_open_panel_and_clears_follow() {
+        let mut state = ProcessViewState::new();
+        state.open_detail(proc_with(100, "alpha"));
+        state.followed_pid = 100;
+        let changed = state.close_detail_and_unfollow();
+        assert!(changed);
+        assert!(matches!(state.detail, DetailPanel::Closed));
+        assert_eq!(state.followed_pid, 0);
     }
 }

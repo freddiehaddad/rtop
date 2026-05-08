@@ -490,7 +490,7 @@ mod tests {
             sort_by: crate::collect::process_display::ProcSort::Cpu,
             sort_reversed: false,
             tree_mode: false,
-            detailed_pid: 0,
+            detail: None,
             followed_pid,
             filter: "",
             filtering: false,

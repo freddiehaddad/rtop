@@ -97,7 +97,7 @@ pub(super) struct ProcWidgetLayout {
 impl ProcWidgetLayout {
     pub(super) fn calculate(area: &WidgetArea, view: &ProcView) -> Self {
         let inner_w = area.width.saturating_sub(4);
-        let detail_rows = if view.detailed_pid > 0 {
+        let detail_rows = if view.detail.is_some() {
             MAX_DETAIL_ROWS.min(area.height.saturating_sub(DETAIL_OVERHEAD))
         } else {
             0

@@ -1,6 +1,6 @@
 use super::ProcFrame;
 use super::rows::{display_proc_cpu, format_proc_memory};
-use crate::domain::process::{PriorityClass, ProcDisplayEntry, ProcInfo};
+use crate::domain::process::{PriorityClass, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
@@ -11,17 +11,6 @@ const DETAIL_COL_GAP: usize = 2;
 const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
 
 const NARROW_DETAIL_FIELD_ORDER: [usize; 9] = [0, 1, 4, 5, 2, 3, 8, 6, 7];
-
-pub(super) fn find_detailed_proc<'a>(
-    procs: &'a [ProcInfo],
-    entries: &[ProcDisplayEntry],
-    detailed_pid: u32,
-) -> Option<&'a ProcInfo> {
-    entries
-        .iter()
-        .filter_map(|entry| procs.get(entry.proc_index))
-        .find(|proc| proc.pid == detailed_pid)
-}
 
 /// Parameters for [`draw_detail_panel`].
 pub(super) struct DetailPanelParams<'a> {
@@ -505,6 +494,58 @@ mod tests {
         assert!(
             output.contains(&format!("{dead_fg}Status")),
             "Status label should be preceded by dead_proc_fg"
+        );
+    }
+
+    #[test]
+    fn detail_panel_renders_from_caller_supplied_proc() {
+        // The renderer takes a `&ProcInfo` directly; the upstream
+        // resolver decides whether that reference points at a live
+        // row or a cached `last_seen`. The renderer must not care:
+        // construct an explicit "stale-looking" cached proc that
+        // the row list does NOT contain, and confirm the panel
+        // draws its values just the same.
+        let cached = ProcInfo {
+            pid: 999,
+            name: "ghost.exe".into(),
+            cmd: "ghost.exe --orphan".into(),
+            user: "Cached".into(),
+            mem: 1024 * 1024 * 8,
+            cpu_p: 1.5,
+            ..Default::default()
+        };
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&cached, 80, 8, &frame, &theme, true));
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("ghost.exe"));
+        assert!(plain.contains("Cmd      ghost.exe --orphan"));
+        assert!(plain.contains("PID 999"));
+        assert!(
+            plain.contains("\u{2717} Process exited"),
+            "dead flag must surface the exited status line: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_omits_exited_status_for_live_cached_proc() {
+        // Same renderer with `dead = false` must not insert the
+        // status line. This pairs with the test above to confirm
+        // the renderer is a pure function of (proc, dead).
+        let proc = ProcInfo {
+            pid: 42,
+            name: "live.exe".into(),
+            cmd: "live.exe".into(),
+            ..Default::default()
+        };
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&proc, 80, 8, &frame, &theme, false));
+        let plain = strip_ansi(&output);
+        assert!(
+            !plain.contains("Process exited"),
+            "dead = false must omit the exited status line: {plain}"
         );
     }
 }

@@ -55,7 +55,8 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | Key | Action |
 |-----|--------|
 | `q` / `Ctrl+C` | Quit |
-| `m` / `Esc` | Toggle main menu |
+| `m` | Toggle main menu |
+| `Esc` | Close detail panel |
 | `?` / `F1` | Toggle help |
 | `o` / `F2` | Toggle options |
 | `p` / `Shift+P` | Cycle presets forward/back |

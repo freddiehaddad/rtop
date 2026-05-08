@@ -4,7 +4,7 @@
 //! application responds to (sourced from
 //! `crate::handlers::keybinds::BINDINGS`). It can be opened either
 //! directly from Normal mode (`?`, `F1`) or from the Main menu
-//! (Esc → ↓ → Enter), and on close it returns to wherever it was
+//! (`m` → ↓ → Enter), and on close it returns to wherever it was
 //! opened from.
 //!
 //! Box dimensions and content are entirely **derived from the

@@ -12,7 +12,9 @@
 
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
-use crate::app::state::{AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeView};
+use crate::app::state::{
+    AppState, DetailPanel, LiveData, NetworkViewState, ProcessViewState, RuntimeView,
+};
 use crate::config;
 use crate::dirty::RenderDirty;
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
@@ -46,7 +48,7 @@ pub(crate) fn execute_dirty_work(
     if let Some(layout) = state.render.cached_layout()
         && let Some(proc_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Proc)
     {
-        let detail_rows = if state.process.detailed_pid > 0 {
+        let detail_rows = if state.process.detail_info().is_some() {
             8_usize.min(proc_dim.height.saturating_sub(6))
         } else {
             0
@@ -282,7 +284,15 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) filter_active: bool,
     pub(crate) core_count: usize,
     pub(crate) total_mem: u64,
-    pub(crate) detailed_pid: u32,
+    /// Resolved detail panel input passed straight to the proc
+    /// widget. `Some` when the panel is open; the `proc` reference
+    /// points either into `proc_source` (when the source still
+    /// contains the open PID) or into the cached `last_seen` on
+    /// `state.process.detail` (when the watched process has
+    /// exited). `dead = true` iff the live snapshot does not
+    /// contain the open PID — the same rule for both paused and
+    /// live modes.
+    pub(crate) detail_view: Option<ui::DetailView<'a>>,
     pub(crate) followed_pid: u32,
     pub(crate) armed_terminate: Option<(&'a str, bool)>,
     pub(crate) proc_selected: usize,
@@ -332,6 +342,7 @@ impl<'a> RenderInputs<'a> {
             Some(p) => &p.dead_pids,
             None => empty_dead_pids(),
         };
+        let detail_view = resolve_detail_view(self.process, self.live, proc_source);
         RenderParams {
             dirty: self.dirty,
             layout: self.layout,
@@ -355,7 +366,7 @@ impl<'a> RenderInputs<'a> {
             filter_active: !self.filter.hidden.is_empty(),
             core_count: self.live.core_count,
             total_mem: self.live.total_mem,
-            detailed_pid: self.process.detailed_pid,
+            detail_view,
             followed_pid: self.process.followed_pid,
             armed_terminate: self
                 .process
@@ -366,6 +377,43 @@ impl<'a> RenderInputs<'a> {
             proc_start: self.process.start,
         }
     }
+}
+
+/// Resolve the proc widget's detail-panel render input.
+///
+/// Returns `None` when the panel is closed. Otherwise returns the
+/// `ProcInfo` reference the renderer should display together with
+/// the `dead` flag:
+///
+/// * `proc` borrows from `proc_source` when the source still
+///   contains the open PID, falling back to the cached `last_seen`
+///   on `process.detail` when it does not. This keeps the panel
+///   functional after the watched process exits in live mode (the
+///   row vanishes from `proc_source` but the cache survives) and
+///   correctly mirrors the snapshot value in paused mode.
+/// * `dead` is `true` iff the live snapshot does not contain the
+///   open PID. The same rule applies in both paused and live modes
+///   — in paused mode it reduces to "PID is in `dead_pids`" because
+///   `dead_pids` is exactly the snapshot-minus-live diff intersected
+///   with the snapshot's PID set.
+fn resolve_detail_view<'a>(
+    process: &'a ProcessViewState,
+    live: &LiveData,
+    proc_source: &'a [ProcInfo],
+) -> Option<ui::DetailView<'a>> {
+    let open_pid = match &process.detail {
+        DetailPanel::Closed => return None,
+        DetailPanel::Open(d) => d.pid,
+    };
+    let proc = proc_source
+        .iter()
+        .find(|p| p.pid == open_pid)
+        .or_else(|| process.detail_info())?;
+    let dead = live
+        .proc_data
+        .as_ref()
+        .is_none_or(|s| !s.procs.iter().any(|p| p.pid == open_pid));
+    Some(ui::DetailView { proc, dead })
 }
 
 /// Render UI widgets into an ANSI output string.
@@ -391,6 +439,9 @@ pub(crate) fn render_all(params: &RenderParams) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collect::CollectStatus;
+    use crate::domain::process::ProcInfo;
+    use std::sync::Arc;
 
     #[test]
     fn clamp_proc_selection_allows_last_visible_row() {
@@ -401,5 +452,140 @@ mod tests {
 
         assert_eq!(selected, 3);
         assert_eq!(start, 0);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // resolve_detail_view — pure function exercising the panel
+    // resolution rule used by RenderInputs::build.
+    // ─────────────────────────────────────────────────────────────
+
+    fn proc_with(pid: u32, name: &str) -> ProcInfo {
+        ProcInfo {
+            pid,
+            name: name.into(),
+            ..Default::default()
+        }
+    }
+
+    fn snap(pids: &[u32]) -> Arc<runner::ProcSnapshot> {
+        Arc::new(runner::ProcSnapshot {
+            procs: pids.iter().map(|&pid| proc_with(pid, "p")).collect(),
+            status: CollectStatus::Ok,
+        })
+    }
+
+    /// Build a fresh `AppState` for resolver tests, then return
+    /// `(process, live)` borrows for the call. Centralising the
+    /// construction means the resolver tests do not depend on
+    /// the privacy of `ProcessViewState::new` / `LiveData::new`.
+    fn make_state() -> AppState {
+        let config = config::Config::new();
+        AppState::new(&config)
+    }
+
+    #[test]
+    fn resolve_detail_view_returns_none_when_panel_closed() {
+        let state = make_state();
+        let proc_source: Vec<ProcInfo> = vec![];
+        assert!(matches!(state.process.detail, DetailPanel::Closed));
+        assert!(resolve_detail_view(&state.process, &state.live, &proc_source).is_none());
+    }
+
+    #[test]
+    fn resolve_detail_view_uses_proc_source_when_pid_present() {
+        // Live mode, process alive: the detail proc reference points
+        // at the live snapshot row, NOT the cached last_seen.
+        let mut state = make_state();
+        state.process.open_detail(proc_with(100, "stale-cache"));
+        state.live.proc_data = Some(snap(&[100, 200]));
+        let proc_source = vec![proc_with(100, "fresh-live"), proc_with(200, "other")];
+
+        let view = resolve_detail_view(&state.process, &state.live, &proc_source)
+            .expect("panel resolution should succeed");
+        assert_eq!(view.proc.name, "fresh-live");
+        assert!(
+            !view.dead,
+            "PID 100 is in live snapshot, dead must be false"
+        );
+    }
+
+    #[test]
+    fn resolve_detail_view_falls_back_to_cache_when_pid_absent_from_source() {
+        // Live mode, process exited: source no longer contains the
+        // PID. resolve falls back to the cached last_seen and marks
+        // dead = true.
+        let mut state = make_state();
+        state.process.open_detail(proc_with(100, "cached-name"));
+        state.live.proc_data = Some(snap(&[200, 300]));
+        let proc_source = vec![proc_with(200, "other"), proc_with(300, "another")];
+
+        let view = resolve_detail_view(&state.process, &state.live, &proc_source)
+            .expect("cache fallback succeeds");
+        assert_eq!(view.proc.name, "cached-name");
+        assert!(
+            view.dead,
+            "PID 100 is not in live snapshot, dead must be true"
+        );
+    }
+
+    #[test]
+    fn resolve_detail_view_marks_dead_when_no_live_data() {
+        // First-frame race: panel was somehow opened (e.g. via
+        // initial keystroke) before the first live snapshot
+        // arrived. dead = true is the correct conservative answer
+        // because there is no evidence the PID is alive.
+        let mut state = make_state();
+        state.process.open_detail(proc_with(100, "alpha"));
+        let proc_source = vec![proc_with(100, "alpha")];
+
+        let view = resolve_detail_view(&state.process, &state.live, &proc_source)
+            .expect("source still resolves the proc");
+        assert!(
+            view.dead,
+            "no live data means dead must default to true (no proof of life)"
+        );
+    }
+
+    #[test]
+    fn resolve_detail_view_dead_flag_unifies_paused_and_live_modes() {
+        // The dead rule (`!live.contains(open_pid)`) gives the same
+        // answer in paused mode that the existing `dead_pids`
+        // machinery produces. Construct the paused-mode shape and
+        // verify the rule fires.
+        let mut state = make_state();
+        state.process.open_detail(proc_with(100, "alpha"));
+
+        // Paused mode: proc_source comes from the snapshot, which
+        // still contains the open PID.
+        let proc_source = vec![proc_with(100, "alpha"), proc_with(200, "beta")];
+
+        // Live snapshot lost PID 100 (process exited after pause).
+        state.live.proc_data = Some(snap(&[200]));
+
+        let view = resolve_detail_view(&state.process, &state.live, &proc_source)
+            .expect("snapshot still has PID 100");
+        assert_eq!(view.proc.pid, 100);
+        assert!(
+            view.dead,
+            "live lost PID 100, dead must be true even when source still has it"
+        );
+    }
+
+    #[test]
+    fn resolve_detail_view_dead_flag_clears_on_resurrection() {
+        // PID dies, then a process with the same PID reappears in
+        // the live snapshot. resolve must report dead = false
+        // again. (The panel will then show the new live values; the
+        // cached `last_seen` is overwritten by the next
+        // `refresh_detail_cache` call in the pull path.)
+        let mut state = make_state();
+        state.process.open_detail(proc_with(100, "old"));
+
+        state.live.proc_data = Some(snap(&[100, 200]));
+        let proc_source = vec![proc_with(100, "resurrected"), proc_with(200, "other")];
+
+        let view = resolve_detail_view(&state.process, &state.live, &proc_source).unwrap();
+        assert!(!view.dead);
+        assert_eq!(view.proc.name, "resurrected");
     }
 }

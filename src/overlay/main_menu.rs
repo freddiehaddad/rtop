@@ -1,10 +1,10 @@
 //! Main menu overlay subsystem: state, render, and per-key actions.
 //!
-//! The main menu (Esc, `m`) presents three actions: Options, Help,
-//! Quit. Selection is held in [`MainMenuState`] as a typed
-//! [`MainMenuItem`] enum — not a `usize` index — so the renderer
-//! and activation handler cannot drift out of sync with the menu's
-//! actual contents.
+//! The main menu (`m` to open; Esc or `m` to close) presents three
+//! actions: Options, Help, Quit. Selection is held in
+//! [`MainMenuState`] as a typed [`MainMenuItem`] enum — not a
+//! `usize` index — so the renderer and activation handler cannot
+//! drift out of sync with the menu's actual contents.
 
 use crate::app::TerminalSize;
 use crate::banner;

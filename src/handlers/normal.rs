@@ -360,16 +360,40 @@ pub(super) fn follow_action(ctx: &mut InputContext, _key: &Key) {
 }
 
 pub(super) fn detail_action(ctx: &mut InputContext, _key: &Key) {
-    if ctx.process.selected < ctx.process.entries.len()
-        && let Some(pid) = ctx.selected_proc_pid()
-    {
-        let current_detailed = ctx.process.detailed_pid;
-        if current_detailed == pid {
-            ctx.process.detailed_pid = 0;
-            ctx.process.followed_pid = 0;
-        } else {
-            ctx.process.detailed_pid = pid;
-        }
+    if ctx.process.selected >= ctx.process.entries.len() {
+        return;
+    }
+    let Some(info) = resolve_selected_proc(ctx) else {
+        return;
+    };
+    ctx.process.toggle_detail(info);
+    ctx.render.dirty.mark_proc_widget();
+}
+
+/// Clone the `ProcInfo` for the row currently under the cursor.
+///
+/// Returns `None` when no procs source is available (first-frame
+/// race) or when `selected` does not resolve to a valid entry. The
+/// returned value is owned so the caller can release the immutable
+/// borrow on `ctx.process` before performing mutations.
+fn resolve_selected_proc(ctx: &InputContext<'_>) -> Option<crate::domain::process::ProcInfo> {
+    let procs = ctx.process.procs_source(ctx.live)?;
+    ctx.process
+        .entries
+        .get(ctx.process.selected)
+        .and_then(|entry| procs.get(entry.proc_index))
+        .cloned()
+}
+
+/// Close the process detail panel from anywhere in NORMAL mode.
+///
+/// Bound to `Esc` to give the user a one-press dismissal even when
+/// the panel's PID is no longer in the live list (e.g. after the
+/// watched process has exited and the row has dropped out of the
+/// process list). No-op when the panel is already closed; the
+/// keystroke is then consumed without marking anything dirty.
+pub(super) fn close_detail_action(ctx: &mut InputContext, _key: &Key) {
+    if ctx.process.close_detail_and_unfollow() {
         ctx.render.dirty.mark_proc_widget();
     }
 }

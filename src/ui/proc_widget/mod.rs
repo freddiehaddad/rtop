@@ -12,11 +12,11 @@ use crate::theme::Theme;
 use crate::theme_keys as tc;
 
 use self::borders::{BottomBorderParams, draw_bottom_border, draw_top_border};
-use self::detail::{DetailPanelParams, draw_detail_panel, find_detailed_proc};
+use self::detail::{DetailPanelParams, draw_detail_panel};
 use self::layout::{ProcWidgetLayout, SortState};
 use self::rows::{ProcessRowsParams, draw_rows};
 
-use super::{ProcView, WidgetArea};
+use super::{DetailView, ProcView, WidgetArea};
 
 pub(crate) use layout::visible_row_count;
 
@@ -63,13 +63,10 @@ pub fn draw(
     draw_detail_section(
         &mut buf,
         &DetailSectionParams {
-            procs,
-            entries,
             layout: &layout,
-            detailed_pid: view.detailed_pid,
+            detail: view.detail,
             settings,
             theme,
-            detailed_dead: view.detailed_pid != 0 && view.dead_pids.contains(&view.detailed_pid),
         },
     );
     draw_header(&mut buf, &layout, view, settings, &colors);
@@ -128,16 +125,11 @@ impl<'a> ProcColors<'a> {
 }
 
 struct DetailSectionParams<'a> {
-    procs: &'a [ProcInfo],
-    entries: &'a [ProcDisplayEntry],
     layout: &'a ProcWidgetLayout,
-    detailed_pid: u32,
+    /// Resolved detail input. `None` when the panel is closed.
+    detail: Option<DetailView<'a>>,
     settings: &'a ProcFrame,
     theme: &'a Theme,
-    /// `true` when the detailed PID is in the paused snapshot's
-    /// dead-PID set. Causes the panel to insert a `Status: ✗
-    /// Process exited` line under the `Cmd:` row.
-    detailed_dead: bool,
 }
 
 fn draw_frame(
@@ -173,22 +165,22 @@ fn draw_frame(
 }
 
 fn draw_detail_section(buf: &mut AnsiBuffer, params: &DetailSectionParams<'_>) {
-    if params.detailed_pid == 0 || params.layout.detail_rows == 0 {
+    let Some(detail) = params.detail else {
+        return;
+    };
+    if params.layout.detail_rows == 0 {
         return;
     }
-
-    if let Some(proc) = find_detailed_proc(params.procs, params.entries, params.detailed_pid) {
-        buf.text(&draw_detail_panel(&DetailPanelParams {
-            proc,
-            x: params.layout.x,
-            y: params.layout.y,
-            width: params.layout.width,
-            rows: params.layout.detail_rows,
-            settings: params.settings,
-            theme: params.theme,
-            dead: params.detailed_dead,
-        }));
-    }
+    buf.text(&draw_detail_panel(&DetailPanelParams {
+        proc: detail.proc,
+        x: params.layout.x,
+        y: params.layout.y,
+        width: params.layout.width,
+        rows: params.layout.detail_rows,
+        settings: params.settings,
+        theme: params.theme,
+        dead: detail.dead,
+    }));
 }
 
 fn draw_header(
@@ -399,7 +391,6 @@ impl super::Widget for ProcWidget {
         // in one place.
         let procs = params.proc_source;
         let entries = params.proc_entries;
-        let detailed_pid = params.detailed_pid;
         let sort_by = params.view.proc_sorting;
         let reversed = params.view.proc_reversed;
         let tree_mode = params.view.proc_tree;
@@ -411,7 +402,7 @@ impl super::Widget for ProcWidget {
             sort_by,
             sort_reversed: reversed,
             tree_mode,
-            detailed_pid,
+            detail: params.detail_view,
             followed_pid: params.followed_pid,
             filter: pf,
             filtering: params.is_filtering,
@@ -580,7 +571,7 @@ mod tests {
             sort_by: crate::collect::process_display::ProcSort::Cpu,
             sort_reversed: false,
             tree_mode: false,
-            detailed_pid: 0,
+            detail: None,
             followed_pid: 0,
             filter: "",
             filtering: false,
@@ -698,10 +689,14 @@ mod tests {
 
     #[test]
     fn detail_divider_only_draws_when_detail_panel_is_active() {
+        let procs = make_procs();
         let mut detail_view = make_view();
-        detail_view.detailed_pid = 100;
+        detail_view.detail = Some(super::super::DetailView {
+            proc: &procs[0],
+            dead: false,
+        });
         let detail_output = draw(
-            &make_procs(),
+            &procs,
             &make_entries(),
             &make_area(),
             &Theme::default(),
@@ -710,7 +705,7 @@ mod tests {
             &CollectStatus::Ok,
         );
         let plain_output = draw(
-            &make_procs(),
+            &procs,
             &make_entries(),
             &make_area(),
             &Theme::default(),
@@ -759,10 +754,14 @@ mod tests {
 
     #[test]
     fn detail_panel_uses_aligned_labels() {
+        let procs = make_procs();
         let mut view = make_view();
-        view.detailed_pid = 100;
+        view.detail = Some(super::super::DetailView {
+            proc: &procs[0],
+            dead: false,
+        });
         let output = draw(
-            &make_procs(),
+            &procs,
             &make_entries(),
             &make_area(),
             &Theme::default(),
@@ -1039,10 +1038,14 @@ mod tests {
         // Body label rule: detail panel field labels (Cmd, User, Status,
         // Threads, etc.) render in MAIN_FG. Pre-shift these were TITLE.
         let theme = Theme::default();
+        let procs = make_procs();
         let mut view = make_view();
-        view.detailed_pid = 100;
+        view.detail = Some(super::super::DetailView {
+            proc: &procs[0],
+            dead: false,
+        });
         let output = draw(
-            &make_procs(),
+            &procs,
             &make_entries(),
             &make_area(),
             &theme,

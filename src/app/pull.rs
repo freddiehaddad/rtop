@@ -122,12 +122,51 @@ pub(crate) fn pull_subsystem_data(
                         // set actually changes — the snapshot data
                         // itself is frozen and does not need a
                         // full proc-list rebuild.
-                        let changed = state.process.refresh_dead_pids(&snap);
+                        //
+                        // The detail panel's `dead` flag is
+                        // computed at render time from
+                        // `!live.contains(open_pid)`, which for any
+                        // PID present in the paused snapshot is
+                        // equivalent to "PID in dead_pids". Any
+                        // flip of the open PID's dead flag therefore
+                        // implies a change in dead_pids — covered
+                        // by `dead_changed` below — so no separate
+                        // redraw trigger is needed for the panel.
+                        let dead_changed = state.process.refresh_dead_pids(&snap);
+                        // Refresh the detail-panel cache from the
+                        // paused snapshot. The snapshot is frozen,
+                        // so this is a no-op on every cycle after
+                        // the first while pause is active. Kept
+                        // for symmetry with the live branch and so
+                        // a snapshot-edit (re-pause on a later
+                        // snapshot) cannot leave the cache stale.
+                        if let Some(p) = state.process.pause.as_ref() {
+                            // Borrow-release before refresh_detail_cache
+                            // takes &mut self.
+                            let snap = std::sync::Arc::clone(&p.snapshot);
+                            state.process.refresh_detail_cache(&snap.procs);
+                        }
                         state.live.proc_data = Some(snap);
-                        if render_ui && changed {
+                        if render_ui && dead_changed {
                             state.render.dirty.mark_widget(WidgetKind::Proc);
                         }
                     } else {
+                        // Live: refresh the detail-panel cache from
+                        // the new snapshot so `last_seen` mirrors
+                        // the most recent observation. When the open
+                        // PID is no longer present the cache is
+                        // preserved as-is — the panel keeps showing
+                        // the values from the moment the process
+                        // exited and `resolve_detail_view` computes
+                        // `dead = true` for it.
+                        //
+                        // `mark_proc_data_changed` below already
+                        // forces a proc-widget repaint every cycle
+                        // a live snapshot arrives, so the panel
+                        // automatically re-renders with the freshly
+                        // computed `dead` flag — no separate
+                        // panel-specific dirty trigger is needed.
+                        state.process.refresh_detail_cache(&snap.procs);
                         state.live.proc_data = Some(snap);
                         if render_ui {
                             state.render.dirty.mark_proc_data_changed();
