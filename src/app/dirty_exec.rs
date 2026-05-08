@@ -32,15 +32,16 @@ pub(crate) fn execute_dirty_work(
         rebuild_proc_list(state, config);
     }
 
-    if state.render.dirty.needs_layout() || state.render.cached_layout.is_none() {
-        state.render.cached_layout = Some(calculate_layout(state, config, size));
+    if state.render.dirty.needs_layout() || state.render.cached_layout().is_none() {
+        let layout = calculate_layout(state, config, size);
+        state.render.set_cached_layout(layout);
     }
 
     // Pre-render normalisation: clamp the proc widget's view-state to
     // the current entry count and widget dimensions. Done here (not
     // inside render_all) so that the render path stays a pure
     // function of (state, dirty).
-    if let Some(layout) = state.render.cached_layout.as_ref()
+    if let Some(layout) = state.render.cached_layout()
         && let Some(proc_dim) = layout.dims_for(crate::domain::widget_kind::WidgetKind::Proc)
     {
         let detail_rows = if state.process.detailed_pid > 0 {
@@ -88,15 +89,11 @@ pub(crate) fn write_dirty_frame(
     // mutate `state.render` below. `ActiveModal` is cheap to
     // clone — variants are unit-like or carry small state.
     let active = state.overlay.active.clone();
-    let dims_now = active.dims_underlay();
-    if dims_now != state.render.last_dims_underlay {
-        // Crossing the modal-open / modal-close boundary. Either
-        // direction invalidates the cached dimmed underlay: opens
-        // need a fresh capture, closes free the snapshot so
-        // memory isn't held across an unbounded "no modal" period.
-        state.render.invalidate_dimmed_underlay();
-        state.render.last_dims_underlay = dims_now;
-    }
+    // Reconcile the dim cache against the current modal boundary.
+    // If the boundary moved since the previous frame the cached
+    // snapshot is invalidated atomically — no separate "set last
+    // boundary" step is possible to forget.
+    let dims_now = state.render.reconcile_dim_boundary(active.dims_underlay());
     let output = if dims_now {
         compose_modal_frame(state, config, theme, &active, size)
     } else {
@@ -117,11 +114,12 @@ pub(crate) fn write_dirty_frame(
 /// the widget layer plus the active modal painted on top at full
 /// brightness.
 ///
-/// The dimmed underlay is cached in
-/// [`crate::app::RenderState::cached_dimmed_underlay`] and held
-/// across the lifetime of the modal — modal-internal navigation
+/// The dimmed underlay snapshot is held inside [`crate::app::RenderState`]
+/// for the lifetime of the modal — modal-internal navigation
 /// repaints only the modal layer. The cache is invalidated by
-/// modal open/close transitions and by terminal resize.
+/// modal open/close transitions (via
+/// [`crate::app::RenderState::reconcile_dim_boundary`]) and by
+/// terminal resize (via `mark_resize`).
 fn compose_modal_frame(
     state: &mut AppState,
     config: &config::Config,
@@ -129,7 +127,7 @@ fn compose_modal_frame(
     active: &crate::overlay::ActiveModal,
     size: TerminalSize,
 ) -> String {
-    if state.render.cached_dimmed_underlay.is_none() {
+    if state.render.cached_dimmed_underlay().is_none() {
         // Build a fresh underlay: render every widget, theme-style
         // the result, then run the dim transform. Order matters —
         // theme styling runs before dim so the base style
@@ -138,12 +136,13 @@ fn compose_modal_frame(
         // full-brightness base style and leave bright halos.
         let raw = render_widget_layer_full(state, config, theme);
         let styled = style_terminal_output(&raw, config, theme);
-        state.render.cached_dimmed_underlay = Some(crate::draw::dim::dim_truecolor(&styled));
+        state
+            .render
+            .store_dimmed_underlay(crate::draw::dim::dim_truecolor(&styled));
     }
     let dimmed = state
         .render
-        .cached_dimmed_underlay
-        .as_deref()
+        .cached_dimmed_underlay()
         .expect("cached_dimmed_underlay just populated above");
 
     let raw_modal = crate::overlay::render(active, size, config, theme);
@@ -162,8 +161,7 @@ fn render_widget_layer_full(
 ) -> String {
     let layout = state
         .render
-        .cached_layout
-        .as_ref()
+        .cached_layout()
         .expect("layout must be initialized before rendering");
     let params = RenderInputs {
         layout,
@@ -191,8 +189,7 @@ fn render_dirty_frame(
 ) -> String {
     let layout = state
         .render
-        .cached_layout
-        .as_ref()
+        .cached_layout()
         .expect("layout must be initialized before rendering");
     let mut output = String::new();
 

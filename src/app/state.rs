@@ -159,22 +159,60 @@ impl RuntimeView {
     }
 }
 
-pub(crate) struct RenderState {
-    pub(crate) dirty: RenderDirty,
-    pub(crate) cached_layout: Option<draw::layout::Layout>,
-    pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
+/// Cached dimmed snapshot of the widget layer plus the
+/// previous-frame dim boundary. Packaged together so that the
+/// "snapshot" and "boundary moved since last frame" data points
+/// cannot drift apart, and so the reconciliation rule lives in one
+/// method instead of being open-coded at the call site.
+#[derive(Debug, Default)]
+struct DimUnderlayCache {
     /// Cached dimmed snapshot of the widget layer. Populated on
     /// the first render after a centered modal opens, held until
-    /// the modal closes or the terminal resizes. The cache lets
-    /// modal-internal navigation (selection moves, page changes,
-    /// edit buffer keystrokes) repaint only the modal layer
-    /// without re-rendering the underlay every frame.
-    pub(crate) cached_dimmed_underlay: Option<String>,
-    /// The previous frame's `dims_underlay()` result. Used by the
-    /// render dispatch to detect modal open/close transitions and
-    /// invalidate the cached dimmed underlay reactively — no
-    /// handler-side bookkeeping required.
-    pub(crate) last_dims_underlay: bool,
+    /// the modal closes or the terminal resizes.
+    snapshot: Option<String>,
+    /// The previous frame's `dims_underlay()` result. Together with
+    /// the snapshot this lets `reconcile_boundary` notice modal
+    /// open/close transitions and invalidate reactively.
+    last_dims: bool,
+}
+
+impl DimUnderlayCache {
+    /// Note the current modal-dim state. If the boundary moved since
+    /// the previous call, drop the cached snapshot. Returns the
+    /// (now-reconciled) current dim state for caller convenience.
+    fn reconcile_boundary(&mut self, dims_now: bool) -> bool {
+        if dims_now != self.last_dims {
+            self.snapshot = None;
+            self.last_dims = dims_now;
+        }
+        dims_now
+    }
+
+    /// Borrow the cached snapshot, if any.
+    fn snapshot(&self) -> Option<&str> {
+        self.snapshot.as_deref()
+    }
+
+    /// Replace the cached snapshot.
+    fn store(&mut self, s: String) {
+        self.snapshot = Some(s);
+    }
+
+    /// Drop the snapshot. Called by terminal-resize handling.
+    fn invalidate(&mut self) {
+        self.snapshot = None;
+    }
+}
+
+pub(crate) struct RenderState {
+    pub(crate) dirty: RenderDirty,
+    cached_layout: Option<draw::layout::Layout>,
+    pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
+    /// Dimmed-underlay cache + boundary tracker. Encapsulated so
+    /// that no caller can read the snapshot without going through
+    /// [`RenderState::reconcile_dim_boundary`], and the snapshot
+    /// cannot drift past a modal open/close transition.
+    dim_cache: DimUnderlayCache,
 }
 
 impl RenderState {
@@ -183,8 +221,7 @@ impl RenderState {
             dirty: RenderDirty::full(),
             cached_layout: None,
             last_layout_hints: None,
-            cached_dimmed_underlay: None,
-            last_dims_underlay: false,
+            dim_cache: DimUnderlayCache::default(),
         }
     }
 
@@ -194,18 +231,46 @@ impl RenderState {
         // dimmed underlay (its layout no longer matches the
         // terminal). The next overlay-active render will rebuild
         // it at the new size.
-        self.cached_dimmed_underlay = None;
+        self.dim_cache.invalidate();
     }
 
     pub(crate) fn clear_dirty(&mut self) {
         self.dirty.clear();
     }
 
-    /// Discard the cached dimmed underlay. Called by overlay
-    /// transitions: opening a centered modal must capture a fresh
-    /// snapshot, and closing one frees the cache.
-    pub(crate) fn invalidate_dimmed_underlay(&mut self) {
-        self.cached_dimmed_underlay = None;
+    /// Borrow the cached active layout, if one has been computed
+    /// this session. The layout is recomputed lazily by
+    /// [`crate::app::dirty_exec::execute_dirty_work`] when
+    /// `dirty.needs_layout()` is set or when this returns `None`.
+    pub(crate) fn cached_layout(&self) -> Option<&draw::layout::Layout> {
+        self.cached_layout.as_ref()
+    }
+
+    /// Replace the cached active layout with a freshly-computed one.
+    pub(crate) fn set_cached_layout(&mut self, layout: draw::layout::Layout) {
+        self.cached_layout = Some(layout);
+    }
+
+    /// Reconcile the dimmed-underlay cache against the current modal
+    /// boundary. If the boundary moved since the previous frame,
+    /// drop the cached snapshot. Returns the (now-reconciled)
+    /// current dim state — `true` if a centered modal is active and
+    /// the caller should compose, `false` otherwise.
+    pub(crate) fn reconcile_dim_boundary(&mut self, dims_now: bool) -> bool {
+        self.dim_cache.reconcile_boundary(dims_now)
+    }
+
+    /// Borrow the cached dimmed underlay snapshot, if one is
+    /// populated. Read by the modal compose path.
+    pub(crate) fn cached_dimmed_underlay(&self) -> Option<&str> {
+        self.dim_cache.snapshot()
+    }
+
+    /// Store a freshly-built dimmed underlay snapshot. Called by the
+    /// modal compose path immediately after rendering and dimming
+    /// the widget layer.
+    pub(crate) fn store_dimmed_underlay(&mut self, s: String) {
+        self.dim_cache.store(s);
     }
 }
 
@@ -591,7 +656,7 @@ mod tests {
 
         assert!(matches!(state.overlay.active, ActiveModal::None));
         assert_eq!(state.render.dirty, RenderDirty::full());
-        assert!(state.render.cached_layout.is_none());
+        assert!(state.render.cached_layout().is_none());
         assert!(!state.live.is_ready());
         assert!(state.process.entries.is_empty());
         assert!(state.network.selected_iface.is_empty());

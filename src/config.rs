@@ -384,6 +384,109 @@ impl Default for LogConfig {
 }
 
 // ---------------------------------------------------------------------------
+// CachedLayoutSpec — preset + custom layout + cache, with invalidation
+// invariants encoded in the type
+// ---------------------------------------------------------------------------
+
+/// The active preset cursor, the persisted custom layout, and the
+/// memoised resolved layout, packaged together so the cache cannot
+/// fall out of sync with its inputs.
+///
+/// Fields are private; the only mutators are [`Self::cycle`],
+/// [`Self::set_custom`], and (test-only) [`Self::set_active_preset`].
+/// Each invalidates the cache before returning. Read access is via
+/// [`Self::spec`] (the resolved layout), [`Self::active_preset`] (the
+/// cursor), and [`Self::custom_layout`] (the persisted custom slot).
+///
+/// On the wire (`#[serde(flatten)]` from [`Config`]) `preset` and
+/// `custom_layout` appear at the TOML root, matching the historical
+/// flat layout. The `cache` field is `#[serde(skip)]` and starts
+/// empty on every load.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CachedLayoutSpec {
+    /// Cursor over the active preset (one of the builtins, or the
+    /// custom slot). Persisted by canonical name.
+    preset: crate::domain::preset::PresetField,
+    /// Persisted layout for the `Custom` preset slot, in DSL form.
+    custom_layout: Slot,
+    /// Cached resolved layout. Materialised by [`Self::spec`] from
+    /// `preset` + `custom_layout`. Invalidated by every mutator.
+    #[serde(skip)]
+    cache: std::cell::OnceCell<Slot>,
+}
+
+impl Default for CachedLayoutSpec {
+    fn default() -> Self {
+        Self {
+            preset: crate::domain::preset::PresetField::default(),
+            custom_layout: default_custom_layout(),
+            cache: std::cell::OnceCell::new(),
+        }
+    }
+}
+
+impl CachedLayoutSpec {
+    /// Read the active preset cursor.
+    pub fn active_preset(&self) -> crate::domain::preset::ActivePreset {
+        self.preset.active()
+    }
+
+    /// Borrow the persisted custom-preset layout. Always returns the
+    /// `Custom` slot regardless of which preset is currently active.
+    pub fn custom_layout(&self) -> &Slot {
+        &self.custom_layout
+    }
+
+    /// Build (or retrieve) the resolved active layout. Cached after
+    /// first call; mutators clear the cache.
+    pub fn spec(&self) -> &Slot {
+        self.cache.get_or_init(|| match self.preset.active() {
+            crate::domain::preset::ActivePreset::Builtin(b) => b.layout_spec(),
+            crate::domain::preset::ActivePreset::Custom => self.custom_layout.clone(),
+        })
+    }
+
+    /// Move the preset cursor one position in the cycle. `forward = true`
+    /// advances (`p`); `false` retreats (`P`). Always invalidates the
+    /// cache.
+    pub fn cycle(&mut self, forward: bool) {
+        let next = if forward {
+            self.preset.active().next()
+        } else {
+            self.preset.active().prev()
+        };
+        self.preset.set(next);
+        self.invalidate();
+    }
+
+    /// Replace the custom-preset slot tree. Always invalidates the
+    /// cache. The cursor is not touched.
+    pub fn set_custom(&mut self, slot: Slot) {
+        self.custom_layout = slot;
+        self.invalidate();
+    }
+
+    /// Snap the preset cursor to a specific [`crate::domain::preset::ActivePreset`].
+    /// Test-only; production code only ever cycles via [`Self::cycle`].
+    #[cfg(test)]
+    pub fn set_active_preset(&mut self, preset: crate::domain::preset::ActivePreset) {
+        self.preset.set(preset);
+        self.invalidate();
+    }
+
+    /// Surface a deserialise-time invalid preset name (if any). The
+    /// caller folds this into the validation warning list.
+    pub fn take_invalid_preset(&mut self) -> Option<String> {
+        self.preset.take_invalid()
+    }
+
+    fn invalidate(&mut self) {
+        self.cache = std::cell::OnceCell::new();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Config — composed wrapper over per-subsystem sections
 // ---------------------------------------------------------------------------
 
@@ -421,26 +524,13 @@ pub struct Config {
     #[serde(flatten)]
     pub view: ViewConfig,
 
-    /// Cursor over the active preset (one of the builtins, or the
-    /// custom slot). Persisted by canonical name. Private so all
-    /// writes go through [`Self::cycle_preset`] /
-    /// [`Self::set_active_preset`], which keep the layout cache in
-    /// sync. Read access is via [`Self::active_preset`].
-    preset: crate::domain::preset::PresetField,
-
-    /// Persisted layout for the `Custom` preset slot. Stored as a
-    /// flat top-level `custom_layout` TOML key carrying the DSL
-    /// string form of the [`Slot`] tree:
-    ///
-    /// ```toml
-    /// custom_layout = "vstack(cpu, hstack(40:mem, 60:proc))"
-    /// ```
-    ///
-    /// Mutated only by the user editing this field in the options
-    /// menu or rewriting the TOML key directly. Toggle keys
-    /// (`1`-`9`/`0`) operate on the runtime view filter and never
-    /// touch this field.
-    pub custom_layout: Slot,
+    /// Active preset cursor + persisted custom layout + memoised
+    /// resolved layout, packaged so the cache cannot drift from its
+    /// inputs. `preset` and `custom_layout` flatten to the TOML root;
+    /// the resolved-layout cache is `#[serde(skip)]` and starts empty
+    /// every load.
+    #[serde(flatten)]
+    pub layout: CachedLayoutSpec,
 
     /// Persisted runtime view filter. The user toggles widgets in
     /// or out of this set with `1`-`9` / `0` / `Shift+R`; the set
@@ -454,16 +544,6 @@ pub struct Config {
     /// to make the persistence behaviour discoverable.
     #[serde(default)]
     pub hidden_widgets: crate::domain::widget_set::WidgetSet,
-
-    /// Cached active layout. Materialised by [`Self::layout_spec`]
-    /// from `preset` + `custom_layout`. Invalidated by every
-    /// mutating method that touches those two fields
-    /// ([`Self::cycle_preset`], [`Self::set_active_preset`],
-    /// [`Self::set_custom_layout`], [`Self::apply_defaults`],
-    /// [`Self::load`]). Per-frame `layout_spec()` borrows from this
-    /// cache so the engine never re-clones the `Slot` tree.
-    #[serde(skip)]
-    layout_cache: std::cell::OnceCell<Slot>,
 
     /// Path to the loaded config file (for `reload()`). Not
     /// persisted — populated by `load()` at startup.
@@ -492,21 +572,18 @@ impl Default for Config {
             // around or by editing the layout (toggle keys, options
             // menu, or `custom_layout` DSL string in `rtop.toml`),
             // at which point the cursor auto-promotes.
-            preset: crate::domain::preset::PresetField::default(),
-
+            //
             // First-launch custom layout: a clone of the `all`
             // preset's tree (see `default_custom_layout`). The
             // cursor is on `all` builtin by default so this slot is
             // dormant until the user edits something.
-            custom_layout: default_custom_layout(),
+            layout: CachedLayoutSpec::default(),
 
             // First-launch view filter is empty — every widget the
             // active preset exposes is visible. The field is
             // persisted so toggle gestures (1-9, 0, Shift+R)
             // survive restart.
             hidden_widgets: crate::domain::widget_set::WidgetSet::new(),
-
-            layout_cache: std::cell::OnceCell::new(),
 
             conf_file: None,
         }
@@ -614,7 +691,7 @@ impl Config {
         // PresetField's deserialiser (defaulting to Custom); we
         // just need to fold the captured offending name into the
         // warning list.
-        if let Some(invalid) = self.preset.take_invalid() {
+        if let Some(invalid) = self.layout.take_invalid_preset() {
             warnings.push(format!(
                 "Unknown preset name in 'preset': '{invalid}', falling back to custom",
             ));
@@ -656,66 +733,35 @@ impl Config {
     }
 
     /// Build the canonical [`Slot`] tree for the active preset.
-    ///
-    /// Builtins return a static tree from
-    /// [`crate::domain::preset::BuiltinPreset::layout_spec`]; the
-    /// custom preset returns a clone of its persisted tree. Cached
-    /// after first call; mutators ([`Self::cycle_preset`],
-    /// [`Self::set_active_preset`], [`Self::set_custom_layout`])
-    /// invalidate via [`Self::invalidate_layout_cache`].
+    /// Delegates to [`CachedLayoutSpec::spec`] so the cache cannot
+    /// drift from `preset` / `custom_layout`.
     pub fn layout_spec(&self) -> &Slot {
-        self.layout_cache
-            .get_or_init(|| match self.preset.active() {
-                crate::domain::preset::ActivePreset::Builtin(b) => b.layout_spec(),
-                crate::domain::preset::ActivePreset::Custom => self.custom_layout.clone(),
-            })
+        self.layout.spec()
     }
 
-    /// Drop the cached active layout. Called automatically by every
-    /// mutator that touches `preset` or `custom_layout` ([`Self::cycle_preset`],
-    /// [`Self::set_active_preset`], [`Self::set_custom_layout`]),
-    /// so callers normally don't need to invoke this directly.
-    /// Public so future code paths that mutate cache inputs in
-    /// non-method form (e.g. test helpers, custom deserialise hooks)
-    /// can keep the cache honest.
-    pub fn invalidate_layout_cache(&mut self) {
-        self.layout_cache = std::cell::OnceCell::new();
-    }
-
-    /// Read the active preset cursor. Replaces the previous direct
-    /// `config.active_preset()` access now that `preset` is private.
+    /// Read the active preset cursor.
     pub fn active_preset(&self) -> crate::domain::preset::ActivePreset {
-        self.preset.active()
+        self.layout.active_preset()
     }
 
     /// Move the preset cursor one position in the cycle. `forward`
     /// = `true` advances (`p`); `forward` = `false` retreats (`P`).
-    /// The cycle wraps over [`crate::domain::preset::ActivePreset::CYCLE_LEN`]
-    /// positions (the four builtins plus custom).
     pub fn cycle_preset(&mut self, forward: bool) {
-        let next = if forward {
-            self.preset.active().next()
-        } else {
-            self.preset.active().prev()
-        };
-        self.preset.set(next);
-        self.invalidate_layout_cache();
+        self.layout.cycle(forward);
     }
 
     /// Snap the preset cursor to a specific [`crate::domain::preset::ActivePreset`].
     /// Tests use this to land on a known preset; production code
-    /// only ever cycles via [`Self::cycle_preset`], so this method
-    /// is `#[cfg(test)]`-gated to keep the public surface small.
+    /// only ever cycles via [`Self::cycle_preset`].
     #[cfg(test)]
     pub fn set_active_preset(&mut self, preset: crate::domain::preset::ActivePreset) {
-        self.preset.set(preset);
-        self.invalidate_layout_cache();
+        self.layout.set_active_preset(preset);
     }
 
     /// Replace the custom preset's [`Slot`] tree with one parsed
-    /// from the DSL string `value`. Always writes to
-    /// `self.custom_layout` regardless of the active preset cursor;
-    /// the cursor is never touched by this method.
+    /// from the DSL string `value`. Always writes through to
+    /// `self.layout`'s custom slot regardless of the active preset
+    /// cursor; the cursor is never touched by this method.
     ///
     /// Returns `Err` if the DSL fails to parse or fails post-parse
     /// validation (duplicate widget kinds, etc.).
@@ -723,8 +769,8 @@ impl Config {
         &mut self,
         value: &str,
     ) -> Result<(), crate::domain::layout_spec::SlotParseError> {
-        self.custom_layout = value.parse()?;
-        self.invalidate_layout_cache();
+        let slot: Slot = value.parse()?;
+        self.layout.set_custom(slot);
         Ok(())
     }
 }
@@ -970,7 +1016,7 @@ macro_rules! config_schema {
     (@string_display $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f.clone() };
     (@string_display $cfg:ident joined_vec $section:ident . $f:ident) => { $cfg.$section.$f.join(" ") };
     (@string_display $cfg:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i].clone() };
-    (@string_display $cfg:ident custom_layout) => { $cfg.custom_layout.to_string() };
+    (@string_display $cfg:ident custom_layout) => { $cfg.layout.custom_layout().to_string() };
 }
 
 config_schema! {
@@ -1655,13 +1701,13 @@ hidden_widgets = ["mem", "gpu0"]
     fn cycle_preset_to_builtin_dispatches_to_builtin_layout() {
         use crate::domain::preset::{ActivePreset, BuiltinPreset};
         let mut config = Config::new();
-        config.custom_layout = Slot::VStack(vec![
+        config.layout.set_custom(Slot::VStack(vec![
             Slot::Widget(WidgetKind::Mem),
             Slot::Widget(WidgetKind::Proc),
-        ]);
+        ]));
         config.set_active_preset(ActivePreset::Custom);
         // On custom, live = custom.
-        assert_eq!(*config.layout_spec(), config.custom_layout);
+        assert_eq!(config.layout_spec(), config.layout.custom_layout());
 
         // Cycle to builtin "all". Live now reads from the builtin.
         config.set_active_preset(ActivePreset::Builtin(BuiltinPreset::All));
@@ -1670,8 +1716,8 @@ hidden_widgets = ["mem", "gpu0"]
         assert!(config.layout_spec().contains(WidgetKind::Disk));
         // Custom storage is untouched by cycling.
         assert_eq!(
-            config.custom_layout,
-            Slot::VStack(vec![
+            config.layout.custom_layout(),
+            &Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Proc),
             ])
@@ -1682,11 +1728,11 @@ hidden_widgets = ["mem", "gpu0"]
     fn cycle_preset_back_to_custom_restores_user_layout() {
         use crate::domain::preset::ActivePreset;
         let mut config = Config::new();
-        config.custom_layout = Slot::VStack(vec![
+        config.layout.set_custom(Slot::VStack(vec![
             Slot::Widget(WidgetKind::Mem),
             Slot::Widget(WidgetKind::Proc),
             Slot::Widget(WidgetKind::Gpu(0)),
-        ]);
+        ]));
         config.set_active_preset(ActivePreset::Custom);
 
         // Visit a builtin and come back.
@@ -1731,10 +1777,10 @@ hidden_widgets = ["mem", "gpu0"]
         // is the `all` builtin, which would otherwise mask
         // custom.root entirely.
         config.set_active_preset(ActivePreset::Custom);
-        config.custom_layout = Slot::VStack(vec![
+        config.layout.set_custom(Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
             Slot::Widget(WidgetKind::Mem),
-        ]);
+        ]));
         let tmp = std::env::temp_dir().join("rtop_test_layout_roundtrip.toml");
         config.write(&tmp).unwrap();
 
@@ -1917,8 +1963,8 @@ hidden_widgets = ["mem", "gpu0"]
         assert_eq!(*config.layout_spec(), active_before);
         // But custom.root captured the edit.
         assert_eq!(
-            config.custom_layout,
-            Slot::VStack(vec![
+            config.layout.custom_layout(),
+            &Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Cpu),
                 Slot::Widget(WidgetKind::Mem),
             ])
@@ -1932,7 +1978,10 @@ hidden_widgets = ["mem", "gpu0"]
         config.set_active_preset(ActivePreset::Custom);
         config.set_custom_layout("cpu").unwrap();
         assert_eq!(config.active_preset(), ActivePreset::Custom);
-        assert_eq!(config.custom_layout, Slot::Widget(WidgetKind::Cpu));
+        assert_eq!(
+            config.layout.custom_layout(),
+            &Slot::Widget(WidgetKind::Cpu)
+        );
         assert_eq!(*config.layout_spec(), Slot::Widget(WidgetKind::Cpu));
     }
 
@@ -1952,8 +2001,8 @@ hidden_widgets = ["mem", "gpu0"]
         assert_eq!(config.active_preset(), cursor);
         // custom.root captured the edit.
         assert_eq!(
-            config.custom_layout,
-            Slot::VStack(vec![
+            config.layout.custom_layout(),
+            &Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Cpu),
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Disk),

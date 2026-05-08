@@ -165,11 +165,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             // This gate only applies when no centered modal is
             // active (otherwise we want the modal-with-dim
             // composition).
-            let layout_empty = state
-                .render
-                .cached_layout
-                .as_ref()
-                .is_some_and(|l| l.is_empty());
+            let layout_empty = state.render.cached_layout().is_some_and(|l| l.is_empty());
             if layout_empty && state.overlay.render_ui() {
                 render_gates::render_if_dirty_all_hidden(&mut state, config, terminal, theme, size);
             } else {
