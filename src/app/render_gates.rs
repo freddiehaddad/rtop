@@ -17,6 +17,7 @@ use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::AppState;
 use crate::config;
+use crate::draw::buffer::AnsiBuffer;
 use crate::term;
 use crate::theme;
 use crate::theme_keys as tc;
@@ -34,13 +35,13 @@ fn render_too_small(size: TerminalSize, min_size: (usize, usize), theme: &theme:
     );
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
-    format!(
-        "{}\x1b[{msg_y};{msg_x}H{}{}{msg}{}",
-        term::CLEAR_SCREEN,
-        term::BOLD,
-        theme.color(tc::HI_FG),
-        term::RESET,
-    )
+    let mut buf = AnsiBuffer::new();
+    buf.clear_screen()
+        .mv(msg_x, msg_y)
+        .bold()
+        .color(theme.color(tc::HI_FG))
+        .text(&msg);
+    buf.finish()
 }
 
 /// Render the "too small" message if dirty flags indicate it's needed.
@@ -69,13 +70,13 @@ fn render_waiting_for_snapshot(size: TerminalSize, theme: &theme::Theme) -> Stri
     let msg = "Collecting data...";
     let msg_y = size.height.max(1) / 2;
     let msg_x = size.width.saturating_sub(msg.len()) / 2 + 1;
-    format!(
-        "{}\x1b[{msg_y};{msg_x}H{}{}{msg}{}",
-        term::CLEAR_SCREEN,
-        term::BOLD,
-        theme.color(tc::HI_FG),
-        term::RESET,
-    )
+    let mut buf = AnsiBuffer::new();
+    buf.clear_screen()
+        .mv(msg_x, msg_y)
+        .bold()
+        .color(theme.color(tc::HI_FG))
+        .text(msg);
+    buf.finish()
 }
 
 /// Render the "Collecting data..." message if dirty flags indicate it's needed.
@@ -117,23 +118,22 @@ fn render_all_hidden(
     let max_line = lines.iter().map(|l| l.len()).max().unwrap_or(0);
     let total = lines.len();
     let start_y = size.height.saturating_sub(total) / 2 + 1;
-    let mut out = String::new();
-    out.push_str(term::CLEAR_SCREEN);
     let title_color = theme.color(tc::HI_FG);
     let body_color = theme.color(tc::TITLE);
+    let mut buf = AnsiBuffer::new();
+    buf.clear_screen();
     for (i, line) in lines.iter().enumerate() {
         let x = size.width.saturating_sub(max_line) / 2 + 1;
         let y = start_y + i;
-        let color = if i == 0 { title_color } else { body_color };
-        let bold = if i == 0 { term::BOLD } else { "" };
-        out.push_str(&format!(
-            "\x1b[{y};{x}H{}{}{line}{}",
-            bold,
-            color,
-            term::RESET,
-        ));
+        buf.mv(x, y);
+        if i == 0 {
+            buf.bold().color(title_color);
+        } else {
+            buf.color(body_color);
+        }
+        buf.text(line).reset();
     }
-    out
+    buf.finish()
 }
 
 /// Compose the overlay's text lines. Pure function so the layout

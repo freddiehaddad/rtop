@@ -46,6 +46,18 @@ impl AnsiBuffer {
         self
     }
 
+    /// Enable bold attribute.
+    pub fn bold(&mut self) -> &mut Self {
+        self.buf.push_str(term::BOLD);
+        self
+    }
+
+    /// Clear the entire screen.
+    pub fn clear_screen(&mut self) -> &mut Self {
+        self.buf.push_str(term::CLEAR_SCREEN);
+        self
+    }
+
     /// Consume the buffer and return the built string.
     pub fn finish(mut self) -> String {
         self.buf.push_str(term::RESET);
