@@ -104,21 +104,20 @@ impl<T> LatestSlot<T> {
 // ---------------------------------------------------------------------------
 
 /// Commands sent to a collector thread.
+///
+/// Every collector accepts the same command type. Variants that don't
+/// apply to a given collector are silently ignored by that collector's
+/// loop — see the per-loop match arms in [`run_collector_loop`] (the
+/// generic loop) and [`run_net_loop`] (the network loop, which handles
+/// the additional [`CollectorCommand::ResetNetTotals`] variant).
 pub(crate) enum CollectorCommand {
     /// Change the collection interval.
     SetInterval(u64),
     /// Graceful shutdown.
     Shutdown,
-}
-
-/// Commands sent to the network collector thread.
-pub(crate) enum NetCommand {
-    /// Change the collection interval.
-    SetInterval(u64),
-    /// Reset cumulative network totals for an interface.
-    ResetTotals(String),
-    /// Graceful shutdown.
-    Shutdown,
+    /// Reset cumulative network totals for an interface. Only the
+    /// network collector acts on this; other collectors ignore it.
+    ResetNetTotals(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -148,19 +147,22 @@ fn run_collector_loop<C, S>(
         match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
             Ok(CollectorCommand::SetInterval(ms)) => interval_ms = ms.max(100),
             Ok(CollectorCommand::Shutdown) => break,
+            // Not applicable — only the network collector acts on
+            // ResetNetTotals; every other collector silently drops it.
+            Ok(CollectorCommand::ResetNetTotals(_)) => {}
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
 }
 
-/// Run the network collector with support for `ResetTotals` commands.
+/// Run the network collector with support for `ResetNetTotals` commands.
 fn run_net_loop(
     mut collector: NetCollector,
     initial_interval_ms: u64,
     slot: LatestSlot<NetSnapshot>,
     event_tx: Sender<AppEvent>,
-    cmd_rx: Receiver<NetCommand>,
+    cmd_rx: Receiver<CollectorCommand>,
 ) {
     let mut interval_ms = initial_interval_ms.max(100);
     let publish = |c: &NetCollector| {
@@ -176,13 +178,13 @@ fn run_net_loop(
         publish(&collector);
 
         match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
-            Ok(NetCommand::SetInterval(ms)) => interval_ms = ms.max(100),
-            Ok(NetCommand::ResetTotals(iface)) => {
+            Ok(CollectorCommand::SetInterval(ms)) => interval_ms = ms.max(100),
+            Ok(CollectorCommand::ResetNetTotals(iface)) => {
                 if collector.reset_totals(&iface) {
                     publish(&collector);
                 }
             }
-            Ok(NetCommand::Shutdown) => break,
+            Ok(CollectorCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
         }
@@ -232,73 +234,16 @@ where
 // CollectorManager — owns all collector threads
 // ---------------------------------------------------------------------------
 
-/// Per-collector command channel sender.
-///
-/// Most collectors use the uniform [`CollectorCommand`] type for
-/// `SetInterval`/`Shutdown`. The network collector additionally
-/// supports `ResetTotals(String)`, so its channel carries the
-/// wider [`NetCommand`] type. Wrapping both in a single enum lets
-/// `CollectorManager` store a uniform `PerSubsystem<CollectorTx>`
-/// while still dispatching the right wire format per subsystem at
-/// the boundary.
-pub(crate) enum CollectorTx {
-    Standard(Sender<CollectorCommand>),
-    Net(Sender<NetCommand>),
-}
-
-impl CollectorTx {
-    /// Send a `SetInterval` command. The wire format depends on
-    /// the wrapped sender type.
-    fn set_interval(&self, target: &'static str, ms: u64) {
-        match self {
-            CollectorTx::Standard(tx) => {
-                if let Err(e) = tx.send(CollectorCommand::SetInterval(ms)) {
-                    tracing::warn!(
-                        subsystem = %crate::log::Subsystem::Runner,
-                        target,
-                        error = %e,
-                        "interval command send failed",
-                    );
-                }
-            }
-            CollectorTx::Net(tx) => {
-                if let Err(e) = tx.send(NetCommand::SetInterval(ms)) {
-                    tracing::warn!(
-                        subsystem = %crate::log::Subsystem::Runner,
-                        target,
-                        error = %e,
-                        "interval command send failed",
-                    );
-                }
-            }
-        }
-    }
-
-    /// Send a `Shutdown` command. Errors are intentionally
-    /// discarded — by this point the collector thread may have
-    /// already exited (e.g. on a panic), and the join in
-    /// `shutdown` will surface any real failure.
-    fn shutdown(&self) {
-        match self {
-            CollectorTx::Standard(tx) => {
-                let _ = tx.send(CollectorCommand::Shutdown);
-            }
-            CollectorTx::Net(tx) => {
-                let _ = tx.send(NetCommand::Shutdown);
-            }
-        }
-    }
-}
-
 /// Manages per-collector threads with independent timers.
 ///
 /// Each collector runs on its own thread with a `LatestSlot<T>` for
 /// coalescing and publishes wakeup events through the shared channel.
+/// All collectors share the same [`CollectorCommand`] wire format —
+/// variants that don't apply to a given subsystem are silently
+/// dropped by that collector's loop.
 pub(crate) struct CollectorManager {
     /// One command sender per subsystem, keyed by [`SubsystemKind`].
-    /// Net carries the wider [`CollectorTx::Net`] variant for its
-    /// `ResetTotals` command; every other subsystem is `Standard`.
-    txs: PerSubsystem<CollectorTx>,
+    txs: PerSubsystem<Sender<CollectorCommand>>,
 
     pub(crate) cpu_slot: LatestSlot<CpuSnapshot>,
     pub(crate) mem_slot: LatestSlot<MemSnapshot>,
@@ -308,6 +253,26 @@ pub(crate) struct CollectorManager {
     pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
 
     joins: Vec<(&'static str, JoinHandle<()>)>,
+}
+
+/// Send `cmd` to the named subsystem's collector thread, logging a
+/// warning on send failure. Centralised so every send goes through one
+/// audit point.
+fn send_command(
+    tx: &Sender<CollectorCommand>,
+    target: &'static str,
+    op: &'static str,
+    cmd: CollectorCommand,
+) {
+    if let Err(e) = tx.send(cmd) {
+        tracing::warn!(
+            subsystem = %crate::log::Subsystem::Runner,
+            target,
+            op,
+            error = %e,
+            "command send failed",
+        );
+    }
 }
 
 impl CollectorManager {
@@ -370,7 +335,8 @@ impl CollectorManager {
         );
         joins.push(("disk", disk_join));
 
-        // Network thread (custom loop — uses NetCommand for ResetTotals)
+        // Network thread (custom loop — handles the optional
+        // ResetNetTotals variant of CollectorCommand).
         let (net_tx, net_rx) = mpsc::channel();
         {
             let slot = net_slot.clone();
@@ -416,14 +382,7 @@ impl CollectorManager {
         joins.push(("process", proc_join));
 
         Self {
-            txs: PerSubsystem::new(
-                CollectorTx::Standard(cpu_tx),
-                CollectorTx::Standard(mem_tx),
-                CollectorTx::Standard(disk_tx),
-                CollectorTx::Net(net_tx),
-                CollectorTx::Standard(gpu_tx),
-                CollectorTx::Standard(proc_tx),
-            ),
+            txs: PerSubsystem::new(cpu_tx, mem_tx, disk_tx, net_tx, gpu_tx, proc_tx),
             cpu_slot,
             mem_slot,
             disk_slot,
@@ -436,31 +395,32 @@ impl CollectorManager {
 
     /// Update the collection interval for the named subsystem.
     pub(crate) fn set_interval(&self, kind: SubsystemKind, ms: u64) {
-        self.txs.get(kind).set_interval(kind.as_str(), ms);
+        send_command(
+            self.txs.get(kind),
+            kind.as_str(),
+            "set_interval",
+            CollectorCommand::SetInterval(ms),
+        );
     }
 
     /// Reset cumulative network totals for an interface.
     pub(crate) fn reset_net_totals(&self, iface: String) {
-        let CollectorTx::Net(tx) = self.txs.get(SubsystemKind::Net) else {
-            // Invariant: the net slot is always populated with
-            // CollectorTx::Net by `start()`. The struct fields are
-            // private so no other code can mutate this.
-            unreachable!("net subsystem must always carry a Net sender");
-        };
-        if let Err(e) = tx.send(NetCommand::ResetTotals(iface)) {
-            tracing::warn!(
-                subsystem = %crate::log::Subsystem::Runner,
-                target = SubsystemKind::Net.as_str(),
-                error = %e,
-                "reset-totals command send failed",
-            );
-        }
+        send_command(
+            self.txs.get(SubsystemKind::Net),
+            SubsystemKind::Net.as_str(),
+            "reset_net_totals",
+            CollectorCommand::ResetNetTotals(iface),
+        );
     }
 
     /// Shut down all collector threads and wait for them to finish.
     pub(crate) fn shutdown(&mut self) {
         for kind in SubsystemKind::ALL {
-            self.txs.get(kind).shutdown();
+            // Shutdown send errors are intentionally discarded: by
+            // this point the collector thread may have already exited
+            // (e.g. on a panic), and the join below will surface any
+            // real failure.
+            let _ = self.txs.get(kind).send(CollectorCommand::Shutdown);
         }
         for (target, join) in self.joins.drain(..) {
             if let Err(panic) = join.join() {
