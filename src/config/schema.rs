@@ -256,7 +256,6 @@ config_schema! {
         ProcPerCore => "proc_per_core" => view.proc_per_core,
         ProcMemBytes => "proc_mem_bytes" => proc.proc_mem_bytes,
         ProcAggregate => "proc_aggregate" => proc.proc_aggregate,
-        KeepDeadProcUsage => "keep_dead_proc_usage" => proc.keep_dead_proc_usage,
         CpuInvertLower => "cpu_invert_lower" => cpu.cpu_invert_lower,
         CpuSingleGraph => "cpu_single_graph" => cpu.cpu_single_graph,
         CpuAutoScale => "cpu_auto_scale" => cpu.cpu_auto_scale,

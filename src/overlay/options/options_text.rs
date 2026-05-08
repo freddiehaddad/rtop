@@ -96,15 +96,6 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: off.",
         ],
-        ConfigKey::Bool(BoolKey::KeepDeadProcUsage) => &[
-            "Preserve last value for ended processes.",
-            "",
-            "Show each terminated process's last CPU and",
-            "memory reading until it disappears from the",
-            "list, instead of showing zero.",
-            "",
-            "Default: on.",
-        ],
         ConfigKey::Bool(BoolKey::CpuInvertLower) => &[
             "Mirror the lower graph.",
             "",
@@ -667,7 +658,6 @@ mod tests {
         "proc_per_core",
         "proc_mem_bytes",
         "proc_aggregate",
-        "keep_dead_proc_usage",
         "cpu_invert_lower",
         "cpu_single_graph",
         "cpu_auto_scale",

@@ -128,7 +128,6 @@ pub const PROC: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::ProcGradient),
     ConfigKey::Bool(BoolKey::ProcPerCore),
     ConfigKey::Bool(BoolKey::ProcMemBytes),
-    ConfigKey::Bool(BoolKey::KeepDeadProcUsage),
     ConfigKey::String(StringKey::ProcFilter),
     ConfigKey::Int(IntKey::ProcUpdateMs),
 ];

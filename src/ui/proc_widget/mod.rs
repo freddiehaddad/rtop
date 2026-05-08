@@ -380,7 +380,7 @@ impl super::Widget for ProcWidget {
         let Some(proc_snap) = params.proc_data else {
             return;
         };
-        let procs = params.proc_display_procs.unwrap_or(&proc_snap.procs);
+        let procs = proc_snap.procs.as_slice();
         let entries = params.proc_entries;
         let detailed_pid = params.detailed_pid;
         let sort_by = params.view.proc_sorting;

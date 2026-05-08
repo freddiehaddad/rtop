@@ -114,9 +114,6 @@ pub(crate) fn pull_subsystem_data(
             }
             SubsystemKind::Proc => {
                 if let Some(snap) = manager.proc_slot.latest() {
-                    state
-                        .process
-                        .update_stale_procs(&snap.procs, config.proc.keep_dead_proc_usage);
                     state.live.proc_data = Some(snap);
                     if render_ui {
                         state.render.dirty.mark_proc_data_changed();

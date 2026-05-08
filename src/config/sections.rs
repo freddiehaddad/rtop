@@ -219,7 +219,6 @@ pub struct ProcConfig {
     pub proc_colors: bool,
     pub proc_gradient: bool,
     pub proc_mem_bytes: bool,
-    pub keep_dead_proc_usage: bool,
 }
 
 impl Default for ProcConfig {
@@ -229,7 +228,6 @@ impl Default for ProcConfig {
             proc_colors: true,
             proc_gradient: true,
             proc_mem_bytes: true,
-            keep_dead_proc_usage: false,
         }
     }
 }
