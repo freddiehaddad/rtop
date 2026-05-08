@@ -95,7 +95,9 @@ pub struct ProcCollector {
     /// Raw collected process data — never sorted/filtered in place.
     pub procs: Vec<ProcInfo>,
     pub status: super::CollectStatus,
-    prev_times: HashMap<u32, (u64, u64)>, // pid → (kernel_time, user_time)
+    /// Per-PID kernel + user CPU ticks from the previous cycle.
+    /// Used to compute the CPU% delta for the current cycle's window.
+    prev_times: HashMap<u32, u64>,
     last_collect: std::time::Instant,
     core_count: usize,
 }
@@ -213,10 +215,10 @@ impl ProcCollector {
             }
         }
 
-        // Update prev_times for next delta
+        // Update prev_times for next-cycle delta calculation.
         self.prev_times.clear();
         for p in &new_procs {
-            self.prev_times.insert(p.pid, (0, p.cpu_time));
+            self.prev_times.insert(p.pid, p.cpu_time);
         }
 
         self.procs = new_procs;
@@ -231,7 +233,7 @@ impl Collector for ProcCollector {
 
 fn get_process_details(
     pid: u32,
-    prev_times: &HashMap<u32, (u64, u64)>,
+    prev_times: &HashMap<u32, u64>,
     elapsed: f64,
     core_count: usize,
 ) -> (f64, u64, u64, PriorityClass, String, String) {
@@ -273,7 +275,7 @@ fn get_process_details(
                 let ut = filetime_to_u64(&user_time);
                 cpu_time = kt.saturating_add(ut);
 
-                if let Some(&(_, prev_total)) = prev_times.get(&pid) {
+                if let Some(&prev_total) = prev_times.get(&pid) {
                     cpu_p = process_cpu_percent(prev_total, cpu_time, elapsed, core_count);
                 }
             }
