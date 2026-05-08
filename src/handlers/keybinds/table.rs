@@ -287,6 +287,12 @@ pub(crate) static BINDINGS: &[Binding] = &[
         help: Some(HelpEntry { category: "Process", keys: "Shift+F", description: "Follow/unfollow process" }),
         action: normal::follow_action,
     },
+    Binding {
+        keys: &[KeySpec::Always(Key::Space)],
+        states: NORMAL,
+        help: Some(HelpEntry { category: "Process", keys: "Space", description: "Pause / resume process list" }),
+        action: normal::pause_action,
+    },
 
     // -----------------------------------------------------------------
     // Disk

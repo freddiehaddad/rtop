@@ -92,6 +92,11 @@ pub struct PaletteColors {
     pub options_box: Rgb,
     pub followed_bg: Rgb,
     pub followed_fg: Rgb,
+    /// Foreground color for dead-process rows in the paused list.
+    /// Each theme picks a palette-coherent muted value (typically a
+    /// 50% blend of `main_fg` toward `main_bg`, or the theme's
+    /// existing secondary-text color).
+    pub dead_proc_fg: Rgb,
 }
 
 /// Gradient definitions for a theme.
@@ -164,6 +169,7 @@ selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
+dead_proc_fg = "#6272a4"
 cpu_widget = "#bd93f9"
 mem_widget = "#50fa7b"
 net_widget = "#ff5555"
@@ -279,6 +285,7 @@ selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
+dead_proc_fg = "#6272a4"
 cpu_widget = "#bd93f9"
 mem_widget = "#50fa7b"
 net_widget = "#ff5555"

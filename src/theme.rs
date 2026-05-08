@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 19;
+pub const COLOR_COUNT: usize = 20;
 pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
@@ -84,6 +84,7 @@ impl Theme {
             Some(c.options_box),  // 16
             Some(c.followed_bg),  // 17
             Some(c.followed_fg),  // 18
+            Some(c.dead_proc_fg), // 19
         ];
 
         let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| match rgb_opts[i] {

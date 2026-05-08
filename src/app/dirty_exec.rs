@@ -15,13 +15,15 @@ use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::{AppState, LiveData, NetworkViewState, ProcessViewState, RuntimeView};
 use crate::config;
 use crate::dirty::RenderDirty;
-use crate::domain::process::ProcDisplayEntry;
+use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw;
 use crate::overlay::ActiveModal;
 use crate::runner;
 use crate::term;
 use crate::theme;
 use crate::ui;
+use std::collections::HashSet;
+use std::sync::OnceLock;
 
 pub(crate) fn execute_dirty_work(
     state: &mut AppState,
@@ -60,8 +62,9 @@ pub(crate) fn execute_dirty_work(
 }
 
 fn rebuild_proc_list(state: &mut AppState, config: &config::Config) {
-    let procs = state.live.proc_data.as_ref().map(|s| s.procs.as_slice());
-    state.process.rebuild_entries(procs, config, &state.view);
+    state
+        .process
+        .rebuild_entries(config, &state.view, &state.live);
 }
 
 fn calculate_layout(
@@ -253,6 +256,19 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) gpu: Option<&'a runner::GpuSnapshot>,
     pub(crate) proc_data: Option<&'a runner::ProcSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
+    /// Process slice the proc widget renders rows from. Equals
+    /// `pause.snapshot.procs` when paused; otherwise
+    /// `proc_data.procs`. Borrowed for the lifetime of the frame so
+    /// the renderer never has to repeat the paused/live choice.
+    pub(crate) proc_source: &'a [ProcInfo],
+    /// `true` when the proc-list pause is active. Drives the
+    /// top-border `paused` chip and the dead-row layering rule.
+    pub(crate) proc_paused: bool,
+    /// PIDs from the paused snapshot that are no longer in the live
+    /// snapshot. Empty when not paused. The proc widget consults
+    /// this to render dead-row styling and the bottom-border
+    /// `terminate` chip dim treatment.
+    pub(crate) dead_pids: &'a HashSet<u32>,
     pub(crate) selected_iface: &'a str,
     pub(crate) config: &'a config::Config,
     pub(crate) view: &'a RuntimeView,
@@ -293,6 +309,15 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) is_filtering: bool,
 }
 
+/// Empty dead-PID set used as the borrow target when no pause is
+/// active. `OnceLock` so the renderer can always borrow a real
+/// `&HashSet<u32>` from `RenderParams::dead_pids` without dealing
+/// with `Option` indirection.
+fn empty_dead_pids() -> &'static HashSet<u32> {
+    static EMPTY: OnceLock<HashSet<u32>> = OnceLock::new();
+    EMPTY.get_or_init(HashSet::new)
+}
+
 impl<'a> RenderInputs<'a> {
     /// Materialise a [`RenderParams`] view of these inputs.
     ///
@@ -302,6 +327,11 @@ impl<'a> RenderInputs<'a> {
     /// place. Adding a new widget setting or per-frame state field
     /// touches one call site.
     pub(crate) fn build(self) -> RenderParams<'a> {
+        let proc_source = self.process.procs_source(self.live).unwrap_or(&[]);
+        let dead_pids = match self.process.pause.as_ref() {
+            Some(p) => &p.dead_pids,
+            None => empty_dead_pids(),
+        };
         RenderParams {
             dirty: self.dirty,
             layout: self.layout,
@@ -312,6 +342,9 @@ impl<'a> RenderInputs<'a> {
             gpu: self.live.gpu.as_deref(),
             proc_data: self.live.proc_data.as_deref(),
             proc_entries: &self.process.entries,
+            proc_source,
+            proc_paused: self.process.pause.is_some(),
+            dead_pids,
             selected_iface: self.network.selected_iface.as_str(),
             config: self.config,
             view: self.view,

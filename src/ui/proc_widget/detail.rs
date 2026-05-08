@@ -23,18 +23,33 @@ pub(super) fn find_detailed_proc<'a>(
         .find(|proc| proc.pid == detailed_pid)
 }
 
+/// Parameters for [`draw_detail_panel`].
+pub(super) struct DetailPanelParams<'a> {
+    pub proc: &'a ProcInfo,
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub rows: usize,
+    pub settings: &'a ProcFrame,
+    pub theme: &'a Theme,
+    pub dead: bool,
+}
+
 /// Draw the detailed process info panel at the top of the proc widget.
-pub(super) fn draw_detail_panel(
-    proc: &ProcInfo,
-    x: usize,
-    y: usize,
-    width: usize,
-    rows: usize,
-    settings: &ProcFrame,
-    theme: &Theme,
-) -> String {
+pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
+    let DetailPanelParams {
+        proc,
+        x,
+        y,
+        width,
+        rows,
+        settings,
+        theme,
+        dead,
+    } = *params;
     let fg = theme.color(tc::MAIN_FG);
     let hi = theme.color(tc::HI_FG);
+    let dead_fg = theme.color(tc::DEAD_PROC_FG);
     let proc_grad = theme.gradient(tc::GRAD_PROCESS);
     let inner_w = width.saturating_sub(4);
     let content_rows = rows.saturating_sub(1);
@@ -73,13 +88,32 @@ pub(super) fn draw_detail_panel(
         draw_detail_field(&mut buf, &cmd_field, inner_w, fg);
     }
 
+    // Status: ✗ Process exited — only for dead processes in the
+    // paused snapshot. Displaces one grid row to make room. Uses
+    // dead_proc_fg so the user's eye links the detail-panel status
+    // line and the dead row in the list (same color, same `✗`
+    // glyph).
+    let status_offset = if dead && content_rows > 2 {
+        let status_field = DetailField {
+            label: "Status",
+            value: "\u{2717} Process exited".to_string(),
+            color: dead_fg,
+        };
+        buf.mv(detail_x, y + 4);
+        draw_detail_field(&mut buf, &status_field, inner_w, dead_fg);
+        1
+    } else {
+        0
+    };
+
     let fields = detail_fields(proc, settings, fg, hi, proc_grad);
-    let grid_rows = content_rows.saturating_sub(2);
+    let grid_rows = content_rows.saturating_sub(2 + status_offset);
+    let grid_y = y + 4 + status_offset;
     if inner_w >= DETAIL_TWO_COL_MIN_WIDTH {
         for (row, pair) in fields.chunks(2).take(grid_rows).enumerate() {
             let left = &pair[0];
             let right = pair.get(1);
-            draw_detail_pair(&mut buf, left, right, detail_x, y + 4 + row, inner_w, fg);
+            draw_detail_pair(&mut buf, left, right, detail_x, grid_y + row, inner_w, fg);
         }
     } else {
         for (row, field_index) in NARROW_DETAIL_FIELD_ORDER
@@ -89,7 +123,7 @@ pub(super) fn draw_detail_panel(
             .enumerate()
         {
             if let Some(field) = fields.get(field_index) {
-                buf.mv(detail_x, y + 4 + row);
+                buf.mv(detail_x, grid_y + row);
                 draw_detail_field(&mut buf, field, inner_w, fg);
             }
         }
@@ -364,10 +398,32 @@ mod tests {
         }
     }
 
+    fn make_panel<'a>(
+        proc: &'a ProcInfo,
+        width: usize,
+        rows: usize,
+        settings: &'a ProcFrame,
+        theme: &'a Theme,
+        dead: bool,
+    ) -> DetailPanelParams<'a> {
+        DetailPanelParams {
+            proc,
+            x: 1,
+            y: 1,
+            width,
+            rows,
+            settings,
+            theme,
+            dead,
+        }
+    }
+
     #[test]
     fn detail_panel_right_aligns_pid_header() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[0], 1, 1, 80, 8, &make_frame(), &Theme::default());
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, false));
         let plain = strip_ansi(&output);
         let expected_gap = 76 - "alpha.exe".len() - "PID 100".len();
         let expected = format!("alpha.exe{}PID 100", " ".repeat(expected_gap));
@@ -383,7 +439,9 @@ mod tests {
         let mut procs = make_procs();
         procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(80));
 
-        let output = draw_detail_panel(&procs[0], 1, 1, 36, 8, &make_frame(), &Theme::default());
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 36, 8, &frame, &theme, false));
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("Cmd      alpha.exe"));
@@ -396,12 +454,57 @@ mod tests {
     #[test]
     fn detail_panel_narrow_mode_keeps_high_priority_fields() {
         let procs = make_procs();
-        let output = draw_detail_panel(&procs[2], 1, 1, 42, 8, &make_frame(), &Theme::default());
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[2], 42, 8, &frame, &theme, false));
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("User     Admin"));
         assert!(plain.contains("Status   Running"));
         assert!(plain.contains("CPU      25.0%"));
         assert!(plain.contains("Memory   200M"));
+    }
+
+    #[test]
+    fn detail_panel_omits_status_line_for_live_process() {
+        let procs = make_procs();
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, false));
+        let plain = strip_ansi(&output);
+        assert!(
+            !plain.contains("Process exited"),
+            "live process must not include the exited status line: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_includes_status_line_for_dead_process() {
+        let procs = make_procs();
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, true));
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("Status"),
+            "dead process detail panel must include a Status line: {plain}"
+        );
+        assert!(
+            plain.contains("\u{2717} Process exited"),
+            "dead process status line must contain `✗ Process exited`: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_status_line_uses_dead_proc_fg() {
+        let theme = Theme::default();
+        let procs = make_procs();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, true));
+        let dead_fg = theme.color(tc::DEAD_PROC_FG);
+        assert!(
+            output.contains(&format!("{dead_fg}Status")),
+            "Status label should be preceded by dead_proc_fg"
+        );
     }
 }

@@ -250,6 +250,23 @@ fn cycle_sort(ctx: &mut InputContext, dir: isize) {
 
 pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) {
     if let Some((armed_pid, _, false)) = ctx.process.armed_terminate {
+        // Defensive: the armed PID may have died during the arm
+        // window (live update arrived between the two `t` presses).
+        // Reject the second press cleanly instead of attempting a
+        // syscall the OS will reject. The dimmed bottom-border
+        // chip is the user-visible signal; the debug log carries
+        // the trace for anyone running with log_level=debug.
+        if ctx.process.is_dead(armed_pid) {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "terminate",
+                pid = armed_pid,
+                "refused: process exited",
+            );
+            ctx.process.armed_terminate = None;
+            ctx.render.dirty.mark_proc_widget();
+            return;
+        }
         tracing::info!(
             subsystem = %crate::log::Subsystem::Input,
             action = "process_terminate",
@@ -259,6 +276,18 @@ pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) {
         graceful_terminate(armed_pid);
         ctx.process.armed_terminate = None;
     } else if let Some((pid, name)) = ctx.selected_proc_info() {
+        // Pre-emptive rejection: don't arm on a dead row. The
+        // dimmed `terminate` chip on the bottom border is the
+        // affordance hint that this action is unavailable.
+        if ctx.process.is_dead(pid) {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "terminate",
+                pid,
+                "refused: process exited",
+            );
+            return;
+        }
         ctx.process.armed_terminate = Some((pid, name.to_string(), false));
     }
     ctx.render.dirty.mark_proc_widget();
@@ -266,6 +295,17 @@ pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) {
 
 pub(super) fn kill_action(ctx: &mut InputContext, _key: &Key) {
     if let Some((armed_pid, _, true)) = ctx.process.armed_terminate {
+        if ctx.process.is_dead(armed_pid) {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "kill",
+                pid = armed_pid,
+                "refused: process exited",
+            );
+            ctx.process.armed_terminate = None;
+            ctx.render.dirty.mark_proc_widget();
+            return;
+        }
         tracing::info!(
             subsystem = %crate::log::Subsystem::Input,
             action = "process_kill",
@@ -275,9 +315,35 @@ pub(super) fn kill_action(ctx: &mut InputContext, _key: &Key) {
         terminate_process(armed_pid);
         ctx.process.armed_terminate = None;
     } else if let Some((pid, name)) = ctx.selected_proc_info() {
+        if ctx.process.is_dead(pid) {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::Input,
+                action = "kill",
+                pid,
+                "refused: process exited",
+            );
+            return;
+        }
         ctx.process.armed_terminate = Some((pid, name.to_string(), true));
     }
     ctx.render.dirty.mark_proc_widget();
+}
+
+/// Toggle the proc-list pause state. See `ProcessViewState::pause`
+/// for the snapshot-freeze invariant.
+pub(super) fn pause_action(ctx: &mut InputContext, _key: &Key) {
+    let now_paused = ctx.process.toggle_pause(ctx.live);
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "pause_toggle",
+        paused = now_paused,
+        "process list pause toggled",
+    );
+    // Toggling pause changes which procs slice the display rebuilds
+    // from (live ↔ paused snapshot), so we need a full proc-list
+    // rebuild. The proc widget redraw is implied by
+    // `mark_proc_data_changed`.
+    ctx.render.dirty.mark_proc_data_changed();
 }
 
 pub(super) fn follow_action(ctx: &mut InputContext, _key: &Key) {

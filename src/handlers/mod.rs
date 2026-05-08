@@ -39,7 +39,7 @@ pub(crate) struct InputContext<'a> {
 
 impl InputContext<'_> {
     pub(crate) fn selected_proc_pid(&self) -> Option<u32> {
-        let procs = self.live.proc_data.as_ref()?.procs.as_slice();
+        let procs = self.process.procs_source(self.live)?;
         self.process
             .entries
             .get(self.process.selected)
@@ -48,7 +48,7 @@ impl InputContext<'_> {
     }
 
     pub(crate) fn selected_proc_info(&self) -> Option<(u32, &str)> {
-        let procs = self.live.proc_data.as_ref()?.procs.as_slice();
+        let procs = self.process.procs_source(self.live)?;
         self.process
             .entries
             .get(self.process.selected)

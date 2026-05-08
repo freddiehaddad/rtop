@@ -114,9 +114,24 @@ pub(crate) fn pull_subsystem_data(
             }
             SubsystemKind::Proc => {
                 if let Some(snap) = manager.proc_slot.latest() {
-                    state.live.proc_data = Some(snap);
-                    if render_ui {
-                        state.render.dirty.mark_proc_data_changed();
+                    if state.process.pause.is_some() {
+                        // Paused: refresh dead_pids from this live
+                        // update so the dead-row styling stays
+                        // current as snapshot processes exit. Mark
+                        // the proc widget dirty only when the dead
+                        // set actually changes — the snapshot data
+                        // itself is frozen and does not need a
+                        // full proc-list rebuild.
+                        let changed = state.process.refresh_dead_pids(&snap);
+                        state.live.proc_data = Some(snap);
+                        if render_ui && changed {
+                            state.render.dirty.mark_widget(WidgetKind::Proc);
+                        }
+                    } else {
+                        state.live.proc_data = Some(snap);
+                        if render_ui {
+                            state.render.dirty.mark_proc_data_changed();
+                        }
                     }
                 }
             }

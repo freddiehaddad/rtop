@@ -78,6 +78,18 @@ pub struct ProcView<'a> {
     pub filtering: bool,
     pub armed_name: &'a str,
     pub armed_force: bool,
+    /// `true` when the proc list is paused. Drives the top-border
+    /// `paused` chip and gates the dead-row styling rule.
+    pub paused: bool,
+    /// PIDs from the paused snapshot whose live counterpart has
+    /// disappeared. Empty when not paused. The row renderer
+    /// applies `dead_proc_fg` + `✗ ` prefix to rows whose PID is
+    /// in this set; the bottom-border `terminate` chip dims when
+    /// the selected PID is in this set.
+    pub dead_pids: &'a std::collections::HashSet<u32>,
+    /// PID currently under the cursor. Used by the bottom-border
+    /// renderer to decide whether to dim the `terminate` chip.
+    pub selected_pid: u32,
 }
 
 // ---------------------------------------------------------------------------

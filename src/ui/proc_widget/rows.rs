@@ -3,6 +3,7 @@ use super::{ProcColors, ProcFrame};
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
 use crate::tools;
+use std::collections::HashSet;
 
 pub(super) struct ProcessRowsParams<'a> {
     pub(super) procs: &'a [ProcInfo],
@@ -14,6 +15,10 @@ pub(super) struct ProcessRowsParams<'a> {
     pub(super) tree_mode: bool,
     pub(super) settings: &'a ProcFrame,
     pub(super) colors: &'a ProcColors<'a>,
+    /// PIDs from the paused snapshot that no longer exist in the
+    /// live snapshot. Empty when not paused. Rows whose PID is in
+    /// this set render with `dead_proc_fg` and a `✗ ` name prefix.
+    pub(super) dead_pids: &'a HashSet<u32>,
 }
 
 struct ProcessRowParams<'a> {
@@ -27,7 +32,16 @@ struct ProcessRowParams<'a> {
     tree_mode: bool,
     settings: &'a ProcFrame,
     colors: &'a ProcColors<'a>,
+    /// `true` when this row's PID is in `dead_pids`. Drives the
+    /// dead-row foreground color and the `✗ ` name-column prefix.
+    dead: bool,
 }
+
+/// Universal prefix for dead-row name columns (Ballot X + space).
+/// Two cells of name-column width per dead row; the displayed name
+/// is truncated by the same amount to fit.
+const DEAD_NAME_PREFIX: &str = "\u{2717} ";
+const DEAD_NAME_PREFIX_WIDTH: usize = 2;
 
 struct RowText<'a> {
     pid: String,
@@ -64,6 +78,7 @@ pub(super) fn draw_rows(buf: &mut AnsiBuffer, params: &ProcessRowsParams<'_>) {
                 tree_mode: params.tree_mode,
                 settings: params.settings,
                 colors: params.colors,
+                dead: params.dead_pids.contains(&proc.pid),
             },
         );
     }
@@ -75,15 +90,25 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let mem = params.entry.mem_override.unwrap_or(params.proc.mem);
     let display_cpu = display_proc_cpu(cpu_p, params.settings);
     let mem_str = format_proc_memory(mem, params.settings);
-    let proc_color = process_row_color(
-        display_cpu,
-        params.absolute_index,
-        params.selected,
-        params.layout.max_rows,
-        params.settings,
-        params.colors.proc_grad,
-        params.colors.fg,
-    );
+    // Dead rows that are not selected/followed render in
+    // dead_proc_fg; the dim signal then layers under the dagger
+    // prefix below. Selected / followed states win over the dead
+    // foreground (their bg highlight takes precedence in their
+    // dedicated row renderers); the prefix carries the "dead even
+    // when highlighted" signal.
+    let proc_color = if params.dead {
+        params.colors.dead_fg
+    } else {
+        process_row_color(
+            display_cpu,
+            params.absolute_index,
+            params.selected,
+            params.layout.max_rows,
+            params.settings,
+            params.colors.proc_grad,
+            params.colors.fg,
+        )
+    };
 
     let (tree_prefix, bare_name) = if params.tree_mode && !params.entry.prefix.is_empty() {
         (params.entry.prefix.as_str(), params.proc.name.as_str())
@@ -92,12 +117,26 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     };
     let prefix_w = tools::ulen(tree_prefix, false);
     let name_avail = columns.name_w.saturating_sub(prefix_w);
-    let display_name = tools::uresize(bare_name, name_avail, false);
+    // Dead rows reserve the leftmost two cells of their name field
+    // for the `✗ ` prefix; the displayed name is truncated by the
+    // same amount so the column layout doesn't shift.
+    let (display_name, name_avail_after_prefix) = if params.dead {
+        let avail = name_avail.saturating_sub(DEAD_NAME_PREFIX_WIDTH);
+        let name = tools::uresize(bare_name, avail, false);
+        let prefixed = format!("{DEAD_NAME_PREFIX}{name}");
+        (prefixed, name_avail)
+    } else {
+        (tools::uresize(bare_name, name_avail, false), name_avail)
+    };
     let pid_str = format!("{:<pid_w$}", params.proc.pid, pid_w = columns.pid_w);
     let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = columns.cpu_w);
     let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = columns.mem_w);
     let cmd_display = command_display(params.proc, columns);
-    let name_padded = tools::ljust(&display_name, name_avail, false);
+    // `display_name` may contain the multi-byte `✗` prefix (3 bytes,
+    // 1 visible cell) on dead rows, so right-pad by visible width
+    // — not byte length — to keep the cmd / cpu / mem columns
+    // aligned with their alive-row neighbours.
+    let name_padded = tools::ljust(&display_name, name_avail_after_prefix, true);
 
     let is_followed = params.followed_pid > 0 && params.proc.pid == params.followed_pid;
 
@@ -113,7 +152,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail,
+                name_avail: name_avail_after_prefix,
             },
         );
     } else if params.absolute_index == params.selected {
@@ -128,7 +167,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail,
+                name_avail: name_avail_after_prefix,
             },
         );
     } else {
@@ -143,7 +182,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail,
+                name_avail: name_avail_after_prefix,
             },
             proc_color,
         );
@@ -370,6 +409,217 @@ mod tests {
         assert_eq!(
             process_row_color(50.0, 5, 0, 10, &no_gradient, &gradient, "fg"),
             "50"
+        );
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Dead-row indicator (paused-list ✗ prefix + dead_proc_fg)
+    // ────────────────────────────────────────────────────────────
+
+    use crate::collect::CollectStatus;
+    use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
+    use crate::theme::Theme;
+    use crate::theme_keys as tc;
+    use crate::ui::WidgetArea;
+    use std::collections::HashSet;
+    use std::sync::OnceLock;
+
+    fn strip_ansi(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        let mut in_esc = false;
+        for ch in s.chars() {
+            if in_esc {
+                if ch.is_ascii_alphabetic() || ch == 'm' {
+                    in_esc = false;
+                }
+                continue;
+            }
+            if ch == '\x1b' {
+                in_esc = true;
+                continue;
+            }
+            out.push(ch);
+        }
+        out
+    }
+
+    fn dead_test_procs() -> Vec<ProcInfo> {
+        vec![
+            ProcInfo {
+                pid: 100,
+                name: "alive.exe".into(),
+                cmd: String::new(),
+                cpu_p: 12.0,
+                mem: 256 * 1024 * 1024,
+                state: ProcState::Running,
+                priority: PriorityClass::Normal,
+                ..Default::default()
+            },
+            ProcInfo {
+                pid: 200,
+                name: "dead.exe".into(),
+                cmd: String::new(),
+                cpu_p: 80.0,
+                mem: 1024 * 1024 * 1024,
+                state: ProcState::Running,
+                priority: PriorityClass::Normal,
+                ..Default::default()
+            },
+        ]
+    }
+
+    fn render_with_dead(dead_pids: &HashSet<u32>, selected: usize, followed_pid: u32) -> String {
+        let theme = Theme::default();
+        let procs = dead_test_procs();
+        let entries = vec![
+            crate::domain::process::ProcDisplayEntry::flat(0),
+            crate::domain::process::ProcDisplayEntry::flat(1),
+        ];
+        let area = WidgetArea {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 12,
+            rounded: true,
+        };
+        static EMPTY: OnceLock<HashSet<u32>> = OnceLock::new();
+        let _ = EMPTY.get_or_init(HashSet::new);
+        let view = crate::ui::ProcView {
+            start: 0,
+            selected,
+            sort_by: crate::collect::process_display::ProcSort::Cpu,
+            sort_reversed: false,
+            tree_mode: false,
+            detailed_pid: 0,
+            followed_pid,
+            filter: "",
+            filtering: false,
+            armed_name: "",
+            armed_force: false,
+            paused: !dead_pids.is_empty(),
+            dead_pids,
+            selected_pid: procs.get(selected).map_or(0, |p| p.pid),
+        };
+        let frame = make_frame();
+        crate::ui::proc_widget::draw(
+            &procs,
+            &entries,
+            &area,
+            &theme,
+            &frame,
+            &view,
+            &CollectStatus::Ok,
+        )
+    }
+
+    #[test]
+    fn dead_row_emits_dead_proc_fg_color_and_ballot_x_prefix() {
+        let mut dead = HashSet::new();
+        dead.insert(200);
+        let out = render_with_dead(&dead, 0, 0);
+        let theme = Theme::default();
+        let dead_fg = theme.color(tc::DEAD_PROC_FG);
+        // The dead row's text must be preceded by dead_proc_fg.
+        assert!(
+            out.contains(&format!("{dead_fg}200")),
+            "dead row PID should be preceded by dead_proc_fg"
+        );
+        // The displayed name should carry the ✗ prefix.
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("\u{2717} dead.exe") || plain.contains("\u{2717} dead"),
+            "dead row name should be prefixed with `✗ `: {plain}"
+        );
+    }
+
+    #[test]
+    fn live_row_does_not_carry_ballot_x_prefix() {
+        let dead = HashSet::new();
+        let out = render_with_dead(&dead, 0, 0);
+        let plain = strip_ansi(&out);
+        assert!(
+            !plain.contains("\u{2717}"),
+            "live rows must not show the ballot-X prefix: {plain}"
+        );
+    }
+
+    #[test]
+    fn dead_row_keeps_ballot_x_prefix_when_selected() {
+        // Dead + selected: bg goes to selected_bg (selection wins
+        // on the bg channel), but the ✗ prefix still appears so
+        // the user knows the row is dead even when highlighted.
+        let mut dead = HashSet::new();
+        dead.insert(200);
+        let out = render_with_dead(&dead, 1, 0); // PID 200 is at index 1
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("\u{2717} "),
+            "selected dead row should still carry the ballot-X prefix: {plain}"
+        );
+    }
+
+    #[test]
+    fn dead_row_name_field_visible_width_matches_alive_row() {
+        // Regression: `✗` is 3 UTF-8 bytes but renders as 1 cell.
+        // Padding the name field by byte length under-fills the
+        // dead row by 2 cells per `✗`, shifting the cmd / cpu /
+        // mem columns leftward. This test asserts that the visible
+        // text on each row has the same length: the trailing
+        // segments after pid_w (name + sep + cmd_w + sep + cpu_w +
+        // sep + mem_w) are columnar with fixed visible widths and
+        // must match across alive and dead rows.
+        let mut dead = HashSet::new();
+        dead.insert(200);
+        let out = render_with_dead(&dead, 0, 0);
+
+        // Group emitted text by Y coordinate from the cursor-move
+        // escapes (`\x1b[Y;XH`).
+        let mut lines: std::collections::BTreeMap<u32, String> = std::collections::BTreeMap::new();
+        let mut chars = out.chars();
+        let mut current_y: Option<u32> = None;
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                if chars.next() != Some('[') {
+                    continue;
+                }
+                let mut seq = String::new();
+                let mut terminator = '\0';
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        terminator = c;
+                        break;
+                    }
+                    seq.push(c);
+                }
+                if terminator == 'H'
+                    && let Some((y_str, _x_str)) = seq.split_once(';')
+                    && let Ok(y) = y_str.parse::<u32>()
+                {
+                    current_y = Some(y);
+                }
+                continue;
+            }
+            if let Some(y) = current_y {
+                lines.entry(y).or_default().push(ch);
+            }
+        }
+
+        let alive_line = lines
+            .values()
+            .find(|l| l.contains("alive.exe"))
+            .expect("alive row present");
+        let dead_line = lines
+            .values()
+            .find(|l| l.contains("dead.exe"))
+            .expect("dead row present");
+
+        let alive_w = unicode_width::UnicodeWidthStr::width(alive_line.trim_end());
+        let dead_w = unicode_width::UnicodeWidthStr::width(dead_line.trim_end());
+
+        assert_eq!(
+            alive_w, dead_w,
+            "alive and dead rows must have identical visible width \
+             (alive={alive_w}, dead={dead_w}); dead row was: {dead_line:?}"
         );
     }
 }

@@ -50,6 +50,10 @@ pub const HELP_BOX: ColorKey = ColorKey(15);
 pub const OPTIONS_BOX: ColorKey = ColorKey(16);
 pub const FOLLOWED_BG: ColorKey = ColorKey(17);
 pub const FOLLOWED_FG: ColorKey = ColorKey(18);
+/// Foreground color for dead-process rows in the paused list.
+/// Each theme picks a palette-coherent muted value; renders together
+/// with the `✗ ` name prefix to mark a row whose process has exited.
+pub const DEAD_PROC_FG: ColorKey = ColorKey(19);
 
 // Gradient keys for `Theme::gradient()` lookups.
 // Grouped by widget: CPU, memory, network, GPU, disk, other.

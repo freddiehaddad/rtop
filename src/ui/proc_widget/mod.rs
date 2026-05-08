@@ -12,7 +12,7 @@ use crate::theme::Theme;
 use crate::theme_keys as tc;
 
 use self::borders::{BottomBorderParams, draw_bottom_border, draw_top_border};
-use self::detail::{draw_detail_panel, find_detailed_proc};
+use self::detail::{DetailPanelParams, draw_detail_panel, find_detailed_proc};
 use self::layout::{ProcWidgetLayout, SortState};
 use self::rows::{ProcessRowsParams, draw_rows};
 
@@ -69,6 +69,7 @@ pub fn draw(
             detailed_pid: view.detailed_pid,
             settings,
             theme,
+            detailed_dead: view.detailed_pid != 0 && view.dead_pids.contains(&view.detailed_pid),
         },
     );
     draw_header(&mut buf, &layout, view, settings, &colors);
@@ -85,6 +86,7 @@ pub fn draw(
             tree_mode: view.tree_mode,
             settings,
             colors: &colors,
+            dead_pids: view.dead_pids,
         },
     );
     draw_proc_borders(&mut buf, &layout, view, entries.len(), theme);
@@ -103,6 +105,8 @@ struct ProcColors<'a> {
     followed_fg: &'a str,
     tree_fg: &'a str,
     proc_grad: &'a [String],
+    /// Foreground for dead-row text in the paused list.
+    dead_fg: &'a str,
 }
 
 impl<'a> ProcColors<'a> {
@@ -118,6 +122,7 @@ impl<'a> ProcColors<'a> {
             followed_fg: theme.color(tc::FOLLOWED_FG),
             tree_fg: theme.color(tc::PROC_TREE_FG),
             proc_grad: theme.gradient(tc::GRAD_PROCESS),
+            dead_fg: theme.color(tc::DEAD_PROC_FG),
         }
     }
 }
@@ -129,6 +134,10 @@ struct DetailSectionParams<'a> {
     detailed_pid: u32,
     settings: &'a ProcFrame,
     theme: &'a Theme,
+    /// `true` when the detailed PID is in the paused snapshot's
+    /// dead-PID set. Causes the panel to insert a `Status: ✗
+    /// Process exited` line under the `Cmd:` row.
+    detailed_dead: bool,
 }
 
 fn draw_frame(
@@ -169,15 +178,16 @@ fn draw_detail_section(buf: &mut AnsiBuffer, params: &DetailSectionParams<'_>) {
     }
 
     if let Some(proc) = find_detailed_proc(params.procs, params.entries, params.detailed_pid) {
-        buf.text(&draw_detail_panel(
+        buf.text(&draw_detail_panel(&DetailPanelParams {
             proc,
-            params.layout.x,
-            params.layout.y,
-            params.layout.width,
-            params.layout.detail_rows,
-            params.settings,
-            params.theme,
-        ));
+            x: params.layout.x,
+            y: params.layout.y,
+            width: params.layout.width,
+            rows: params.layout.detail_rows,
+            settings: params.settings,
+            theme: params.theme,
+            dead: params.detailed_dead,
+        }));
     }
 }
 
@@ -319,10 +329,12 @@ fn draw_proc_borders(
         layout.width,
         view.sort_by,
         view.tree_mode,
+        view.paused,
         theme,
     ));
 
     let visible = entry_count.min(layout.max_rows);
+    let selected_dead = view.selected_pid != 0 && view.dead_pids.contains(&view.selected_pid);
     buf.text(&draw_bottom_border(
         &BottomBorderParams {
             x: layout.x,
@@ -335,6 +347,7 @@ fn draw_proc_borders(
             total: entry_count,
             armed_name: view.armed_name,
             armed_force: view.armed_force,
+            terminate_disabled: selected_dead,
         },
         theme,
     ));
@@ -380,7 +393,11 @@ impl super::Widget for ProcWidget {
         let Some(proc_snap) = params.proc_data else {
             return;
         };
-        let procs = proc_snap.procs.as_slice();
+        // Source procs from the paused snapshot when paused; from
+        // the live snapshot otherwise. `proc_source` was resolved
+        // by the central `RenderInputs::build` so the choice lives
+        // in one place.
+        let procs = params.proc_source;
         let entries = params.proc_entries;
         let detailed_pid = params.detailed_pid;
         let sort_by = params.view.proc_sorting;
@@ -404,6 +421,9 @@ impl super::Widget for ProcWidget {
                 .map(|(n, _)| *n)
                 .unwrap_or(""),
             armed_force: params.armed_terminate.as_ref().is_some_and(|(_, f)| *f),
+            paused: params.proc_paused,
+            dead_pids: params.dead_pids,
+            selected_pid: selected_pid_from(entries, params.proc_selected, procs),
         };
         let frame = ProcFrame {
             proc_per_core: params.view.proc_per_core,
@@ -424,6 +444,17 @@ impl super::Widget for ProcWidget {
             &proc_snap.status,
         ));
     }
+}
+
+/// Resolve the PID under the cursor from `entries[selected]`,
+/// returning 0 when the row is unavailable. Used by the proc widget
+/// to populate `ProcView::selected_pid` so the bottom-border
+/// renderer can decide whether to dim the `terminate` chip.
+fn selected_pid_from(entries: &[ProcDisplayEntry], selected: usize, procs: &[ProcInfo]) -> u32 {
+    entries
+        .get(selected)
+        .and_then(|e| procs.get(e.proc_index))
+        .map_or(0, |p| p.pid)
 }
 
 #[cfg(test)]
@@ -541,6 +572,8 @@ mod tests {
     }
 
     fn make_view() -> ProcView<'static> {
+        static EMPTY: std::sync::OnceLock<std::collections::HashSet<u32>> =
+            std::sync::OnceLock::new();
         ProcView {
             start: 0,
             selected: 0,
@@ -553,6 +586,9 @@ mod tests {
             filtering: false,
             armed_name: "",
             armed_force: false,
+            paused: false,
+            dead_pids: EMPTY.get_or_init(std::collections::HashSet::new),
+            selected_pid: 0,
         }
     }
 

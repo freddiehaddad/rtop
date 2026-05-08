@@ -25,6 +25,7 @@ use crate::domain::widget_set::WidgetSet;
 use crate::draw;
 use crate::overlay::ActiveModal;
 use crate::runner;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) struct AppState {
@@ -416,6 +417,46 @@ pub(crate) struct ProcessViewState {
     /// Armed terminate state: (pid, process_name, force_kill).
     /// Set on first `t`/`T`, cleared on second press or any other key.
     pub(crate) armed_terminate: Option<(u32, String, bool)>,
+    /// Pause state for the process list.
+    ///
+    /// When `Some`, the proc widget renders from `pause.snapshot`
+    /// instead of from `LiveData::proc_data`. Live collection
+    /// continues — `LiveData::proc_data` still updates each cycle so
+    /// resume is instant — but the on-screen list is frozen at the
+    /// PIDs and values that existed at pause time.
+    ///
+    /// `pause.dead_pids` tracks PIDs from the frozen snapshot that
+    /// no longer appear in the latest live snapshot. The proc widget
+    /// renders those rows with the dead-row theme color
+    /// (`dead_proc_fg`) and a `✗ ` prefix on the name column so the
+    /// user can tell which rows in the snapshot represent processes
+    /// that have since exited.
+    ///
+    /// Pause is *runtime only* — it does not survive restart.
+    /// Persisting it would risk launching rtop with a frozen list
+    /// from a previous session that the user has forgotten about.
+    /// Other view-state toggles (`proc_tree`, `io_mode`, …) persist
+    /// because their behavior is obvious from the rendered output;
+    /// pause's "frozen UI" is more easily mistaken for a hung
+    /// program.
+    pub(crate) pause: Option<PauseState>,
+}
+
+/// Pause state captured the moment the user toggled pause on. Lives
+/// on [`ProcessViewState`]; see the `pause` field's doc comment for
+/// the full snapshot-freeze invariant.
+#[derive(Debug, Clone)]
+pub(crate) struct PauseState {
+    /// Process snapshot captured at pause time. The proc widget
+    /// renders from `snapshot.procs` while this is held; values in
+    /// every cell are the values at pause time, not live values.
+    pub(crate) snapshot: Arc<runner::ProcSnapshot>,
+    /// PIDs from `snapshot` that are no longer present in the most
+    /// recent live snapshot. Recomputed on every live-data arrival
+    /// while paused; used by the proc widget to render dead-row
+    /// styling and by the terminate action to reject doomed
+    /// syscalls.
+    pub(crate) dead_pids: HashSet<u32>,
 }
 
 impl ProcessViewState {
@@ -429,18 +470,106 @@ impl ProcessViewState {
             filter_text: String::new(),
             entries: Vec::new(),
             armed_terminate: None,
+            pause: None,
+        }
+    }
+
+    /// Toggle pause on or off. Returns the new pause state (`true`
+    /// = paused after the toggle).
+    ///
+    /// On activation, captures `live.proc_data` as the frozen
+    /// snapshot. If `live.proc_data` is `None` (first-frame race
+    /// before any data has arrived), the activation is a silent
+    /// no-op — there's nothing to freeze yet — and the function
+    /// returns `false`. In practice this is unreachable because the
+    /// "Collecting data..." gate consumes `Space` before key
+    /// dispatch reaches the action.
+    ///
+    /// On deactivation, drops the frozen snapshot.
+    pub(crate) fn toggle_pause(&mut self, live: &LiveData) -> bool {
+        if self.pause.is_some() {
+            self.pause = None;
+            false
+        } else if let Some(snapshot) = live.proc_data.clone() {
+            self.pause = Some(PauseState {
+                snapshot,
+                dead_pids: HashSet::new(),
+            });
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Recompute `pause.dead_pids` from the current live snapshot.
+    /// Returns `true` if the dead-PID set changed, signalling that
+    /// the proc widget must redraw to update the dead-row styling.
+    ///
+    /// Called by the pull path on every live proc-data arrival
+    /// while paused. No-op if pause is not active.
+    pub(crate) fn refresh_dead_pids(&mut self, live: &runner::ProcSnapshot) -> bool {
+        let Some(pause) = self.pause.as_mut() else {
+            return false;
+        };
+        let live_pids: HashSet<u32> = live.procs.iter().map(|p| p.pid).collect();
+        let new_dead: HashSet<u32> = pause
+            .snapshot
+            .procs
+            .iter()
+            .map(|p| p.pid)
+            .filter(|pid| !live_pids.contains(pid))
+            .collect();
+        if new_dead == pause.dead_pids {
+            false
+        } else {
+            pause.dead_pids = new_dead;
+            true
+        }
+    }
+
+    /// `true` if `pid` is in the paused snapshot's dead-PID set. A
+    /// shorthand the renderer and termination logic both use.
+    pub(crate) fn is_dead(&self, pid: u32) -> bool {
+        self.pause
+            .as_ref()
+            .is_some_and(|p| p.dead_pids.contains(&pid))
+    }
+
+    /// Borrow the slice of processes the current display is built
+    /// from: the paused snapshot when paused, otherwise the live
+    /// snapshot. Returns `None` if no snapshot is available
+    /// (first-frame race, before any data has arrived).
+    pub(crate) fn procs_source<'a>(
+        &'a self,
+        live: &'a LiveData,
+    ) -> Option<&'a [crate::domain::process::ProcInfo]> {
+        if let Some(pause) = self.pause.as_ref() {
+            Some(pause.snapshot.procs.as_slice())
+        } else {
+            live.proc_data.as_ref().map(|s| s.procs.as_slice())
         }
     }
 
     pub(crate) fn rebuild_entries(
         &mut self,
-        procs: Option<&[crate::domain::process::ProcInfo]>,
         config: &config::Config,
         view: &RuntimeView,
+        live: &LiveData,
     ) {
-        let Some(procs) = procs else {
-            self.entries.clear();
-            return;
+        // Resolve the procs source inline rather than via the
+        // procs_source helper: the helper borrows all of `&self`,
+        // which conflicts with the mutations to `self.entries` and
+        // `self.selected` below. Direct field access lets the
+        // borrow checker prove the borrows touch disjoint fields.
+        let procs: &[crate::domain::process::ProcInfo] = match self.pause.as_ref() {
+            Some(p) => p.snapshot.procs.as_slice(),
+            None => match live.proc_data.as_ref() {
+                Some(s) => s.procs.as_slice(),
+                None => {
+                    self.entries.clear();
+                    return;
+                }
+            },
         };
 
         let sort_by = view.proc_sorting;
@@ -466,7 +595,11 @@ impl ProcessViewState {
             .and_then(|e| procs.get(e.proc_index))
             .map_or(0, |p| p.pid);
 
-        // Auto-scroll to followed process.
+        // Auto-scroll to followed process. While paused this is
+        // computed against the snapshot's PID set, so a followed
+        // PID that has died will not auto-disengage until pause is
+        // released — the user is studying the snapshot and the
+        // cursor should stay anchored.
         let followed = self.followed_pid;
         if followed > 0 {
             if let Some(idx) = self
@@ -477,7 +610,8 @@ impl ProcessViewState {
                 self.selected = idx;
                 self.selected_pid = followed;
             } else {
-                // Followed process died — unfollow.
+                // Followed process gone from the displayed source —
+                // unfollow.
                 self.followed_pid = 0;
             }
         }
@@ -749,5 +883,145 @@ mod tests {
 
         assert!(state.render.dirty.needs_layout());
         assert!(state.render.dirty.is_any_widget_dirty());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Pause feature
+    // ─────────────────────────────────────────────────────────────
+
+    fn snap(pids: &[u32]) -> Arc<runner::ProcSnapshot> {
+        Arc::new(runner::ProcSnapshot {
+            procs: pids
+                .iter()
+                .map(|&pid| crate::domain::process::ProcInfo {
+                    pid,
+                    name: format!("proc{pid}"),
+                    ..Default::default()
+                })
+                .collect(),
+            status: crate::collect::CollectStatus::Ok,
+        })
+    }
+
+    #[test]
+    fn pause_activation_captures_live_snapshot() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        let live_snap = snap(&[1, 2, 3]);
+        state.live.proc_data = Some(Arc::clone(&live_snap));
+
+        let now_paused = state.process.toggle_pause(&state.live);
+
+        assert!(now_paused);
+        let pause = state.process.pause.as_ref().expect("pause should be set");
+        assert!(Arc::ptr_eq(&pause.snapshot, &live_snap));
+        assert!(pause.dead_pids.is_empty());
+    }
+
+    #[test]
+    fn pause_activation_noop_when_no_live_data() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        // live.proc_data is None.
+
+        let now_paused = state.process.toggle_pause(&state.live);
+
+        assert!(!now_paused);
+        assert!(state.process.pause.is_none());
+    }
+
+    #[test]
+    fn pause_deactivation_drops_snapshot() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.live.proc_data = Some(snap(&[1, 2]));
+
+        assert!(state.process.toggle_pause(&state.live));
+        assert!(state.process.pause.is_some());
+
+        let now_paused = state.process.toggle_pause(&state.live);
+        assert!(!now_paused);
+        assert!(state.process.pause.is_none());
+    }
+
+    #[test]
+    fn dead_pids_recomputes_on_live_update() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.live.proc_data = Some(snap(&[1, 2, 3]));
+        state.process.toggle_pause(&state.live);
+
+        // Live update: PID 2 has died.
+        let next_live = snap(&[1, 3]);
+        let changed = state.process.refresh_dead_pids(&next_live);
+        assert!(changed);
+        let pause = state.process.pause.as_ref().unwrap();
+        assert_eq!(pause.dead_pids.len(), 1);
+        assert!(pause.dead_pids.contains(&2));
+
+        // Resurrection: same PID 2 reappears in next live update.
+        let after = snap(&[1, 2, 3]);
+        let changed = state.process.refresh_dead_pids(&after);
+        assert!(changed);
+        let pause = state.process.pause.as_ref().unwrap();
+        assert!(pause.dead_pids.is_empty());
+    }
+
+    #[test]
+    fn dead_pids_only_includes_paused_snapshot_pids() {
+        // A PID that never appeared in the paused snapshot must not
+        // count as "dead" — it's a brand new live process, not a
+        // departed one.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.live.proc_data = Some(snap(&[1, 2]));
+        state.process.toggle_pause(&state.live);
+
+        // Live update: PID 99 appears (new), PID 2 still alive, PID 1 still alive.
+        let next_live = snap(&[1, 2, 99]);
+        state.process.refresh_dead_pids(&next_live);
+        let pause = state.process.pause.as_ref().unwrap();
+        assert!(pause.dead_pids.is_empty());
+    }
+
+    #[test]
+    fn refresh_dead_pids_returns_false_when_set_unchanged() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.live.proc_data = Some(snap(&[1, 2, 3]));
+        state.process.toggle_pause(&state.live);
+
+        // First update: PID 2 dies.
+        let live1 = snap(&[1, 3]);
+        assert!(state.process.refresh_dead_pids(&live1));
+
+        // Second update: same PID 2 still missing, no change.
+        let live2 = snap(&[1, 3]);
+        assert!(!state.process.refresh_dead_pids(&live2));
+    }
+
+    #[test]
+    fn is_dead_returns_false_when_not_paused() {
+        let config = config::Config::new();
+        let state = AppState::new(&config);
+        assert!(!state.process.is_dead(123));
+    }
+
+    #[test]
+    fn procs_source_returns_paused_when_paused_else_live() {
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        let live_snap = snap(&[10, 20]);
+        state.live.proc_data = Some(Arc::clone(&live_snap));
+
+        // Not paused: source = live.
+        let src = state.process.procs_source(&state.live).unwrap();
+        assert_eq!(src.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![10, 20]);
+
+        // Pause, then mutate live: source remains the snapshot.
+        state.process.toggle_pause(&state.live);
+        state.live.proc_data = Some(snap(&[10, 20, 30]));
+        let src = state.process.procs_source(&state.live).unwrap();
+        assert_eq!(src.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![10, 20]);
     }
 }

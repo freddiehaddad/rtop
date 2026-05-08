@@ -80,6 +80,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `c` | Toggle per-core CPU |
 | `t` | Terminate process (graceful, double-tap) |
 | `Shift+T` | Kill process (force, double-tap) |
+| `Space` | Pause / resume process list (freeze the snapshot for inspection) |
 | `Enter` | Show/hide process details |
 | `Shift+F` | Follow/unfollow process |
 
