@@ -125,6 +125,18 @@ pub(crate) fn write_dirty_frame(
 /// modal open/close transitions (via
 /// [`crate::app::RenderState::reconcile_dim_boundary`]) and by
 /// terminal resize (via `mark_resize`).
+///
+/// **CLEAR_SCREEN gating.** When the underlay is being rebuilt
+/// (cache miss — first paint after open, or after resize), the
+/// frame begins with `CLEAR_SCREEN` so the transition from the
+/// previous content (full-bright widgets, or stale post-resize
+/// content) to the new dimmed underlay starts from a clean
+/// canvas. When the cache is hit (modal-internal navigation), the
+/// dimmed underlay is already on screen and the modal layer
+/// simply paints over its own rectangle — no `CLEAR_SCREEN`, no
+/// re-emit of the underlay. This is what lets a user keep an
+/// active mouse text-selection on the dimmed area while the menu
+/// is open.
 fn compose_modal_frame(
     state: &mut AppState,
     config: &config::Config,
@@ -132,7 +144,8 @@ fn compose_modal_frame(
     active: &crate::overlay::ActiveModal,
     size: TerminalSize,
 ) -> String {
-    if state.render.cached_dimmed_underlay().is_none() {
+    let underlay_was_rebuilt = state.render.cached_dimmed_underlay().is_none();
+    if underlay_was_rebuilt {
         // Build a fresh underlay: render every widget, theme-style
         // the result, then run the dim transform. Order matters —
         // theme styling runs before dim so the base style
@@ -145,20 +158,35 @@ fn compose_modal_frame(
             .render
             .store_dimmed_underlay(crate::draw::dim::dim_truecolor(&styled));
     }
-    let dimmed = state
-        .render
-        .cached_dimmed_underlay()
-        .expect("cached_dimmed_underlay just populated above");
 
     let raw_modal = crate::overlay::render(active, size, config, theme);
     let styled_modal = style_terminal_output(&raw_modal, config, theme);
 
-    format!("{}{}{}", term::CLEAR_SCREEN, dimmed, styled_modal)
+    if underlay_was_rebuilt {
+        let dimmed = state
+            .render
+            .cached_dimmed_underlay()
+            .expect("cached_dimmed_underlay just populated above");
+        format!("{}{dimmed}{styled_modal}", term::CLEAR_SCREEN)
+    } else {
+        // Cache hit: the dimmed underlay is already on screen from
+        // a previous frame. Paint only the modal layer over its
+        // own rectangle. Cells outside the modal are untouched —
+        // no `CLEAR_SCREEN`, no full-screen repaint.
+        styled_modal
+    }
 }
 
 /// Render every widget at full intensity, ignoring the per-widget
 /// dirty bits (the dim cache must be a complete snapshot, not a
 /// partial repaint of only the dirty widgets).
+///
+/// The output begins with `CLEAR_SCREEN` so the rendered frame is
+/// a self-contained "draw me from scratch" string. Important: this
+/// function is the sole producer of the dim cache, and that cache
+/// is what gets emitted on the modal-open transition. The leading
+/// clear is the right place for the canvas wipe — it travels with
+/// the underlay through the dim transform and into the cache.
 fn render_widget_layer_full(
     state: &AppState,
     config: &config::Config,
@@ -589,5 +617,58 @@ mod tests {
         let view = resolve_detail_view(&state.process, &state.live, &proc_source).unwrap();
         assert!(!view.dead);
         assert_eq!(view.proc.name, "resurrected");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // compose_modal_frame — CLEAR_SCREEN gating contract.
+    //
+    // The modal compose path emits CLEAR_SCREEN only when the
+    // dimmed underlay is being rebuilt (cache miss — first paint
+    // after open, or after resize). When the cache is hit
+    // (modal-internal navigation), no CLEAR_SCREEN appears so an
+    // active mouse text-selection on the dim cells survives.
+    // ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn compose_modal_frame_emits_clear_screen_only_on_cache_miss() {
+        let mut state = make_state();
+        // An empty layout is sufficient — render_widget_layer_full
+        // iterates widgets via `dims_for(kind)`, which returns
+        // None for every widget in `Layout::default()`. The dim
+        // cache built from it is structurally minimal but still
+        // begins with the CLEAR_SCREEN emitted by
+        // render_widget_layer_full's prefix.
+        state
+            .render
+            .set_cached_layout(crate::draw::layout::Layout::default());
+        state.overlay.active =
+            crate::overlay::ActiveModal::Main(crate::overlay::main_menu::MainMenuState::new());
+
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let size = TerminalSize {
+            width: 80,
+            height: 30,
+        };
+        let active = state.overlay.active.clone();
+
+        // First call: dim cache is empty → underlay built →
+        // CLEAR_SCREEN must appear at the start of the output.
+        let out_miss = compose_modal_frame(&mut state, &config, &theme, &active, size);
+        assert!(
+            out_miss.starts_with(term::CLEAR_SCREEN),
+            "cache-miss render must begin with CLEAR_SCREEN; got prefix: {:?}",
+            &out_miss.chars().take(10).collect::<String>(),
+        );
+
+        // Second call: dim cache is populated by the previous
+        // call → underlay is NOT re-emitted, only the modal layer
+        // is painted. CLEAR_SCREEN must NOT appear anywhere in
+        // the output (no full-screen wipe).
+        let out_hit = compose_modal_frame(&mut state, &config, &theme, &active, size);
+        assert!(
+            !out_hit.contains(term::CLEAR_SCREEN),
+            "cache-hit render must NOT emit CLEAR_SCREEN anywhere; got: {out_hit:?}",
+        );
     }
 }
