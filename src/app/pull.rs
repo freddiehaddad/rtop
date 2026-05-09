@@ -185,7 +185,47 @@ pub(crate) fn pull_subsystem_data(
         }
     }
 
-    // Check layout hints for changes.
+    // Gate the layout-hints change check on `render_ui` so the
+    // pull path stays write-free while a dimming overlay is open
+    // (matching the per-subsystem `if render_ui` gates above).
+    // See `maybe_mark_layout_dirty_from_hints_change` for the
+    // full rationale and post-overlay correctness argument.
+    maybe_mark_layout_dirty_from_hints_change(state, config, render_ui);
+
+    reconcile_selected_iface(state);
+}
+
+/// Compare the current `LayoutHints` against the cached
+/// `last_layout_hints` and mark layout dirty if they differ.
+///
+/// **Gated on `render_ui`.** While a dimming overlay
+/// (Main / Help / Options) is active, widget snapshots ingest
+/// into [`crate::app::LiveData`] but no terminal writes happen
+/// — every per-subsystem `mark_widget(...)` call in
+/// [`pull_subsystem_data`] is gated on `render_ui`, and this
+/// function follows the same regime. Without the gate, a change
+/// in `LayoutHints` (PawnIO temp/watts flicker, GPU add/remove,
+/// removable disk add/remove, statusbar uptime crossing a
+/// digit-count boundary) would call `mark_layout()` while an
+/// overlay is open and trigger a wasted `compose_modal_frame`
+/// repaint of the modal layer.
+///
+/// **Post-overlay correctness.** When the menu closes,
+/// `mark_layout_and_all_widgets()` fires from the close handler
+/// (see `src/dirty.rs:97-103`), so the post-close render uses
+/// current `LiveData` and recomputes the layout from scratch.
+/// The next pull after close runs with `render_ui = true`,
+/// recomputes hints against the (possibly stale) cached value,
+/// and marks layout dirty if anything actually drifted —
+/// harmless duplicate of the close handler's mark.
+fn maybe_mark_layout_dirty_from_hints_change(
+    state: &mut AppState,
+    config: &config::Config,
+    render_ui: bool,
+) {
+    if !render_ui {
+        return;
+    }
     let new_hints = state.live.layout_hints(config, &state.view, &state.filter);
     if state
         .render
@@ -195,8 +235,6 @@ pub(crate) fn pull_subsystem_data(
         state.render.dirty.mark_layout();
     }
     state.render.last_layout_hints = Some(new_hints);
-
-    reconcile_selected_iface(state);
 }
 
 pub(crate) fn reconcile_selected_iface(state: &mut AppState) {
@@ -292,5 +330,115 @@ mod tests {
 
         assert_eq!(state.network.selected_iface, "Wi-Fi");
         assert_eq!(state.view.net_iface, "Ethernet");
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // maybe_mark_layout_dirty_from_hints_change — render_ui gate.
+    //
+    // While a dimming overlay is open the pull path must stay
+    // write-free: widget snapshots ingest into LiveData but no
+    // dirty marks fire and no terminal writes happen. The
+    // layout-hints comparison is part of that regime.
+    // ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn hints_change_marks_layout_dirty_when_render_ui_true() {
+        // Cached hints = None (initial state) → any current hints
+        // count as a "change" → mark_layout fires.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.render.clear_dirty();
+        assert!(state.render.last_layout_hints.is_none());
+
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
+
+        assert!(
+            state.render.dirty.needs_layout(),
+            "first call with render_ui=true must mark layout dirty",
+        );
+        assert!(
+            state.render.last_layout_hints.is_some(),
+            "cache must be populated after the call",
+        );
+
+        // Second call with the same hints (no LiveData mutation
+        // between calls) → no change → no additional mark. Reset
+        // dirty first to make the assertion meaningful.
+        state.render.clear_dirty();
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
+        assert!(
+            !state.render.dirty.needs_layout(),
+            "stable hints must not re-trigger mark_layout",
+        );
+    }
+
+    #[test]
+    fn hints_change_does_not_mark_layout_dirty_when_render_ui_false() {
+        // Cached hints = None, current hints != None — would
+        // normally fire mark_layout. With render_ui=false (a
+        // dimming overlay is active), it must NOT fire and must
+        // NOT update the cache (so the change is detected on the
+        // next render_ui=true pull).
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        state.render.clear_dirty();
+        assert!(state.render.last_layout_hints.is_none());
+
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, false);
+
+        assert!(
+            !state.render.dirty.needs_layout(),
+            "render_ui=false must not mark layout dirty",
+        );
+        assert!(
+            state.render.last_layout_hints.is_none(),
+            "render_ui=false must not update the cache",
+        );
+    }
+
+    #[test]
+    fn hints_drift_during_overlay_marks_dirty_after_overlay_closes() {
+        // Pre-overlay: cache populated with current hints.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
+        let pre_overlay = state
+            .render
+            .last_layout_hints
+            .expect("cache populated by previous call");
+        state.render.clear_dirty();
+
+        // Overlay opens; meanwhile a hardware event makes hints
+        // drift (here: simulate a GPU appearing). With
+        // render_ui=false the change must not be observed.
+        state.live.gpu = Some(Arc::new(runner::GpuSnapshot {
+            gpus: vec![Default::default()],
+            status: crate::collect::CollectStatus::Ok,
+        }));
+        let drifted = state.live.layout_hints(&config, &state.view, &state.filter);
+        assert_ne!(
+            pre_overlay, drifted,
+            "test setup precondition: gpu addition must change hints",
+        );
+
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, false);
+        assert!(
+            !state.render.dirty.needs_layout(),
+            "drift during overlay must not mark dirty",
+        );
+        assert_eq!(
+            state.render.last_layout_hints,
+            Some(pre_overlay),
+            "cache must still hold the pre-overlay value",
+        );
+
+        // Overlay closes. The next pull runs with render_ui=true
+        // and the drift is finally observed.
+        maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
+        assert!(
+            state.render.dirty.needs_layout(),
+            "drift accumulated during overlay must mark dirty on first \
+             post-close pull",
+        );
     }
 }
