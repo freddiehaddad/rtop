@@ -188,7 +188,7 @@ impl Default for StatusbarConfig {
             statusbar_show_update_interval: true,
             statusbar_show_uptime: true,
             statusbar_show_clock: true,
-            statusbar_clock_format: "%X".to_string(),
+            statusbar_clock_format: "%T".to_string(),
         }
     }
 }

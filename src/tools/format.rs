@@ -116,8 +116,21 @@ pub fn celsius_to(celsius: i64, scale: crate::domain::config_enums::TempScale) -
 
 /// Format the current time using a clock format string.
 ///
-/// Supported specifiers: `%X` (expands to `%H:%M:%S`), `%H` (24-hour),
-/// `%M` (minute), `%S` (second). Returns empty string for empty format.
+/// Supported specifiers:
+///   `%T`  — `HH:MM:SS` (8 cells)
+///   `%R`  — `HH:MM` (5 cells)
+///   `%H`  — hour, 24-hour (`00`-`23`)
+///   `%I`  — hour, 12-hour (`01`-`12`)
+///   `%M`  — minute (`00`-`59`)
+///   `%S`  — second (`00`-`59`)
+///   `%p`  — `AM` / `PM`
+///
+/// Returns empty string for empty format.
+///
+/// rtop does not honour the user's locale — every output is
+/// fixed-form. POSIX `%X` ("the locale's preferred time format")
+/// is therefore not exposed; `%T` is the locale-independent
+/// alternative and matches what rtop actually produces.
 pub fn format_clock(format: &str) -> String {
     if format.is_empty() {
         return String::new();
@@ -150,16 +163,36 @@ pub fn format_clock_width(format: &str) -> usize {
     crate::tools::ulen(&expand_clock_format(format, 0, 0, 0), false)
 }
 
-/// Expand a clock format string by substituting `%X`, `%H`, `%M`,
-/// `%S` with the supplied time fields. Shared between
+/// Expand a clock format string by substituting the supported
+/// specifiers with the supplied time fields. Shared between
 /// [`format_clock`] (passes the wall clock) and
 /// [`format_clock_width`] (passes zeros) so the two cannot drift.
+///
+/// Multi-character aliases (`%T`, `%R`) expand first because
+/// they introduce single-character specifiers (`%H`/`%M`/`%S`)
+/// that the next stage substitutes. Unknown `%`-sequences (e.g.
+/// `%Z`) are left as literal text.
 fn expand_clock_format(format: &str, hour: u16, minute: u16, second: u16) -> String {
-    let expanded = format.replace("%X", "%H:%M:%S");
-    expanded
-        .replace("%H", &format!("{:02}", hour))
-        .replace("%M", &format!("{:02}", minute))
-        .replace("%S", &format!("{:02}", second))
+    // 12-hour clock derived from the 24-hour value:
+    //   00 -> 12 AM   01..11 -> 1..11 AM
+    //   12 -> 12 PM   13..23 -> 1..11 PM
+    let hour12 = if hour == 0 {
+        12
+    } else if hour > 12 {
+        hour - 12
+    } else {
+        hour
+    };
+    let am_pm = if hour < 12 { "AM" } else { "PM" };
+
+    format
+        .replace("%T", "%H:%M:%S")
+        .replace("%R", "%H:%M")
+        .replace("%H", &format!("{hour:02}"))
+        .replace("%M", &format!("{minute:02}"))
+        .replace("%S", &format!("{second:02}"))
+        .replace("%I", &format!("{hour12:02}"))
+        .replace("%p", am_pm)
 }
 
 /// Read the system uptime in seconds since boot via the Win32
@@ -358,9 +391,9 @@ mod tests {
     }
 
     #[test]
-    fn format_clock_width_x_specifier_is_eight_cells() {
-        // `%X` expands to `%H:%M:%S` → "HH:MM:SS" → 8 cells.
-        assert_eq!(format_clock_width("%X"), 8);
+    fn format_clock_width_t_specifier_is_eight_cells() {
+        // `%T` expands to `%H:%M:%S` → "HH:MM:SS" → 8 cells.
+        assert_eq!(format_clock_width("%T"), 8);
     }
 
     #[test]
@@ -374,12 +407,53 @@ mod tests {
     fn format_clock_width_combinations_match_format_clock_output_width() {
         // Pin the synchronisation contract: width helper must match
         // the visible width `format_clock` would produce.
-        for fmt in ["%H:%M", "%H-%M-%S", "[%X]", "%H%M%S", "%X UTC"] {
+        for fmt in [
+            "%H:%M",
+            "%H-%M-%S",
+            "[%T]",
+            "%H%M%S",
+            "%T UTC",
+            "%T",
+            "%R",
+            "%I:%M %p",
+            "%I %p",
+            "%H:%M (%p)",
+        ] {
             assert_eq!(
                 format_clock_width(fmt),
                 crate::tools::ulen(&format_clock(fmt), false),
                 "width drift on format {fmt:?}",
             );
         }
+    }
+
+    #[test]
+    fn format_clock_width_aliases_match_their_expansions() {
+        assert_eq!(format_clock_width("%T"), 8); // HH:MM:SS
+        assert_eq!(format_clock_width("%R"), 5); // %H:%M
+    }
+
+    #[test]
+    fn format_clock_width_twelve_hour_specifiers_are_two_cells() {
+        assert_eq!(format_clock_width("%I"), 2);
+        assert_eq!(format_clock_width("%p"), 2);
+    }
+
+    #[test]
+    fn expand_clock_format_twelve_hour_boundaries() {
+        // Pin the 24-hour → 12-hour mapping at every boundary so
+        // a future edit to the conditional cannot drift silently.
+        assert_eq!(expand_clock_format("%I %p", 0, 0, 0), "12 AM");
+        assert_eq!(expand_clock_format("%I %p", 1, 0, 0), "01 AM");
+        assert_eq!(expand_clock_format("%I %p", 11, 0, 0), "11 AM");
+        assert_eq!(expand_clock_format("%I %p", 12, 0, 0), "12 PM");
+        assert_eq!(expand_clock_format("%I %p", 13, 0, 0), "01 PM");
+        assert_eq!(expand_clock_format("%I %p", 23, 0, 0), "11 PM");
+    }
+
+    #[test]
+    fn expand_clock_format_aliases_resolve_to_full_time() {
+        assert_eq!(expand_clock_format("%T", 9, 30, 45), "09:30:45");
+        assert_eq!(expand_clock_format("%R", 9, 30, 45), "09:30");
     }
 }

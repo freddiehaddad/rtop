@@ -681,7 +681,7 @@ mod tests {
         // 5 `<bg><sep>[` opens and 5 `<bg><sep>]` closes.
         let theme = Theme::new();
         let mut frame = full_frame();
-        frame.clock_format = "%X"; // forces a non-zero clock
+        frame.clock_format = "%T"; // forces a non-zero clock
         let raw = draw(&area(80), &theme, &frame);
         let sep = theme.color(tc::STATUSBAR_SEP);
         let open_count = raw.matches(&format!("{sep}[")).count();
@@ -793,8 +793,8 @@ mod tests {
     fn right_section_renders_uptime_left_of_clock() {
         let theme = Theme::new();
         let mut frame = full_frame();
-        frame.clock_format = "%X";
-        // %X expands to %H:%M:%S — exact value depends on local
+        frame.clock_format = "%T";
+        // %T expands to %H:%M:%S — exact value depends on local
         // time; we assert structural ordering only.
         let plain = strip_ansi(&draw(&area(80), &theme, &frame));
         let up_pos = plain.find("up ").expect("uptime present");
@@ -814,7 +814,7 @@ mod tests {
         // edge.
         let theme = Theme::new();
         let mut frame = full_frame();
-        frame.clock_format = "%X"; // forces a non-zero clock
+        frame.clock_format = "%T"; // forces a non-zero clock
         let width = 80;
         let raw = draw(&area(width), &theme, &frame);
         // Right section width with brackets:

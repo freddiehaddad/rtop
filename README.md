@@ -275,8 +275,22 @@ statusbar_show_preset = true
 statusbar_show_update_interval = true
 statusbar_show_uptime = true
 statusbar_show_clock = true
-statusbar_clock_format = "%X"          # %X = HH:MM:SS; also %H, %M, %S
+statusbar_clock_format = "%T"          # see Clock format below
 ```
+
+**Clock format.** The clock accepts a small subset of strftime specifiers — enough for any time-of-day layout you'd want in a status bar:
+
+| Token | Meaning |
+|-------|---------|
+| `%T` | full time, `HH:MM:SS` |
+| `%R` | short time, `HH:MM` |
+| `%H` | hour, 24-hour (`00`–`23`) |
+| `%I` | hour, 12-hour (`01`–`12`) |
+| `%M` | minute (`00`–`59`) |
+| `%S` | second (`00`–`59`) |
+| `%p` | `AM` or `PM` |
+
+Examples: `"%T"` → `13:24:05`, `"%I:%M %p"` → `01:24 PM`, `"%R"` → `13:24`. Set the format to an empty string to hide the clock without disabling the right section.
 
 **Position is up to you.** The statusbar is a regular widget, so the [custom layout](#custom-layout) DSL can place `statusbar` anywhere — top, bottom, or beside another panel. The built-in presets put it at the bottom by default.
 
