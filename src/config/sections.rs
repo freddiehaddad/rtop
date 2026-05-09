@@ -73,9 +73,6 @@ pub struct UiConfig {
     /// Default graph drawing style; per-widget `graph_symbol_*`
     /// fields override this when set to a non-`Default` value.
     pub graph_symbol: GraphSymbol,
-    /// Format string for the clock displayed in the CPU widget
-    /// header. Empty hides the clock.
-    pub clock_format: String,
 }
 
 impl Default for UiConfig {
@@ -89,7 +86,6 @@ impl Default for UiConfig {
             background_update: true,
             base_10_sizes: false,
             graph_symbol: GraphSymbol::Braille,
-            clock_format: "%X".to_string(),
         }
     }
 }
@@ -138,7 +134,6 @@ pub struct CpuConfig {
     pub temp_scale: TempScale,
     pub show_cpu_freq: bool,
     pub custom_cpu_name: String,
-    pub show_uptime: bool,
     pub show_cpu_watts: bool,
 }
 
@@ -156,8 +151,44 @@ impl Default for CpuConfig {
             temp_scale: TempScale::Celsius,
             show_cpu_freq: true,
             custom_cpu_name: String::new(),
-            show_uptime: true,
             show_cpu_watts: true,
+        }
+    }
+}
+
+/// Statusbar settings (`statusbar` options-menu tab).
+///
+/// The borderless 1-row statusbar widget is laid out via the slot
+/// tree like every other widget. `show_statusbar` is the master
+/// visibility toggle (mirrored as the `WidgetKind::Statusbar`
+/// participating in the runtime widget filter); the remaining
+/// `statusbar_show_*` bools choose which items the bar renders
+/// (left section: menu / preset / update interval; right section:
+/// uptime / clock). `statusbar_clock_format` is the format string
+/// passed to `tools::format_clock` for the right-section clock —
+/// empty hides the clock entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StatusbarConfig {
+    pub show_statusbar: bool,
+    pub statusbar_show_menu: bool,
+    pub statusbar_show_preset: bool,
+    pub statusbar_show_update_interval: bool,
+    pub statusbar_show_uptime: bool,
+    pub statusbar_show_clock: bool,
+    pub statusbar_clock_format: String,
+}
+
+impl Default for StatusbarConfig {
+    fn default() -> Self {
+        Self {
+            show_statusbar: true,
+            statusbar_show_menu: true,
+            statusbar_show_preset: true,
+            statusbar_show_update_interval: true,
+            statusbar_show_uptime: true,
+            statusbar_show_clock: true,
+            statusbar_clock_format: "%X".to_string(),
         }
     }
 }

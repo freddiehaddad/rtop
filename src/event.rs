@@ -20,18 +20,20 @@ pub(crate) enum SubsystemKind {
     Net,
     Gpu,
     Proc,
+    Statusbar,
 }
 
 impl SubsystemKind {
     /// Every subsystem variant in declaration order. Iterate this
-    /// slice instead of repeating the six-way match by hand.
-    pub(crate) const ALL: [SubsystemKind; 6] = [
+    /// slice instead of repeating the seven-way match by hand.
+    pub(crate) const ALL: [SubsystemKind; 7] = [
         SubsystemKind::Cpu,
         SubsystemKind::Mem,
         SubsystemKind::Disk,
         SubsystemKind::Net,
         SubsystemKind::Gpu,
         SubsystemKind::Proc,
+        SubsystemKind::Statusbar,
     ];
 
     /// Stable short name for diagnostics and tracing fields.
@@ -43,6 +45,7 @@ impl SubsystemKind {
             SubsystemKind::Net => "network",
             SubsystemKind::Gpu => "gpu",
             SubsystemKind::Proc => "process",
+            SubsystemKind::Statusbar => "statusbar",
         }
     }
 }
@@ -66,13 +69,14 @@ pub(crate) struct PerSubsystem<T> {
     net: T,
     gpu: T,
     process: T,
+    statusbar: T,
 }
 
 impl<T> PerSubsystem<T> {
     /// Construct from one value per subsystem, in `SubsystemKind`
     /// declaration order. Use this when `T` does not implement
     /// `Default` (e.g. `Sender<_>`).
-    pub(crate) fn new(cpu: T, mem: T, disk: T, net: T, gpu: T, process: T) -> Self {
+    pub(crate) fn new(cpu: T, mem: T, disk: T, net: T, gpu: T, process: T, statusbar: T) -> Self {
         Self {
             cpu,
             mem,
@@ -80,6 +84,7 @@ impl<T> PerSubsystem<T> {
             net,
             gpu,
             process,
+            statusbar,
         }
     }
 
@@ -91,6 +96,7 @@ impl<T> PerSubsystem<T> {
             SubsystemKind::Net => &self.net,
             SubsystemKind::Gpu => &self.gpu,
             SubsystemKind::Proc => &self.process,
+            SubsystemKind::Statusbar => &self.statusbar,
         }
     }
 
@@ -102,6 +108,7 @@ impl<T> PerSubsystem<T> {
             SubsystemKind::Net => &mut self.net,
             SubsystemKind::Gpu => &mut self.gpu,
             SubsystemKind::Proc => &mut self.process,
+            SubsystemKind::Statusbar => &mut self.statusbar,
         }
     }
 }
@@ -197,7 +204,7 @@ mod tests {
     #[test]
     fn subsystem_kind_all_lists_every_variant_once() {
         let all = SubsystemKind::ALL;
-        assert_eq!(all.len(), 6);
+        assert_eq!(all.len(), 7);
         for kind in [
             SubsystemKind::Cpu,
             SubsystemKind::Mem,
@@ -205,6 +212,7 @@ mod tests {
             SubsystemKind::Net,
             SubsystemKind::Gpu,
             SubsystemKind::Proc,
+            SubsystemKind::Statusbar,
         ] {
             assert_eq!(all.iter().filter(|k| **k == kind).count(), 1);
         }
@@ -245,13 +253,14 @@ mod tests {
 
     #[test]
     fn per_subsystem_new_assigns_each_slot_in_declaration_order() {
-        let p = PerSubsystem::new("cpu", "mem", "disk", "net", "gpu", "process");
+        let p = PerSubsystem::new("cpu", "mem", "disk", "net", "gpu", "process", "statusbar");
         assert_eq!(*p.get(SubsystemKind::Cpu), "cpu");
         assert_eq!(*p.get(SubsystemKind::Mem), "mem");
         assert_eq!(*p.get(SubsystemKind::Disk), "disk");
         assert_eq!(*p.get(SubsystemKind::Net), "net");
         assert_eq!(*p.get(SubsystemKind::Gpu), "gpu");
         assert_eq!(*p.get(SubsystemKind::Proc), "process");
+        assert_eq!(*p.get(SubsystemKind::Statusbar), "statusbar");
     }
 
     #[test]
@@ -262,5 +271,6 @@ mod tests {
         assert_eq!(SubsystemKind::Net.as_str(), "network");
         assert_eq!(SubsystemKind::Gpu.as_str(), "gpu");
         assert_eq!(SubsystemKind::Proc.as_str(), "process");
+        assert_eq!(SubsystemKind::Statusbar.as_str(), "statusbar");
     }
 }

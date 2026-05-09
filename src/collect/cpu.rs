@@ -93,7 +93,6 @@ impl CpuCollector {
 
         self.collect_cpu_times();
         self.collect_frequency();
-        self.collect_uptime();
         self.update_load_avg();
         self.collect_temperatures();
     }
@@ -373,12 +372,6 @@ impl CpuCollector {
                 }
             }
         }
-    }
-
-    fn collect_uptime(&mut self) {
-        // SAFETY: GetTickCount64 requires no arguments and always succeeds.
-        self.info.uptime_seconds =
-            unsafe { windows::Win32::System::SystemInformation::GetTickCount64() / 1000 };
     }
 
     fn update_load_avg(&mut self) {

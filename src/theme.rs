@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 20;
+pub const COLOR_COUNT: usize = 24;
 pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
@@ -15,7 +15,7 @@ include!(concat!(env!("OUT_DIR"), "/bundled_themes.rs"));
 #[derive(Debug, Clone)]
 pub struct Theme {
     colors: [String; COLOR_COUNT],
-    rgbs: [Option<Rgb>; COLOR_COUNT],
+    rgbs: [Rgb; COLOR_COUNT],
     gradients: [Vec<String>; GRADIENT_COUNT],
 }
 
@@ -64,33 +64,34 @@ impl Theme {
         let c = &palette.colors;
 
         // Extract colors in index order matching ColorKey constants.
-        let rgb_opts: [Option<Rgb>; COLOR_COUNT] = [
-            c.main_bg,            // 0
-            Some(c.main_fg),      // 1
-            Some(c.title),        // 2
-            Some(c.hi_fg),        // 3
-            Some(c.selected_bg),  // 4
-            Some(c.selected_fg),  // 5
-            Some(c.graph_text),   // 6
-            Some(c.meter_bg),     // 7
-            Some(c.proc_tree_fg), // 8
-            Some(c.cpu_widget),   // 9
-            Some(c.mem_widget),   // 10
-            Some(c.net_widget),   // 11
-            Some(c.proc_widget),  // 12
-            Some(c.gpu_widget),   // 13
-            Some(c.disk_widget),  // 14
-            Some(c.help_box),     // 15
-            Some(c.options_box),  // 16
-            Some(c.followed_bg),  // 17
-            Some(c.followed_fg),  // 18
-            Some(c.dead_proc_fg), // 19
+        let rgbs: [Rgb; COLOR_COUNT] = [
+            c.main_bg,       // 0
+            c.main_fg,       // 1
+            c.title,         // 2
+            c.hi_fg,         // 3
+            c.selected_bg,   // 4
+            c.selected_fg,   // 5
+            c.graph_text,    // 6
+            c.meter_bg,      // 7
+            c.proc_tree_fg,  // 8
+            c.cpu_widget,    // 9
+            c.mem_widget,    // 10
+            c.net_widget,    // 11
+            c.proc_widget,   // 12
+            c.gpu_widget,    // 13
+            c.disk_widget,   // 14
+            c.help_box,      // 15
+            c.options_box,   // 16
+            c.followed_bg,   // 17
+            c.followed_fg,   // 18
+            c.dead_proc_fg,  // 19
+            c.statusbar_bg,  // 20
+            c.statusbar_fg,  // 21
+            c.statusbar_hi,  // 22
+            c.statusbar_sep, // 23
         ];
 
-        let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| match rgb_opts[i] {
-            Some(rgb) => rgb.to_fg_escape(),
-            None => String::new(),
-        });
+        let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| rgbs[i].to_fg_escape());
 
         let g = &palette.gradients;
         let gradient_defs: [&GradientDef; GRADIENT_COUNT] = [
@@ -124,7 +125,7 @@ impl Theme {
 
         Self {
             colors,
-            rgbs: rgb_opts,
+            rgbs,
             gradients,
         }
     }
@@ -142,10 +143,8 @@ impl Theme {
 
     /// Get an RGB value for a typed color key.
     pub fn rgb(&self, key: ColorKey) -> [u8; 3] {
-        match self.rgbs[key.index()] {
-            Some(rgb) => [rgb.0, rgb.1, rgb.2],
-            None => [0, 0, 0],
-        }
+        let rgb = self.rgbs[key.index()];
+        [rgb.0, rgb.1, rgb.2]
     }
 
     /// Base terminal style for normal text and background rendering.
@@ -349,18 +348,18 @@ mod tests {
     }
 
     #[test]
-    fn empty_main_bg_keeps_terminal_background() {
-        // Use a theme TOML where main_bg is omitted
-        let toml_str = include_str!("../themes/whiteout.toml");
-        let palette: ThemePalette = toml::from_str(toml_str).unwrap();
-        // whiteout has main_bg, but we can test the mechanism with a palette
-        // that has None for main_bg
-        let mut palette_no_bg = palette;
-        palette_no_bg.colors.main_bg = None;
-        let theme = Theme::from_palette(&palette_no_bg);
-
-        assert_eq!(theme.background(tc::MAIN_BG), "");
-        assert!(!theme.base_style(true).contains("\x1b[48;2;0;0;0m"));
+    fn theme_background_off_emits_terminal_default_bg_escape() {
+        // The `theme_background = false` runtime toggle is the
+        // single source of "let the terminal background show
+        // through" — `MAIN_BG` is no longer optional, every theme
+        // declares it. `base_style(false)` substitutes the
+        // terminal-default-bg escape (`\x1b[49m`) for the themed
+        // MAIN_BG so users with terminal transparency see a
+        // continuously-transparent UI.
+        let theme = Theme::new();
+        assert!(theme.base_style(false).contains("\x1b[49m"));
+        // And conversely, `base_style(true)` must NOT emit it.
+        assert!(!theme.base_style(true).contains("\x1b[49m"));
     }
 
     #[test]
@@ -385,6 +384,20 @@ mod tests {
     }
 
     #[test]
+    fn every_bundled_theme_declares_main_bg() {
+        // `main_bg` is required — every theme must declare it.
+        // This pins the contract so no future theme contribution
+        // can omit the field and have it silently default.
+        for bt in BUNDLED_THEMES {
+            let palette: ThemePalette = toml::from_str(bt.content)
+                .unwrap_or_else(|e| panic!("bundled theme '{}' failed to parse: {e}", bt.name));
+            // If parsing succeeded, `main_bg: Rgb` is structurally
+            // present. Sanity-check by reading it.
+            let _ = palette.colors.main_bg;
+        }
+    }
+
+    #[test]
     fn theme_names_matches_bundled_themes() {
         assert_eq!(
             THEME_NAMES.len(),
@@ -405,14 +418,5 @@ mod tests {
         let rgb = theme.rgb(tc::MAIN_FG);
         // Default main_fg is #cccccc
         assert_eq!(rgb, [0xcc, 0xcc, 0xcc]);
-    }
-
-    #[test]
-    fn rgb_accessor_returns_zero_for_none_bg() {
-        let toml_str = include_str!("../themes/default.toml");
-        let mut palette: ThemePalette = toml::from_str(toml_str).unwrap();
-        palette.colors.main_bg = None;
-        let theme = Theme::from_palette(&palette);
-        assert_eq!(theme.rgb(tc::MAIN_BG), [0, 0, 0]);
     }
 }

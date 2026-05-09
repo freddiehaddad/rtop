@@ -59,8 +59,7 @@ pub struct GradientDef {
 
 /// Complete color palette for a theme.
 ///
-/// Every field is required except `main_bg`, which may be omitted for
-/// terminal transparency. Parsed from TOML via serde — a missing or
+/// Every field is required. Parsed from TOML via serde — a missing or
 /// invalid field produces a deserialization error.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ThemePalette {
@@ -71,9 +70,8 @@ pub struct ThemePalette {
 /// Direct color values for a theme.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaletteColors {
-    /// Main background. `None` = use terminal default (transparency).
-    #[serde(default)]
-    pub main_bg: Option<Rgb>,
+    /// Main background.
+    pub main_bg: Rgb,
     pub main_fg: Rgb,
     pub title: Rgb,
     pub hi_fg: Rgb,
@@ -97,6 +95,23 @@ pub struct PaletteColors {
     /// 50% blend of `main_fg` toward `main_bg`, or the theme's
     /// existing secondary-text color).
     pub dead_proc_fg: Rgb,
+    /// Background color for the borderless statusbar widget. Spans
+    /// the full width of the bar; gap between left and right
+    /// sections is painted in this color.
+    pub statusbar_bg: Rgb,
+    /// Foreground color for statusbar label text (menu, preset
+    /// name, `up`, clock digits, the `ms` rate unit).
+    pub statusbar_fg: Rgb,
+    /// Highlight color for statusbar keybind glyphs (every
+    /// keybind: `m`, `P`, `p`, `-`, `+`). The preset-cycler
+    /// arrows render in `statusbar_fg`, not this colour.
+    pub statusbar_hi: Rgb,
+    /// Bracket colour for the statusbar's `[ ]` item delimiters.
+    /// Each visible item in either section is wrapped in `[ ]`
+    /// painted in this colour to subtly chunk adjacent items;
+    /// the brackets are the only glyphs in the bar that use
+    /// this key.
+    pub statusbar_sep: Rgb,
 }
 
 /// Gradient definitions for a theme.
@@ -179,6 +194,10 @@ disk_widget = "#ffb86c"
 help_box = "#6272a4"
 options_box = "#ffb86c"
 proc_tree_fg = "#44475a"
+statusbar_bg = "#44475a"
+statusbar_fg = "#f8f8f2"
+statusbar_hi = "#6272a4"
+statusbar_sep = "#6272a4"
 
 [gradients.cpu_upper]
 start = "#bd93f9"
@@ -266,109 +285,10 @@ mid = "#59b690"
 end = "#6272a4"
 "##;
         let palette: ThemePalette = toml::from_str(toml_str).unwrap();
-        assert_eq!(palette.colors.main_bg, Some(Rgb(0x28, 0x2a, 0x36)));
+        assert_eq!(palette.colors.main_bg, Rgb(0x28, 0x2a, 0x36));
         assert_eq!(palette.colors.hi_fg, Rgb(0x62, 0x72, 0xa4));
         assert_eq!(palette.gradients.cpu_upper.start, Rgb(0xbd, 0x93, 0xf9));
         assert_eq!(palette.gradients.cpu_upper.end, Rgb(0x50, 0xfa, 0x7b));
-    }
-
-    #[test]
-    fn palette_main_bg_optional() {
-        let toml_str = r##"
-[colors]
-main_fg = "#f8f8f2"
-title = "#f8f8f2"
-hi_fg = "#6272a4"
-graph_text = "#f8f8f2"
-meter_bg = "#44475a"
-selected_bg = "#ff79c6"
-selected_fg = "#f8f8f2"
-followed_bg = "#bd93f9"
-followed_fg = "#f8f8f2"
-dead_proc_fg = "#6272a4"
-cpu_widget = "#bd93f9"
-mem_widget = "#50fa7b"
-net_widget = "#ff5555"
-proc_widget = "#8be9fd"
-gpu_widget = "#f1fa8c"
-disk_widget = "#ffb86c"
-help_box = "#6272a4"
-options_box = "#ffb86c"
-proc_tree_fg = "#44475a"
-
-[gradients.cpu_upper]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-
-[gradients.cpu_lower]
-start = "#4897d4"
-mid = "#5474e8"
-end = "#ff40b6"
-
-[gradients.used]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.available]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.cached]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.free]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.download]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.upload]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.gpu]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.gpu_clock]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.gpu_power]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.gpu_vram]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.disk_read]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.disk_write]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.disk_busy]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.temp]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-[gradients.process]
-start = "#000000"
-mid = "#808080"
-end = "#ffffff"
-"##;
-        let palette: ThemePalette = toml::from_str(toml_str).unwrap();
-        assert_eq!(palette.colors.main_bg, None);
     }
 
     #[test]

@@ -65,7 +65,16 @@ pub fn opt_kind(key: ConfigKey, config: &Config) -> OptKind {
 // ---------------------------------------------------------------------------
 
 /// Category tab names for the options menu.
-pub const CAT_NAMES: &[&str] = &["general", "cpu", "mem", "net", "proc", "gpu", "disk"];
+pub const CAT_NAMES: &[&str] = &[
+    "general",
+    "statusbar",
+    "cpu",
+    "mem",
+    "net",
+    "proc",
+    "gpu",
+    "disk",
+];
 
 /// Options in the "general" category.
 pub const GENERAL: &[ConfigKey] = &[
@@ -77,7 +86,6 @@ pub const GENERAL: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::RoundedCorners),
     ConfigKey::Bool(BoolKey::TerminalSync),
     ConfigKey::Enum(EnumKey::GraphSymbol),
-    ConfigKey::String(StringKey::ClockFormat),
     ConfigKey::Bool(BoolKey::Base10Sizes),
     ConfigKey::Bool(BoolKey::BackgroundUpdate),
     ConfigKey::Enum(EnumKey::LogLevel),
@@ -96,7 +104,6 @@ pub const CPU: &[ConfigKey] = &[
     ConfigKey::Enum(EnumKey::TempScale),
     ConfigKey::Bool(BoolKey::ShowCpuFreq),
     ConfigKey::String(StringKey::CustomCpuName),
-    ConfigKey::Bool(BoolKey::ShowUptime),
     ConfigKey::Bool(BoolKey::ShowCpuWatts),
     ConfigKey::Int(IntKey::CpuUpdateMs),
 ];
@@ -156,9 +163,24 @@ pub const DISK: &[ConfigKey] = &[
     ConfigKey::Int(IntKey::DiskUpdateMs),
 ];
 
+/// Options in the "statusbar" category. Hosts every key the
+/// statusbar widget consults. The master toggle leads; the five
+/// sub-item visibility bools follow in render order
+/// (left-section → right-section); the clock format closes the
+/// list because it's the only entry the user types into.
+pub const STATUSBAR: &[ConfigKey] = &[
+    ConfigKey::Bool(BoolKey::ShowStatusbar),
+    ConfigKey::Bool(BoolKey::StatusbarShowMenu),
+    ConfigKey::Bool(BoolKey::StatusbarShowPreset),
+    ConfigKey::Bool(BoolKey::StatusbarShowUpdateInterval),
+    ConfigKey::Bool(BoolKey::StatusbarShowUptime),
+    ConfigKey::Bool(BoolKey::StatusbarShowClock),
+    ConfigKey::String(StringKey::StatusbarClockFormat),
+];
+
 /// All categories in order.
 pub fn categories() -> &'static [&'static [ConfigKey]] {
-    &[GENERAL, CPU, MEM, NET, PROC, GPU, DISK]
+    &[GENERAL, STATUSBAR, CPU, MEM, NET, PROC, GPU, DISK]
 }
 
 // ---------------------------------------------------------------------------

@@ -62,6 +62,42 @@ pub struct LayoutHints {
     /// `LiveData::layout_hints` boundary so the disk widget's
     /// `preferred_height` doesn't have to peek at config flags.
     pub disk_rows_per_unit: u8,
+
+    // ── Statusbar inputs ────────────────────────────────────────
+    // Mirroring the established convention (e.g. `disk_rows_per_unit`),
+    // `LayoutHints` carries config-derived values the engine needs
+    // for sizing decisions. The statusbar's `min_width` is a pure
+    // sum of the visible-item widths populated below; visibility
+    // bools mirror `Config::statusbar` so the widget reads neither
+    // `&Config` nor `&LiveData`.
+    //
+    // Note: the master `show_statusbar` toggle is **not** mirrored
+    // here. When the master toggle is off the engine receives
+    // `WidgetKind::Statusbar` in its `hidden` set (composed by
+    // `app::AppState::compose_hidden`) and never calls
+    // `min_width` on the widget, so a parallel hint field would be
+    // dead weight.
+    pub statusbar_show_menu: bool,
+    pub statusbar_show_preset: bool,
+    pub statusbar_show_update_interval: bool,
+    pub statusbar_show_uptime: bool,
+    pub statusbar_show_clock: bool,
+    /// Visible width of the preset-cycler item (`← P NAME[*] p →`)
+    /// derived from the active preset name and `filter_active`.
+    /// Zero when the preset item is hidden.
+    pub statusbar_preset_label_width: usize,
+    /// Visible width of the update-interval item (`- Nms +`)
+    /// derived from the current `update_ms`. Zero when the item
+    /// is hidden.
+    pub statusbar_update_label_width: usize,
+    /// Visible width of the uptime item (`up Xd HH:MM`) derived
+    /// from the current uptime snapshot. Zero when the item is
+    /// hidden or no statusbar snapshot is yet available.
+    pub statusbar_uptime_label_width: usize,
+    /// Visible width of the clock item produced by
+    /// `tools::format_clock(&statusbar.statusbar_clock_format)`.
+    /// Zero when the item is hidden, or when the format is empty.
+    pub statusbar_clock_label_width: usize,
 }
 
 /// Complete layout of all UI widgets.
@@ -91,16 +127,7 @@ impl Layout {
     /// hidden-everything overlay gate in `app::run`) use this to
     /// detect the latter and substitute a help message.
     pub fn is_empty(&self) -> bool {
-        const BASE: [WidgetKind; 5] = [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-        ];
-        BASE.iter().all(|k| self.dims_for(*k).is_none())
-            && (0..crate::config::MAX_GPUS as u8)
-                .all(|n| self.dims_for(WidgetKind::Gpu(n)).is_none())
+        WidgetKind::all().all(|k| self.dims_for(k).is_none())
     }
 
     /// Assign dimensions to `kind` for this frame.
@@ -545,6 +572,7 @@ mod tests {
             has_cpu_temp: false,
             has_cpu_watts: false,
             disk_rows_per_unit: 2,
+            ..LayoutHints::default()
         }
     }
 
@@ -730,6 +758,93 @@ mod tests {
             disk.height,
             crate::ui::disk_widget::preferred_height(&cfg.hints)
         );
+    }
+
+    // ────────────────────────────────────────────────────────────
+    // Hidden statusbar — when `compose_hidden` adds Statusbar to
+    // the engine's `hidden` set (master toggle off), the engine
+    // must not place the widget AND the freed row must flow to a
+    // Fill sibling. This is the load-bearing behavioural contract
+    // for the master `show_statusbar` config toggle.
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn vstack_with_hidden_statusbar_omits_dims_for_statusbar() {
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+            Slot::Widget(WidgetKind::Statusbar),
+        ]);
+        let mut hidden = WidgetSet::new();
+        hidden.insert(WidgetKind::Statusbar);
+        let cfg = LayoutConfig {
+            term_width: 120,
+            term_height: 40,
+            root,
+            hints: hints(),
+            hidden,
+        };
+        let layout = calc_sizes(&cfg);
+        assert!(
+            layout.dims_for(WidgetKind::Statusbar).is_none(),
+            "hidden statusbar must not be placed",
+        );
+    }
+
+    #[test]
+    fn vstack_with_hidden_statusbar_redistributes_row_to_fill_sibling() {
+        // Without the statusbar in `hidden`, Proc absorbs
+        // `term_height - cpu_pref - statusbar_pref` rows. With it
+        // hidden, Proc must absorb `term_height - cpu_pref` rows
+        // — the statusbar's freed row flows to the Fill sibling.
+        let cpu_pref = crate::ui::cpu_widget::preferred_height(&hints()).max(MIN_CPU_HEIGHT);
+
+        let root_with_bar = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+            Slot::Widget(WidgetKind::Statusbar),
+        ]);
+        let cfg_with_bar = LayoutConfig {
+            term_width: 120,
+            term_height: 40,
+            root: root_with_bar,
+            hints: hints(),
+            hidden: WidgetSet::new(),
+        };
+        let layout_with_bar = calc_sizes(&cfg_with_bar);
+        let proc_with_bar = layout_with_bar
+            .dims_for(WidgetKind::Proc)
+            .expect("proc placed");
+
+        let root_hidden_bar = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+            Slot::Widget(WidgetKind::Statusbar),
+        ]);
+        let mut hidden = WidgetSet::new();
+        hidden.insert(WidgetKind::Statusbar);
+        let cfg_hidden_bar = LayoutConfig {
+            term_width: 120,
+            term_height: 40,
+            root: root_hidden_bar,
+            hints: hints(),
+            hidden,
+        };
+        let layout_hidden_bar = calc_sizes(&cfg_hidden_bar);
+        let proc_hidden_bar = layout_hidden_bar
+            .dims_for(WidgetKind::Proc)
+            .expect("proc placed");
+
+        assert_eq!(
+            proc_hidden_bar.height,
+            proc_with_bar.height + 1,
+            "the freed statusbar row must flow to the Fill sibling",
+        );
+        // And cpu's preferred height is unchanged.
+        let cpu = layout_hidden_bar
+            .dims_for(WidgetKind::Cpu)
+            .expect("cpu placed");
+        assert_eq!(cpu.height, cpu_pref);
     }
 
     // ────────────────────────────────────────────────────────────

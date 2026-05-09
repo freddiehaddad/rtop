@@ -6,6 +6,7 @@ use crate::collect::gpu::GpuCollector;
 use crate::collect::memory::MemCollector;
 use crate::collect::network::NetCollector;
 use crate::collect::process::ProcCollector;
+use crate::collect::statusbar::{STATUSBAR_UPDATE_MS, StatusbarCollector};
 use crate::domain::{
     cpu::CpuInfo, disk::DiskData, gpu::GpuInfo, memory::MemInfo, network::NetInfo,
     process::ProcInfo,
@@ -57,6 +58,11 @@ pub(crate) struct NetSnapshot {
 pub(crate) struct ProcSnapshot {
     pub(crate) procs: Vec<ProcInfo>,
     pub(crate) status: CollectStatus,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct StatusbarSnapshot {
+    pub(crate) info: crate::collect::statusbar::StatusbarInfo,
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +257,7 @@ pub(crate) struct CollectorManager {
     pub(crate) net_slot: LatestSlot<NetSnapshot>,
     pub(crate) gpu_slot: LatestSlot<GpuSnapshot>,
     pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
+    pub(crate) statusbar_slot: LatestSlot<StatusbarSnapshot>,
 
     joins: Vec<(&'static str, JoinHandle<()>)>,
 }
@@ -286,8 +293,9 @@ impl CollectorManager {
         let net_slot = LatestSlot::new();
         let gpu_slot = LatestSlot::new();
         let proc_slot = LatestSlot::new();
+        let statusbar_slot = LatestSlot::new();
 
-        let mut joins = Vec::with_capacity(6);
+        let mut joins = Vec::with_capacity(7);
 
         // CPU thread
         let (cpu_tx, cpu_join) = spawn_collector(
@@ -381,14 +389,46 @@ impl CollectorManager {
         );
         joins.push(("process", proc_join));
 
+        // Statusbar thread — fixed 1 Hz cadence (the wall-clock seconds
+        // digit advances at human-noticeable cadence and uptime stays
+        // in sync). Cadence is hardcoded in the collector module; if a
+        // future change wants user-configurable cadence, replace
+        // `STATUSBAR_UPDATE_MS` with a `RefreshConfig` lookup here.
+        //
+        // The snapshot omits a `status` field because
+        // `GetTickCount64` is infallible — there is no degraded
+        // mode to surface. Mirroring the other subsystems'
+        // `info`/`status` shape would only add a permanently-`Ok`
+        // field that no caller could meaningfully consult.
+        let (statusbar_tx, statusbar_join) = spawn_collector(
+            StatusbarCollector::new,
+            STATUSBAR_UPDATE_MS,
+            &statusbar_slot,
+            &event_tx,
+            AppEvent::SubsystemReady(SubsystemKind::Statusbar),
+            |c| StatusbarSnapshot {
+                info: c.info.clone(),
+            },
+        );
+        joins.push(("statusbar", statusbar_join));
+
         Self {
-            txs: PerSubsystem::new(cpu_tx, mem_tx, disk_tx, net_tx, gpu_tx, proc_tx),
+            txs: PerSubsystem::new(
+                cpu_tx,
+                mem_tx,
+                disk_tx,
+                net_tx,
+                gpu_tx,
+                proc_tx,
+                statusbar_tx,
+            ),
             cpu_slot,
             mem_slot,
             disk_slot,
             net_slot,
             gpu_slot,
             proc_slot,
+            statusbar_slot,
             joins,
         }
     }

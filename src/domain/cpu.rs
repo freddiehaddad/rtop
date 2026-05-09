@@ -41,8 +41,6 @@ pub struct CpuInfo {
     pub cpu_hz: String,
     /// Number of logical cores.
     pub core_count: usize,
-    /// System uptime in seconds.
-    pub uptime_seconds: u64,
     /// Temperature history: index 0 = package, 1+ = per-core.
     pub temp: Vec<VecDeque<i64>>,
     /// CPU package power in watts (from LHM), if available.
@@ -60,7 +58,6 @@ impl Default for CpuInfo {
             cpu_name: String::new(),
             cpu_hz: String::new(),
             core_count: 0,
-            uptime_seconds: 0,
             temp: Vec::new(),
             cpu_watts: None,
             cpu_max_watts: None,

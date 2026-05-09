@@ -28,7 +28,6 @@ use serde::ser::{SerializeSeq, Serializer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::config::MAX_GPUS;
 use crate::domain::widget_kind::{PerWidget, WidgetKind};
 
 /// A set of [`WidgetKind`]s with inline `O(1)` membership.
@@ -45,12 +44,7 @@ impl WidgetSet {
 
     /// `true` if no widgets are in the set.
     pub fn is_empty(&self) -> bool {
-        !*self.members.get(WidgetKind::Cpu)
-            && !*self.members.get(WidgetKind::Mem)
-            && !*self.members.get(WidgetKind::Net)
-            && !*self.members.get(WidgetKind::Proc)
-            && !*self.members.get(WidgetKind::Disk)
-            && (0..MAX_GPUS as u8).all(|n| !*self.members.get(WidgetKind::Gpu(n)))
+        WidgetKind::all().all(|k| !*self.members.get(k))
     }
 
     /// `true` if `kind` is in the set.
@@ -79,20 +73,11 @@ impl WidgetSet {
         self.members = PerWidget::default();
     }
 
-    /// Iterate over the [`WidgetKind`]s in the set, in a stable
-    /// order (cpu, mem, net, proc, disk, gpu0..gpuN).
+    /// Iterate over the [`WidgetKind`]s in the set, in canonical
+    /// order (cpu, mem, net, proc, disk, gpu0..gpuN, statusbar) —
+    /// the order [`WidgetKind::all`] produces.
     pub fn iter(&self) -> impl Iterator<Item = WidgetKind> + '_ {
-        const BASE: [WidgetKind; 5] = [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-        ];
-        BASE.iter()
-            .copied()
-            .chain((0..MAX_GPUS as u8).map(WidgetKind::Gpu))
-            .filter(|k| self.contains(*k))
+        WidgetKind::all().filter(|k| self.contains(*k))
     }
 
     /// Add every member of `other` to this set.
@@ -151,6 +136,7 @@ impl<'de> Deserialize<'de> for WidgetSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::MAX_GPUS;
 
     #[test]
     fn new_set_is_empty() {

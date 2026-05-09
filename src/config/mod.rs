@@ -199,6 +199,11 @@ pub struct Config {
     #[serde(flatten)]
     pub view: ViewConfig,
 
+    /// Statusbar widget settings (master visibility, per-item
+    /// visibility, clock format). See [`StatusbarConfig`].
+    #[serde(flatten)]
+    pub statusbar: StatusbarConfig,
+
     /// Active preset cursor + persisted custom layout + memoised
     /// resolved layout, packaged so the cache cannot drift from its
     /// inputs. `preset` and `custom_layout` flatten to the TOML root;
@@ -239,6 +244,7 @@ impl Default for Config {
             disk: DiskConfig::default(),
             log: LogConfig::default(),
             view: ViewConfig::default(),
+            statusbar: StatusbarConfig::default(),
 
             // First-launch cursor lands on the `all` builtin so the
             // very first `p` keypress visibly cycles to a different

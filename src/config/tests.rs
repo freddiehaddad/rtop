@@ -183,7 +183,7 @@ vim_keys = true
 update_ms = 500
 cpu_update_ms = 250
 cpu_invert_lower = false
-show_uptime = false
+statusbar_show_uptime = false
 custom_cpu_name = "My CPU"
 show_swap = false
 io_mode = true
@@ -213,8 +213,10 @@ hidden_widgets = ["mem", "gpu0"]
 
     // CpuConfig
     assert!(!config.cpu.cpu_invert_lower);
-    assert!(!config.cpu.show_uptime);
     assert_eq!(config.cpu.custom_cpu_name, "My CPU");
+
+    // StatusbarConfig
+    assert!(!config.statusbar.statusbar_show_uptime);
 
     // MemConfig
     assert!(!config.mem.show_swap);
@@ -576,7 +578,7 @@ fn validate_string_disks_filter() {
 #[test]
 fn validate_string_free_form_keys_always_ok() {
     for key in [
-        StringKey::ClockFormat,
+        StringKey::StatusbarClockFormat,
         StringKey::CustomCpuName,
         StringKey::ProcFilter,
         StringKey::CustomGpuName0,

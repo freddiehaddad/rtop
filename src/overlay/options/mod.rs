@@ -27,7 +27,7 @@ use crate::{
 use super::{ActiveModal, ReturnTarget};
 use edit::{EditKind, OptionEditState};
 
-const OPTIONS_CATEGORY_COUNT: usize = 7;
+const OPTIONS_CATEGORY_COUNT: usize = 8;
 
 // ---------------------------------------------------------------------------
 // State
@@ -468,6 +468,26 @@ pub(crate) fn apply_post_change_effects(key: ConfigKey, ctx: &mut InputContext) 
                 .set_interval(crate::event::SubsystemKind::Proc, ms);
         }
         _ => {}
+    }
+
+    // Statusbar visibility / format changes alter the bar's
+    // contribution to `min_terminal_size` (every visible item
+    // contributes width via the `statusbar_*_label_width` fields
+    // on `LayoutHints`). `mark_layout` recomputes the layout AND
+    // marks every widget dirty, which is exactly what we want
+    // here — the row above the statusbar may need to grow or
+    // shrink, and the statusbar itself must repaint.
+    if matches!(
+        key,
+        ConfigKey::Bool(BoolKey::ShowStatusbar)
+            | ConfigKey::Bool(BoolKey::StatusbarShowMenu)
+            | ConfigKey::Bool(BoolKey::StatusbarShowPreset)
+            | ConfigKey::Bool(BoolKey::StatusbarShowUpdateInterval)
+            | ConfigKey::Bool(BoolKey::StatusbarShowUptime)
+            | ConfigKey::Bool(BoolKey::StatusbarShowClock)
+            | ConfigKey::String(StringKey::StatusbarClockFormat)
+    ) {
+        ctx.render.dirty.mark_layout();
     }
 
     // Sync RuntimeView <- config.view if the change touched a

@@ -32,14 +32,14 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 - **41 bundled themes**: dracula, nord, gruvbox, tokyo-night, and more
 - **Vim key bindings**: optional h/j/k/l/g/G and Ctrl+F/B/D/U navigation
 - **Process following**: pin a process with `F` to auto-scroll across refreshes
-- **Clock display**: configurable clock in the CPU widget
+- **Statusbar**: borderless 1-row bar at the bottom with menu/preset/update interval (left) and uptime/clock (right)
 - **Disk IO mode**: toggle between usage meters and throughput graphs
 
 ## Features
 
 | Widget | Data |
 |--------|------|
-| **CPU** | Per-core utilization, frequency, temperature¹, power (watts)¹, user/system graphs, load average, uptime, clock |
+| **CPU** | Per-core utilization, frequency, temperature¹, power (watts)¹, user/system graphs, load average |
 | **Memory** | Used, available, cached, free, swap — with meter bars |
 | **Disk** | Per-volume usage, filesystem type, capacity, read/write throughput, busy time, IO mode |
 | **Network** | Download/upload graphs with auto-scaling, interface selector, speed totals |
@@ -248,9 +248,37 @@ custom_layout = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
 
 ### Hiding widgets at runtime
 
-The number keys (`1`–`5` for cpu/mem/net/proc/disk, `6`–`9` for gpu0–3, `0` for gpu4–7) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The CPU widget shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
+The number keys (`1`–`5` for cpu/mem/net/proc/disk, `6`–`9` for gpu0–3, `0` for gpu4–7) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The statusbar shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
 
 Hide is purely a viewing operation — it never modifies your saved layout. The custom layout is only changed by the two paths above.
+
+### Statusbar
+
+The **statusbar** is a single-row bar that sits at the bottom of every preset. It keeps the things you reach for most often always visible, without taking space away from the widgets above it.
+
+What it shows:
+
+| Side | Item | Description |
+|------|------|-------------|
+| Left | Menu hint | `menu` keybind reminder |
+| Left | Preset cycler | `← P NAME p →` — the active preset name; an asterisk after the name means at least one widget is hidden |
+| Left | Update interval | `─ Nms +` — the global refresh rate |
+| Right | Uptime | `up Xd HH:MM` — time since boot |
+| Right | Clock | the current time, in your chosen format |
+
+Every item can be turned on or off individually from the options menu (`o` / `F2` → Statusbar), and the whole bar can be hidden with one toggle if you want every row for widgets:
+
+```toml
+show_statusbar = true                  # master toggle
+statusbar_show_menu = true
+statusbar_show_preset = true
+statusbar_show_update_interval = true
+statusbar_show_uptime = true
+statusbar_show_clock = true
+statusbar_clock_format = "%X"          # %X = HH:MM:SS; also %H, %M, %S
+```
+
+**Position is up to you.** The statusbar is a regular widget, so the [custom layout](#custom-layout) DSL can place `statusbar` anywhere — top, bottom, or beside another panel. The built-in presets put it at the bottom by default.
 
 ---
 

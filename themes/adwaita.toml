@@ -20,6 +20,11 @@ help_box = "#2e3436"
 options_box = "#2e3436"
 proc_tree_fg = "#5e5c64"
 
+statusbar_bg = "#f6f5f4"
+statusbar_fg = "#2e3436"
+statusbar_hi = "#1a5fb4"
+statusbar_sep = "#929495"
+
 [gradients.cpu_upper]
 start = "#1a5fb4"
 mid = "#1a5fb4"

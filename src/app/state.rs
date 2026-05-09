@@ -60,17 +60,31 @@ impl AppState {
 
     /// Compose the engine's per-frame `hidden` [`WidgetSet`] from
     /// every visibility source: hardware absence (GPUs without a
-    /// backing device, derived from `LiveData`'s detected GPU count)
-    /// unioned with the user's runtime view filter.
+    /// backing device, derived from `LiveData`'s detected GPU count),
+    /// the statusbar's master `show_statusbar` config toggle, and
+    /// the user's runtime view filter.
     ///
     /// The engine consumes the result without caring why a widget
     /// is hidden — there is one source of truth per frame, built
     /// here.
     pub(crate) fn compose_hidden(&self, config: &config::Config) -> WidgetSet {
-        let hints = self.live.layout_hints(config, &self.view);
+        // Inline the single integer this function needs from
+        // `LiveData` rather than calling `layout_hints` — the full
+        // hints struct triggers the statusbar's label-width
+        // pre-computation (string allocations + `format_clock_width`
+        // for every call), and `compose_hidden` runs twice per
+        // layout-dirty frame.
+        let gpu_count = self.live.gpu.as_ref().map_or(0, |g| g.gpus.len());
         let mut hidden = WidgetSet::new();
-        for n in (hints.gpu_count as u8)..(crate::config::MAX_GPUS as u8) {
+        for n in (gpu_count as u8)..(crate::config::MAX_GPUS as u8) {
             hidden.insert(WidgetKind::Gpu(n));
+        }
+        // Master `show_statusbar` toggle. When off, route the
+        // statusbar through the same engine path as any other
+        // hidden widget so its row is reclaimed by the layout
+        // above (rather than left as a dead band).
+        if !config.statusbar.show_statusbar {
+            hidden.insert(WidgetKind::Statusbar);
         }
         hidden.extend_from(&self.filter.hidden);
         hidden
@@ -299,6 +313,15 @@ pub(crate) struct LiveData {
     pub(crate) net: Option<Arc<runner::NetSnapshot>>,
     pub(crate) gpu: Option<Arc<runner::GpuSnapshot>>,
     pub(crate) proc_data: Option<Arc<runner::ProcSnapshot>>,
+    /// Latest statusbar snapshot (uptime). Refreshed at the
+    /// statusbar collector's hardcoded 1 Hz cadence; the
+    /// statusbar widget reads this when rendering.
+    ///
+    /// Intentionally **not** part of [`LiveData::is_ready`] — the
+    /// statusbar's absence does not justify delaying the first
+    /// frame, and the bar gracefully renders zero uptime until
+    /// the first snapshot arrives.
+    pub(crate) statusbar: Option<Arc<runner::StatusbarSnapshot>>,
     /// Cached core count for proc widget (stable hardware constant).
     pub(crate) core_count: usize,
     /// Cached total physical memory for proc widget (stable hardware constant).
@@ -314,6 +337,7 @@ impl LiveData {
             net: None,
             gpu: None,
             proc_data: None,
+            statusbar: None,
             core_count: 0,
             total_mem: 0,
         }
@@ -333,6 +357,7 @@ impl LiveData {
         &self,
         config: &config::Config,
         view: &RuntimeView,
+        filter: &WidgetFilter,
     ) -> draw::layout::LayoutHints {
         // Disk widget rows-per-disk depends on which view is active:
         //   * Usage view (default): 2 rows when `show_io_stat` adds
@@ -349,6 +374,62 @@ impl LiveData {
         } else {
             1
         };
+
+        // ── Statusbar label widths ────────────────────────────────
+        //
+        // Pre-compute every label's visible-cell width so the
+        // statusbar widget's `min_width` is a pure sum and the
+        // engine's `min_terminal_size` integrates the bar correctly
+        // for the existing "too small" gate. Each width is zero
+        // when its item is hidden so the sum naturally matches the
+        // visible content.
+        //
+        // The plain-text helpers in `crate::ui::statusbar_widget`
+        // (`MENU_LABEL`, `preset_label`, `update_label`,
+        // `uptime_label`, `format_clock_width`) are the single
+        // source of truth for each item's structure; the renderer's
+        // `format_*_item` functions are pinned to match these by
+        // synchronisation tests so the layout-engine's `min_width`
+        // math cannot drift from the renderer's actual output.
+        let sb = &config.statusbar;
+        let filter_active = !filter.hidden.is_empty();
+        let preset_name = config.active_preset().name();
+        let statusbar_preset_label_width = if sb.statusbar_show_preset {
+            crate::tools::ulen(
+                &crate::ui::statusbar_widget::preset_label(preset_name, filter_active),
+                false,
+            )
+        } else {
+            0
+        };
+        let statusbar_update_label_width = if sb.statusbar_show_update_interval {
+            crate::tools::ulen(
+                &crate::ui::statusbar_widget::update_label(config.refresh.update_ms as u64),
+                false,
+            )
+        } else {
+            0
+        };
+        let statusbar_uptime_label_width = if sb.statusbar_show_uptime {
+            // Read the latest snapshot if present; before the first
+            // statusbar tick the field is zero (the bar renders an
+            // empty uptime that frame, then catches up on the next
+            // tick).
+            let secs = self.statusbar.as_ref().map_or(0, |s| s.info.uptime_seconds);
+            crate::tools::ulen(&crate::ui::statusbar_widget::uptime_label(secs), false)
+        } else {
+            0
+        };
+        let statusbar_clock_label_width = if sb.statusbar_show_clock {
+            // `format_clock_width` is a pure function of the format
+            // string — never reads the wall clock. An empty format
+            // returns 0, which matches `format_clock` returning ""
+            // and preserves the "empty format = no clock" behaviour.
+            crate::tools::format_clock_width(&sb.statusbar_clock_format)
+        } else {
+            0
+        };
+
         draw::layout::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu.as_ref().map_or(0, |g| g.gpus.len()),
@@ -367,6 +448,16 @@ impl LiveData {
                     .as_ref()
                     .is_some_and(|c| c.info.cpu_watts.is_some()),
             disk_rows_per_unit,
+
+            statusbar_show_menu: sb.statusbar_show_menu,
+            statusbar_show_preset: sb.statusbar_show_preset,
+            statusbar_show_update_interval: sb.statusbar_show_update_interval,
+            statusbar_show_uptime: sb.statusbar_show_uptime,
+            statusbar_show_clock: sb.statusbar_show_clock,
+            statusbar_preset_label_width,
+            statusbar_update_label_width,
+            statusbar_uptime_label_width,
+            statusbar_clock_label_width,
         }
     }
 }
@@ -866,6 +957,64 @@ mod tests {
         assert_eq!(state.view.net_iface, "Ethernet");
     }
 
+    // ────────────────────────────────────────────────────────────
+    // compose_hidden — the single source of truth for the engine's
+    // per-frame `hidden` widget set.
+    // ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn compose_hidden_excludes_statusbar_when_show_statusbar_is_true() {
+        // Default `show_statusbar = true` → the engine receives no
+        // `Statusbar` in `hidden`, so the bar is laid out at its
+        // preferred 1-row height.
+        let config = config::Config::new();
+        let state = AppState::new(&config);
+        let hidden = state.compose_hidden(&config);
+        assert!(
+            !hidden.contains(WidgetKind::Statusbar),
+            "default config should not hide the statusbar",
+        );
+    }
+
+    #[test]
+    fn compose_hidden_includes_statusbar_when_show_statusbar_is_false() {
+        // Master toggle off → the engine treats the statusbar as
+        // hidden via the same code path as any other hidden widget.
+        // Parents reclaim the freed row through the normal vstack
+        // distribution; the visual side-effect is verified by the
+        // engine-level test in `draw/layout.rs`.
+        let mut config = config::Config::new();
+        config.statusbar.show_statusbar = false;
+        let state = AppState::new(&config);
+        let hidden = state.compose_hidden(&config);
+        assert!(
+            hidden.contains(WidgetKind::Statusbar),
+            "show_statusbar=false must add Statusbar to compose_hidden",
+        );
+    }
+
+    #[test]
+    fn compose_hidden_unions_master_toggle_with_widget_filter() {
+        // Both the master toggle and the runtime widget filter are
+        // independent visibility sources; the composition unions
+        // them so neither path can shadow the other.
+        let mut config = config::Config::new();
+        config.statusbar.show_statusbar = false;
+        let mut state = AppState::new(&config);
+        state.filter.hidden.insert(WidgetKind::Mem);
+
+        let hidden = state.compose_hidden(&config);
+
+        assert!(
+            hidden.contains(WidgetKind::Statusbar),
+            "master toggle source still applies",
+        );
+        assert!(
+            hidden.contains(WidgetKind::Mem),
+            "runtime widget filter source still applies",
+        );
+    }
+
     #[test]
     fn runtime_view_sync_to_config_mirrors_back() {
         // After handler runtime toggles, sync_to_config copies the
@@ -962,7 +1111,7 @@ mod tests {
         assert_eq!(
             state
                 .live
-                .layout_hints(&config, &state.view)
+                .layout_hints(&config, &state.view, &state.filter)
                 .disk_rows_per_unit,
             2
         );
@@ -972,7 +1121,7 @@ mod tests {
         assert_eq!(
             state
                 .live
-                .layout_hints(&config, &state.view)
+                .layout_hints(&config, &state.view, &state.filter)
                 .disk_rows_per_unit,
             1
         );
@@ -983,7 +1132,7 @@ mod tests {
         assert_eq!(
             state
                 .live
-                .layout_hints(&config, &state.view)
+                .layout_hints(&config, &state.view, &state.filter)
                 .disk_rows_per_unit,
             2
         );
@@ -993,7 +1142,7 @@ mod tests {
         assert_eq!(
             state
                 .live
-                .layout_hints(&config, &state.view)
+                .layout_hints(&config, &state.view, &state.filter)
                 .disk_rows_per_unit,
             1
         );
@@ -1005,7 +1154,7 @@ mod tests {
         assert_eq!(
             state
                 .live
-                .layout_hints(&config, &state.view)
+                .layout_hints(&config, &state.view, &state.filter)
                 .disk_rows_per_unit,
             2
         );

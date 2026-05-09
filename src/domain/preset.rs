@@ -107,8 +107,14 @@ impl BuiltinPreset {
     /// invisible widgets (currently only `Gpu(n)` where `n >=
     /// hints.gpu_count`) to zero size so the same static tree
     /// produces correct output on every hardware configuration.
+    ///
+    /// Every preset's outermost shape is a [`Slot::VStack`]; the
+    /// statusbar leaf is appended to that VStack as the last
+    /// child so it always lands on the bottom row. The helper
+    /// [`with_statusbar`] takes care of the append (and gracefully
+    /// wraps a future non-VStack root in a new outer VStack).
     pub fn layout_spec(self) -> Slot {
-        match self {
+        let body = match self {
             Self::All => all_layout_spec(),
             Self::CpuProc => Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Cpu),
@@ -136,7 +142,26 @@ impl BuiltinPreset {
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Disk),
             ]),
+        };
+        with_statusbar(body)
+    }
+}
+
+/// Append [`WidgetKind::Statusbar`] as the last leaf of the
+/// outermost vertical stack. When `root` is already a
+/// [`Slot::VStack`] the statusbar is pushed to its children
+/// (preserving existing height-distribution semantics — wrapping
+/// in another VStack would re-introduce a slack-distribution
+/// boundary that doesn't exist today). When `root` is anything
+/// else (an `HStack` or a `Widget` leaf) the helper wraps it in
+/// a new outer VStack with the statusbar as the second child.
+fn with_statusbar(root: Slot) -> Slot {
+    match root {
+        Slot::VStack(mut children) => {
+            children.push(Slot::Widget(WidgetKind::Statusbar));
+            Slot::VStack(children)
         }
+        other => Slot::VStack(vec![other, Slot::Widget(WidgetKind::Statusbar)]),
     }
 }
 
@@ -434,7 +459,8 @@ mod tests {
         let Slot::VStack(children) = &spec else {
             panic!("`all` should be a VStack at the root, got {spec:?}");
         };
-        assert_eq!(children.len(), 2);
+        // Cpu, two-column body, statusbar.
+        assert_eq!(children.len(), 3);
         assert!(matches!(children[0], Slot::Widget(WidgetKind::Cpu)));
         let Slot::HStack(hstack) = &children[1] else {
             panic!("`all` body should be an HStack, got {:?}", children[1]);
@@ -447,6 +473,8 @@ mod tests {
             panic!("`all` left column should be a VStack");
         };
         assert_eq!(left.len(), crate::config::MAX_GPUS + 3);
+        // Statusbar is the last leaf.
+        assert!(matches!(children[2], Slot::Widget(WidgetKind::Statusbar)));
     }
 
     #[test]
@@ -457,6 +485,7 @@ mod tests {
             Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Cpu),
                 Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Statusbar),
             ])
         );
     }
@@ -468,6 +497,7 @@ mod tests {
             Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Statusbar),
             ])
         );
         assert_eq!(
@@ -475,6 +505,7 @@ mod tests {
             Slot::VStack(vec![
                 Slot::Widget(WidgetKind::Disk),
                 Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Statusbar),
             ])
         );
     }
@@ -485,7 +516,8 @@ mod tests {
         let Slot::VStack(children) = &spec else {
             panic!("`cpu+net+proc` should be a VStack");
         };
-        assert_eq!(children.len(), 2);
+        // Cpu, two-column body, statusbar.
+        assert_eq!(children.len(), 3);
         assert!(matches!(children[0], Slot::Widget(WidgetKind::Cpu)));
         let Slot::HStack(hstack) = &children[1] else {
             panic!("`cpu+net+proc` body should be an HStack");
@@ -493,6 +525,7 @@ mod tests {
         assert_eq!(hstack.len(), 2);
         assert!(matches!(hstack[0].slot, Slot::Widget(WidgetKind::Net)));
         assert!(matches!(hstack[1].slot, Slot::Widget(WidgetKind::Proc)));
+        assert!(matches!(children[2], Slot::Widget(WidgetKind::Statusbar)));
     }
 
     #[test]
@@ -501,8 +534,8 @@ mod tests {
         let Slot::VStack(children) = &spec else {
             panic!("`cpu+gpu+proc` should be a VStack");
         };
-        // CPU + every GPU + proc, all in one column.
-        assert_eq!(children.len(), 2 + crate::config::MAX_GPUS);
+        // CPU + every GPU + proc + statusbar, all in one column.
+        assert_eq!(children.len(), 3 + crate::config::MAX_GPUS);
         assert!(matches!(children[0], Slot::Widget(WidgetKind::Cpu)));
         for n in 0..crate::config::MAX_GPUS as u8 {
             assert!(matches!(
@@ -511,15 +544,20 @@ mod tests {
             ));
         }
         assert!(matches!(
-            children[children.len() - 1],
+            children[children.len() - 2],
             Slot::Widget(WidgetKind::Proc)
+        ));
+        assert!(matches!(
+            children[children.len() - 1],
+            Slot::Widget(WidgetKind::Statusbar)
         ));
     }
 
     #[test]
     fn builtin_cpu_net_mem_disk_layout_spec_is_single_column_in_visual_order() {
         let spec = BuiltinPreset::CpuNetMemDisk.layout_spec();
-        // The preset name encodes the visual order top-to-bottom.
+        // The preset name encodes the visual order top-to-bottom;
+        // the statusbar lands at the bottom.
         assert_eq!(
             spec,
             Slot::VStack(vec![
@@ -527,6 +565,7 @@ mod tests {
                 Slot::Widget(WidgetKind::Net),
                 Slot::Widget(WidgetKind::Mem),
                 Slot::Widget(WidgetKind::Disk),
+                Slot::Widget(WidgetKind::Statusbar),
             ])
         );
     }
@@ -664,5 +703,98 @@ mod tests {
     #[test]
     fn default_custom_layout_is_all_preset_tree() {
         assert_eq!(default_custom_layout(), BuiltinPreset::All.layout_spec());
+    }
+
+    // -- statusbar integration --
+
+    /// The statusbar is added to every builtin preset (and the
+    /// custom layout default) at the bottom of the outer VStack.
+    /// `Slot::contains` walks the entire tree; this exercise pins
+    /// that the leaf is reachable from every preset and from
+    /// `default_custom_layout`.
+    #[test]
+    fn every_builtin_preset_contains_statusbar_widget() {
+        for &preset in &BuiltinPreset::ALL {
+            assert!(
+                preset.layout_spec().contains(WidgetKind::Statusbar),
+                "{}: layout_spec must contain WidgetKind::Statusbar",
+                preset.name(),
+            );
+        }
+    }
+
+    #[test]
+    fn default_custom_layout_contains_statusbar_widget() {
+        assert!(default_custom_layout().contains(WidgetKind::Statusbar));
+    }
+
+    /// Beyond mere presence, the statusbar must be the **last**
+    /// leaf of the **outermost** vertical stack so it always
+    /// renders on the bottom row regardless of how the rest of
+    /// the layout reflows. `with_statusbar` enforces this for
+    /// VStack roots; this test pins the contract end-to-end so a
+    /// future preset that uses an HStack root cannot accidentally
+    /// drop the bottom-row guarantee.
+    #[test]
+    fn statusbar_is_last_leaf_of_outer_vstack_for_every_builtin() {
+        for &preset in &BuiltinPreset::ALL {
+            let spec = preset.layout_spec();
+            match spec {
+                Slot::VStack(children) => {
+                    let last = children
+                        .last()
+                        .unwrap_or_else(|| panic!("{}: VStack has no children", preset.name()));
+                    assert_eq!(
+                        last,
+                        &Slot::Widget(WidgetKind::Statusbar),
+                        "{}: statusbar must be last child of outer VStack",
+                        preset.name(),
+                    );
+                }
+                other => panic!(
+                    "{}: outer slot is {other:?}, expected VStack so the statusbar lands on the bottom row",
+                    preset.name(),
+                ),
+            }
+        }
+    }
+
+    /// `with_statusbar` must NOT introduce a nested VStack when
+    /// the input is already a VStack — that would re-introduce a
+    /// slack-distribution boundary the existing presets don't
+    /// have. Verified by walking the outer children: every
+    /// child of the outermost VStack from `with_statusbar(VStack(_))`
+    /// is the original child or the appended statusbar leaf, NOT
+    /// a nested VStack wrapping them.
+    #[test]
+    fn with_statusbar_appends_to_existing_vstack_without_nesting() {
+        let inner = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Proc),
+        ]);
+        let wrapped = with_statusbar(inner);
+        match wrapped {
+            Slot::VStack(children) => {
+                assert_eq!(children.len(), 3);
+                assert_eq!(children[0], Slot::Widget(WidgetKind::Cpu));
+                assert_eq!(children[1], Slot::Widget(WidgetKind::Proc));
+                assert_eq!(children[2], Slot::Widget(WidgetKind::Statusbar));
+            }
+            other => panic!("expected VStack, got {other:?}"),
+        }
+    }
+
+    /// `with_statusbar` must wrap a non-VStack root in a new
+    /// outer VStack so the statusbar still lands at the bottom.
+    /// (No builtin preset uses this branch today; the test pins
+    /// the contract for future custom layouts edited via the DSL.)
+    #[test]
+    fn with_statusbar_wraps_non_vstack_root_in_new_vstack() {
+        let leaf = Slot::Widget(WidgetKind::Cpu);
+        let wrapped = with_statusbar(leaf.clone());
+        assert_eq!(
+            wrapped,
+            Slot::VStack(vec![leaf, Slot::Widget(WidgetKind::Statusbar)]),
+        );
     }
 }

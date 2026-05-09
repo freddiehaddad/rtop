@@ -7,6 +7,7 @@ pub mod network;
 pub(crate) mod pawnio;
 pub mod process;
 pub mod process_display;
+pub mod statusbar;
 pub(crate) mod win;
 
 /// Health status of a collector after a collection cycle.

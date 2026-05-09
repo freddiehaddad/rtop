@@ -259,7 +259,6 @@ config_schema! {
         CpuInvertLower => "cpu_invert_lower" => cpu.cpu_invert_lower,
         CpuSingleGraph => "cpu_single_graph" => cpu.cpu_single_graph,
         CpuAutoScale => "cpu_auto_scale" => cpu.cpu_auto_scale,
-        ShowUptime => "show_uptime" => cpu.show_uptime,
         ShowCpuWatts => "show_cpu_watts" => cpu.show_cpu_watts,
         CheckTemp => "check_temp" => cpu.check_temp,
         ShowCoretemp => "show_coretemp" => cpu.show_coretemp,
@@ -276,6 +275,12 @@ config_schema! {
         BackgroundUpdate => "background_update" => ui.background_update,
         TerminalSync => "terminal_sync" => ui.terminal_sync,
         DiskIoMode => "disk_io_mode" => disk.disk_io_mode,
+        ShowStatusbar => "show_statusbar" => statusbar.show_statusbar,
+        StatusbarShowMenu => "statusbar_show_menu" => statusbar.statusbar_show_menu,
+        StatusbarShowPreset => "statusbar_show_preset" => statusbar.statusbar_show_preset,
+        StatusbarShowUpdateInterval => "statusbar_show_update_interval" => statusbar.statusbar_show_update_interval,
+        StatusbarShowUptime => "statusbar_show_uptime" => statusbar.statusbar_show_uptime,
+        StatusbarShowClock => "statusbar_show_clock" => statusbar.statusbar_show_clock,
     }
     ints {
         UpdateMs => "update_ms" => refresh.update_ms,
@@ -304,7 +309,7 @@ config_schema! {
     }
     strings {
         ColorTheme => "color_theme" => { field ui.color_theme },
-        ClockFormat => "clock_format" => { field ui.clock_format },
+        StatusbarClockFormat => "statusbar_clock_format" => { field statusbar.statusbar_clock_format },
         CustomCpuName => "custom_cpu_name" => { field cpu.custom_cpu_name },
         ProcFilter => "proc_filter" => { field view.proc_filter },
         DisksFilter => "disks_filter" => { joined_vec disk.disks_filter },
@@ -488,7 +493,7 @@ impl StringKey {
                 }
             }
             // Free-form string keys accept anything.
-            Self::ClockFormat
+            Self::StatusbarClockFormat
             | Self::CustomCpuName
             | Self::ProcFilter
             | Self::CustomGpuName0
@@ -513,7 +518,9 @@ impl StringKey {
         };
         match self {
             Self::ColorTheme => config.ui.color_theme = value.to_string(),
-            Self::ClockFormat => config.ui.clock_format = value.to_string(),
+            Self::StatusbarClockFormat => {
+                config.statusbar.statusbar_clock_format = value.to_string()
+            }
             Self::CustomCpuName => config.cpu.custom_cpu_name = value.to_string(),
             Self::ProcFilter => config.view.proc_filter = value.to_string(),
             Self::CustomLayout => {

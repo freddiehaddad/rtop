@@ -108,7 +108,7 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             term_width: size.width,
             term_height: size.height,
             root: config.layout_spec().clone(),
-            hints: state.live.layout_hints(config, &state.view),
+            hints: state.live.layout_hints(config, &state.view, &state.filter),
             hidden: state.compose_hidden(config),
         });
 

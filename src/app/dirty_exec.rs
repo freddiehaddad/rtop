@@ -78,7 +78,7 @@ fn calculate_layout(
         term_width: size.width,
         term_height: size.height,
         root: config.layout_spec().clone(),
-        hints: state.live.layout_hints(config, &state.view),
+        hints: state.live.layout_hints(config, &state.view, &state.filter),
         hidden: state.compose_hidden(config),
     })
 }
@@ -257,6 +257,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) net: Option<&'a runner::NetSnapshot>,
     pub(crate) gpu: Option<&'a runner::GpuSnapshot>,
     pub(crate) proc_data: Option<&'a runner::ProcSnapshot>,
+    pub(crate) statusbar: Option<&'a runner::StatusbarSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
     /// Process slice the proc widget renders rows from. Equals
     /// `pause.snapshot.procs` when paused; otherwise
@@ -352,6 +353,7 @@ impl<'a> RenderInputs<'a> {
             net: self.live.net.as_deref(),
             gpu: self.live.gpu.as_deref(),
             proc_data: self.live.proc_data.as_deref(),
+            statusbar: self.live.statusbar.as_deref(),
             proc_entries: &self.process.entries,
             proc_source,
             proc_paused: self.process.pause.is_some(),

@@ -122,13 +122,59 @@ pub fn format_clock(format: &str) -> String {
     if format.is_empty() {
         return String::new();
     }
-    // SAFETY: GetLocalTime returns a SYSTEMTIME struct with the current local time.
+    // SAFETY: GetLocalTime takes no arguments, returns a SYSTEMTIME
+    // struct with the current local time, and has no failure modes.
     let st = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    expand_clock_format(format, st.wHour, st.wMinute, st.wSecond)
+}
+
+/// Visible-cell width that [`format_clock`] would produce for the
+/// given format string — derived purely from the format string,
+/// never reads the wall clock.
+///
+/// Shares [`expand_clock_format`] with [`format_clock`], so the
+/// returned width is guaranteed to equal
+/// `tools::ulen(&format_clock(fmt), false)` cell-for-cell. The
+/// sentinel values `(0, 0, 0)` are safe because every field
+/// formats as `{:02}` and the real-clock values (hour 0-23,
+/// minute/second 0-59) all fit in two digits.
+///
+/// The layout engine uses this on the keystroke hot path; calling
+/// `format_clock` there would issue a Win32 `GetLocalTime` syscall
+/// per event-loop iteration to compute a width that doesn't depend
+/// on the current time.
+pub fn format_clock_width(format: &str) -> usize {
+    if format.is_empty() {
+        return 0;
+    }
+    crate::tools::ulen(&expand_clock_format(format, 0, 0, 0), false)
+}
+
+/// Expand a clock format string by substituting `%X`, `%H`, `%M`,
+/// `%S` with the supplied time fields. Shared between
+/// [`format_clock`] (passes the wall clock) and
+/// [`format_clock_width`] (passes zeros) so the two cannot drift.
+fn expand_clock_format(format: &str, hour: u16, minute: u16, second: u16) -> String {
     let expanded = format.replace("%X", "%H:%M:%S");
     expanded
-        .replace("%H", &format!("{:02}", st.wHour))
-        .replace("%M", &format!("{:02}", st.wMinute))
-        .replace("%S", &format!("{:02}", st.wSecond))
+        .replace("%H", &format!("{:02}", hour))
+        .replace("%M", &format!("{:02}", minute))
+        .replace("%S", &format!("{:02}", second))
+}
+
+/// Read the system uptime in seconds since boot via the Win32
+/// `GetTickCount64` syscall. Used by the statusbar collector to
+/// publish a fresh uptime value at its 1 Hz cadence.
+///
+/// `GetTickCount64` is infallible (the kernel maintains a
+/// monotonic 64-bit millisecond counter; the syscall wrapper
+/// returns it unconditionally). Wrapping floors to seconds.
+pub fn system_uptime_secs() -> u64 {
+    // SAFETY: GetTickCount64 takes no arguments, returns a u64 millisecond
+    // counter, and has no failure modes — it is safe to call from any thread
+    // at any time.
+    let ms = unsafe { windows::Win32::System::SystemInformation::GetTickCount64() };
+    ms / 1000
 }
 
 #[cfg(test)]
@@ -304,5 +350,36 @@ mod tests {
     fn strf_time_uptime_replacement() {
         let result = strf_time("/uptime", 3661);
         assert!(result.contains("01:01"), "got: {result}");
+    }
+
+    #[test]
+    fn format_clock_width_empty_is_zero() {
+        assert_eq!(format_clock_width(""), 0);
+    }
+
+    #[test]
+    fn format_clock_width_x_specifier_is_eight_cells() {
+        // `%X` expands to `%H:%M:%S` → "HH:MM:SS" → 8 cells.
+        assert_eq!(format_clock_width("%X"), 8);
+    }
+
+    #[test]
+    fn format_clock_width_individual_specifiers_each_two_cells() {
+        assert_eq!(format_clock_width("%H"), 2);
+        assert_eq!(format_clock_width("%M"), 2);
+        assert_eq!(format_clock_width("%S"), 2);
+    }
+
+    #[test]
+    fn format_clock_width_combinations_match_format_clock_output_width() {
+        // Pin the synchronisation contract: width helper must match
+        // the visible width `format_clock` would produce.
+        for fmt in ["%H:%M", "%H-%M-%S", "[%X]", "%H%M%S", "%X UTC"] {
+            assert_eq!(
+                format_clock_width(fmt),
+                crate::tools::ulen(&format_clock(fmt), false),
+                "width drift on format {fmt:?}",
+            );
+        }
     }
 }

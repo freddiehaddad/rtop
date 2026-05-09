@@ -174,11 +174,19 @@ pub(crate) fn pull_subsystem_data(
                     }
                 }
             }
+            SubsystemKind::Statusbar => {
+                if let Some(snap) = manager.statusbar_slot.latest() {
+                    state.live.statusbar = Some(snap);
+                    if render_ui {
+                        state.render.dirty.mark_widget(WidgetKind::Statusbar);
+                    }
+                }
+            }
         }
     }
 
     // Check layout hints for changes.
-    let new_hints = state.live.layout_hints(config, &state.view);
+    let new_hints = state.live.layout_hints(config, &state.view, &state.filter);
     if state
         .render
         .last_layout_hints

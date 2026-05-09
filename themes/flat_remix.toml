@@ -1,4 +1,5 @@
 [colors]
+main_bg = "#272a34"
 main_fg = "#E6E6E6"
 title = "#ffffff"
 hi_fg = "#909090"
@@ -18,6 +19,11 @@ disk_widget = "#9b59b6"
 help_box = "#367bf0"
 options_box = "#e6a019"
 proc_tree_fg = "#404040"
+
+statusbar_bg = "#272a34"
+statusbar_fg = "#ffffff"
+statusbar_hi = "#909090"
+statusbar_sep = "#909090"
 
 [gradients.cpu_upper]
 start = "#367bf0"

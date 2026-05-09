@@ -1,7 +1,8 @@
 //! Inline editor state for the options overlay.
 //!
 //! When the user activates an editable option (e.g. `update_ms`,
-//! `clock_format`, `custom_cpu_name`), an [`OptionEditState`] is
+//! `statusbar_clock_format`, `custom_cpu_name`), an
+//! [`OptionEditState`] is
 //! constructed and attached to the parent [`super::OptionsState`].
 //! While `edit.is_some()`, the overlay is in *edit mode* and key
 //! dispatch routes to the edit handlers; on commit/cancel the
@@ -391,7 +392,7 @@ mod tests {
 
     fn state(buffer: &str) -> OptionEditState {
         OptionEditState::new(
-            ConfigKey::String(StringKey::ClockFormat),
+            ConfigKey::String(StringKey::StatusbarClockFormat),
             EditKind::Text,
             buffer.to_string(),
         )

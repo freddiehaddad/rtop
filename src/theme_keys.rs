@@ -54,6 +54,22 @@ pub const FOLLOWED_FG: ColorKey = ColorKey(18);
 /// Each theme picks a palette-coherent muted value; renders together
 /// with the `✗ ` name prefix to mark a row whose process has exited.
 pub const DEAD_PROC_FG: ColorKey = ColorKey(19);
+/// Background color for the borderless statusbar widget. Spans
+/// the full width of the bar; the gap between the left and right
+/// sections inherits this colour.
+pub const STATUSBAR_BG: ColorKey = ColorKey(20);
+/// Foreground color for statusbar label text (menu, preset name,
+/// `up`, clock digits, the `ms` rate unit).
+pub const STATUSBAR_FG: ColorKey = ColorKey(21);
+/// Highlight color for statusbar keybind glyphs (every keybind:
+/// `m`, `P`, `p`, `-`, `+`). The preset-cycler arrows render in
+/// `STATUSBAR_FG`, not this colour.
+pub const STATUSBAR_HI: ColorKey = ColorKey(22);
+/// Bracket colour for the statusbar's `[ ]` item delimiters.
+/// Each visible item in either section is wrapped in `[ ]` painted
+/// in this colour to subtly chunk adjacent items; the brackets are
+/// the only glyphs in the bar that use this key.
+pub const STATUSBAR_SEP: ColorKey = ColorKey(23);
 
 // Gradient keys for `Theme::gradient()` lookups.
 // Grouped by widget: CPU, memory, network, GPU, disk, other.

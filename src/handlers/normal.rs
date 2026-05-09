@@ -130,7 +130,11 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) {
         update_ms = new_ms,
         "update interval changed",
     );
-    ctx.render.dirty.mark_widget(WidgetKind::Cpu);
+    // The rate label (`- Nms +`) lives on the statusbar widget;
+    // changing it also resizes the statusbar's `min_width`, so
+    // mark layout dirty (which marks every widget — including the
+    // statusbar — and recomputes `min_terminal_size`).
+    ctx.render.dirty.mark_layout();
 }
 
 // ---------------------------------------------------------------------------

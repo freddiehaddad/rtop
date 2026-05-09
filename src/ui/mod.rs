@@ -215,6 +215,7 @@ pub mod gpu_widget;
 pub mod mem_widget;
 pub mod net_widget;
 pub mod proc_widget;
+pub mod statusbar_widget;
 
 /// Every widget renderer registered with the central dispatchers.
 ///
@@ -234,6 +235,7 @@ pub static WIDGETS: &[&dyn Widget] = &[
     &proc_widget::ProcWidget,
     &disk_widget::DiskWidget,
     &gpu_widget::GpuWidget,
+    &statusbar_widget::StatusbarWidget,
 ];
 
 /// Look up the widget renderer responsible for a given

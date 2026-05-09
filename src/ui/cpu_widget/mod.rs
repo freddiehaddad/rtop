@@ -14,12 +14,16 @@ use super::WidgetArea;
 /// Per-frame view passed to [`draw`].
 ///
 /// Bundles `CpuConfig` / `UiConfig` field reads with per-frame
-/// computed values (preset name, filter-active, current CPU
-/// snapshot fields). Constructed inline at the call site —
-/// there's no `build_settings` helper because every entry maps
-/// to either a fixed lookup (e.g., `config.cpu.cpu_invert_lower`)
-/// or a per-frame computation (e.g.,
-/// `config.preset.active().name()`).
+/// computed values (current CPU snapshot fields). Constructed
+/// inline at the call site — there's no `build_settings` helper
+/// because every entry maps to either a fixed lookup (e.g.,
+/// `config.cpu.cpu_invert_lower`) or a per-frame computation.
+///
+/// Chrome that previously lived on the CPU widget's bottom
+/// border (menu/preset/update_interval/uptime/clock) is owned by
+/// the borderless statusbar widget; this struct intentionally no
+/// longer carries `update_ms`, `preset_name`, `filter_active`,
+/// `show_uptime`, or `clock_format`.
 pub struct CpuFrame<'a> {
     pub graph_symbol: GraphMode,
     pub upper_source: CpuGraphSource,
@@ -33,25 +37,13 @@ pub struct CpuFrame<'a> {
     /// `false` (default), scale to a fixed 0-100 absolute range —
     /// the height of the bar then directly maps to the CPU%.
     pub auto_scale: bool,
-    pub update_ms: u64,
-    /// Canonical name of the active preset (e.g. "all", "cpu+proc",
-    /// "custom"). Rendered in the bottom-border preset hint as
-    /// `← P NAME p →`.
-    pub preset_name: &'a str,
-    /// `true` when the runtime view filter has at least one widget
-    /// in it. Renders as a `*` suffix on `preset_name` in the
-    /// bottom-border preset hint so the user has a persistent
-    /// signal that the on-screen layout is filtered.
-    pub filter_active: bool,
     pub invert_lower: bool,
     pub show_cpu_freq: bool,
-    pub show_uptime: bool,
     pub cpu_name: &'a str,
     pub custom_cpu_name: &'a str,
     pub show_cpu_watts: bool,
     pub cpu_watts: Option<f64>,
     pub cpu_max_watts: Option<f64>,
-    pub clock_format: &'a str,
 }
 
 mod sizing;
@@ -60,24 +52,6 @@ use sizing::{CPU_STRUCTURAL_OVERHEAD, graph_max, stats_row_count};
 pub use sizing::{CoreGridLayout, min_width, preferred_height};
 
 /// Draw the CPU widget into an ANSI string.
-///
-/// Layout:
-/// ╭─┐¹cpu┌──────────────────────────┬──────────────────┐Intel(R) Core(TM) i9-14900KF┌─╮
-/// │                         user 2% │ CPU   ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        4% │
-/// │                                 │ Temp  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      40°C │
-/// │                                 │ Watts ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  31W/400W │
-/// │                                 │ Load  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      0.06 │
-/// │                                 │          1m: 0.06  5m: 0.06  15m: 0.06          │
-/// │                                 ├─┐Cores┌──────────────────────────────┐4.77 GHz┌─┤
-/// │⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀│ C00 ⣀⣀⣀⣀⣀⣀⣀⣀   3%  32°C C08 ⣀⣀⣀⣀⣀⣀⣀⣀  10%  37°C │
-/// │⠉⠉⠉⠙⠋⠉⠉⠙⠋⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉│ C01 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C09 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
-/// │                                 │ C02 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  34°C C10 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  37°C │
-/// │                                 │ C03 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  34°C C11 ⣀⣀⣀⣀⣀⣀⣀⣀  12%  37°C │
-/// │                                 │ C04 ⣀⣀⣀⣀⣀⣀⣀⣀   2%  33°C C12 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  35°C │
-/// │                                 │ C05 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C C13 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
-/// │                                 │ C06 ⣀⣀⣀⣀⣀⣀⣀⣀   1%  32°C C14 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  35°C │
-/// │                       system 2% │ C07 ⣀⣀⣀⣀⣀⣀⣀⣀   0%  33°C C15 ⣀⣀⣀⣀⣀⣀⣀⣀   5%  35°C │
-/// ╰─┘menu└┘← P all p →└┘─ 2000ms +└─┴─────────────────────────┘up 13d21:05└┘18:01:00└─╯
 pub fn draw(
     cpu: &CpuInfo,
     area: &WidgetArea,
@@ -309,63 +283,12 @@ pub fn draw(
         ));
     }
 
-    // Uptime and clock as bottom-right border insets
-    {
-        let bottom_y = y + height;
-        let mut insets = String::new();
-        let mut total_vis = 0;
-
-        if settings.show_uptime {
-            let uptime = tools::sec_to_dhms(cpu.uptime_seconds, false, true);
-            if !uptime.is_empty() {
-                let up_text = format!("up {}", uptime);
-                let vis = box_drawing::inset_width(&up_text);
-                insets.push_str(&box_drawing::title_inset(
-                    &up_text,
-                    border_color,
-                    title_color,
-                    true,
-                ));
-                total_vis += vis;
-            }
-        }
-
-        let clock_str = tools::format_clock(settings.clock_format);
-        if !clock_str.is_empty() {
-            let vis = box_drawing::inset_width(&clock_str);
-            insets.push_str(&box_drawing::title_inset(
-                &clock_str,
-                border_color,
-                title_color,
-                true,
-            ));
-            total_vis += vis;
-        }
-
-        if total_vis > 0 {
-            let inset_x = box_drawing::right_inset_x(x, width, total_vis);
-            buf.mv(inset_x, bottom_y).text(&insets);
-        }
-    }
-
-    // Bottom border keybind hints
-    buf.text(&draw_bottom_hints(
-        x,
-        y + height,
-        settings.update_ms,
-        settings.preset_name,
-        settings.filter_active,
-        theme,
-    ));
-
     buf.finish()
 }
 
 mod core_panel;
-mod insets;
 
 use core_panel::{CorePanelArea, CorePanelParams, draw_core_panel};
-use insets::draw_bottom_hints;
 
 // ---------------------------------------------------------------------------
 // Widget impl
@@ -421,18 +344,13 @@ impl super::Widget for CpuWidget {
             temp_scale: params.config.cpu.temp_scale,
             single_graph: params.config.cpu.cpu_single_graph,
             auto_scale: params.config.cpu.cpu_auto_scale,
-            update_ms: params.update_ms,
-            preset_name: params.config.active_preset().name(),
-            filter_active: params.filter_active,
             invert_lower: params.config.cpu.cpu_invert_lower,
             show_cpu_freq: params.config.cpu.show_cpu_freq,
-            show_uptime: params.config.cpu.show_uptime,
             cpu_name: &cpu.info.cpu_name,
             custom_cpu_name: &params.config.cpu.custom_cpu_name,
             show_cpu_watts: params.config.cpu.show_cpu_watts,
             cpu_watts: cpu.info.cpu_watts,
             cpu_max_watts: cpu.info.cpu_max_watts,
-            clock_format: &params.config.ui.clock_format,
         };
         output.push_str(&draw(&cpu.info, &area, params.theme, &frame, &cpu.status));
     }
@@ -591,7 +509,6 @@ mod tests {
             cpu_name: "Test CPU".into(),
             cpu_hz: "3.50 GHz".into(),
             core_count: 4,
-            uptime_seconds: 86400,
             load_avg: [0.84, 0.38, 0.40],
             ..CpuInfo::default()
         };
@@ -628,18 +545,13 @@ mod tests {
             temp_scale: TempScale::Celsius,
             single_graph: false,
             auto_scale: false,
-            update_ms: 2000,
-            preset_name: "all",
-            filter_active: false,
             invert_lower: true,
             show_cpu_freq: true,
-            show_uptime: true,
             cpu_name: "Test CPU",
             custom_cpu_name: "",
             show_cpu_watts: false,
             cpu_watts: None,
             cpu_max_watts: None,
-            clock_format: "",
         }
     }
 
@@ -656,36 +568,13 @@ mod tests {
         assert!(plain.contains("cpu"), "output should contain 'cpu' title");
     }
 
+    /// The CPU widget's bottom border no longer carries any
+    /// chrome insets — every value (menu, preset, update interval,
+    /// uptime, clock) lives on the borderless statusbar widget
+    /// instead. This test pins that contract so a future change
+    /// can't accidentally re-introduce CPU-side chrome.
     #[test]
-    fn draw_contains_preset_hint_with_arrows_and_keybinds() {
-        let output = draw(
-            &make_cpu_info(),
-            &make_area(),
-            &Theme::default(),
-            &make_frame(),
-            &CollectStatus::Ok,
-        );
-        let plain = strip_ansi(&output);
-        // Preset hint format: `← P NAME p →`. Arrows + spaces are
-        // structural; preset name and keybinds are content.
-        assert!(plain.contains('←'), "output should contain left arrow");
-        assert!(plain.contains('→'), "output should contain right arrow");
-        assert!(
-            plain.contains(" P "),
-            "output should contain backward keybind 'P'"
-        );
-        assert!(
-            plain.contains(" p "),
-            "output should contain forward keybind 'p'"
-        );
-        assert!(
-            plain.contains("all"),
-            "output should contain the preset name 'all'"
-        );
-    }
-
-    #[test]
-    fn draw_contains_update_rate() {
+    fn draw_does_not_contain_relocated_chrome() {
         let output = draw(
             &make_cpu_info(),
             &make_area(),
@@ -695,8 +584,20 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains("2000ms"),
-            "output should contain update rate '2000ms'"
+            !plain.contains("menu"),
+            "CPU widget must not render the 'menu' inset",
+        );
+        assert!(
+            !plain.contains("← P"),
+            "CPU widget must not render the preset cycler",
+        );
+        assert!(
+            !plain.contains("ms +"),
+            "CPU widget must not render the update-rate inset",
+        );
+        assert!(
+            !plain.contains("up "),
+            "CPU widget must not render the uptime inset",
         );
     }
 
@@ -747,19 +648,6 @@ mod tests {
     }
 
     #[test]
-    fn draw_contains_uptime_inset() {
-        let output = draw(
-            &make_cpu_info(),
-            &make_area(),
-            &Theme::default(),
-            &make_frame(),
-            &CollectStatus::Ok,
-        );
-        let plain = strip_ansi(&output);
-        assert!(plain.contains("up "), "should contain uptime border inset");
-    }
-
-    #[test]
     fn draw_contains_cores_divider() {
         let output = draw(
             &make_cpu_info(),
@@ -787,59 +675,6 @@ mod tests {
         let plain = strip_ansi(&output);
         assert!(plain.contains("0.84"), "should contain 1-min load: {plain}");
         assert!(plain.contains("0.38"), "should contain 5-min load: {plain}");
-    }
-
-    #[test]
-    fn bottom_hints_use_title_for_label_text() {
-        // Defends border-inset color consistency: pre-fix the CPU bottom
-        // hints rendered "enu", "reset *0", and "2000ms" in MAIN_FG while
-        // every other widget's border insets use TITLE for label/value text.
-        // Hotkey letters (m, p, ─, +) stay HI_FG.
-        let theme = Theme::default();
-        let output = draw(
-            &make_cpu_info(),
-            &make_area(),
-            &theme,
-            &make_frame(),
-            &CollectStatus::Ok,
-        );
-        let title = theme.color(tc::TITLE);
-        let hi = theme.color(tc::HI_FG);
-
-        // Menu keybind inset: 'm' in HI, "enu" in TITLE.
-        assert!(
-            output.contains(&format!("{title}enu")),
-            "menu inset 'enu' should be preceded by TITLE"
-        );
-        // Preset hint follows the `← P NAME p →` rule: arrows +
-        // spaces in TITLE, only `P` and `p` in HI. The `P` is
-        // preceded by HI; `p` is preceded by HI. Each arrow + its
-        // adjacent space is preceded by TITLE.
-        assert!(
-            output.contains(&format!("{title}← ")),
-            "left arrow + trailing space should be preceded by TITLE"
-        );
-        assert!(
-            output.contains(&format!("{hi}P")),
-            "preset back keybind 'P' should be preceded by HI"
-        );
-        assert!(
-            output.contains(&format!("{title} all ")),
-            "preset name and surrounding spaces should be preceded by TITLE"
-        );
-        assert!(
-            output.contains(&format!("{hi}p")),
-            "preset forward keybind 'p' should be preceded by HI"
-        );
-        assert!(
-            output.contains(&format!("{title} →")),
-            "leading space + right arrow should be preceded by TITLE"
-        );
-        // Rate inset: "2000ms" in TITLE.
-        assert!(
-            output.contains(&format!("{title}2000ms")),
-            "rate inset '2000ms' should be preceded by TITLE"
-        );
     }
 
     #[test]
