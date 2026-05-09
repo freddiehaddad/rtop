@@ -64,17 +64,117 @@ pub fn opt_kind(key: ConfigKey, config: &Config) -> OptKind {
 // Category definitions  (mirroring btop, minus Linux-only options)
 // ---------------------------------------------------------------------------
 
-/// Category tab names for the options menu.
-pub const CAT_NAMES: &[&str] = &[
-    "general",
-    "statusbar",
-    "cpu",
-    "mem",
-    "net",
-    "proc",
-    "gpu",
-    "disk",
+/// One options-menu category tab. Bundles its display name, the
+/// single-letter hotkey that jumps to it from anywhere in the
+/// menu, and the option keys it hosts. The hotkey letter is
+/// rendered highlighted inside the tab name (the case-insensitive
+/// first match) so the user can see which key activates the tab.
+///
+/// Two `#[cfg(test)]` invariants pin the contract: every hotkey
+/// is unique across [`CATEGORIES`], and every hotkey is a
+/// case-insensitive substring of its `name`. A future rename
+/// that breaks the mnemonic will fail at test time.
+pub struct Category {
+    pub name: &'static str,
+    pub hotkey: char,
+    pub options: &'static [ConfigKey],
+}
+
+/// All options-menu categories in tab order. Single source of
+/// truth: the renderer iterates these for the tab bar, the
+/// hotkey-jump action looks up by `hotkey`, and the binding
+/// table's letter set is pinned equal to
+/// `CATEGORIES.iter().map(|c| c.hotkey)` by test.
+pub const CATEGORIES: &[Category] = &[
+    Category {
+        name: "general",
+        hotkey: 'r',
+        options: GENERAL,
+    },
+    Category {
+        name: "statusbar",
+        hotkey: 's',
+        options: STATUSBAR,
+    },
+    Category {
+        name: "cpu",
+        hotkey: 'c',
+        options: CPU,
+    },
+    Category {
+        name: "mem",
+        hotkey: 'm',
+        options: MEM,
+    },
+    Category {
+        name: "net",
+        hotkey: 'n',
+        options: NET,
+    },
+    Category {
+        name: "proc",
+        hotkey: 'p',
+        options: PROC,
+    },
+    Category {
+        name: "gpu",
+        hotkey: 'g',
+        options: GPU,
+    },
+    Category {
+        name: "disk",
+        hotkey: 'd',
+        options: DISK,
+    },
 ];
+
+/// Look up the [`CATEGORIES`] index whose [`Category::hotkey`]
+/// matches `key` (case-sensitive — bindings are declared with
+/// the exact char a `Char(_)` event will carry). Returns `None`
+/// when no category claims the letter; callers treat that as a
+/// no-op (the binding table is the gate, but the handler stays
+/// safe if a future edit broadens the binding's key set).
+pub fn category_index_for_hotkey(key: char) -> Option<usize> {
+    CATEGORIES.iter().position(|c| c.hotkey == key)
+}
+
+/// Cells of cursor advance between adjacent tab-bar cells. The
+/// per-cell rendering always wraps the name in 1 cell of padding
+/// on each side (plain space when unselected, bracket when
+/// selected), so the visible gap between adjacent non-selected
+/// tab names is `1 + INTER_TAB_GAP + 1 = 4` cells. When one of
+/// the two adjacent tabs is selected, its bracket replaces its
+/// padding space and the visible gap shrinks to 3 on that side —
+/// but the absolute column of every non-selected name stays the
+/// same regardless of selection.
+pub const INTER_TAB_GAP: usize = 2;
+
+/// Render `name` with the first case-insensitive occurrence of
+/// `hotkey` painted in `hi` and the rest painted in `base`.
+///
+/// The case-insensitive substring invariant is pinned by
+/// [`tests::every_category_hotkey_is_substring_of_name`]. If the
+/// invariant somehow fails (e.g., a future rename forgets to
+/// update the hotkey AND the test was bypassed), this falls back
+/// to painting the entire name in `base` so the menu still
+/// renders — the test is the contract; the fallback is
+/// belt-and-suspenders.
+pub fn highlight_hotkey(name: &str, hotkey: char, base: &str, hi: &str) -> String {
+    let lowered = hotkey.to_ascii_lowercase();
+    let split_at = name
+        .char_indices()
+        .find(|(_, c)| c.eq_ignore_ascii_case(&lowered))
+        .map(|(idx, c)| (idx, c.len_utf8()));
+    match split_at {
+        Some((idx, w)) => {
+            let prefix = &name[..idx];
+            let letter = &name[idx..idx + w];
+            let suffix = &name[idx + w..];
+            format!("{base}{prefix}{hi}{letter}{base}{suffix}")
+        }
+        None => format!("{base}{name}"),
+    }
+}
 
 /// Options in the "general" category.
 pub const GENERAL: &[ConfigKey] = &[
@@ -177,11 +277,6 @@ pub const STATUSBAR: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::StatusbarShowClock),
     ConfigKey::String(StringKey::StatusbarClockFormat),
 ];
-
-/// All categories in order.
-pub fn categories() -> &'static [&'static [ConfigKey]] {
-    &[GENERAL, STATUSBAR, CPU, MEM, NET, PROC, GPU, DISK]
-}
 
 // ---------------------------------------------------------------------------
 // Value helpers
@@ -369,15 +464,18 @@ pub fn draw(p: &DrawParams) -> String {
     let config = p.config;
     let theme = p.theme;
     let option_edit = p.option_edit;
-    let cats = categories();
-    let cat = cat.min(cats.len() - 1);
-    let options = cats[cat];
+    let cat = cat.min(CATEGORIES.len() - 1);
+    let options = CATEGORIES[cat].options;
 
     let box_w: usize = 78;
     let x = term_width.saturating_sub(box_w) / 2;
 
     // Compute available height for options (each takes 2 rows)
-    let max_items = cats.iter().map(|c| c.len()).max().unwrap_or(0);
+    let max_items = CATEGORIES
+        .iter()
+        .map(|c| c.options.len())
+        .max()
+        .unwrap_or(0);
     let desired_h = max_items * 2 + 4; // 4 = tab row + divider + top/bottom borders
     let height = desired_h.min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
@@ -460,32 +558,28 @@ pub fn draw(p: &DrawParams) -> String {
         ));
     }
 
-    // Category tab bar at row y+7
+    // Category tab bar at row y+7. Each cell is rendered as
+    // `<lead><name><trail>` where `lead`/`trail` are `[`/`]` for
+    // the selected tab and plain spaces otherwise. The brackets
+    // replace the padding spaces — selecting a different tab
+    // never shifts the absolute column of any neighbour. Adjacent
+    // cells are separated by `INTER_TAB_GAP` extra cells, giving
+    // a uniform 4-cell visible gap between non-selected adjacent
+    // tab names (trailing pad + INTER_TAB_GAP + leading pad). The
+    // hotkey letter inside each name is painted in `hi`; the rest
+    // of the name is in `title_c`.
     out.push_str(&term::mv(x + 4, y + 7 + 1));
-    for (i, &name) in CAT_NAMES.iter().enumerate() {
-        if i == cat {
-            out.push_str(&format!(
-                "{}{}[{}{}{}]{}",
-                term::BOLD,
-                hi,
-                title_c,
-                name,
-                hi,
-                reset
-            ));
-        } else {
-            out.push_str(&format!(
-                "{}{}{}{}{}{}",
-                term::BOLD,
-                hi,
-                i,
-                title_c,
-                name,
-                reset
-            ));
+    for (i, cat_def) in CATEGORIES.iter().enumerate() {
+        let selected = i == cat;
+        let (lead, trail) = if selected { ('[', ']') } else { (' ', ' ') };
+        let highlighted = highlight_hotkey(cat_def.name, cat_def.hotkey, title_c, hi);
+        out.push_str(&format!(
+            "{bold}{hi}{lead}{highlighted}{hi}{trail}{reset}",
+            bold = term::BOLD,
+        ));
+        if i + 1 < CATEGORIES.len() {
+            out.push_str(&format!("\x1b[{}C", INTER_TAB_GAP));
         }
-        let spacing = 8_usize.saturating_sub(name.len() + 1);
-        out.push_str(&format!("\x1b[{}C", spacing));
     }
 
     // Page indicator
@@ -682,12 +776,15 @@ pub fn draw(p: &DrawParams) -> String {
 
 /// Return the option key at `(cat, index)`.
 pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> Option<ConfigKey> {
-    let cats = categories();
-    if cat >= cats.len() {
+    if cat >= CATEGORIES.len() {
         return None;
     }
-    let options = cats[cat];
-    let global_max = cats.iter().map(|c| c.len()).max().unwrap_or(0);
+    let options = CATEGORIES[cat].options;
+    let global_max = CATEGORIES
+        .iter()
+        .map(|c| c.options.len())
+        .max()
+        .unwrap_or(0);
     let height = (global_max * 2 + 4).min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
     let item_height = ((height - 4) / 2).min(global_max);
@@ -697,11 +794,14 @@ pub fn opt_key(cat: usize, page: usize, selected: usize, term_height: usize) -> 
 
 /// Get item_height (visible items per page) for a category.
 pub fn items_per_page(cat: usize, term_height: usize) -> usize {
-    let cats = categories();
-    if cat >= cats.len() {
+    if cat >= CATEGORIES.len() {
         return 1;
     }
-    let global_max = cats.iter().map(|c| c.len()).max().unwrap_or(0);
+    let global_max = CATEGORIES
+        .iter()
+        .map(|c| c.options.len())
+        .max()
+        .unwrap_or(0);
     let height = (global_max * 2 + 4).min(term_height.saturating_sub(8));
     let height = if height % 2 != 0 { height - 1 } else { height };
     ((height - 4) / 2).min(global_max).max(1)
@@ -709,22 +809,20 @@ pub fn items_per_page(cat: usize, term_height: usize) -> usize {
 
 /// Number of pages for a category.
 pub fn page_count(cat: usize, term_height: usize) -> usize {
-    let cats = categories();
-    if cat >= cats.len() {
+    if cat >= CATEGORIES.len() {
         return 1;
     }
-    let max_items = cats[cat].len();
+    let max_items = CATEGORIES[cat].options.len();
     let ipp = items_per_page(cat, term_height);
     max_items.div_ceil(ipp)
 }
 
 /// Max selectable index on a given page.
 pub fn select_max(cat: usize, page: usize, term_height: usize) -> usize {
-    let cats = categories();
-    if cat >= cats.len() {
+    if cat >= CATEGORIES.len() {
         return 0;
     }
-    let max_items = cats[cat].len();
+    let max_items = CATEGORIES[cat].options.len();
     let ipp = items_per_page(cat, term_height);
     let remaining = max_items.saturating_sub(ipp * page);
     ipp.min(remaining).saturating_sub(1)
@@ -736,11 +834,267 @@ mod tests {
 
     #[test]
     fn option_keys_roundtrip_through_config_parser() {
-        for category in categories() {
-            for option in *category {
+        for category in CATEGORIES {
+            for option in category.options {
                 assert_eq!(ConfigKey::parse(option.name()), Some(*option));
             }
         }
+    }
+
+    // ── Category schema invariants ──────────────────────────────
+
+    #[test]
+    fn every_category_has_unique_hotkey() {
+        let mut seen: Vec<char> = Vec::new();
+        for cat in CATEGORIES {
+            assert!(
+                !seen.contains(&cat.hotkey),
+                "duplicate hotkey {:?} on category {:?}",
+                cat.hotkey,
+                cat.name,
+            );
+            seen.push(cat.hotkey);
+        }
+    }
+
+    #[test]
+    fn every_category_hotkey_is_substring_of_name() {
+        // Pin the mnemonic contract: a future rename that breaks
+        // the visual highlight (no letter to colour) fails here.
+        for cat in CATEGORIES {
+            let lowered = cat.hotkey.to_ascii_lowercase();
+            let found = cat.name.chars().any(|c| c.eq_ignore_ascii_case(&lowered));
+            assert!(
+                found,
+                "hotkey {:?} is not a substring of name {:?}",
+                cat.hotkey, cat.name,
+            );
+        }
+    }
+
+    #[test]
+    fn binding_table_letter_set_equals_categories_hotkey_set() {
+        // Pin the cross-table contract so a future edit cannot bind
+        // a letter the handler doesn't recognise, or define a hotkey
+        // that no binding fires.
+        use crate::handlers::keybinds::{BINDINGS, KeySpec};
+        use crate::input::Key;
+        use crate::overlay::OverlayKind;
+        use crate::overlay::options::cat_select_hotkey_action;
+
+        let mut bound: Vec<char> = Vec::new();
+        for binding in BINDINGS {
+            // Find the binding registered against
+            // `cat_select_hotkey_action` for OPTIONS state.
+            let action_matches = std::ptr::fn_addr_eq(
+                binding.action,
+                cat_select_hotkey_action as crate::handlers::keybinds::ActionFn,
+            );
+            if !action_matches {
+                continue;
+            }
+            assert!(
+                binding.states.contains(&OverlayKind::Options),
+                "hotkey-action binding must be scoped to OPTIONS state",
+            );
+            for spec in binding.keys {
+                match *spec {
+                    KeySpec::Always(Key::Char(c)) => bound.push(c),
+                    KeySpec::Always(_) | KeySpec::VimOnly(_) => {
+                        panic!("hotkey-action binding must only carry Always(Char(_)) keys")
+                    }
+                }
+            }
+        }
+
+        let mut declared: Vec<char> = CATEGORIES.iter().map(|c| c.hotkey).collect();
+        bound.sort();
+        declared.sort();
+        assert_eq!(
+            bound, declared,
+            "binding `keys` slice must match CATEGORIES hotkeys exactly",
+        );
+    }
+
+    // ── highlight_hotkey ────────────────────────────────────────
+
+    #[test]
+    fn highlight_hotkey_emits_letter_in_hi_color() {
+        // Pin the visual contract: the hotkey letter is wrapped
+        // in `hi`, the surrounding name segments are wrapped in
+        // `base`. Use distinguishable sentinel escapes so the
+        // assertion is unambiguous.
+        let out = highlight_hotkey("statusbar", 's', "<base>", "<hi>");
+        assert_eq!(out, "<base><hi>s<base>tatusbar");
+
+        // Letter mid-word.
+        let out = highlight_hotkey("general", 'r', "<base>", "<hi>");
+        assert_eq!(out, "<base>gene<hi>r<base>al");
+
+        // Case-insensitive match.
+        let out = highlight_hotkey("Status", 'S', "<base>", "<hi>");
+        assert_eq!(out, "<base><hi>S<base>tatus");
+    }
+
+    #[test]
+    fn highlight_hotkey_falls_back_to_uncoloured_when_letter_missing() {
+        // The substring invariant pins this never happens for
+        // CATEGORIES, but the helper must still produce something
+        // sane if invoked with an inconsistent (name, hotkey) pair.
+        let out = highlight_hotkey("xyz", 'q', "<base>", "<hi>");
+        assert_eq!(out, "<base>xyz");
+    }
+
+    // ── Tab-bar visual layout ───────────────────────────────────
+
+    fn strip_ansi(s: &str) -> String {
+        // Materialise the visible cells from an ANSI string so the
+        // tab-bar tests can reason about column positions. SGR
+        // escapes (`\x1b[...m`) are dropped; cursor-forward escapes
+        // (`\x1b[<N>C`) are expanded to N spaces because they
+        // advance the cursor over empty cells that the tab-bar
+        // layout depends on. Other CSI sequences are dropped.
+        let mut out = String::new();
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '\x1b' {
+                out.push(c);
+                continue;
+            }
+            // Expect `[`; if not, skip the next char and continue.
+            if chars.next() != Some('[') {
+                continue;
+            }
+            // Collect parameter bytes (digits, `;`) until we hit
+            // the final byte (an ASCII alphabetic per ECMA-48
+            // final-byte range 0x40-0x7E).
+            let mut params = String::new();
+            let final_byte = loop {
+                match chars.next() {
+                    Some(c2) if c2.is_ascii_alphabetic() => break c2,
+                    Some(c2) => params.push(c2),
+                    None => return out,
+                }
+            };
+            // Cursor-forward (CUF): `\x1b[<N>C` → N spaces. A
+            // missing parameter defaults to 1 per ECMA-48.
+            if final_byte == 'C' {
+                let n: usize = params.parse().unwrap_or(1);
+                for _ in 0..n {
+                    out.push(' ');
+                }
+            }
+            // All other CSI sequences (SGR, cursor positioning,
+            // etc.) contribute nothing to visible cells in this
+            // test's row of interest.
+        }
+        out
+    }
+
+    /// Render the menu with `cat = selected` against an 80×30
+    /// terminal and return the plain-text tab-bar row.
+    fn render_tab_bar_plain(selected: usize) -> String {
+        let config = Config::default();
+        let theme = Theme::new();
+        let raw = draw(&DrawParams {
+            term_width: 120,
+            term_height: 40,
+            cat: selected,
+            selected: 0,
+            page: 0,
+            config: &config,
+            theme: &theme,
+            option_edit: None,
+        });
+        let plain = strip_ansi(&raw);
+        // Find the line that contains "general" and one of the
+        // other tab names — that's the tab bar.
+        plain
+            .lines()
+            .find(|l| l.contains("general") && l.contains("disk"))
+            .map(str::to_string)
+            .expect("tab bar must contain `general` and `disk`")
+    }
+
+    #[test]
+    fn tab_bar_uses_uniform_inter_tab_spacing() {
+        // Each adjacent pair of tab names must have exactly 4
+        // visible cells between them when neither tab is selected
+        // (trailing pad + INTER_TAB_GAP + leading pad =
+        // 1 + 2 + 1 = 4). We render with `cat = 7` (disk) so
+        // the entire general↔gpu prefix is non-selected.
+        let bar = render_tab_bar_plain(CATEGORIES.len() - 1);
+        // Walk through each adjacent non-selected pair and
+        // assert exact 4-cell gap.
+        for window in CATEGORIES.windows(2) {
+            let [a, b] = window else {
+                continue;
+            };
+            // Skip the pair that includes the selected (last) cat.
+            if std::ptr::eq(b as *const _, &CATEGORIES[CATEGORIES.len() - 1]) {
+                continue;
+            }
+            let combined = format!("{}    {}", a.name, b.name);
+            assert!(
+                bar.contains(&combined),
+                "expected 4-space gap between {:?} and {:?} in tab bar: {bar:?}",
+                a.name,
+                b.name,
+            );
+        }
+    }
+
+    #[test]
+    fn selecting_a_tab_does_not_shift_neighbouring_tab_columns() {
+        // Render with two different selections and assert that
+        // every non-selected tab name lands at the same column
+        // offset in both renders. The brackets on the selected
+        // tab eat into the surrounding gap rather than push
+        // neighbours.
+        let bar_a = render_tab_bar_plain(0); // general selected
+        let bar_b = render_tab_bar_plain(4); // net selected
+        for (i, cat) in CATEGORIES.iter().enumerate() {
+            if i == 0 || i == 4 {
+                continue; // skip the selected one in each render
+            }
+            let pos_a = bar_a
+                .find(cat.name)
+                .unwrap_or_else(|| panic!("missing {:?} in bar_a: {bar_a:?}", cat.name));
+            let pos_b = bar_b
+                .find(cat.name)
+                .unwrap_or_else(|| panic!("missing {:?} in bar_b: {bar_b:?}", cat.name));
+            assert_eq!(
+                pos_a, pos_b,
+                "tab {:?} shifted between selections (a@{pos_a}, b@{pos_b})",
+                cat.name,
+            );
+        }
+    }
+
+    #[test]
+    fn selected_tab_renders_inside_brackets() {
+        // Pin: selected tab name is wrapped in [ ] (current visual
+        // contract preserved through the schema rewrite).
+        let bar = render_tab_bar_plain(1); // statusbar selected
+        assert!(
+            bar.contains("[statusbar]"),
+            "expected `[statusbar]` in selected tab bar: {bar:?}",
+        );
+    }
+
+    #[test]
+    fn unselected_tab_renders_without_brackets() {
+        // Pin: when not selected, the tab name has no surrounding
+        // brackets — the visible cells around it are plain spaces.
+        let bar = render_tab_bar_plain(0); // general selected, statusbar NOT
+        assert!(
+            !bar.contains("[statusbar]"),
+            "non-selected statusbar must not have brackets: {bar:?}",
+        );
+        assert!(
+            bar.contains("statusbar"),
+            "statusbar must still appear in tab bar: {bar:?}",
+        );
     }
 
     fn count_visible_chars(s: &str) -> usize {

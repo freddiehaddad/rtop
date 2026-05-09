@@ -27,7 +27,7 @@ use crate::{
 use super::{ActiveModal, ReturnTarget};
 use edit::{EditKind, OptionEditState};
 
-const OPTIONS_CATEGORY_COUNT: usize = 8;
+const OPTIONS_CATEGORY_COUNT: usize = render::CATEGORIES.len();
 
 // ---------------------------------------------------------------------------
 // State
@@ -188,14 +188,13 @@ pub(crate) fn cat_prev_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(crate) fn cat_select_digit_action(ctx: &mut InputContext, key: &Key) {
+pub(crate) fn cat_select_hotkey_action(ctx: &mut InputContext, key: &Key) {
     let Key::Char(c) = key else {
         return;
     };
-    let new_cat = (*c as usize) - ('0' as usize);
-    if new_cat >= OPTIONS_CATEGORY_COUNT {
+    let Some(new_cat) = render::category_index_for_hotkey(*c) else {
         return;
-    }
+    };
     if let ActiveModal::Options(s) = &mut ctx.overlay.active
         && s.set_cat(new_cat, OPTIONS_CATEGORY_COUNT)
     {
@@ -600,5 +599,60 @@ mod tests {
         s.enter_edit(OptionEditState::placeholder());
         s.edit_mut().expect("just entered").insert_char('x');
         assert_eq!(s.edit().expect("still editing").buffer(), "x");
+    }
+
+    // ── Hotkey-jump dispatch ────────────────────────────────────
+    //
+    // `cat_select_hotkey_action` requires a full `InputContext`
+    // (config, theme, manager, live data, …) which is awkward to
+    // construct in a unit test. Instead, exercise the equivalent
+    // logic directly: the handler does
+    //     `set_cat(category_index_for_hotkey(c)?, COUNT)`
+    // so a test that pins both pieces is equivalent in coverage
+    // and orders of magnitude lighter than building an
+    // InputContext.
+
+    #[test]
+    fn category_index_for_hotkey_resolves_each_declared_letter() {
+        for (expected_idx, cat_def) in render::CATEGORIES.iter().enumerate() {
+            let resolved = render::category_index_for_hotkey(cat_def.hotkey);
+            assert_eq!(
+                resolved,
+                Some(expected_idx),
+                "hotkey {:?} for {:?} did not resolve to its index",
+                cat_def.hotkey,
+                cat_def.name,
+            );
+        }
+    }
+
+    #[test]
+    fn category_index_for_hotkey_returns_none_for_unbound_letter() {
+        // Defensive: pick a letter no category claims.
+        let bound: Vec<char> = render::CATEGORIES.iter().map(|c| c.hotkey).collect();
+        let unbound = ('a'..='z')
+            .find(|c| !bound.contains(c))
+            .expect("not all letters can be bound");
+        assert!(render::category_index_for_hotkey(unbound).is_none());
+    }
+
+    #[test]
+    fn set_cat_with_each_hotkey_jumps_to_the_matching_category() {
+        // Pin the end-to-end behaviour the handler implements:
+        // `category_index_for_hotkey(letter)` then `set_cat`
+        // moves the OptionsState to the matching index.
+        for (expected_idx, cat_def) in render::CATEGORIES.iter().enumerate() {
+            let mut s = OptionsState::new(ReturnTarget::Normal);
+            // Move somewhere else first so the assertion below
+            // requires the jump to actually have happened.
+            s.set_cat(
+                (expected_idx + 1) % render::CATEGORIES.len(),
+                render::CATEGORIES.len(),
+            );
+            let idx =
+                render::category_index_for_hotkey(cat_def.hotkey).expect("hotkey is declared");
+            s.set_cat(idx, render::CATEGORIES.len());
+            assert_eq!(s.cat(), expected_idx);
+        }
     }
 }
