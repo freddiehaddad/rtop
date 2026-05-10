@@ -46,11 +46,37 @@ impl CollectStatus {
 /// Trait for all data collectors.
 ///
 /// Each collector implements `collect()` to perform one collection cycle,
-/// updating its internal state. Data is accessed via the collector's
-/// public fields, not through this trait.
-pub trait Collector {
+/// updating its internal state, and `snapshot()` to produce the
+/// publishable per-cycle snapshot value that
+/// [`crate::runner::CollectorManager`] writes to its
+/// [`crate::runner::LatestSlot`]. Tying the snapshot type to the
+/// collector at the trait level lets the spawn site spell
+/// `LatestSlot<C::Snapshot>` exactly once and removes the per-spawn
+/// snapshot-construction closure that this trait used to require.
+///
+/// `pub(crate)` because the trait is used only within this binary
+/// crate; it is never part of an externally-consumable surface.
+/// The associated `Snapshot` type therefore can reference
+/// `pub(crate)` snapshot structs in [`crate::runner`] without
+/// leaking a more-private type through a more-public trait.
+pub(crate) trait Collector {
+    /// The published snapshot type for this collector. One per
+    /// collector, fixed at the trait level so the publish slot
+    /// (`LatestSlot<C::Snapshot>`) cannot drift from what the
+    /// collector actually produces.
+    ///
+    /// The `Send + Sync + 'static` bound matches the storage
+    /// requirement of [`crate::runner::LatestSlot`] (which wraps an
+    /// `arc_swap::ArcSwapOption<T>` over an `Arc<T>`); pinning it
+    /// here means individual collectors do not have to repeat it.
+    type Snapshot: Send + Sync + 'static;
+
     /// Perform one data collection cycle.
     fn collect(&mut self);
+
+    /// Build the publishable snapshot from the collector's current
+    /// state. Pure; does not mutate `self`.
+    fn snapshot(&self) -> Self::Snapshot;
 }
 
 #[cfg(test)]

@@ -430,8 +430,17 @@ impl CpuCollector {
 }
 
 impl Collector for CpuCollector {
+    type Snapshot = crate::runner::CpuSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::CpuSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 

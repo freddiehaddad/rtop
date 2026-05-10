@@ -132,22 +132,25 @@ pub(crate) enum CollectorCommand {
 
 /// Run a collector in a loop: collect → publish → sleep → repeat.
 ///
-/// Used for CPU, memory, disk, GPU, and process collectors.
-fn run_collector_loop<C, S>(
+/// Used for CPU, memory, disk, GPU, and process collectors. The
+/// snapshot is built via the collector's own
+/// [`Collector::snapshot`] — no `snapshot_fn` closure is threaded
+/// through, since the snapshot type is bound at the trait level
+/// (`LatestSlot<C::Snapshot>`).
+fn run_collector_loop<C>(
     mut collector: C,
     initial_interval_ms: u64,
-    slot: LatestSlot<S>,
+    slot: LatestSlot<C::Snapshot>,
     event_tx: Sender<AppEvent>,
     wakeup: AppEvent,
     cmd_rx: Receiver<CollectorCommand>,
-    snapshot_fn: impl Fn(&C) -> S,
 ) where
     C: Collector,
 {
     let mut interval_ms = initial_interval_ms.max(100);
     loop {
         collector.collect();
-        slot.publish(snapshot_fn(&collector));
+        slot.publish(collector.snapshot());
         let _ = event_tx.send(wakeup);
 
         match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
@@ -172,10 +175,7 @@ fn run_net_loop(
 ) {
     let mut interval_ms = initial_interval_ms.max(100);
     let publish = |c: &NetCollector| {
-        slot.publish(NetSnapshot {
-            nets: c.nets.clone(),
-            status: c.status.clone(),
-        });
+        slot.publish(c.snapshot());
         let _ = event_tx.send(AppEvent::SubsystemReady(SubsystemKind::Net));
     };
 
@@ -207,31 +207,24 @@ fn run_net_loop(
 /// spawns the thread, and returns the command sender and join handle.
 /// The collector is constructed inside the thread via `collector_fn`
 /// so types that are not `Send` (e.g. GPU backends) work correctly.
-fn spawn_collector<C, S>(
+/// The snapshot is produced by the collector's
+/// [`Collector::snapshot`] inside the loop — no closure parameter
+/// is required.
+fn spawn_collector<C>(
     collector_fn: impl FnOnce() -> C + Send + 'static,
     update_ms: u64,
-    slot: &LatestSlot<S>,
+    slot: &LatestSlot<C::Snapshot>,
     event_tx: &Sender<AppEvent>,
     wakeup: AppEvent,
-    snapshot_fn: impl Fn(&C) -> S + Send + 'static,
 ) -> (Sender<CollectorCommand>, JoinHandle<()>)
 where
     C: Collector,
-    S: Send + Sync + 'static,
 {
     let (tx, rx) = mpsc::channel();
     let slot = slot.clone();
     let event_tx = event_tx.clone();
     let handle = std::thread::spawn(move || {
-        run_collector_loop(
-            collector_fn(),
-            update_ms,
-            slot,
-            event_tx,
-            wakeup,
-            rx,
-            snapshot_fn,
-        );
+        run_collector_loop(collector_fn(), update_ms, slot, event_tx, wakeup, rx);
     });
     (tx, handle)
 }
@@ -308,10 +301,6 @@ impl CollectorManager {
             &cpu_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Cpu),
-            |c| CpuSnapshot {
-                info: c.info.clone(),
-                status: c.status.clone(),
-            },
         );
         joins.push(("cpu", cpu_join));
 
@@ -322,10 +311,6 @@ impl CollectorManager {
             &mem_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Mem),
-            |c| MemSnapshot {
-                info: c.info.clone(),
-                status: c.status.clone(),
-            },
         );
         joins.push(("memory", mem_join));
 
@@ -336,10 +321,6 @@ impl CollectorManager {
             &disk_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Disk),
-            |c| DiskSnapshot {
-                info: c.info.clone(),
-                status: c.status.clone(),
-            },
         );
         joins.push(("disk", disk_join));
 
@@ -364,10 +345,6 @@ impl CollectorManager {
             &gpu_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Gpu),
-            |c| GpuSnapshot {
-                gpus: c.gpus.clone(),
-                status: c.status.clone(),
-            },
         );
         joins.push(("gpu", gpu_join));
 
@@ -382,10 +359,6 @@ impl CollectorManager {
             &proc_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Proc),
-            |c| ProcSnapshot {
-                procs: c.procs.clone(),
-                status: c.status.clone(),
-            },
         );
         joins.push(("process", proc_join));
 
@@ -406,9 +379,6 @@ impl CollectorManager {
             &statusbar_slot,
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Statusbar),
-            |c| StatusbarSnapshot {
-                info: c.info.clone(),
-            },
         );
         joins.push(("statusbar", statusbar_join));
 

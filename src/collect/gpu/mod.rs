@@ -153,8 +153,17 @@ impl Default for GpuCollector {
 }
 
 impl Collector for GpuCollector {
+    type Snapshot = crate::runner::GpuSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::GpuSnapshot {
+            gpus: self.gpus.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 

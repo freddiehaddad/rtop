@@ -113,8 +113,17 @@ impl MemCollector {
 }
 
 impl Collector for MemCollector {
+    type Snapshot = crate::runner::MemSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::MemSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 

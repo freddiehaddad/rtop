@@ -58,8 +58,16 @@ impl Default for StatusbarCollector {
 }
 
 impl Collector for StatusbarCollector {
+    type Snapshot = crate::runner::StatusbarSnapshot;
+
     fn collect(&mut self) {
         self.info.uptime_seconds = crate::tools::system_uptime_secs();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::StatusbarSnapshot {
+            info: self.info.clone(),
+        }
     }
 }
 

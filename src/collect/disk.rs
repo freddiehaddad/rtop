@@ -242,8 +242,17 @@ impl Drop for DiskCollector {
 }
 
 impl Collector for DiskCollector {
+    type Snapshot = crate::runner::DiskSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::DiskSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 

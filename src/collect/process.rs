@@ -189,8 +189,17 @@ impl ProcCollector {
 }
 
 impl Collector for ProcCollector {
+    type Snapshot = crate::runner::ProcSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::ProcSnapshot {
+            procs: self.procs.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 

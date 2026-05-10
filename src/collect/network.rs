@@ -190,8 +190,17 @@ impl NetCollector {
 }
 
 impl Collector for NetCollector {
+    type Snapshot = crate::runner::NetSnapshot;
+
     fn collect(&mut self) {
         self.collect_impl();
+    }
+
+    fn snapshot(&self) -> Self::Snapshot {
+        crate::runner::NetSnapshot {
+            nets: self.nets.clone(),
+            status: self.status.clone(),
+        }
     }
 }
 
