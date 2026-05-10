@@ -51,7 +51,10 @@ impl Theme {
                     error = %e,
                     "theme parse failed; falling back to default",
                 );
-                let default = BUNDLED_THEMES[0].content;
+                let default = BUNDLED_THEMES
+                    .first()
+                    .expect("BUNDLED_THEMES is non-empty by construction")
+                    .content;
                 let palette: ThemePalette =
                     toml::from_str(default).expect("default theme must parse");
                 Self::from_palette(&palette)
