@@ -250,7 +250,11 @@ impl IgclFunctions {
 
         macro_rules! load_fn {
             ($name:literal, $ty:ty) => {{
+                // SAFETY: handle is a loaded ControlLib.dll/igcl.dll module;
+                // symbol name is a static null-terminated string.
                 let proc = unsafe { GetProcAddress(handle, PCSTR(concat!($name, "\0").as_ptr())) }?;
+                // SAFETY: GetProcAddress returned a non-null address matching
+                // the documented IGCL function signature.
                 unsafe { std::mem::transmute::<unsafe extern "system" fn() -> isize, $ty>(proc) }
             }};
         }
@@ -279,6 +283,8 @@ impl IgclFunctions {
         use windows::Win32::System::LibraryLoader::LoadLibraryW;
 
         let dll_name: Vec<u16> = name.encode_utf16().collect();
+        // SAFETY: dll_name is a valid null-terminated UTF-16 string built
+        // from `name` (callers pass a string that already ends with `\0`).
         OwnedLibrary::new(unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())) }.ok()?)
     }
 }
@@ -352,12 +358,18 @@ unsafe fn enum_handles<H: Copy>(
     enum_fn: unsafe extern "C" fn(CtlDeviceHandle, *mut u32, *mut H) -> u32,
 ) -> Vec<H> {
     let mut count: u32 = 0;
+    // SAFETY: device is a valid IGCL device handle (caller's responsibility
+    // per the `unsafe fn` contract); a null target pointer with a valid
+    // &mut u32 count is the documented IGCL "query count" call shape.
     let ret = unsafe { enum_fn(device, &mut count, std::ptr::null_mut()) };
     if ret != CTL_RESULT_SUCCESS || count == 0 {
         return Vec::new();
     }
     // SAFETY: MaybeUninit<H> where H is a pointer type — zeroed is valid for pointers.
     let mut handles: Vec<H> = vec![unsafe { std::mem::zeroed() }; count as usize];
+    // SAFETY: device is a valid IGCL device handle; handles is sized to
+    // `count` (the value the previous call returned), so the IGCL fill
+    // pass writes within the allocated buffer.
     let ret = unsafe { enum_fn(device, &mut count, handles.as_mut_ptr()) };
     if ret != CTL_RESULT_SUCCESS {
         return Vec::new();
