@@ -33,7 +33,7 @@ impl Theme {
             .find(|t| t.name.eq_ignore_ascii_case(name))
             .or_else(|| BUNDLED_THEMES.first())
             .map(|t| t.content)
-            .unwrap();
+            .expect("BUNDLED_THEMES is non-empty by construction");
 
         match toml::from_str::<ThemePalette>(content) {
             Ok(palette) => {
