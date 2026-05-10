@@ -45,7 +45,7 @@ pub fn browsable_values(key: ConfigKey) -> &'static [&'static str] {
     }
 }
 
-fn classify(key: ConfigKey, _config: &Config) -> OptKind {
+fn classify(key: ConfigKey) -> OptKind {
     match key.kind() {
         KeyKind::Bool => OptKind::Bool,
         KeyKind::Int => OptKind::Int,
@@ -56,8 +56,8 @@ fn classify(key: ConfigKey, _config: &Config) -> OptKind {
 }
 
 /// Classify how an option key can be edited.
-pub fn opt_kind(key: ConfigKey, config: &Config) -> OptKind {
-    classify(key, config)
+pub fn opt_kind(key: ConfigKey) -> OptKind {
+    classify(key)
 }
 
 // ---------------------------------------------------------------------------
@@ -605,7 +605,7 @@ pub fn draw(p: &DrawParams) -> String {
             break;
         }
         let key = options[i];
-        let kind = classify(key, config);
+        let kind = classify(key);
         let value = get_value(key, config);
         let is_selected = c == selected;
 

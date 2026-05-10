@@ -293,7 +293,7 @@ pub(crate) fn enter_action(ctx: &mut InputContext, _key: &Key) {
     let Some(opt_key) = opt_key(cat, page, selected, ctx.size.height) else {
         return;
     };
-    let kind = opt_kind(opt_key, ctx.config);
+    let kind = opt_kind(opt_key);
     match kind {
         OptKind::Int => enter_inline_edit(ctx, opt_key, EditKind::Integer),
         OptKind::StringVal => enter_inline_edit(ctx, opt_key, EditKind::Text),
@@ -323,7 +323,7 @@ fn step_selected_option(ctx: &mut InputContext, dir: i64) {
         _ => return,
     };
     if let Some(key) = opt_key(cat, page, selected, ctx.size.height) {
-        let kind = opt_kind(key, ctx.config);
+        let kind = opt_kind(key);
         apply_option_change(key, kind, dir, ctx);
     }
     ctx.render.dirty.mark_overlay();
