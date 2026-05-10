@@ -135,10 +135,25 @@ struct AdlFunctions {
     dedicated_vram_usage_get: Adl2AdapterDedicatedVRAMUsageGet,
 }
 
-/// ADL malloc callback — allocates memory using the global allocator.
+/// ADL memory allocation callback.
+///
+/// Invoked by ADL2 entry points from C code, so a panic across this FFI
+/// boundary would be undefined behavior. Non-positive sizes and any
+/// `Layout` construction failure are surfaced to ADL as a null return
+/// (the documented C-ABI signal for allocation failure) rather than
+/// being unwrapped.
 unsafe extern "C" fn adl_malloc(size: i32) -> *mut c_void {
-    let layout = std::alloc::Layout::from_size_align(size as usize, 8).unwrap();
-    // SAFETY: layout has non-zero size (ADL only calls this with positive sizes).
+    if size <= 0 {
+        return std::ptr::null_mut();
+    }
+    let Ok(layout) = std::alloc::Layout::from_size_align(size as usize, 8) else {
+        return std::ptr::null_mut();
+    };
+    // SAFETY: layout has size > 0 (the `size <= 0` early return rejects
+    // both the zero-size case `alloc::alloc` documents as UB and the
+    // negative-i32 case that would overflow when cast to usize) and a
+    // power-of-two alignment of 8. The returned pointer is owned by ADL,
+    // which is responsible for releasing it through its internal path.
     unsafe { std::alloc::alloc(layout) as *mut c_void }
 }
 
