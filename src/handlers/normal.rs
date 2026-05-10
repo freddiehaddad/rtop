@@ -85,8 +85,7 @@ pub(super) fn config_reload_action(ctx: &mut InputContext, _key: &Key) {
             "config reload warning",
         );
     }
-    let theme_name = ctx.config.ui.color_theme.clone();
-    *ctx.theme = theme::Theme::from_name(&theme_name);
+    *ctx.theme = theme::Theme::from_name(&ctx.config.ui.color_theme);
     sync_update_ms(ctx);
     crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
     // Re-initialise RuntimeView from the freshly loaded config so
