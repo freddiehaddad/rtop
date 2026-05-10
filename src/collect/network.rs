@@ -41,8 +41,8 @@ impl NetCollector {
             return false;
         };
 
-        let dl = net_info.stat.download.clone();
-        let ul = net_info.stat.upload.clone();
+        let dl = net_info.stat.download;
+        let ul = net_info.stat.upload;
         if dl.offset.saturating_add(ul.offset) > 0 {
             net_info.stat.download.offset = 0;
             net_info.stat.upload.offset = 0;
@@ -148,8 +148,8 @@ impl NetCollector {
                 entry.link_speed = link_speed;
 
                 // Calculate speeds
-                let dl_stat = entry.stat.download.clone();
-                let ul_stat = entry.stat.upload.clone();
+                let dl_stat = entry.stat.download;
+                let ul_stat = entry.stat.upload;
 
                 let dl_speed = speed_from_delta(rx_bytes, dl_stat.last, elapsed);
                 let ul_speed = speed_from_delta(tx_bytes, ul_stat.last, elapsed);

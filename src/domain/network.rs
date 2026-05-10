@@ -8,7 +8,7 @@ pub struct NetBandwidth {
 }
 
 /// Cumulative statistics for download and upload.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct NetStatPair {
     pub download: NetStat,
     pub upload: NetStat,
@@ -34,7 +34,7 @@ pub struct NetInfo {
 }
 
 /// Cumulative transfer statistics for one direction (download or upload).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Copy, Clone, Default)]
 pub struct NetStat {
     /// Current speed in bytes/sec.
     pub speed: u64,
