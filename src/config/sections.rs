@@ -29,8 +29,6 @@ use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::LevelFilter;
 
-use super::MAX_GPUS;
-
 // ---------------------------------------------------------------------------
 // Validation helpers
 // ---------------------------------------------------------------------------
@@ -95,6 +93,13 @@ impl Default for UiConfig {
 /// independent of the global `update_ms`; a field set to 0
 /// inherits the global value via
 /// [`super::Config::effective_interval`].
+///
+/// `gpu_update_ms` applies to **every** discovered GPU
+/// uniformly. The cycling-GPU widget displays one device at a
+/// time and the per-device collector threads share a single
+/// configured interval; an option-menu commit broadcasts the
+/// resolved value to every GPU thread (see
+/// [`crate::handlers::normal::sync_all_intervals`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RefreshConfig {
@@ -103,14 +108,7 @@ pub struct RefreshConfig {
     pub mem_update_ms: i64,
     pub disk_update_ms: i64,
     pub net_update_ms: i64,
-    /// Per-GPU refresh interval (ms), one slot per device index.
-    /// Each slot is independent of every other slot and of the
-    /// global `update_ms`. A slot set to 0 inherits the global
-    /// `update_ms`. The fixed-size array mirrors
-    /// `custom_gpu_names: [String; MAX_GPUS]` so the
-    /// index-to-device mapping is identical across the two
-    /// per-GPU config arrays.
-    pub gpu_update_ms: [i64; MAX_GPUS],
+    pub gpu_update_ms: i64,
     pub proc_update_ms: i64,
 }
 
@@ -122,7 +120,7 @@ impl Default for RefreshConfig {
             mem_update_ms: 0,
             disk_update_ms: 0,
             net_update_ms: 0,
-            gpu_update_ms: [0; MAX_GPUS],
+            gpu_update_ms: 0,
             proc_update_ms: 0,
         }
     }
@@ -272,13 +270,6 @@ impl Default for ProcConfig {
     }
 }
 
-/// GPU widget settings (`gpu` options-menu tab).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct GpuConfig {
-    pub custom_gpu_names: [String; MAX_GPUS],
-}
-
 /// Disk widget settings (`disk` options-menu tab).
 ///
 /// Runtime-mutable disk bits (`io_mode`) live on [`ViewConfig`] /
@@ -310,7 +301,7 @@ impl Default for DiskConfig {
 
 /// View-state config: fields the user toggles outside the
 /// options menu (process tree mode, sort, filter, IO mode,
-/// network auto-scale / sync / interface).
+/// network auto-scale / sync / interface, GPU device cursor).
 ///
 /// These fields persist across restarts (so toggle gestures
 /// survive the next launch) but their *runtime* mutation goes
@@ -328,8 +319,8 @@ impl Default for DiskConfig {
 ///    before serialising so the on-disk form is current.
 ///
 /// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
-/// `s`, Tab, `f`/`/`) mutate `RuntimeView` only — they never
-/// reach `&mut Config`.
+/// `s`, `b`/`n`, `[`/`]`, `f`/`/`) mutate `RuntimeView` only —
+/// they never reach `&mut Config`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewConfig {
@@ -343,8 +334,13 @@ pub struct ViewConfig {
     pub net_sync: bool,
     /// Preferred network interface name. `"auto"` picks the first
     /// available interface; any other value is the user's pinned
-    /// selection (cycled at runtime via `Tab` / `Shift+Tab`).
+    /// selection (cycled at runtime via `b` / `n`).
     pub net_iface: String,
+    /// Preferred GPU device identifier (vendor-prefixed UUID, e.g.
+    /// `NVIDIA:GPU-12345...`). `"auto"` picks the first available
+    /// device; any other value is the user's pinned selection
+    /// (cycled at runtime via `[` / `]`).
+    pub gpu_iface: String,
 }
 
 impl Default for ViewConfig {
@@ -359,6 +355,7 @@ impl Default for ViewConfig {
             net_auto: true,
             net_sync: false,
             net_iface: "auto".to_string(),
+            gpu_iface: "auto".to_string(),
         }
     }
 }

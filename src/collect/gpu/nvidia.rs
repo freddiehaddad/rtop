@@ -32,10 +32,15 @@ const NVAPI_THERMAL_TARGET_GPU: i32 = 1;
 const NVAPI_THERMAL_TARGET_ALL: u32 = 15;
 
 // ---------------------------------------------------------------------------
-// NVML types (minimal — only for default power limit / TDP lookup)
+// NVML types (minimal — only for default power limit / TDP and
+// per-device UUID lookup).
 // ---------------------------------------------------------------------------
 
 const NVML_SUCCESS: u32 = 0;
+/// `NVML_DEVICE_UUID_BUFFER_SIZE` from NVML headers — buffer size
+/// (including null terminator) sufficient to receive any GPU UUID
+/// string `nvmlDeviceGetUUID` produces (`GPU-...` form, ~40 chars).
+const NVML_DEVICE_UUID_BUFFER_SIZE: usize = 80;
 
 type NvmlDevice = *mut c_void;
 type NvmlInitV2 = unsafe extern "C" fn() -> u32;
@@ -43,6 +48,7 @@ type NvmlShutdownFn = unsafe extern "C" fn() -> u32;
 type NvmlDeviceGetCountV2 = unsafe extern "C" fn(*mut u32) -> u32;
 type NvmlDeviceGetHandleByIndexV2 = unsafe extern "C" fn(u32, *mut NvmlDevice) -> u32;
 type NvmlDeviceGetPowerManagementDefaultLimit = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
+type NvmlDeviceGetUuid = unsafe extern "C" fn(NvmlDevice, *mut c_char, u32) -> u32;
 
 // ---------------------------------------------------------------------------
 // NvAPI repr(C) structs
@@ -217,13 +223,34 @@ const ID_GPU_CLIENT_POWER_TOPO_GET_STATUS: u32 = 0xedcf_624e;
 const ID_GPU_CLIENT_POWER_POLICIES_GET_INFO: u32 = 0x3420_6d86;
 
 // ---------------------------------------------------------------------------
-// NVML TDP lookup helper
+// NVML per-device metadata lookup helper
 // ---------------------------------------------------------------------------
 
-/// Query the default power management limit (TDP) in milliwatts for each GPU
-/// via NVML. Returns a vec of per-device TDP values. Returns an empty vec if
-/// NVML is unavailable (e.g. not installed).
-fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
+/// Per-device metadata fetched from NVML at discovery time. Bound
+/// once per device; immutable for the device's lifetime.
+struct NvmlMeta {
+    /// Default power management limit (TDP) in milliwatts. `0`
+    /// when NVML did not return a value for this device — the
+    /// caller treats `0` as "no TDP info available".
+    tdp_mw: u32,
+    /// `nvmlDeviceGetUUID` output (e.g. `GPU-12345678-...`).
+    /// Empty string when the call failed or NVML was unavailable;
+    /// the caller's stable-id fallback path handles the empty
+    /// case without losing the device.
+    uuid: String,
+}
+
+/// Query per-device metadata (TDP + UUID) for each GPU via NVML.
+/// Returns `None` when NVML is unavailable (e.g. not installed);
+/// returns `Some(vec)` whose length is `min(nvml_count, device_count)`.
+/// Per-device fields fall back to `0` / `""` on per-call failure.
+///
+/// Index correspondence between NVML and NvAPI is documented as
+/// "best-effort": both APIs typically enumerate in the same
+/// driver-defined order (PCI bus). The TDP wiring has relied on
+/// this ordering since rtop's first NVIDIA support; the UUID
+/// wiring inherits the same assumption.
+fn query_nvml_metadata(device_count: usize) -> Option<Vec<NvmlMeta>> {
     use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows::core::PCSTR;
 
@@ -254,6 +281,7 @@ fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
         "nvmlDeviceGetPowerManagementDefaultLimit",
         NvmlDeviceGetPowerManagementDefaultLimit
     );
+    let get_uuid: NvmlDeviceGetUuid = load_fn!("nvmlDeviceGetUUID", NvmlDeviceGetUuid);
 
     // SAFETY: init was loaded from nvml.dll.
     let ret = unsafe { init() };
@@ -271,34 +299,62 @@ fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
     let _ = unsafe { get_count(&mut nvml_count) };
 
     let limit = (nvml_count as usize).min(device_count);
-    let mut tdps = Vec::with_capacity(limit);
+    let mut metas = Vec::with_capacity(limit);
     for i in 0..limit as u32 {
         let mut dev: NvmlDevice = std::ptr::null_mut();
         // SAFETY: i is within the reported count.
         if unsafe { get_handle(i, &mut dev) } != NVML_SUCCESS || dev.is_null() {
-            tdps.push(0);
+            metas.push(NvmlMeta {
+                tdp_mw: 0,
+                uuid: String::new(),
+            });
             continue;
         }
+
         let mut limit_mw: u32 = 0;
         // SAFETY: dev is a valid handle; limit_mw is a valid pointer.
-        let ret = unsafe { get_default_limit(dev, &mut limit_mw) };
-        if ret == NVML_SUCCESS {
+        let tdp_ret = unsafe { get_default_limit(dev, &mut limit_mw) };
+        let tdp_mw = if tdp_ret == NVML_SUCCESS {
             tracing::debug!(
                 subsystem = %crate::log::Subsystem::GpuNvml,
                 device = i,
                 limit_mw,
                 "default power limit read",
             );
-            tdps.push(limit_mw);
+            limit_mw
         } else {
             tracing::debug!(
                 subsystem = %crate::log::Subsystem::GpuNvml,
                 device = i,
-                code = %crate::log::Hex(ret),
+                code = %crate::log::Hex(tdp_ret),
                 "GetPowerManagementDefaultLimit failed",
             );
-            tdps.push(0);
-        }
+            0
+        };
+
+        let mut uuid_buf = [0u8; NVML_DEVICE_UUID_BUFFER_SIZE];
+        // SAFETY: dev is a valid handle; uuid_buf is a valid mutable
+        // buffer with exactly NVML_DEVICE_UUID_BUFFER_SIZE bytes.
+        let uuid_ret = unsafe {
+            get_uuid(
+                dev,
+                uuid_buf.as_mut_ptr() as *mut c_char,
+                NVML_DEVICE_UUID_BUFFER_SIZE as u32,
+            )
+        };
+        let uuid = if uuid_ret == NVML_SUCCESS {
+            crate::collect::win::string_from_c_buf(&uuid_buf)
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvml,
+                device = i,
+                code = %crate::log::Hex(uuid_ret),
+                "nvmlDeviceGetUUID failed",
+            );
+            String::new()
+        };
+
+        metas.push(NvmlMeta { tdp_mw, uuid });
     }
 
     // SAFETY: shutdown matches nvmlShutdown. Library handle stays valid
@@ -306,7 +362,7 @@ fn query_nvml_tdp(device_count: usize) -> Option<Vec<u32>> {
     unsafe { shutdown() };
     // OwnedLibrary drops here, freeing nvml.dll.
 
-    Some(tdps)
+    Some(metas)
 }
 
 /// Convert a Per Cent Mille value to milliwatts using a TDP reference.
@@ -675,13 +731,18 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
     }
     let devices: Vec<NvPhysicalGpuHandle> = handles[..count].to_vec();
 
-    // Query default TDP per device from NVML (needed to convert
-    // NvAPI PCM power values to milliwatts).
-    let tdp_mw_vec: Vec<u64> = query_nvml_tdp(count)
+    // Query per-device metadata (default TDP for PCM→mW
+    // conversion, plus stable UUID for cross-run identity) from
+    // NVML. Pad with empty meta entries so the zip always has
+    // `count` slots — devices beyond NVML's reported count fall
+    // back to TDP 0 + empty UUID.
+    let nvml_metas: Vec<NvmlMeta> = query_nvml_metadata(count)
         .unwrap_or_default()
         .into_iter()
-        .map(u64::from)
-        .chain(std::iter::repeat(0u64))
+        .chain(std::iter::repeat_with(|| NvmlMeta {
+            tdp_mw: 0,
+            uuid: String::new(),
+        }))
         .take(count)
         .collect();
 
@@ -693,9 +754,21 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
 
     devices
         .into_iter()
-        .zip(tdp_mw_vec)
-        .map(|(device, tdp_mw)| {
-            let info = build_initial_info(&session.nvapi, device, tdp_mw);
+        .zip(nvml_metas)
+        .enumerate()
+        .map(|(idx, (device, meta))| {
+            let tdp_mw = u64::from(meta.tdp_mw);
+            let stable_id = if meta.uuid.is_empty() {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    device = idx,
+                    "NVML UUID unavailable; using vendor-relative adapter index fallback",
+                );
+                format!("NVIDIA:adapter:{idx}")
+            } else {
+                format!("NVIDIA:{}", meta.uuid)
+            };
+            let info = build_initial_info(&session.nvapi, device, tdp_mw, stable_id);
             super::DeviceCollector::Nvidia(NvidiaDeviceCollector {
                 session: std::sync::Arc::clone(&session),
                 device: SendNvHandle(device),
@@ -707,16 +780,20 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
         .collect()
 }
 
-/// Pre-fill the per-device `GpuInfo` with static fields (name,
-/// max-power reference, max boost clock) that the collector
-/// renders but never re-queries on each cycle. Mirrors AMD's
-/// [`build_initial_info`](super::amd) helper for parity.
+/// Pre-fill the per-device `GpuInfo` with static fields (stable
+/// id, name, max-power reference, max boost clock) that the
+/// collector renders but never re-queries on each cycle. Mirrors
+/// AMD's [`build_initial_info`](super::amd) helper for parity.
 fn build_initial_info(
     nvapi: &NvApiFunctions,
     device: NvPhysicalGpuHandle,
     tdp_mw: u64,
+    stable_id: String,
 ) -> crate::domain::gpu::GpuInfo {
-    let mut info = crate::domain::gpu::GpuInfo::default();
+    let mut info = crate::domain::gpu::GpuInfo {
+        stable_id,
+        ..crate::domain::gpu::GpuInfo::default()
+    };
 
     // GPU name.
     let mut name_buf = [0u8; NVAPI_SHORT_STRING_MAX];

@@ -25,7 +25,7 @@ pub(crate) fn pull_subsystem_data(
 ) {
     // Each arm owns the per-subsystem fetch + side effects; the loop
     // owns the dispatch.
-    for kind in SubsystemKind::ALL {
+    for kind in SubsystemKind::all_for(manager.gpu_count()) {
         if !*ready.get(kind) {
             continue;
         }
@@ -70,36 +70,27 @@ pub(crate) fn pull_subsystem_data(
             }
             SubsystemKind::Gpu(n) => {
                 let n = n as usize;
-                let Some(snap) = manager.gpu_slots[n].latest() else {
-                    continue;
-                };
-                if render_ui {
-                    // Per-instance GPU dirty: compare this device's
-                    // render fingerprint against the previous
-                    // snapshot. Mark the matching `WidgetKind::Gpu(n)`
-                    // dirty only when the displayed values changed
-                    // OR the per-device status flipped. First
-                    // publish (no previous) marks the GPU dirty.
-                    //
-                    // The "GPU appeared / vanished" branch the
-                    // pre-per-device pipeline carried is gone:
-                    // discovery is one-shot at startup, so
-                    // `gpu_count` is fixed for the process lifetime
-                    // and the layout-hint check at the bottom of
-                    // this fn will never observe a delta from this
-                    // arm.
-                    let prev = state.live.gpu[n].as_ref();
-                    let fingerprint_changed = prev
-                        .map(|p| p.info.render_fingerprint() != snap.info.render_fingerprint())
-                        .unwrap_or(true);
-                    let status_changed = prev.is_none_or(|p| p.status != snap.status);
-                    if (fingerprint_changed || status_changed)
-                        && let Some(kind) = WidgetKind::gpu(n)
-                    {
-                        state.render.dirty.mark_widget(kind);
+                if let Some(snap) = manager.gpu_slots[n].latest() {
+                    if render_ui {
+                        // Only the displayed device drives a redraw;
+                        // background-device updates publish silently.
+                        let is_displayed = !state.gpu.selected_iface.is_empty()
+                            && state.gpu.selected_iface == snap.info.stable_id;
+                        if is_displayed {
+                            let prev = state.live.gpu[n].as_ref();
+                            let fingerprint_changed = prev
+                                .map(|p| {
+                                    p.info.render_fingerprint() != snap.info.render_fingerprint()
+                                })
+                                .unwrap_or(true);
+                            let status_changed = prev.is_none_or(|p| p.status != snap.status);
+                            if fingerprint_changed || status_changed {
+                                state.render.dirty.mark_widget(WidgetKind::Gpu);
+                            }
+                        }
                     }
+                    state.live.gpu[n] = Some(snap);
                 }
-                state.live.gpu[n] = Some(snap);
             }
             SubsystemKind::Proc => {
                 if let Some(snap) = manager.proc_slot.latest() {
@@ -181,7 +172,8 @@ pub(crate) fn pull_subsystem_data(
     // full rationale and post-overlay correctness argument.
     maybe_mark_layout_dirty_from_hints_change(state, config, render_ui);
 
-    reconcile_selected_iface(state);
+    reconcile_selected_net_iface(state);
+    reconcile_selected_gpu_iface(state);
 }
 
 /// Compare the current `LayoutHints` against the cached
@@ -226,13 +218,21 @@ fn maybe_mark_layout_dirty_from_hints_change(
     state.render.last_layout_hints = Some(new_hints);
 }
 
-pub(crate) fn reconcile_selected_iface(state: &mut AppState) {
+pub(crate) fn reconcile_selected_net_iface(state: &mut AppState) {
     let Some(net) = state.live.net.as_ref() else {
         return;
     };
     state
         .network
         .reconcile(&net.nets, &state.view.net_iface, &mut state.render.dirty);
+}
+
+pub(crate) fn reconcile_selected_gpu_iface(state: &mut AppState) {
+    state.gpu.reconcile(
+        &state.live.gpu,
+        &state.view.gpu_iface,
+        &mut state.render.dirty,
+    );
 }
 
 #[cfg(test)]
@@ -254,13 +254,13 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_selected_iface_selects_first_available_interface() {
+    fn reconcile_selected_net_iface_selects_first_available_interface() {
         let config = config::Config::new();
         let mut state = AppState::new(&config, 0);
         state.render.clear_dirty();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
-        reconcile_selected_iface(&mut state);
+        reconcile_selected_net_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Ethernet");
         assert!(state.render.dirty.is_widget_dirty(WidgetKind::Net));
@@ -276,7 +276,7 @@ mod tests {
         state.view.net_iface = "Wi-Fi".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
-        reconcile_selected_iface(&mut state);
+        reconcile_selected_net_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Wi-Fi");
     }
@@ -293,7 +293,7 @@ mod tests {
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Wi-Fi"]));
 
-        reconcile_selected_iface(&mut state);
+        reconcile_selected_net_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Wi-Fi");
         assert_eq!(
@@ -315,7 +315,7 @@ mod tests {
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
-        reconcile_selected_iface(&mut state);
+        reconcile_selected_net_iface(&mut state);
 
         assert_eq!(state.network.selected_iface, "Wi-Fi");
         assert_eq!(state.view.net_iface, "Ethernet");

@@ -6,7 +6,6 @@ use crate::collect::memory::MemCollector;
 use crate::collect::network::NetCollector;
 use crate::collect::process::ProcCollector;
 use crate::collect::statusbar::{STATUSBAR_UPDATE_MS, StatusbarCollector};
-use crate::config::MAX_GPUS;
 use crate::domain::{
     cpu::CpuInfo, disk::DiskData, gpu::GpuInfo, memory::MemInfo, network::NetInfo,
     process::ProcInfo,
@@ -247,23 +246,21 @@ where
 /// GPU is fanned out per device: there are `gpu_count` GPU threads
 /// (one per detected device), each owning its own
 /// [`LatestSlot<GpuSnapshot>`] in [`Self::gpu_slots`] and its own
-/// `Sender<CollectorCommand>` in the matching slot of `txs`. GPU
-/// indices `>= gpu_count` carry an empty `LatestSlot` and a `None`
-/// sender — `set_interval` and `shutdown` skip those slots
-/// gracefully.
+/// `Sender<CollectorCommand>` in the matching slot of `txs.gpu`.
+/// `gpu_slots` and `txs.gpu` both have length `gpu_count`; there
+/// are no phantom slots to skip.
 pub(crate) struct CollectorManager {
-    /// Command sender per non-GPU subsystem and per GPU device
-    /// slot. GPU slots beyond `gpu_count` are `None` (no thread to
-    /// address).
-    txs: PerSubsystem<Option<Sender<CollectorCommand>>>,
+    /// Command sender per subsystem and per GPU device. The GPU
+    /// slot of `txs` is a `Vec<Sender<CollectorCommand>>` of
+    /// length `gpu_count`.
+    txs: PerSubsystem<Sender<CollectorCommand>>,
 
     pub(crate) cpu_slot: LatestSlot<CpuSnapshot>,
     pub(crate) mem_slot: LatestSlot<MemSnapshot>,
     pub(crate) disk_slot: LatestSlot<DiskSnapshot>,
     pub(crate) net_slot: LatestSlot<NetSnapshot>,
-    /// Per-device GPU snapshot slots. Slots beyond `gpu_count` stay
-    /// empty for the lifetime of the process.
-    pub(crate) gpu_slots: [LatestSlot<GpuSnapshot>; MAX_GPUS],
+    /// Per-device GPU snapshot slots. Length matches `gpu_count`.
+    pub(crate) gpu_slots: Vec<LatestSlot<GpuSnapshot>>,
     pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
     pub(crate) statusbar_slot: LatestSlot<StatusbarSnapshot>,
 
@@ -271,24 +268,22 @@ pub(crate) struct CollectorManager {
     /// lifetime of the process.
     gpu_count: u8,
 
-    joins: Vec<(&'static str, JoinHandle<()>)>,
+    joins: Vec<(SubsystemKind, JoinHandle<()>)>,
 }
 
 /// Send `cmd` to the named subsystem's collector thread, logging a
 /// warning on send failure. Centralised so every send goes through one
-/// audit point. A `None` sender (GPU slot beyond `gpu_count`) is a
-/// no-op — there is no thread to address.
+/// audit point.
 fn send_command(
-    tx: Option<&Sender<CollectorCommand>>,
-    target: &'static str,
+    tx: &Sender<CollectorCommand>,
+    target: SubsystemKind,
     op: &'static str,
     cmd: CollectorCommand,
 ) {
-    let Some(tx) = tx else { return };
     if let Err(e) = tx.send(cmd) {
         tracing::warn!(
             subsystem = %crate::log::Subsystem::Runner,
-            target,
+            target = %target,
             op,
             error = %e,
             "command send failed",
@@ -299,29 +294,19 @@ fn send_command(
 impl CollectorManager {
     /// Start all collector threads with the given initial interval.
     ///
-    /// `gpu_intervals[n]` is the **already-resolved** effective
-    /// interval for GPU `n` (the caller has already passed
-    /// `config.refresh.gpu_update_ms[n]` through
-    /// [`crate::config::Config::effective_interval`]). Slots
-    /// beyond the discovered device count are simply unread, so
-    /// callers can pre-fill the entire array unconditionally.
-    pub(crate) fn start(
-        update_ms: u64,
-        event_tx: Sender<AppEvent>,
-        gpu_intervals: [u64; MAX_GPUS],
-    ) -> Self {
+    /// `gpu_update_ms` is the **already-resolved** effective
+    /// interval applied uniformly to every GPU thread (the caller
+    /// has already passed `config.refresh.gpu_update_ms` through
+    /// [`crate::config::Config::effective_interval`]).
+    pub(crate) fn start(update_ms: u64, event_tx: Sender<AppEvent>, gpu_update_ms: u64) -> Self {
         let core_count = crate::collect::cpu::get_core_count();
 
         let cpu_slot = LatestSlot::new();
         let mem_slot = LatestSlot::new();
         let disk_slot = LatestSlot::new();
         let net_slot = LatestSlot::new();
-        let gpu_slots: [LatestSlot<GpuSnapshot>; MAX_GPUS] =
-            std::array::from_fn(|_| LatestSlot::new());
         let proc_slot = LatestSlot::new();
         let statusbar_slot = LatestSlot::new();
-
-        let mut joins = Vec::with_capacity(MAX_GPUS + 7);
 
         // CPU thread
         let (cpu_tx, cpu_join) = spawn_collector(
@@ -335,7 +320,6 @@ impl CollectorManager {
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Cpu),
         );
-        joins.push(("cpu", cpu_join));
 
         // Memory thread
         let (mem_tx, mem_join) = spawn_collector(
@@ -345,7 +329,6 @@ impl CollectorManager {
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Mem),
         );
-        joins.push(("memory", mem_join));
 
         // Disk thread
         let (disk_tx, disk_join) = spawn_collector(
@@ -355,47 +338,39 @@ impl CollectorManager {
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Disk),
         );
-        joins.push(("disk", disk_join));
 
         // Network thread (custom loop — handles the optional
         // ResetNetTotals variant of CollectorCommand).
         let (net_tx, net_rx) = mpsc::channel();
-        {
+        let net_join = {
             let slot = net_slot.clone();
             let tx = event_tx.clone();
-            joins.push((
-                "network",
-                std::thread::spawn(move || {
-                    run_net_loop(NetCollector::new(), update_ms, slot, tx, net_rx);
-                }),
-            ));
-        }
+            std::thread::spawn(move || {
+                run_net_loop(NetCollector::new(), update_ms, slot, tx, net_rx);
+            })
+        };
 
         // GPU threads — one per detected device. Discovery is
         // synchronous (loads each vendor DLL, calls each vendor
         // init, enumerates devices) and runs here so that
-        // gpu_count is fixed before we publish the manager. Slots
-        // beyond gpu_count keep `None` senders forever.
+        // gpu_count is fixed before we publish the manager.
         let devices = crate::collect::gpu::discover();
         let gpu_count = devices.len() as u8;
-        let mut gpu_txs: [Option<Sender<CollectorCommand>>; MAX_GPUS] =
-            std::array::from_fn(|_| None);
+        let gpu_slots: Vec<LatestSlot<GpuSnapshot>> =
+            (0..gpu_count).map(|_| LatestSlot::new()).collect();
+        let mut gpu_txs: Vec<Sender<CollectorCommand>> = Vec::with_capacity(gpu_count as usize);
+        let mut gpu_joins: Vec<JoinHandle<()>> = Vec::with_capacity(gpu_count as usize);
         for (n, device) in devices.into_iter().enumerate() {
             let kind = SubsystemKind::Gpu(n as u8);
             let (tx, join) = spawn_collector(
                 move || device,
-                gpu_intervals[n],
+                gpu_update_ms,
                 &gpu_slots[n],
                 &event_tx,
                 AppEvent::SubsystemReady(kind),
             );
-            gpu_txs[n] = Some(tx);
-            // `kind.as_str()` returns the interned "gpuN" string
-            // from the same const table that powers the
-            // diagnostics field on every gpu-tagged tracing event;
-            // sharing that name here keeps the join-handle target
-            // label aligned with the rest of the gpu logging.
-            joins.push((kind.as_str(), join));
+            gpu_txs.push(tx);
+            gpu_joins.push(join);
         }
 
         // Process thread
@@ -410,7 +385,6 @@ impl CollectorManager {
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Proc),
         );
-        joins.push(("process", proc_join));
 
         // Statusbar thread — fixed 1 Hz cadence (the wall-clock seconds
         // digit advances at human-noticeable cadence and uptime stays
@@ -430,17 +404,31 @@ impl CollectorManager {
             &event_tx,
             AppEvent::SubsystemReady(SubsystemKind::Statusbar),
         );
-        joins.push(("statusbar", statusbar_join));
+
+        // Build the joins table in canonical-subsystem order so
+        // shutdown joins in a stable sequence. The SubsystemKind
+        // tag drives the diagnostic log target via `as_str()`.
+        let mut joins: Vec<(SubsystemKind, JoinHandle<()>)> =
+            Vec::with_capacity(gpu_count as usize + 6);
+        joins.push((SubsystemKind::Cpu, cpu_join));
+        joins.push((SubsystemKind::Mem, mem_join));
+        joins.push((SubsystemKind::Disk, disk_join));
+        joins.push((SubsystemKind::Net, net_join));
+        for (n, join) in gpu_joins.into_iter().enumerate() {
+            joins.push((SubsystemKind::Gpu(n as u8), join));
+        }
+        joins.push((SubsystemKind::Proc, proc_join));
+        joins.push((SubsystemKind::Statusbar, statusbar_join));
 
         Self {
             txs: PerSubsystem::new(
-                Some(cpu_tx),
-                Some(mem_tx),
-                Some(disk_tx),
-                Some(net_tx),
+                cpu_tx,
+                mem_tx,
+                disk_tx,
+                net_tx,
                 gpu_txs,
-                Some(proc_tx),
-                Some(statusbar_tx),
+                proc_tx,
+                statusbar_tx,
             ),
             cpu_slot,
             mem_slot,
@@ -455,9 +443,7 @@ impl CollectorManager {
     }
 
     /// Number of GPU devices discovered at startup. Fixed for the
-    /// lifetime of the process. Slots `n >= gpu_count` in
-    /// [`Self::gpu_slots`] stay empty; `set_interval` and
-    /// `shutdown` skip the matching `None` sender entries.
+    /// lifetime of the process.
     pub(crate) fn gpu_count(&self) -> u8 {
         self.gpu_count
     }
@@ -465,8 +451,8 @@ impl CollectorManager {
     /// Update the collection interval for the named subsystem.
     pub(crate) fn set_interval(&self, kind: SubsystemKind, ms: u64) {
         send_command(
-            self.txs.get(kind).as_ref(),
-            kind.as_str(),
+            self.txs.get(kind),
+            kind,
             "set_interval",
             CollectorCommand::SetInterval(ms),
         );
@@ -475,8 +461,8 @@ impl CollectorManager {
     /// Reset cumulative network totals for an interface.
     pub(crate) fn reset_net_totals(&self, iface: String) {
         send_command(
-            self.txs.get(SubsystemKind::Net).as_ref(),
-            SubsystemKind::Net.as_str(),
+            self.txs.get(SubsystemKind::Net),
+            SubsystemKind::Net,
             "reset_net_totals",
             CollectorCommand::ResetNetTotals(iface),
         );
@@ -484,15 +470,12 @@ impl CollectorManager {
 
     /// Shut down all collector threads and wait for them to finish.
     pub(crate) fn shutdown(&mut self) {
-        for kind in SubsystemKind::ALL {
-            // GPU slots beyond gpu_count carry None — no thread to
-            // address. Shutdown send errors on present senders are
-            // intentionally discarded: by this point the collector
-            // thread may have already exited (e.g. on a panic), and
-            // the join below will surface any real failure.
-            if let Some(tx) = self.txs.get(kind).as_ref() {
-                let _ = tx.send(CollectorCommand::Shutdown);
-            }
+        for kind in SubsystemKind::all_for(self.gpu_count) {
+            // Shutdown send errors are intentionally discarded:
+            // by this point the collector thread may have already
+            // exited (e.g. on a panic), and the join below will
+            // surface any real failure.
+            let _ = self.txs.get(kind).send(CollectorCommand::Shutdown);
         }
         for (target, join) in self.joins.drain(..) {
             if let Err(panic) = join.join() {
@@ -503,7 +486,7 @@ impl CollectorManager {
                     .unwrap_or("(non-string panic payload)");
                 tracing::warn!(
                     subsystem = %crate::log::Subsystem::Runner,
-                    target,
+                    target = %target,
                     payload,
                     "collector thread panicked",
                 );

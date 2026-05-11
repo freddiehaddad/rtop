@@ -13,7 +13,8 @@
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::{
-    AppState, DetailPanel, LiveData, NetworkViewState, ProcessViewState, RuntimeView,
+    AppState, DetailPanel, GpuViewState, LiveData, NetworkViewState, ProcessViewState, RuntimeView,
+    WidgetFilter,
 };
 use crate::config;
 use crate::dirty::RenderDirty;
@@ -201,6 +202,7 @@ fn render_widget_layer_full(
         live: &state.live,
         process: &state.process,
         network: &state.network,
+        gpu: &state.gpu,
         view: &state.view,
         filter: &state.filter,
         config,
@@ -235,6 +237,7 @@ fn render_dirty_frame(
         live: &state.live,
         process: &state.process,
         network: &state.network,
+        gpu: &state.gpu,
         view: &state.view,
         filter: &state.filter,
         config,
@@ -283,7 +286,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) mem: Option<&'a runner::MemSnapshot>,
     pub(crate) disk: Option<&'a runner::DiskSnapshot>,
     pub(crate) net: Option<&'a runner::NetSnapshot>,
-    pub(crate) gpu: &'a [Option<Arc<runner::GpuSnapshot>>; crate::config::MAX_GPUS],
+    pub(crate) gpu: &'a [Option<Arc<runner::GpuSnapshot>>],
     pub(crate) proc_data: Option<&'a runner::ProcSnapshot>,
     pub(crate) statusbar: Option<&'a runner::StatusbarSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
@@ -300,7 +303,8 @@ pub(crate) struct RenderParams<'a> {
     /// this to render dead-row styling and the bottom-border
     /// `terminate` chip dim treatment.
     pub(crate) dead_pids: &'a HashSet<u32>,
-    pub(crate) selected_iface: &'a str,
+    pub(crate) selected_net_iface: &'a str,
+    pub(crate) selected_gpu_iface: &'a str,
     pub(crate) config: &'a config::Config,
     pub(crate) view: &'a RuntimeView,
     pub(crate) theme: &'a theme::Theme,
@@ -337,8 +341,9 @@ pub(crate) struct RenderInputs<'a> {
     pub(crate) live: &'a LiveData,
     pub(crate) process: &'a ProcessViewState,
     pub(crate) network: &'a NetworkViewState,
+    pub(crate) gpu: &'a GpuViewState,
     pub(crate) view: &'a RuntimeView,
-    pub(crate) filter: &'a crate::app::WidgetFilter,
+    pub(crate) filter: &'a WidgetFilter,
     pub(crate) config: &'a config::Config,
     pub(crate) theme: &'a theme::Theme,
     /// Which widgets to render this frame.
@@ -386,7 +391,8 @@ impl<'a> RenderInputs<'a> {
             proc_source,
             proc_paused: self.process.pause.is_some(),
             dead_pids,
-            selected_iface: self.network.selected_iface.as_str(),
+            selected_net_iface: self.network.selected_iface.as_str(),
+            selected_gpu_iface: self.gpu.selected_iface.as_str(),
             config: self.config,
             view: self.view,
             theme: self.theme,

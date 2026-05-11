@@ -1,23 +1,23 @@
 //! `WidgetSet` — a set of [`WidgetKind`]s with inline storage.
 //!
 //! Used wherever the engine, app state, or config needs to answer
-//! "is this widget in the set?" for a small known-bounded universe
-//! of widgets. Examples:
+//! "is this widget in the set?" for a small fixed universe of
+//! seven widgets (cpu, mem, net, proc, disk, gpu, statusbar).
+//! Examples:
 //!
 //! * The runtime view filter (which widgets the user has chosen to
 //!   hide) lives in `AppState` as a `WidgetSet`.
 //! * The layout engine's per-frame visibility input is a
-//!   `WidgetSet` composed by the app layer from hardware absence
-//!   (GPUs without a backing device) and the user's view filter.
+//!   `WidgetSet` composed by the app layer from the master
+//!   statusbar toggle and the user's view filter.
 //! * The persisted form of the user's view filter (Config's
 //!   `hidden_widgets`) so hide gestures survive restart.
 //!
-//! `HashSet<WidgetKind>` would heap-allocate for at most 13
-//! entries (5 base widgets + `MAX_GPUS` GPU slots). `WidgetSet`
-//! reuses the existing [`PerWidget<bool>`] container — fixed-size
-//! inline storage, no allocation, identical algorithmic behaviour.
-//! The API mirrors [`std::collections::HashSet`] for the operations
-//! we use.
+//! `HashSet<WidgetKind>` would heap-allocate for at most seven
+//! entries. `WidgetSet` reuses the [`PerWidget<bool>`] container —
+//! fixed-size inline storage, no allocation, identical algorithmic
+//! behaviour. The API mirrors [`std::collections::HashSet`] for the
+//! operations we use.
 //!
 //! TOML serialisation is the natural form: a sorted list of widget
 //! names. Empty sets serialise as an empty array, which round-trips
@@ -74,8 +74,8 @@ impl WidgetSet {
     }
 
     /// Iterate over the [`WidgetKind`]s in the set, in canonical
-    /// order (cpu, mem, net, proc, disk, gpu0..gpuN, statusbar) —
-    /// the order [`WidgetKind::all`] produces.
+    /// order (cpu, mem, net, proc, disk, gpu, statusbar) — the
+    /// order [`WidgetKind::all`] produces.
     pub fn iter(&self) -> impl Iterator<Item = WidgetKind> + '_ {
         WidgetKind::all().filter(|k| self.contains(*k))
     }
@@ -95,7 +95,7 @@ impl Serialize for WidgetSet {
         let mut seq = serializer.serialize_seq(None)?;
         for kind in self.iter() {
             // `WidgetKind`'s own Serialize impl emits the canonical
-            // name string ("cpu", "gpu0", ...).
+            // name string ("cpu", "gpu", ...).
             seq.serialize_element(&kind)?;
         }
         seq.end()
@@ -136,23 +136,13 @@ impl<'de> Deserialize<'de> for WidgetSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::MAX_GPUS;
 
     #[test]
     fn new_set_is_empty() {
         let set = WidgetSet::new();
         assert!(set.is_empty());
-        for kind in [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-        ] {
+        for kind in WidgetKind::all() {
             assert!(!set.contains(kind));
-        }
-        for n in 0..MAX_GPUS as u8 {
-            assert!(!set.contains(WidgetKind::Gpu(n)));
         }
     }
 
@@ -179,30 +169,30 @@ mod tests {
     fn clear_drops_every_member() {
         let mut set = WidgetSet::new();
         set.insert(WidgetKind::Cpu);
-        set.insert(WidgetKind::Gpu(3));
+        set.insert(WidgetKind::Gpu);
         assert!(!set.is_empty());
         set.clear();
         assert!(set.is_empty());
         assert!(!set.contains(WidgetKind::Cpu));
-        assert!(!set.contains(WidgetKind::Gpu(3)));
+        assert!(!set.contains(WidgetKind::Gpu));
     }
 
     #[test]
     fn iter_yields_members_in_canonical_order() {
         let mut set = WidgetSet::new();
         // Insert in non-canonical order to verify iter sorts.
-        set.insert(WidgetKind::Gpu(2));
+        set.insert(WidgetKind::Gpu);
         set.insert(WidgetKind::Cpu);
         set.insert(WidgetKind::Disk);
-        set.insert(WidgetKind::Gpu(0));
+        set.insert(WidgetKind::Statusbar);
         let kinds: Vec<_> = set.iter().collect();
         assert_eq!(
             kinds,
             vec![
                 WidgetKind::Cpu,
                 WidgetKind::Disk,
-                WidgetKind::Gpu(0),
-                WidgetKind::Gpu(2),
+                WidgetKind::Gpu,
+                WidgetKind::Statusbar,
             ]
         );
     }
@@ -211,15 +201,6 @@ mod tests {
     fn iter_on_empty_set_yields_nothing() {
         let set = WidgetSet::new();
         assert_eq!(set.iter().count(), 0);
-    }
-
-    #[test]
-    fn gpu_indices_are_independent() {
-        let mut set = WidgetSet::new();
-        set.insert(WidgetKind::Gpu(1));
-        assert!(set.contains(WidgetKind::Gpu(1)));
-        assert!(!set.contains(WidgetKind::Gpu(0)));
-        assert!(!set.contains(WidgetKind::Gpu(2)));
     }
 
     #[test]
@@ -260,14 +241,14 @@ mod tests {
         let mut set = WidgetSet::new();
         set.insert(WidgetKind::Net);
         set.insert(WidgetKind::Cpu);
-        set.insert(WidgetKind::Gpu(2));
+        set.insert(WidgetKind::Gpu);
         let toml = toml::Value::try_from(set).unwrap();
         assert_eq!(
             toml,
             toml::Value::Array(vec![
                 toml::Value::String("cpu".into()),
                 toml::Value::String("net".into()),
-                toml::Value::String("gpu2".into()),
+                toml::Value::String("gpu".into()),
             ]),
         );
     }
@@ -284,11 +265,14 @@ mod tests {
         let raw = toml::Value::Array(vec![
             toml::Value::String("cpu".into()),
             toml::Value::String("nope".into()),
-            toml::Value::String("gpu1".into()),
+            toml::Value::String("gpu".into()),
+            // Pre-refactor per-device GPU names — silently dropped
+            // by the per-element parse-or-skip rule.
+            toml::Value::String("gpu0".into()),
         ]);
         let set: WidgetSet = raw.try_into().unwrap();
         let kinds: Vec<_> = set.iter().collect();
-        assert_eq!(kinds, vec![WidgetKind::Cpu, WidgetKind::Gpu(1)]);
+        assert_eq!(kinds, vec![WidgetKind::Cpu, WidgetKind::Gpu]);
     }
 
     #[test]
@@ -303,8 +287,7 @@ mod tests {
         let mut original = WidgetSet::new();
         original.insert(WidgetKind::Cpu);
         original.insert(WidgetKind::Disk);
-        original.insert(WidgetKind::Gpu(0));
-        original.insert(WidgetKind::Gpu(7));
+        original.insert(WidgetKind::Gpu);
         let toml = toml::Value::try_from(original).unwrap();
         let loaded: WidgetSet = toml.try_into().unwrap();
         assert_eq!(loaded, original);

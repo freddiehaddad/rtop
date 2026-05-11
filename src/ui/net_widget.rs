@@ -329,7 +329,7 @@ impl super::Widget for NetWidget {
         let Some(net) = params.net else {
             return;
         };
-        let iface = params.selected_iface;
+        let iface = params.selected_net_iface;
         let default_net = crate::domain::network::NetInfo::default();
         let net_info = net
             .nets

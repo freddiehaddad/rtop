@@ -452,17 +452,19 @@ pub(crate) fn apply_post_change_effects(key: ConfigKey, ctx: &mut InputContext) 
             ctx.manager
                 .set_interval(crate::event::SubsystemKind::Net, ms);
         }
-        ConfigKey::Int(int_key) if int_key.gpu_index().is_some() => {
-            // Per-GPU update interval: each `IntKey::GpuNUpdateMs`
-            // addresses one device thread. `gpu_index()` returns
-            // the device index `n`; `refresh.gpu_update_ms[n]`
-            // holds its overridden interval (0 = inherit global).
-            let n = int_key.gpu_index().expect("matched by guard above");
+        ConfigKey::Int(IntKey::GpuUpdateMs) => {
+            // Cycling-GPU widget: a single global interval is
+            // broadcast to every detected device's collector
+            // thread. Keeps every GPU thread's poll cadence in
+            // lockstep so the cycle action lands on a fresh
+            // snapshot regardless of which device is selected.
             let ms = ctx
                 .config
-                .effective_interval(ctx.config.refresh.gpu_update_ms[n as usize]);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Gpu(n), ms);
+                .effective_interval(ctx.config.refresh.gpu_update_ms);
+            for n in 0..ctx.manager.gpu_count() {
+                ctx.manager
+                    .set_interval(crate::event::SubsystemKind::Gpu(n), ms);
+            }
         }
         ConfigKey::Int(IntKey::ProcUpdateMs) => {
             let ms = ctx

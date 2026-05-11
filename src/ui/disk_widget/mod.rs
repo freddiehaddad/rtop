@@ -354,10 +354,7 @@ mod tests {
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
-        assert!(
-            plain.contains("disk"),
-            "output should contain 'disk' title"
-        );
+        assert!(plain.contains("disk"), "output should contain 'disk' title");
     }
 
     #[test]

@@ -62,9 +62,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `p` / `Shift+P` | Cycle presets forward/back |
 | `Ctrl+R` | Reload config |
 | `+` / `-` | Adjust update speed |
-| `1`–`5` | Toggle widget (cpu/mem/net/proc/disk) |
-| `6`–`9` | Toggle GPU 0-3 |
-| `0` | Toggle GPU 4-7 |
+| `1`–`6` | Toggle widget (cpu/mem/net/proc/disk/gpu) |
 | `Shift+R` | Restore all hidden widgets |
 
 #### Process
@@ -99,6 +97,13 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `a` | Toggle network auto scale |
 | `s` | Toggle network sync scale |
 | `z` | Reset network totals |
+
+#### GPU
+
+| Key | Action |
+|-----|--------|
+| `[` / `]` | Cycle GPU devices |
+
 
 When **vim keys** are enabled (options → general):
 `h`/`j`/`k`/`l` for directional control, `g`/`G` for top/bottom of list, `Ctrl+F`/`Ctrl+B` for page scrolling, `Ctrl+D`/`Ctrl+U` for half-page scrolling.
@@ -204,8 +209,7 @@ update_ms = 2000
 cpu_update_ms = 1000     # CPU updates every 1s
 proc_update_ms = 5000    # Processes update every 5s
 mem_update_ms = 0        # 0 = use global (2000ms)
-gpu0_update_ms = 500     # First GPU updates every 500ms
-gpu1_update_ms = 0       # Second GPU inherits the global value
+gpu_update_ms = 500      # GPU widget polls every 500ms
 ```
 
 Set per-widget intervals via the options menu (each category tab has an update interval option) or in `rtop.toml`.
@@ -223,7 +227,7 @@ layout := widget                                          # a single widget
                                                           # weight is 1..255 (relative width share)
 ```
 
-Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu0`..`gpu7`. Each widget kind may appear at most once.
+Widgets are `cpu`, `mem`, `net`, `proc`, `disk`, and `gpu`. Each widget appears at most once.
 
 Edit the custom layout two ways:
 
@@ -250,7 +254,7 @@ custom_layout = "vstack(cpu, hstack(40:vstack(mem, net, disk), 60:proc))"
 
 ### Hiding widgets at runtime
 
-The number keys (`1`–`5` for cpu/mem/net/proc/disk, `6`–`9` for gpu0–3, `0` for gpu4–7) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The statusbar shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
+The number keys (`1`–`6` for cpu/mem/net/proc/disk/gpu) hide and restore individual widgets in the active layout. Hidden widgets stay hidden across preset cycles and across restarts (the filter is persisted in `rtop.toml`). Press `Shift+R` to restore everything in one keypress. The statusbar shows a `*` next to the preset name when any widget is hidden, so the filter never feels invisible.
 
 Hide is purely a viewing operation — it never modifies your saved layout. The custom layout is only changed by the two paths above.
 

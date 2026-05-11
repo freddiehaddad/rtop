@@ -4,24 +4,26 @@ use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
+use crate::runner;
 use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
 use super::WidgetArea;
 
-/// Per-frame view passed to [`draw`] for one GPU widget instance.
+/// Per-frame view passed to [`draw`] for the cycling-GPU widget.
 ///
-/// `index` and `custom_name` are per-instance (resolved at the
-/// call site by indexing `config.gpu.custom_gpu_names[index]`).
 /// `temp_scale` and `base_10` are shared cross-widget settings
 /// lifted into this struct so the renderer doesn't need separate
 /// `&CpuConfig` / `&UiConfig` borrows for one field each.
-pub struct GpuFrame<'a> {
-    pub index: usize,
+pub struct GpuFrame {
     pub temp_scale: TempScale,
-    pub custom_name: &'a str,
     pub base_10: bool,
+    /// 1-based index of the displayed device within the present-
+    /// device list.
+    pub cycle_position: usize,
+    /// Total number of present GPU snapshots.
+    pub cycle_total: usize,
 }
 
 /// Preferred intrinsic height for a GPU widget instance, in rows
@@ -48,19 +50,24 @@ fn fmt_clock(mhz: u32) -> String {
 
 /// Draw the GPU widget into an ANSI string.
 ///
-/// Layout (5 content rows):
-/// ╭─┐⁵gpu0┌────────────── NVIDIA GeForce RTX 4080 SUPER ╮
-/// │ GPU   ■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  48% │
-/// │ Clock ■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  2.1GHz  │
-/// │ Temp  ■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  42°C  │
-/// │ Watts ■■■■■■■■■■■■■■■■░░░░░░░░░░░░░░░░░░  50W/352W   │
-/// │ VRAM  ■■■■■■■■■■■░░░░░░░░░░░░░░░░░░░░░░░  4.5G/16G   │
-/// ╰──────────────────────────────────────────────────────╯
+/// Layout (5 content rows). Top-right inset shows the cycle chip
+/// `← [ name ] →` (`← [ name (N/M) ] →` on multi-GPU systems);
+/// `[` and `]` are the cycle keybinds, highlighted in `hi_color`.
+///
+/// ```text
+/// ╭─┐⁶gpu┌────────────┐← [ NVIDIA GeForce RTX 4080 SUPER ] →┌─╮
+/// │ GPU   ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■        0% │
+/// │ Clock ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■    315MHz │
+/// │ Temp  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■      55°C │
+/// │ Watts ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  24W/370W │
+/// │ VRAM  ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■  3.0G/16G │
+/// ╰───────────────────────────────────────────────────────────╯
+/// ```
 pub fn draw(
     gpu: &GpuInfo,
     area: &WidgetArea,
     theme: &Theme,
-    frame: &GpuFrame<'_>,
+    frame: &GpuFrame,
     status: &CollectStatus,
 ) -> String {
     let x = area.x;
@@ -80,8 +87,8 @@ pub fn draw(
     let grad_power = theme.gradient(tc::GRAD_GPU_POWER);
     let grad_vram = theme.gradient(tc::GRAD_GPU_VRAM);
 
-    let title = format!("gpu{}", frame.index);
-    let num = super::GPU_KEY_BASE + frame.index as u8;
+    let title = "gpu";
+    let num = super::GPU_KEY;
     let mut buf = AnsiBuffer::new();
     buf.text(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
@@ -90,7 +97,7 @@ pub fn draw(
         height,
         line_color: border_color,
         fill: true,
-        title: &title,
+        title,
         title2: "",
         num,
         rounded,
@@ -98,7 +105,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, &title, x, y, border_color, title_color);
+    super::draw_status_inset(&mut buf, status, title, x, y, border_color, title_color);
 
     let inner_w = width.saturating_sub(4);
     let inner_h = height.saturating_sub(2);
@@ -107,18 +114,31 @@ pub fn draw(
         return buf.finish();
     }
 
-    // GPU name on the top border (right-aligned inset)
-    let name_display = if frame.custom_name.is_empty() {
-        &gpu.name
+    // Cycle chip on the top-right border:
+    //   ← [ <name> ] →           single-GPU systems
+    //   ← [ <name> (N/M) ] →     multi-GPU systems
+    let counter = if frame.cycle_total > 1 {
+        format!(
+            " ({pos}/{total})",
+            pos = frame.cycle_position,
+            total = frame.cycle_total,
+        )
     } else {
-        frame.custom_name
+        String::new()
     };
-    let max_name_w = inner_w.saturating_sub(title.len() + 6);
-    let name_trunc: String = name_display.chars().take(max_name_w).collect();
+    let max_name_w = inner_w
+        .saturating_sub(title.len() + 10 + counter.len())
+        .max(1);
+    let name_trunc: String = gpu.name.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
-        let inset = box_drawing::title_inset(&name_trunc, border_color, title_color, false);
-        let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&name_trunc));
-        buf.mv(inset_x, y + 1).text(&inset);
+        let chip_text = format!(
+            "← {hi}[{title_color} {name}{counter} {hi}]{title_color} →",
+            name = name_trunc,
+        );
+        let chip_inset = box_drawing::title_inset(&chip_text, border_color, title_color, false);
+        let plain_chip = format!("← [ {name_trunc}{counter} ] →");
+        let chip_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&plain_chip));
+        buf.mv(chip_x, y + 1).text(&chip_inset);
     }
 
     // Consistent layout: label(6) + meter + value(val_w), like mem/disk
@@ -227,28 +247,19 @@ pub fn draw(
 // Widget impl
 // ---------------------------------------------------------------------------
 
-/// GPU widget renderer. Single registry entry that handles every
-/// per-instance `WidgetKind::Gpu(N)` — `kinds()` enumerates each
-/// supported index and `render()` iterates them, drawing only the
-/// instances present in the active layout AND backed by a real
-/// device.
+/// GPU widget renderer. Singleton entry that handles the
+/// cycling-GPU widget (`WidgetKind::Gpu`). The runtime cursor in
+/// [`crate::app::GpuViewState`] picks which detected device the
+/// widget displays this frame; `render` looks that device up by
+/// stable id in `params.gpu` and draws nothing if the cursor's
+/// device is not present (or the layout has no slot for the
+/// widget).
 pub struct GpuWidget;
 
 impl super::Widget for GpuWidget {
     fn kinds(&self) -> &'static [crate::domain::widget_kind::WidgetKind] {
-        // Every supported GPU index is one of this widget's kinds.
-        // The layout engine asks "which widget handles `Gpu(N)`?";
-        // this slice answers all eight at once.
-        const KINDS: &[crate::domain::widget_kind::WidgetKind] = &[
-            crate::domain::widget_kind::WidgetKind::Gpu(0),
-            crate::domain::widget_kind::WidgetKind::Gpu(1),
-            crate::domain::widget_kind::WidgetKind::Gpu(2),
-            crate::domain::widget_kind::WidgetKind::Gpu(3),
-            crate::domain::widget_kind::WidgetKind::Gpu(4),
-            crate::domain::widget_kind::WidgetKind::Gpu(5),
-            crate::domain::widget_kind::WidgetKind::Gpu(6),
-            crate::domain::widget_kind::WidgetKind::Gpu(7),
-        ];
+        const KINDS: &[crate::domain::widget_kind::WidgetKind] =
+            &[crate::domain::widget_kind::WidgetKind::Gpu];
         KINDS
     }
 
@@ -265,46 +276,38 @@ impl super::Widget for GpuWidget {
     }
 
     fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
-        // Iterate by actual GPU index n. Layout slots are keyed by
-        // WidgetKind::Gpu(n), so a sparse selection (e.g. only
-        // gpu1) renders the right device's snapshot with the
-        // correct title and toggle key. Each GPU's snapshot is
-        // independent — a missing slot simply means the per-device
-        // collector hasn't published yet (or the device isn't
-        // present at all, in which case `compose_hidden` will
-        // already have hidden the widget).
-        for n in 0..crate::config::MAX_GPUS {
-            let kind = crate::domain::widget_kind::WidgetKind::Gpu(n as u8);
-            // Per-instance dirty filter: only redraw the GPU(s)
-            // whose snapshot actually changed. Pull-side
-            // (`app::pull`) computes the change mask via
-            // `GpuInfo::render_fingerprint` and marks each
-            // changed kind dirty individually.
-            if !params.dirty.is_widget_dirty(kind) {
-                continue;
-            }
-            let Some(gpu_dim) = params.layout.dims_for(kind) else {
-                continue;
-            };
-            let Some(snap) = params.gpu[n].as_deref() else {
-                continue;
-            };
-            let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
-            let custom_name = params
-                .config
-                .gpu
-                .custom_gpu_names
-                .get(n)
-                .map(String::as_str)
-                .unwrap_or("");
-            let frame = GpuFrame {
-                index: n,
-                temp_scale: params.config.cpu.temp_scale,
-                custom_name,
-                base_10: params.config.ui.base_10_sizes,
-            };
-            output.push_str(&draw(&snap.info, &area, params.theme, &frame, &snap.status));
-        }
+        let Some(gpu_dim) = params
+            .layout
+            .dims_for(crate::domain::widget_kind::WidgetKind::Gpu)
+        else {
+            return;
+        };
+        let iface = params.selected_gpu_iface;
+        let present: Vec<&runner::GpuSnapshot> =
+            params.gpu.iter().filter_map(|s| s.as_deref()).collect();
+        let Some((idx, snapshot)) = present
+            .iter()
+            .enumerate()
+            .find(|(_, s)| s.info.stable_id == iface)
+        else {
+            return;
+        };
+        let cycle_position = idx + 1;
+        let cycle_total = present.len();
+        let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
+        let frame = GpuFrame {
+            temp_scale: params.config.cpu.temp_scale,
+            base_10: params.config.ui.base_10_sizes,
+            cycle_position,
+            cycle_total,
+        };
+        output.push_str(&draw(
+            &snapshot.info,
+            &area,
+            params.theme,
+            &frame,
+            &snapshot.status,
+        ));
     }
 }
 
@@ -336,6 +339,7 @@ mod tests {
     fn make_gpu_info() -> GpuInfo {
         GpuInfo {
             name: "Test GPU RTX 5090".into(),
+            stable_id: "TEST:adapter:0".into(),
             gpu_percent: GpuPercent {
                 utilization: VecDeque::from([78]),
                 vram: VecDeque::from([45]),
@@ -362,12 +366,12 @@ mod tests {
         }
     }
 
-    fn make_frame() -> GpuFrame<'static> {
+    fn make_frame() -> GpuFrame {
         GpuFrame {
-            index: 0,
             temp_scale: TempScale::Celsius,
-            custom_name: "",
             base_10: false,
+            cycle_position: 1,
+            cycle_total: 1,
         }
     }
 
@@ -381,7 +385,7 @@ mod tests {
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
-        assert!(plain.contains("gpu0"), "output should contain 'gpu0' title");
+        assert!(plain.contains("gpu"), "output should contain 'gpu' title");
     }
 
     #[test]

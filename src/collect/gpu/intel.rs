@@ -598,8 +598,8 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
     }
     device_handles.truncate(count as usize);
 
-    let mut collectors = Vec::new();
-    for dev in device_handles {
+    let mut collectors: Vec<super::DeviceCollector> = Vec::new();
+    for (vendor_relative_index, dev) in device_handles.into_iter().enumerate() {
         // SAFETY: dev is a valid handle; props is zeroed repr(C) struct.
         let mut props: CtlDeviceAdapterProperties = unsafe { std::mem::zeroed() };
         props.size = std::mem::size_of::<CtlDeviceAdapterProperties>() as u32;
@@ -654,7 +654,15 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
             }
         }
 
+        // IGCL does not expose a per-card UUID at this struct
+        // level (`pci_device_id` is shared across every Arc A770
+        // ever shipped). The vendor-relative discovery index is
+        // stable for any configuration that doesn't physically
+        // rearrange devices.
+        let stable_id = format!("INTEL:adapter:{vendor_relative_index}");
+
         let info = crate::domain::gpu::GpuInfo {
+            stable_id,
             name,
             mem_total,
             pwr_max_usage: max_power_mw,

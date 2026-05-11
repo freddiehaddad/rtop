@@ -416,13 +416,14 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
 
     adapters
         .into_iter()
-        .filter_map(|adapter| {
+        .enumerate()
+        .filter_map(|(idx, adapter)| {
             let device_ctx = session.open_context()?;
-            // Pre-fill static fields (name, max power, total VRAM)
-            // using this device's own context. The same context is
-            // then retained by the collector for all subsequent
-            // per-cycle queries from the device thread.
-            let info = build_initial_info(&session.adl, device_ctx.raw, &adapter);
+            // Pre-fill static fields (stable id, name, max power,
+            // total VRAM) using this device's own context. The same
+            // context is then retained by the collector for all
+            // subsequent per-cycle queries from the device thread.
+            let info = build_initial_info(&session.adl, device_ctx.raw, &adapter, idx);
             Some(super::DeviceCollector::Amd(AmdDeviceCollector {
                 context: device_ctx,
                 adapter_index: adapter.adapter_index,
@@ -433,13 +434,19 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
         .collect()
 }
 
-/// Adapter metadata captured during enumeration. Holds only what
-/// the per-device collector needs for its own context init; the
-/// raw `AdapterInfo` is not retained because most of its fields
-/// (driver path, display name, OS index) are unused.
+/// Per-adapter metadata extracted from `AdapterInfo` and retained
+/// for the device's lifetime. The raw `AdapterInfo` is not retained
+/// because most of its fields (driver path, display name, OS index)
+/// are unused.
 struct AdapterMeta {
     adapter_index: i32,
     name: String,
+    /// `AdapterInfo::str_udid` — ADL's per-device "Unique Device
+    /// IDentifier", a stable string identifier intended to survive
+    /// driver updates and reboots. Empty when the driver did not
+    /// populate the field (very old drivers); the caller's
+    /// stable-id fallback handles the empty case.
+    udid: String,
 }
 
 /// Enumerate ADL adapters using `ctx`, deduplicating by PCI bus
@@ -476,19 +483,33 @@ fn enumerate_adapters(adl: &AdlFunctions, ctx: *mut c_void) -> Option<Vec<Adapte
         out.push(AdapterMeta {
             adapter_index: info.i_adapter_index,
             name: string_from_buf(&info.str_adapter_name),
+            udid: string_from_buf(&info.str_udid),
         });
     }
     Some(out)
 }
 
-/// Pre-fill the per-device `GpuInfo` with static fields (name, max
-/// power reference, total VRAM) using this device's own context.
+/// Pre-fill the per-device `GpuInfo` with static fields (stable id,
+/// name, max power reference, total VRAM) using this device's own
+/// context.
 fn build_initial_info(
     adl: &AdlFunctions,
     ctx: *mut c_void,
     adapter: &AdapterMeta,
+    vendor_relative_index: usize,
 ) -> crate::domain::gpu::GpuInfo {
+    let stable_id = if adapter.udid.is_empty() {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuAdl,
+            adapter = adapter.adapter_index,
+            "ADL UDID empty; using vendor-relative adapter index fallback",
+        );
+        format!("AMD:adapter:{vendor_relative_index}")
+    } else {
+        format!("AMD:{}", adapter.udid)
+    };
     let mut gpu = crate::domain::gpu::GpuInfo {
+        stable_id,
         name: adapter.name.clone(),
         ..crate::domain::gpu::GpuInfo::default()
     };

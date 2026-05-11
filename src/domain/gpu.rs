@@ -11,6 +11,25 @@ pub struct GpuPercent {
 /// GPU monitoring data for a single GPU device.
 #[derive(Debug, Clone)]
 pub struct GpuInfo {
+    /// Vendor-prefixed stable identifier for this device. Format
+    /// is `"<VENDOR>:<UUID-or-fallback>"`:
+    ///
+    /// * NVIDIA: `"NVIDIA:GPU-12345678-1234-..."` — sourced from
+    ///   `nvmlDeviceGetUUID`. Fallback `"NVIDIA:adapter:N"` (with
+    ///   vendor-relative index) when NVML is unavailable or the
+    ///   UUID call fails.
+    /// * AMD: `"AMD:<UDID>"` — sourced from `AdapterInfoX4::strUDID`.
+    ///   Fallback `"AMD:adapter:N"` if the UDID is empty.
+    /// * Intel: `"INTEL:adapter:N"` — IGCL does not expose a
+    ///   per-card UUID at this struct level, so the
+    ///   vendor-relative discovery index is the only stable id
+    ///   available today.
+    ///
+    /// Used by [`crate::app::GpuViewState::reconcile`] to match
+    /// the persisted `view.gpu_iface` against the live device list.
+    /// Bound at discovery time; immutable for the device's
+    /// lifetime.
+    pub stable_id: String,
     /// GPU device name (e.g. "NVIDIA RTX 4090").
     pub name: String,
     /// Usage histories.
@@ -36,6 +55,7 @@ pub struct GpuInfo {
 impl Default for GpuInfo {
     fn default() -> Self {
         Self {
+            stable_id: String::new(),
             name: String::new(),
             gpu_percent: GpuPercent::default(),
             gpu_clock_speed: 0,

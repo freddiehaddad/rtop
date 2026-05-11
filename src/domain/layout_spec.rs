@@ -426,15 +426,14 @@ mod tests {
     }
 
     #[test]
-    fn contains_distinguishes_gpu_indices() {
+    fn contains_recognizes_singleton_gpu_widget() {
         let s = Slot::VStack(vec![
-            Slot::Widget(WidgetKind::Gpu(0)),
-            Slot::Widget(WidgetKind::Gpu(3)),
+            Slot::Widget(WidgetKind::Cpu),
+            Slot::Widget(WidgetKind::Gpu),
         ]);
-        assert!(s.contains(WidgetKind::Gpu(0)));
-        assert!(s.contains(WidgetKind::Gpu(3)));
-        assert!(!s.contains(WidgetKind::Gpu(1)));
-        assert!(!s.contains(WidgetKind::Gpu(2)));
+        assert!(s.contains(WidgetKind::Gpu));
+        assert!(s.contains(WidgetKind::Cpu));
+        assert!(!s.contains(WidgetKind::Mem));
     }
 
     #[test]
@@ -464,8 +463,8 @@ mod tests {
         let s = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
             Slot::Widget(WidgetKind::Mem),
-            Slot::Widget(WidgetKind::Gpu(0)),
-            Slot::Widget(WidgetKind::Gpu(1)),
+            Slot::Widget(WidgetKind::Gpu),
+            Slot::Widget(WidgetKind::Net),
         ]);
         assert!(s.validate().is_ok());
     }
@@ -483,14 +482,17 @@ mod tests {
     }
 
     #[test]
-    fn validate_rejects_duplicate_gpu_index() {
+    fn validate_rejects_duplicate_gpu_widget() {
+        // The cycling-GPU widget is a singleton — placing it
+        // twice in the layout is rejected just like duplicating
+        // any other widget kind.
         let s = Slot::VStack(vec![
-            Slot::Widget(WidgetKind::Gpu(2)),
-            Slot::Widget(WidgetKind::Gpu(2)),
+            Slot::Widget(WidgetKind::Gpu),
+            Slot::Widget(WidgetKind::Gpu),
         ]);
         assert_eq!(
             s.validate(),
-            Err(SlotParseError::DuplicateWidget(WidgetKind::Gpu(2)))
+            Err(SlotParseError::DuplicateWidget(WidgetKind::Gpu))
         );
     }
 
@@ -501,7 +503,7 @@ mod tests {
     #[test]
     fn display_widget_emits_widget_name() {
         assert_eq!(Slot::Widget(WidgetKind::Cpu).to_string(), "cpu");
-        assert_eq!(Slot::Widget(WidgetKind::Gpu(3)).to_string(), "gpu3");
+        assert_eq!(Slot::Widget(WidgetKind::Gpu).to_string(), "gpu");
     }
 
     #[test]
@@ -550,7 +552,7 @@ mod tests {
     #[test]
     fn parse_bare_widget() {
         assert_eq!("cpu".parse::<Slot>(), Ok(Slot::Widget(WidgetKind::Cpu)));
-        assert_eq!("gpu5".parse::<Slot>(), Ok(Slot::Widget(WidgetKind::Gpu(5))));
+        assert_eq!("gpu".parse::<Slot>(), Ok(Slot::Widget(WidgetKind::Gpu)));
     }
 
     #[test]
@@ -715,8 +717,7 @@ mod tests {
                 Slot::HStack(vec![
                     HStackChild::new(
                         Slot::VStack(vec![
-                            Slot::Widget(WidgetKind::Gpu(0)),
-                            Slot::Widget(WidgetKind::Gpu(1)),
+                            Slot::Widget(WidgetKind::Gpu),
                             Slot::Widget(WidgetKind::Mem),
                             Slot::Widget(WidgetKind::Net),
                             Slot::Widget(WidgetKind::Disk),

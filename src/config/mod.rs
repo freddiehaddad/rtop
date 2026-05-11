@@ -28,9 +28,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
-/// Maximum number of GPUs supported.
-pub const MAX_GPUS: usize = 8;
-
 /// Error returned by [`StringKey::set`] / [`EnumKey::set_canonical`]
 /// when the supplied string cannot be parsed into the field's value
 /// type.
@@ -188,8 +185,6 @@ pub struct Config {
     #[serde(flatten)]
     pub proc: ProcConfig,
     #[serde(flatten)]
-    pub gpu: GpuConfig,
-    #[serde(flatten)]
     pub disk: DiskConfig,
     #[serde(flatten)]
     pub log: LogConfig,
@@ -213,7 +208,7 @@ pub struct Config {
     pub layout: CachedLayoutSpec,
 
     /// Persisted runtime view filter. The user toggles widgets in
-    /// or out of this set with `1`-`9` / `0` / `Shift+R`; the set
+    /// or out of this set with `1`-`6` / `Shift+R`; the set
     /// survives restart so a hidden-on-Monday widget stays hidden
     /// on Tuesday. The cursor and active layout are unaffected by
     /// filter membership — see `AppState::filter` for the live
@@ -240,7 +235,6 @@ impl Default for Config {
             mem: MemConfig::default(),
             net: NetConfig::default(),
             proc: ProcConfig::default(),
-            gpu: GpuConfig::default(),
             disk: DiskConfig::default(),
             log: LogConfig::default(),
             view: ViewConfig::default(),

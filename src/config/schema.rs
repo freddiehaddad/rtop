@@ -298,14 +298,7 @@ config_schema! {
         MemUpdateMs => "mem_update_ms" => { field refresh.mem_update_ms },
         DiskUpdateMs => "disk_update_ms" => { field refresh.disk_update_ms },
         NetUpdateMs => "net_update_ms" => { field refresh.net_update_ms },
-        Gpu0UpdateMs => "gpu0_update_ms" => { array refresh.gpu_update_ms[0] },
-        Gpu1UpdateMs => "gpu1_update_ms" => { array refresh.gpu_update_ms[1] },
-        Gpu2UpdateMs => "gpu2_update_ms" => { array refresh.gpu_update_ms[2] },
-        Gpu3UpdateMs => "gpu3_update_ms" => { array refresh.gpu_update_ms[3] },
-        Gpu4UpdateMs => "gpu4_update_ms" => { array refresh.gpu_update_ms[4] },
-        Gpu5UpdateMs => "gpu5_update_ms" => { array refresh.gpu_update_ms[5] },
-        Gpu6UpdateMs => "gpu6_update_ms" => { array refresh.gpu_update_ms[6] },
-        Gpu7UpdateMs => "gpu7_update_ms" => { array refresh.gpu_update_ms[7] },
+        GpuUpdateMs => "gpu_update_ms" => { field refresh.gpu_update_ms },
         ProcUpdateMs => "proc_update_ms" => { field refresh.proc_update_ms },
         NetDownload => "net_download" => { field net.net_download },
         NetUpload => "net_upload" => { field net.net_upload },
@@ -331,14 +324,6 @@ config_schema! {
         ProcFilter => "proc_filter" => { field view.proc_filter },
         DiskFilter => "disk_filter" => { joined_vec disk.disk_filter },
         CustomLayout => "custom_layout" => { custom_layout },
-        CustomGpuName0 => "custom_gpu_name0" => { array gpu.custom_gpu_names[0] },
-        CustomGpuName1 => "custom_gpu_name1" => { array gpu.custom_gpu_names[1] },
-        CustomGpuName2 => "custom_gpu_name2" => { array gpu.custom_gpu_names[2] },
-        CustomGpuName3 => "custom_gpu_name3" => { array gpu.custom_gpu_names[3] },
-        CustomGpuName4 => "custom_gpu_name4" => { array gpu.custom_gpu_names[4] },
-        CustomGpuName5 => "custom_gpu_name5" => { array gpu.custom_gpu_names[5] },
-        CustomGpuName6 => "custom_gpu_name6" => { array gpu.custom_gpu_names[6] },
-        CustomGpuName7 => "custom_gpu_name7" => { array gpu.custom_gpu_names[7] },
     }
 }
 
@@ -347,26 +332,6 @@ config_schema! {
 // ---------------------------------------------------------------------------
 
 impl IntKey {
-    /// If `self` is one of the eight per-GPU `GpuNUpdateMs`
-    /// variants, return its device index `n`; otherwise `None`.
-    /// Used by the options-menu handler fan-out, the help-text
-    /// helper, and `sync_all_intervals` to map from the typed
-    /// key back to the per-device subsystem index without
-    /// re-spelling the eight-arm match at every site.
-    pub fn gpu_index(self) -> Option<u8> {
-        match self {
-            Self::Gpu0UpdateMs => Some(0),
-            Self::Gpu1UpdateMs => Some(1),
-            Self::Gpu2UpdateMs => Some(2),
-            Self::Gpu3UpdateMs => Some(3),
-            Self::Gpu4UpdateMs => Some(4),
-            Self::Gpu5UpdateMs => Some(5),
-            Self::Gpu6UpdateMs => Some(6),
-            Self::Gpu7UpdateMs => Some(7),
-            _ => None,
-        }
-    }
-
     /// Per-key step size used by the options-menu arrow-step path.
     /// `*UpdateMs` keys step in 100 ms increments; throughput caps
     /// step in single-unit increments.
@@ -377,14 +342,7 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::Gpu0UpdateMs
-            | Self::Gpu1UpdateMs
-            | Self::Gpu2UpdateMs
-            | Self::Gpu3UpdateMs
-            | Self::Gpu4UpdateMs
-            | Self::Gpu5UpdateMs
-            | Self::Gpu6UpdateMs
-            | Self::Gpu7UpdateMs
+            | Self::GpuUpdateMs
             | Self::ProcUpdateMs => 100,
             Self::NetDownload | Self::NetUpload => 1,
         }
@@ -402,14 +360,7 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::Gpu0UpdateMs
-            | Self::Gpu1UpdateMs
-            | Self::Gpu2UpdateMs
-            | Self::Gpu3UpdateMs
-            | Self::Gpu4UpdateMs
-            | Self::Gpu5UpdateMs
-            | Self::Gpu6UpdateMs
-            | Self::Gpu7UpdateMs
+            | Self::GpuUpdateMs
             | Self::ProcUpdateMs => 0..=86_400_000,
             Self::NetDownload | Self::NetUpload => 0..=10_000_000,
         }
@@ -447,14 +398,7 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::Gpu0UpdateMs
-            | Self::Gpu1UpdateMs
-            | Self::Gpu2UpdateMs
-            | Self::Gpu3UpdateMs
-            | Self::Gpu4UpdateMs
-            | Self::Gpu5UpdateMs
-            | Self::Gpu6UpdateMs
-            | Self::Gpu7UpdateMs
+            | Self::GpuUpdateMs
             | Self::ProcUpdateMs => "must be 0..86400000 ms (0=inherit)",
             Self::NetDownload | Self::NetUpload => "must be 0..10000000 KiB/s",
         }
@@ -551,17 +495,7 @@ impl StringKey {
                 }
             }
             // Free-form string keys accept anything.
-            Self::StatusbarClockFormat
-            | Self::CustomCpuName
-            | Self::ProcFilter
-            | Self::CustomGpuName0
-            | Self::CustomGpuName1
-            | Self::CustomGpuName2
-            | Self::CustomGpuName3
-            | Self::CustomGpuName4
-            | Self::CustomGpuName5
-            | Self::CustomGpuName6
-            | Self::CustomGpuName7 => Ok(()),
+            Self::StatusbarClockFormat | Self::CustomCpuName | Self::ProcFilter => Ok(()),
         }
     }
 
@@ -587,14 +521,6 @@ impl StringKey {
             Self::DiskFilter => {
                 config.disk.disk_filter = parse_disk_filter(value).map_err(|_| err())?;
             }
-            Self::CustomGpuName0 => config.gpu.custom_gpu_names[0] = value.to_string(),
-            Self::CustomGpuName1 => config.gpu.custom_gpu_names[1] = value.to_string(),
-            Self::CustomGpuName2 => config.gpu.custom_gpu_names[2] = value.to_string(),
-            Self::CustomGpuName3 => config.gpu.custom_gpu_names[3] = value.to_string(),
-            Self::CustomGpuName4 => config.gpu.custom_gpu_names[4] = value.to_string(),
-            Self::CustomGpuName5 => config.gpu.custom_gpu_names[5] = value.to_string(),
-            Self::CustomGpuName6 => config.gpu.custom_gpu_names[6] = value.to_string(),
-            Self::CustomGpuName7 => config.gpu.custom_gpu_names[7] = value.to_string(),
         }
         Ok(())
     }

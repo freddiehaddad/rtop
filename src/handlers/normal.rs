@@ -415,45 +415,10 @@ pub(super) fn toggle_widget_main_action(ctx: &mut InputContext, key: &Key) {
         crate::ui::NET_KEY => WidgetKind::Net,
         crate::ui::PROC_KEY => WidgetKind::Proc,
         crate::ui::DISK_KEY => WidgetKind::Disk,
+        crate::ui::GPU_KEY => WidgetKind::Gpu,
         _ => return,
     };
     toggle_widget(ctx, kind);
-}
-
-pub(super) fn toggle_widget_gpu_low_action(ctx: &mut InputContext, key: &Key) {
-    let Key::Char(c) = key else {
-        return;
-    };
-    let digit = (*c as u8) - b'0';
-    if digit < crate::ui::GPU_KEY_BASE {
-        return;
-    }
-    let gpu_idx = (digit - crate::ui::GPU_KEY_BASE) as usize;
-    let Some(gpu_kind) = WidgetKind::gpu(gpu_idx) else {
-        return;
-    };
-    toggle_widget(ctx, gpu_kind);
-}
-
-pub(super) fn toggle_widget_gpu_high_action(ctx: &mut InputContext, _key: &Key) {
-    // The `0` key toggles the second half of GPU slots
-    // (indices 4..MAX_GPUS) as a single batch action so users
-    // with many GPUs can collapse them quickly. A single
-    // batch flips every Gpu(4..MAX_GPUS) — if any is hidden
-    // they all become visible; otherwise they all become
-    // hidden. (Pre-existing semantics.)
-    for i in 4..crate::config::MAX_GPUS {
-        if let Some(gpu_kind) = WidgetKind::gpu(i) {
-            ctx.filter.hidden.toggle(gpu_kind);
-        }
-    }
-    tracing::info!(
-        subsystem = %crate::log::Subsystem::Input,
-        action = "widget_toggle",
-        r#widget = "gpu_extras",
-        "widget visibility toggled",
-    );
-    ctx.render.dirty.mark_layout();
 }
 
 fn toggle_widget(ctx: &mut InputContext, kind: WidgetKind) {
@@ -488,15 +453,15 @@ pub(super) fn restore_widgets_action(ctx: &mut InputContext, _key: &Key) {
 // Network
 // ---------------------------------------------------------------------------
 
-pub(super) fn iface_back_action(ctx: &mut InputContext, _key: &Key) {
-    cycle_iface(ctx, -1);
+pub(super) fn net_back_action(ctx: &mut InputContext, _key: &Key) {
+    cycle_net(ctx, -1);
 }
 
-pub(super) fn iface_forward_action(ctx: &mut InputContext, _key: &Key) {
-    cycle_iface(ctx, 1);
+pub(super) fn net_forward_action(ctx: &mut InputContext, _key: &Key) {
+    cycle_net(ctx, 1);
 }
 
-fn cycle_iface(ctx: &mut InputContext, direction: isize) {
+fn cycle_net(ctx: &mut InputContext, direction: isize) {
     if ctx.live.net.as_ref().is_none_or(|n| n.nets.is_empty()) {
         return;
     }
@@ -530,6 +495,32 @@ pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) {
 }
 
 // ---------------------------------------------------------------------------
+// GPU device cycle
+// ---------------------------------------------------------------------------
+
+pub(super) fn gpu_back_action(ctx: &mut InputContext, _key: &Key) {
+    cycle_gpu(ctx, -1);
+}
+
+pub(super) fn gpu_forward_action(ctx: &mut InputContext, _key: &Key) {
+    cycle_gpu(ctx, 1);
+}
+
+fn cycle_gpu(ctx: &mut InputContext, direction: isize) {
+    if ctx.live.gpu.iter().all(|s| s.is_none()) {
+        return;
+    }
+    cycle_gpu_iface(ctx, direction);
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::Input,
+        action = "gpu_iface_cycle",
+        iface = %ctx.gpu.selected_iface,
+        "GPU device switched",
+    );
+    ctx.render.dirty.mark_widget(WidgetKind::Gpu);
+}
+
+// ---------------------------------------------------------------------------
 // Helpers (shared with options actions)
 // ---------------------------------------------------------------------------
 
@@ -538,10 +529,9 @@ pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) {
 /// Called when global `update_ms` changes — collectors using the default
 /// (per-widget interval == 0) get the new global value, while collectors
 /// with a custom per-widget interval keep their own. The GPU subsystem
-/// is fanned out across `0..manager.gpu_count()`; indices beyond the
-/// discovered device count are intentionally skipped (no thread to
-/// address — the matching `Option<Sender<_>>` slot in `PerSubsystem`
-/// is `None`).
+/// shares a single `gpu_update_ms` across every detected device, so the
+/// resolved value broadcasts to every GPU thread via a `0..gpu_count`
+/// loop.
 pub(crate) fn sync_all_intervals(ctx: &mut InputContext) {
     let base_intervals = [
         (SubsystemKind::Cpu, ctx.config.refresh.cpu_update_ms),
@@ -554,12 +544,11 @@ pub(crate) fn sync_all_intervals(ctx: &mut InputContext) {
         ctx.manager
             .set_interval(kind, ctx.config.effective_interval(widget_ms));
     }
+    let gpu_ms = ctx
+        .config
+        .effective_interval(ctx.config.refresh.gpu_update_ms);
     for n in 0..ctx.manager.gpu_count() {
-        let widget_ms = ctx.config.refresh.gpu_update_ms[n as usize];
-        ctx.manager.set_interval(
-            SubsystemKind::Gpu(n),
-            ctx.config.effective_interval(widget_ms),
-        );
+        ctx.manager.set_interval(SubsystemKind::Gpu(n), gpu_ms);
     }
 }
 
@@ -587,6 +576,30 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
     };
     ctx.network.selected_iface = nets[new_idx].name.clone();
     ctx.view.net_iface = ctx.network.selected_iface.clone();
+}
+
+fn cycle_gpu_iface(ctx: &mut InputContext, direction: isize) {
+    let present: Vec<&str> = ctx
+        .live
+        .gpu
+        .iter()
+        .filter_map(|s| s.as_deref().map(|s| s.info.stable_id.as_str()))
+        .collect();
+    if present.is_empty() {
+        return;
+    }
+
+    let current = present
+        .iter()
+        .position(|id| *id == ctx.gpu.selected_iface)
+        .unwrap_or(0);
+    let new_idx = if direction < 0 {
+        current.checked_sub(1).unwrap_or(present.len() - 1)
+    } else {
+        (current + 1) % present.len()
+    };
+    ctx.gpu.selected_iface = present[new_idx].to_string();
+    ctx.view.gpu_iface = ctx.gpu.selected_iface.clone();
 }
 
 // ---------------------------------------------------------------------------

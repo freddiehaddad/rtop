@@ -41,8 +41,8 @@ const LEFT_WEIGHT: NonZeroU8 = match NonZeroU8::new(40) {
 /// status view, then `Custom`. Each step is a distinct user mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BuiltinPreset {
-    /// Everything: the five base widgets plus a `Gpu(N)` for every
-    /// supported index. The dashboard / overview position.
+    /// Everything: the six base widgets including the cycling
+    /// GPU widget. The dashboard / overview position.
     All,
     /// CPU + processes — "what's eating my CPU?"
     CpuProc,
@@ -100,19 +100,13 @@ impl BuiltinPreset {
 
     /// Static [`Slot`] tree for this preset.
     ///
-    /// Each preset's tree is hand-written below as a literal
-    /// `Slot::VStack` / `Slot::HStack` shape — every widget the
-    /// preset *might* display appears in the tree, including
-    /// every supported GPU index. The layout engine collapses
-    /// invisible widgets (currently only `Gpu(n)` where `n >=
-    /// hints.gpu_count`) to zero size so the same static tree
-    /// produces correct output on every hardware configuration.
-    ///
-    /// Every preset's outermost shape is a [`Slot::VStack`]; the
-    /// statusbar leaf is appended to that VStack as the last
-    /// child so it always lands on the bottom row. The helper
-    /// [`with_statusbar`] takes care of the append (and gracefully
-    /// wraps a future non-VStack root in a new outer VStack).
+    /// Each preset's tree is a literal `Slot::VStack` /
+    /// `Slot::HStack` shape. Every preset's outermost shape is a
+    /// [`Slot::VStack`]; the statusbar leaf is appended to that
+    /// VStack as the last child so it always lands on the bottom
+    /// row. The helper [`with_statusbar`] takes care of the append
+    /// (and gracefully wraps a future non-VStack root in a new
+    /// outer VStack).
     pub fn layout_spec(self) -> Slot {
         let body = match self {
             Self::All => all_layout_spec(),
@@ -166,36 +160,34 @@ fn with_statusbar(root: Slot) -> Slot {
 }
 
 /// Build the `all` preset's slot tree: CPU on top, then a
-/// two-column body with [GPUs, Mem, Net, Disk] on the left and
+/// two-column body with [GPU, Mem, Net, Disk] on the left and
 /// Proc on the right.
 fn all_layout_spec() -> Slot {
-    let mut left: Vec<Slot> = Vec::with_capacity(crate::config::MAX_GPUS + 3);
-    for n in 0..crate::config::MAX_GPUS as u8 {
-        left.push(Slot::Widget(WidgetKind::Gpu(n)));
-    }
-    left.push(Slot::Widget(WidgetKind::Mem));
-    left.push(Slot::Widget(WidgetKind::Net));
-    left.push(Slot::Widget(WidgetKind::Disk));
     Slot::VStack(vec![
         Slot::Widget(WidgetKind::Cpu),
         Slot::HStack(vec![
-            HStackChild::new(Slot::VStack(left), LEFT_WEIGHT),
+            HStackChild::new(
+                Slot::VStack(vec![
+                    Slot::Widget(WidgetKind::Gpu),
+                    Slot::Widget(WidgetKind::Mem),
+                    Slot::Widget(WidgetKind::Net),
+                    Slot::Widget(WidgetKind::Disk),
+                ]),
+                LEFT_WEIGHT,
+            ),
             HStackChild::new(Slot::Widget(WidgetKind::Proc), PROC_WEIGHT),
         ]),
     ])
 }
 
-/// Build the `cpu+gpu+proc` preset's slot tree: CPU on top, every
-/// supported GPU stacked below at preferred height, Proc absorbing
-/// the remaining height.
+/// Build the `cpu+gpu+proc` preset's slot tree: CPU on top, GPU
+/// in the middle at preferred height, Proc absorbing the rest.
 fn cpu_gpu_proc_layout_spec() -> Slot {
-    let mut col: Vec<Slot> = Vec::with_capacity(crate::config::MAX_GPUS + 2);
-    col.push(Slot::Widget(WidgetKind::Cpu));
-    for n in 0..crate::config::MAX_GPUS as u8 {
-        col.push(Slot::Widget(WidgetKind::Gpu(n)));
-    }
-    col.push(Slot::Widget(WidgetKind::Proc));
-    Slot::VStack(col)
+    Slot::VStack(vec![
+        Slot::Widget(WidgetKind::Cpu),
+        Slot::Widget(WidgetKind::Gpu),
+        Slot::Widget(WidgetKind::Proc),
+    ])
 }
 
 /// Cursor identifying which preset is currently active. The
@@ -468,11 +460,19 @@ mod tests {
         assert_eq!(hstack.len(), 2);
         // Right column is always proc.
         assert!(matches!(hstack[1].slot, Slot::Widget(WidgetKind::Proc)));
-        // Left column is a VStack containing every GPU + mem + net + disk.
+        // Left column is a VStack containing the singleton GPU + mem + net + disk.
         let Slot::VStack(left) = &hstack[0].slot else {
             panic!("`all` left column should be a VStack");
         };
-        assert_eq!(left.len(), crate::config::MAX_GPUS + 3);
+        assert_eq!(
+            left,
+            &vec![
+                Slot::Widget(WidgetKind::Gpu),
+                Slot::Widget(WidgetKind::Mem),
+                Slot::Widget(WidgetKind::Net),
+                Slot::Widget(WidgetKind::Disk),
+            ]
+        );
         // Statusbar is the last leaf.
         assert!(matches!(children[2], Slot::Widget(WidgetKind::Statusbar)));
     }
@@ -531,26 +531,16 @@ mod tests {
     #[test]
     fn builtin_cpu_gpu_proc_layout_spec_is_single_column() {
         let spec = BuiltinPreset::CpuGpuProc.layout_spec();
-        let Slot::VStack(children) = &spec else {
-            panic!("`cpu+gpu+proc` should be a VStack");
-        };
-        // CPU + every GPU + proc + statusbar, all in one column.
-        assert_eq!(children.len(), 3 + crate::config::MAX_GPUS);
-        assert!(matches!(children[0], Slot::Widget(WidgetKind::Cpu)));
-        for n in 0..crate::config::MAX_GPUS as u8 {
-            assert!(matches!(
-                children[1 + n as usize],
-                Slot::Widget(WidgetKind::Gpu(m)) if m == n,
-            ));
-        }
-        assert!(matches!(
-            children[children.len() - 2],
-            Slot::Widget(WidgetKind::Proc)
-        ));
-        assert!(matches!(
-            children[children.len() - 1],
-            Slot::Widget(WidgetKind::Statusbar)
-        ));
+        // CPU + singleton GPU + proc + statusbar, all in one column.
+        assert_eq!(
+            spec,
+            Slot::VStack(vec![
+                Slot::Widget(WidgetKind::Cpu),
+                Slot::Widget(WidgetKind::Gpu),
+                Slot::Widget(WidgetKind::Proc),
+                Slot::Widget(WidgetKind::Statusbar),
+            ])
+        );
     }
 
     #[test]

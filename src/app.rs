@@ -23,8 +23,8 @@ mod state;
 
 pub(crate) use dirty_exec::RenderParams;
 pub(crate) use state::{
-    AppState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeView,
-    WidgetFilter,
+    AppState, GpuViewState, LiveData, NetworkViewState, OverlayState, ProcessViewState,
+    RenderState, RuntimeView, WidgetFilter,
 };
 
 use crate::config;
@@ -57,24 +57,28 @@ enum AppCommand {
 /// queued events, then renders any dirty widgets in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    // Resolve every per-GPU interval through `effective_interval`
-    // here so the spawn site sees already-resolved values and
-    // never re-implements the "0 = inherit global" rule.
-    let gpu_intervals: [u64; crate::config::MAX_GPUS] =
-        std::array::from_fn(|i| config.effective_interval(config.refresh.gpu_update_ms[i]));
+    // Resolve the GPU interval through `effective_interval` here so
+    // the spawn site sees an already-resolved value and never
+    // re-implements the "0 = inherit global" rule. The cycling-GPU
+    // widget shares one interval across every detected device, so
+    // every GPU thread starts with the same value.
+    let gpu_update_ms = config.effective_interval(config.refresh.gpu_update_ms);
     let mut manager = runner::CollectorManager::start(
         config.refresh.update_ms as u64,
         event_tx.clone(),
-        gpu_intervals,
+        gpu_update_ms,
     );
     lifecycle::spawn_input_thread(event_tx);
     let mut state = AppState::new(config, manager.gpu_count());
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
 
+    let mut ready = PerSubsystem::<bool>::with_default(manager.gpu_count());
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);
-        let mut ready = PerSubsystem::<bool>::default();
+        // Reset the per-cycle ready bitmap in place so the GPU
+        // `Vec<bool>` doesn't reallocate every iteration.
+        ready.reset();
         let mut keys: Vec<input::Key> = Vec::new();
         match first {
             AppEvent::Resize => {}
@@ -216,6 +220,7 @@ fn handle_input_key(
             overlay: &mut state.overlay,
             process: &mut state.process,
             network: &mut state.network,
+            gpu: &mut state.gpu,
             filter: &mut state.filter,
             size,
             quit: &mut quit,

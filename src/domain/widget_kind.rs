@@ -1,5 +1,5 @@
 //! Typed identifier for the named layout widgets (cpu, mem, net,
-//! proc, disk, gpuN). Replaces the prior `Vec<String>` /
+//! proc, disk, gpu). Replaces the prior `Vec<String>` /
 //! `&[&'static str]` representation throughout layout, preset,
 //! and toggle code so that:
 //!
@@ -9,7 +9,7 @@
 //!   element type so the `Config` runtime cache can be removed.
 //! - Adding a new variant fails-loud at every `match` site.
 //!
-//! TOML serialisation produces plain strings ("cpu", "gpu0", …)
+//! TOML serialisation produces plain strings ("cpu", "gpu", …)
 //! via the bespoke [`Serialize`]/[`Deserialize`] impls below; the
 //! enum's variant shape is an internal concern.
 
@@ -20,10 +20,13 @@ use serde::de::{self, Deserializer, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-use crate::config::MAX_GPUS;
-
-/// One layout widget. The non-GPU variants are fixed; `Gpu(n)` is a
-/// per-device widget where `n` is in `0..MAX_GPUS`.
+/// One layout widget. Each variant is a singleton — including
+/// `Gpu`, which represents a single user-cycled GPU widget that
+/// renders one of the per-device snapshots at a time. The
+/// per-device data still flows through `N` collector threads (one
+/// per discovered device); the runtime cursor in
+/// [`crate::app::GpuViewState`] picks which device the singleton
+/// widget displays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WidgetKind {
     Cpu,
@@ -31,7 +34,7 @@ pub enum WidgetKind {
     Net,
     Proc,
     Disk,
-    Gpu(u8),
+    Gpu,
     /// Borderless 1-row widget rendered as part of a layout (typically
     /// the last child of the outermost vertical stack). Hosts the
     /// menu / preset / update-interval hints (left section) and
@@ -61,26 +64,12 @@ pub enum WidgetSizing {
 }
 
 impl WidgetKind {
-    /// Materialise a `Gpu(n)` for the given index. Returns `None`
-    /// if `n >= MAX_GPUS`.
-    pub fn gpu(n: usize) -> Option<Self> {
-        if n < MAX_GPUS {
-            Some(Self::Gpu(n as u8))
-        } else {
-            None
-        }
-    }
-
     /// Numeric keybind that toggles this widget's visibility from
-    /// the normal view. `1`-`5` for the base widgets, `6`-`9` for
-    /// the first four GPU slots; `Gpu(4..MAX_GPUS)` returns `None`
-    /// because they are addressed only via the `0` batch toggle
-    /// (and via the options menu's widget filter).
+    /// the normal view. `1`-`6` for the six base widgets;
     /// `Statusbar` returns `None` — it has no number keybind and
     /// is toggled exclusively via the options-menu `statusbar`
     /// tab. Mirrors
-    /// [`crate::handlers::normal::toggle_widget_main_action`] /
-    /// [`crate::handlers::normal::toggle_widget_gpu_low_action`].
+    /// [`crate::handlers::normal::toggle_widget_main_action`].
     pub const fn toggle_key(self) -> Option<char> {
         match self {
             Self::Cpu => Some('1'),
@@ -88,31 +77,27 @@ impl WidgetKind {
             Self::Net => Some('3'),
             Self::Proc => Some('4'),
             Self::Disk => Some('5'),
-            Self::Gpu(n) if n < 4 => {
-                // 6-9 for Gpu(0..4). `b'6' + n` is unambiguously
-                // ASCII for n < 4.
-                Some((b'6' + n) as char)
-            }
-            Self::Gpu(_) | Self::Statusbar => None,
+            Self::Gpu => Some('6'),
+            Self::Statusbar => None,
         }
     }
 
     /// Iterate over every supported [`WidgetKind`] in canonical
-    /// order: the five base widgets followed by `Gpu(0..MAX_GPUS)`,
-    /// then `Statusbar`. Used by [`crate::dirty::RenderDirty`] for
-    /// "all widgets" operations and by anywhere else that needs to
-    /// walk the full universe of widget kinds.
+    /// order: the six base widgets, then `Statusbar`. Used by
+    /// [`crate::dirty::RenderDirty`] for "all widgets" operations
+    /// and by anywhere else that needs to walk the full universe of
+    /// widget kinds.
     pub fn all() -> impl Iterator<Item = WidgetKind> {
-        const BASE: [WidgetKind; 5] = [
+        const ALL: [WidgetKind; 7] = [
             WidgetKind::Cpu,
             WidgetKind::Mem,
             WidgetKind::Net,
             WidgetKind::Proc,
             WidgetKind::Disk,
+            WidgetKind::Gpu,
+            WidgetKind::Statusbar,
         ];
-        BASE.into_iter()
-            .chain((0..MAX_GPUS as u8).map(WidgetKind::Gpu))
-            .chain(std::iter::once(WidgetKind::Statusbar))
+        ALL.into_iter()
     }
 
     /// Intrinsic sizing classification — see [`WidgetSizing`].
@@ -123,7 +108,7 @@ impl WidgetKind {
     /// engine handles every distribution decision uniformly from there.
     pub const fn sizing(self) -> WidgetSizing {
         match self {
-            Self::Cpu | Self::Mem | Self::Disk | Self::Gpu(_) | Self::Statusbar => {
+            Self::Cpu | Self::Mem | Self::Disk | Self::Gpu | Self::Statusbar => {
                 WidgetSizing::Preferred
             }
             Self::Net | Self::Proc => WidgetSizing::Fill,
@@ -132,30 +117,18 @@ impl WidgetKind {
 }
 
 // Compile-time invariants on the widget sizing classification. These
-// pin the contract documented on `WidgetKind::sizing` and double as
-// non-test production usages of the new types so clippy's dead-code
-// pass doesn't fire while subsequent commits wire `sizing()` into
-// the v2 layout engine.
+// pin the contract documented on `WidgetKind::sizing`.
 const _: () = {
     assert!(matches!(WidgetKind::Cpu.sizing(), WidgetSizing::Preferred));
     assert!(matches!(WidgetKind::Mem.sizing(), WidgetSizing::Preferred));
     assert!(matches!(WidgetKind::Disk.sizing(), WidgetSizing::Preferred));
+    assert!(matches!(WidgetKind::Gpu.sizing(), WidgetSizing::Preferred));
     assert!(matches!(WidgetKind::Net.sizing(), WidgetSizing::Fill));
     assert!(matches!(WidgetKind::Proc.sizing(), WidgetSizing::Fill));
     assert!(matches!(
         WidgetKind::Statusbar.sizing(),
         WidgetSizing::Preferred
     ));
-    // Every Gpu(N) is Preferred. Walk every supported index to
-    // catch any future divergence at compile time.
-    let mut n = 0;
-    while n < MAX_GPUS {
-        assert!(matches!(
-            WidgetKind::Gpu(n as u8).sizing(),
-            WidgetSizing::Preferred
-        ));
-        n += 1;
-    }
 };
 
 impl Display for WidgetKind {
@@ -166,7 +139,7 @@ impl Display for WidgetKind {
             Self::Net => f.write_str("net"),
             Self::Proc => f.write_str("proc"),
             Self::Disk => f.write_str("disk"),
-            Self::Gpu(n) => write!(f, "gpu{n}"),
+            Self::Gpu => f.write_str("gpu"),
             Self::Statusbar => f.write_str("statusbar"),
         }
     }
@@ -196,13 +169,9 @@ impl FromStr for WidgetKind {
             "net" => Ok(Self::Net),
             "proc" => Ok(Self::Proc),
             "disk" => Ok(Self::Disk),
+            "gpu" => Ok(Self::Gpu),
             "statusbar" => Ok(Self::Statusbar),
-            other => other
-                .strip_prefix("gpu")
-                .and_then(|suffix| suffix.parse::<u8>().ok())
-                .filter(|n| (*n as usize) < MAX_GPUS)
-                .map(Self::Gpu)
-                .ok_or_else(|| ParseWidgetKindError(other.to_string())),
+            other => Err(ParseWidgetKindError(other.to_string())),
         }
     }
 }
@@ -221,9 +190,8 @@ impl<'de> Deserialize<'de> for WidgetKind {
             type Value = WidgetKind;
 
             fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(
-                    f,
-                    "a widget name (\"cpu\", \"mem\", \"net\", \"proc\", \"disk\", \"statusbar\", or \"gpuN\" with 0 <= N < {MAX_GPUS})"
+                f.write_str(
+                    "a widget name (\"cpu\", \"mem\", \"net\", \"proc\", \"disk\", \"gpu\", or \"statusbar\")",
                 )
             }
 
@@ -240,18 +208,16 @@ impl<'de> Deserialize<'de> for WidgetKind {
 ///
 /// Provides exhaustive enum-keyed storage for per-widget values
 /// without runtime hashing or `Option` lookup misses. Used by
-/// `draw::layout::Layout` so that GPU widgets are stored under
-/// their actual [`WidgetKind::Gpu(n)`] index — preventing the
-/// dense-positional `Vec` shape that previously dropped GPU
-/// identity when a sparse subset of GPU widgets was enabled.
+/// `draw::layout::Layout` and [`crate::domain::widget_set::WidgetSet`].
 ///
-/// The five base widgets each occupy a single field; GPU
-/// widgets occupy a fixed-size `[T; MAX_GPUS]` array indexed
-/// by the variant payload; `Statusbar` occupies its own field.
+/// Each variant occupies a single field — including `Gpu`, which
+/// is a singleton (the per-device GPU snapshots live on
+/// [`crate::app::LiveData::gpu`] as a `Vec<Option<Arc<...>>>`,
+/// independent of the widget surface).
 ///
-/// `Copy`-derived when `T: Copy` so that container types built
-/// on top (e.g. [`crate::dirty::RenderDirty`]) can be cheaply
-/// passed by value through the per-frame render pipeline.
+/// `Copy`-derived when `T: Copy` so containers built on top
+/// (e.g. [`crate::dirty::RenderDirty`]) can be cheaply passed by
+/// value through the per-frame render pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PerWidget<T> {
     cpu: T,
@@ -259,7 +225,7 @@ pub struct PerWidget<T> {
     net: T,
     process: T,
     disk: T,
-    gpu: [T; MAX_GPUS],
+    gpu: T,
     statusbar: T,
 }
 
@@ -271,7 +237,7 @@ impl<T: Default> Default for PerWidget<T> {
             net: T::default(),
             process: T::default(),
             disk: T::default(),
-            gpu: std::array::from_fn(|_| T::default()),
+            gpu: T::default(),
             statusbar: T::default(),
         }
     }
@@ -286,7 +252,7 @@ impl<T> PerWidget<T> {
             WidgetKind::Net => &self.net,
             WidgetKind::Proc => &self.process,
             WidgetKind::Disk => &self.disk,
-            WidgetKind::Gpu(n) => &self.gpu[n as usize],
+            WidgetKind::Gpu => &self.gpu,
             WidgetKind::Statusbar => &self.statusbar,
         }
     }
@@ -299,7 +265,7 @@ impl<T> PerWidget<T> {
             WidgetKind::Net => &mut self.net,
             WidgetKind::Proc => &mut self.process,
             WidgetKind::Disk => &mut self.disk,
-            WidgetKind::Gpu(n) => &mut self.gpu[n as usize],
+            WidgetKind::Gpu => &mut self.gpu,
             WidgetKind::Statusbar => &mut self.statusbar,
         }
     }
@@ -310,18 +276,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sizing_classifies_cpu_mem_disk_gpu_statusbar_as_preferred() {
+    fn sizing_classifies_preferred_widgets() {
         assert_eq!(WidgetKind::Cpu.sizing(), WidgetSizing::Preferred);
         assert_eq!(WidgetKind::Mem.sizing(), WidgetSizing::Preferred);
         assert_eq!(WidgetKind::Disk.sizing(), WidgetSizing::Preferred);
+        assert_eq!(WidgetKind::Gpu.sizing(), WidgetSizing::Preferred);
         assert_eq!(WidgetKind::Statusbar.sizing(), WidgetSizing::Preferred);
-        for n in 0..MAX_GPUS {
-            assert_eq!(
-                WidgetKind::Gpu(n as u8).sizing(),
-                WidgetSizing::Preferred,
-                "gpu{n} must be Preferred",
-            );
-        }
     }
 
     #[test]
@@ -332,123 +292,74 @@ mod tests {
 
     #[test]
     fn sizing_is_const_callable() {
-        // Verify the const-ness so future callers can use sizing() in
-        // const contexts (e.g., compile-time validation tables).
         const _PROC: WidgetSizing = WidgetKind::Proc.sizing();
         const _CPU: WidgetSizing = WidgetKind::Cpu.sizing();
+        const _GPU: WidgetSizing = WidgetKind::Gpu.sizing();
         const _SB: WidgetSizing = WidgetKind::Statusbar.sizing();
     }
 
     #[test]
-    fn statusbar_has_no_toggle_key() {
+    fn toggle_keys_cover_six_base_widgets_only() {
+        assert_eq!(WidgetKind::Cpu.toggle_key(), Some('1'));
+        assert_eq!(WidgetKind::Mem.toggle_key(), Some('2'));
+        assert_eq!(WidgetKind::Net.toggle_key(), Some('3'));
+        assert_eq!(WidgetKind::Proc.toggle_key(), Some('4'));
+        assert_eq!(WidgetKind::Disk.toggle_key(), Some('5'));
+        assert_eq!(WidgetKind::Gpu.toggle_key(), Some('6'));
         // Statusbar is reachable only via the options-menu `statusbar`
         // tab; it intentionally has no number-key keybind.
         assert_eq!(WidgetKind::Statusbar.toggle_key(), None);
     }
 
     #[test]
-    fn all_iterator_includes_statusbar_after_gpu_slots() {
+    fn all_iterator_lists_seven_widgets_in_canonical_order() {
         let kinds: Vec<WidgetKind> = WidgetKind::all().collect();
-        assert_eq!(kinds.last().copied(), Some(WidgetKind::Statusbar));
-        assert_eq!(kinds.len(), 5 + MAX_GPUS + 1);
+        assert_eq!(
+            kinds,
+            vec![
+                WidgetKind::Cpu,
+                WidgetKind::Mem,
+                WidgetKind::Net,
+                WidgetKind::Proc,
+                WidgetKind::Disk,
+                WidgetKind::Gpu,
+                WidgetKind::Statusbar,
+            ]
+        );
     }
 
     #[test]
-    fn display_round_trips_for_static_variants() {
-        for variant in [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-            WidgetKind::Statusbar,
-        ] {
+    fn display_round_trips_for_every_variant() {
+        for variant in WidgetKind::all() {
             let s = variant.to_string();
             assert_eq!(s.parse::<WidgetKind>().unwrap(), variant);
         }
     }
 
     #[test]
-    fn statusbar_display_and_parse_use_canonical_name() {
-        assert_eq!(WidgetKind::Statusbar.to_string(), "statusbar");
-        assert_eq!(
-            "statusbar".parse::<WidgetKind>().unwrap(),
-            WidgetKind::Statusbar
-        );
-    }
-
-    #[test]
-    fn display_round_trips_for_gpu_variants() {
-        for n in 0..MAX_GPUS {
-            let v = WidgetKind::Gpu(n as u8);
-            let s = v.to_string();
-            assert_eq!(s, format!("gpu{n}"));
-            assert_eq!(s.parse::<WidgetKind>().unwrap(), v);
-        }
-    }
-
-    #[test]
-    fn from_str_rejects_unknown_static_name() {
+    fn from_str_rejects_unknown_names() {
         assert!("foo".parse::<WidgetKind>().is_err());
         assert!("Cpu".parse::<WidgetKind>().is_err()); // case-sensitive
         assert!("".parse::<WidgetKind>().is_err());
-    }
-
-    #[test]
-    fn from_str_rejects_gpu_index_out_of_range() {
-        let max = MAX_GPUS;
-        assert!(format!("gpu{max}").parse::<WidgetKind>().is_err());
-        assert!("gpu99".parse::<WidgetKind>().is_err());
-    }
-
-    #[test]
-    fn from_str_rejects_gpu_with_no_digits() {
-        assert!("gpu".parse::<WidgetKind>().is_err());
-        assert!("gpux".parse::<WidgetKind>().is_err());
-    }
-
-    #[test]
-    fn gpu_constructor_enforces_max() {
-        assert!(WidgetKind::gpu(0).is_some());
-        assert_eq!(
-            WidgetKind::gpu(MAX_GPUS - 1),
-            Some(WidgetKind::Gpu(MAX_GPUS as u8 - 1))
-        );
-        assert_eq!(WidgetKind::gpu(MAX_GPUS), None);
+        // Pre-refactor, `gpu0`..`gpu7` were valid widget names.
+        // Cycling-GPU collapses them to a single `gpu` — the
+        // indexed forms must now reject.
+        assert!("gpu0".parse::<WidgetKind>().is_err());
+        assert!("gpu1".parse::<WidgetKind>().is_err());
     }
 
     #[test]
     fn per_widget_default_is_default_for_every_slot() {
         let p = PerWidget::<bool>::default();
-        for kind in [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-            WidgetKind::Statusbar,
-        ] {
+        for kind in WidgetKind::all() {
             assert!(!*p.get(kind));
-        }
-        for n in 0..MAX_GPUS {
-            assert!(!*p.get(WidgetKind::Gpu(n as u8)));
         }
     }
 
     #[test]
-    fn per_widget_base_slots_are_independent() {
+    fn per_widget_slots_are_independent() {
         let mut p = PerWidget::<u32>::default();
-        for (i, kind) in [
-            WidgetKind::Cpu,
-            WidgetKind::Mem,
-            WidgetKind::Net,
-            WidgetKind::Proc,
-            WidgetKind::Disk,
-            WidgetKind::Statusbar,
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        for (i, kind) in WidgetKind::all().enumerate() {
             *p.get_mut(kind) = i as u32 + 1;
         }
         assert_eq!(*p.get(WidgetKind::Cpu), 1);
@@ -456,32 +367,17 @@ mod tests {
         assert_eq!(*p.get(WidgetKind::Net), 3);
         assert_eq!(*p.get(WidgetKind::Proc), 4);
         assert_eq!(*p.get(WidgetKind::Disk), 5);
-        assert_eq!(*p.get(WidgetKind::Statusbar), 6);
+        assert_eq!(*p.get(WidgetKind::Gpu), 6);
+        assert_eq!(*p.get(WidgetKind::Statusbar), 7);
     }
 
     #[test]
-    fn per_widget_gpu_slots_are_addressable_by_index() {
-        let mut p = PerWidget::<u32>::default();
-        for n in 0..MAX_GPUS {
-            *p.get_mut(WidgetKind::Gpu(n as u8)) = (100 + n) as u32;
-        }
-        for n in 0..MAX_GPUS {
-            assert_eq!(*p.get(WidgetKind::Gpu(n as u8)), (100 + n) as u32);
-        }
-        // Sparse writes preserve identity: writing only Gpu(2) leaves Gpu(0) and Gpu(1) untouched.
-        let mut q = PerWidget::<u32>::default();
-        *q.get_mut(WidgetKind::Gpu(2)) = 42;
-        assert_eq!(*q.get(WidgetKind::Gpu(0)), 0);
-        assert_eq!(*q.get(WidgetKind::Gpu(1)), 0);
-        assert_eq!(*q.get(WidgetKind::Gpu(2)), 42);
-    }
-
-    #[test]
-    fn per_widget_gpu_does_not_alias_base_slots() {
-        let mut p = PerWidget::<u32>::default();
-        *p.get_mut(WidgetKind::Cpu) = 1;
-        *p.get_mut(WidgetKind::Gpu(0)) = 2;
-        assert_eq!(*p.get(WidgetKind::Cpu), 1);
-        assert_eq!(*p.get(WidgetKind::Gpu(0)), 2);
+    fn per_widget_is_copy_when_t_is_copy() {
+        // Pin `Copy` so containers built on top (RenderDirty,
+        // Layout) can be passed by value through the per-frame
+        // render pipeline without churning their signatures.
+        fn assert_copy<T: Copy>() {}
+        assert_copy::<PerWidget<bool>>();
+        assert_copy::<PerWidget<i32>>();
     }
 }

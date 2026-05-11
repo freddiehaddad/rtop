@@ -102,11 +102,10 @@ pub struct LayoutHints {
 
 /// Complete layout of all UI widgets.
 ///
-/// Widget dimensions are stored keyed by [`WidgetKind`]. GPU widget
-/// slots are addressed by their actual index `n` (from
-/// [`WidgetKind::Gpu(n)`]) — preserving identity end-to-end so a
-/// sparse GPU layout (e.g. only `gpu1` enabled) renders the
-/// correct device's data with the correct title and toggle key.
+/// Widget dimensions are stored keyed by [`WidgetKind`]. The GPU
+/// slot is a singleton — the cycling-GPU widget renders whichever
+/// device the runtime cursor selects, so the layout engine doesn't
+/// need to track per-device positions.
 #[derive(Debug, Clone, Default)]
 pub struct Layout {
     dims: PerWidget<Option<WidgetDimensions>>,
@@ -880,56 +879,43 @@ mod tests {
 
     #[test]
     fn hidden_widget_in_vstack_contributes_zero_height() {
-        // Static tree includes Gpu(0..7); only Gpu(0) and Gpu(1) are
-        // "present" — the rest are hidden. The engine should treat
-        // Gpu(2..7) as 0-height and pack Mem/Net/Disk into the
-        // remaining space.
-        let mut left = Vec::new();
-        for n in 0..8u8 {
-            left.push(Slot::Widget(WidgetKind::Gpu(n)));
-        }
-        left.push(Slot::Widget(WidgetKind::Mem));
-        left.push(Slot::Widget(WidgetKind::Disk));
-        left.push(Slot::Widget(WidgetKind::Net));
-        let hidden = hide(&[
-            WidgetKind::Gpu(2),
-            WidgetKind::Gpu(3),
-            WidgetKind::Gpu(4),
-            WidgetKind::Gpu(5),
-            WidgetKind::Gpu(6),
-            WidgetKind::Gpu(7),
+        // Stack contains the singleton GPU widget plus several
+        // siblings; hide some and verify the remaining siblings
+        // pack with no gap from the hidden slots.
+        let root = Slot::VStack(vec![
+            Slot::Widget(WidgetKind::Gpu),
+            Slot::Widget(WidgetKind::Mem),
+            Slot::Widget(WidgetKind::Disk),
+            Slot::Widget(WidgetKind::Net),
         ]);
-        let mut cfg = lc_with_hidden(120, 60, Slot::VStack(left), hidden);
+        let hidden = hide(&[WidgetKind::Mem, WidgetKind::Disk]);
+        let mut cfg = lc_with_hidden(120, 60, root, hidden);
         cfg.hints.core_count = 8;
         let layout = calc_sizes(&cfg);
-        let g0 = layout.dims_for(WidgetKind::Gpu(0)).expect("gpu0 placed");
-        let g1 = layout.dims_for(WidgetKind::Gpu(1)).expect("gpu1 placed");
-        let mem = layout.dims_for(WidgetKind::Mem).expect("mem placed");
+        let gpu = layout.dims_for(WidgetKind::Gpu).expect("gpu placed");
+        let net = layout.dims_for(WidgetKind::Net).expect("net placed");
         let gpu_pref = crate::ui::gpu_widget::preferred_height();
-        assert_eq!(g0.y, 0);
-        assert_eq!(g0.height, gpu_pref);
-        assert_eq!(g1.y, gpu_pref);
-        assert_eq!(g1.height, gpu_pref);
-        // Mem follows immediately after the two visible GPUs (no
-        // gap from hidden Gpu(2..7)).
-        assert_eq!(mem.y, 2 * gpu_pref);
-        // Hidden GPU slots aren't placed.
-        for n in 2..8u8 {
-            assert!(layout.dims_for(WidgetKind::Gpu(n)).is_none());
-        }
+        assert_eq!(gpu.y, 0);
+        assert_eq!(gpu.height, gpu_pref);
+        // Net follows immediately after the visible GPU widget — no
+        // gap from the hidden Mem/Disk slots above it.
+        assert_eq!(net.y, gpu_pref);
+        // Hidden widgets aren't placed.
+        assert!(layout.dims_for(WidgetKind::Mem).is_none());
+        assert!(layout.dims_for(WidgetKind::Disk).is_none());
     }
 
     #[test]
     fn hidden_widget_in_hstack_yields_width_to_visible_sibling() {
-        // HStack with [Gpu(5), Proc]; Gpu(5) is hidden. Proc gets
-        // the full width.
+        // HStack with [Gpu, Proc]; the GPU widget is hidden. Proc
+        // gets the full width.
         let root = Slot::HStack(vec![
-            HStackChild::new(Slot::Widget(WidgetKind::Gpu(5)), nz(40)),
+            HStackChild::new(Slot::Widget(WidgetKind::Gpu), nz(40)),
             HStackChild::new(Slot::Widget(WidgetKind::Proc), nz(60)),
         ]);
-        let cfg = lc_with_hidden(100, 30, root, hide(&[WidgetKind::Gpu(5)]));
+        let cfg = lc_with_hidden(100, 30, root, hide(&[WidgetKind::Gpu]));
         let layout = calc_sizes(&cfg);
-        assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
+        assert!(layout.dims_for(WidgetKind::Gpu).is_none());
         let proc = layout.dims_for(WidgetKind::Proc).expect("proc placed");
         assert_eq!(proc.x, 0);
         assert_eq!(proc.width, 100);
@@ -953,38 +939,17 @@ mod tests {
     }
 
     #[test]
-    fn sparse_gpu_layout_preserves_indices() {
-        let root = Slot::VStack(vec![
-            Slot::Widget(WidgetKind::Cpu),
-            Slot::Widget(WidgetKind::Gpu(1)),
-            Slot::Widget(WidgetKind::Gpu(3)),
-        ]);
-        let layout = calc_sizes(&lc_with_hints(120, 50, root, |h| {
-            h.core_count = 8;
-        }));
-        // Tree-absent indices stay absent (Layout has no entry for
-        // them at all). Tree-present indices render at their own y.
-        assert!(layout.dims_for(WidgetKind::Gpu(0)).is_none());
-        assert!(layout.dims_for(WidgetKind::Gpu(1)).is_some());
-        assert!(layout.dims_for(WidgetKind::Gpu(2)).is_none());
-        assert!(layout.dims_for(WidgetKind::Gpu(3)).is_some());
-        let gpu1 = layout.dims_for(WidgetKind::Gpu(1)).expect("gpu1 placed");
-        let gpu3 = layout.dims_for(WidgetKind::Gpu(3)).expect("gpu3 placed");
-        assert!(gpu1.y < gpu3.y);
-    }
-
-    #[test]
     fn fully_hidden_tree_yields_empty_layout() {
         // Tree contains only one widget and it's hidden — no
         // terminal-too-small triggers, but nothing renders either.
         let cfg = lc_with_hidden(
             120,
             40,
-            Slot::Widget(WidgetKind::Gpu(5)),
-            hide(&[WidgetKind::Gpu(5)]),
+            Slot::Widget(WidgetKind::Gpu),
+            hide(&[WidgetKind::Gpu]),
         );
         let layout = calc_sizes(&cfg);
-        assert!(layout.dims_for(WidgetKind::Gpu(5)).is_none());
+        assert!(layout.dims_for(WidgetKind::Gpu).is_none());
         assert!(layout.is_empty(), "fully-hidden layout reports empty");
     }
 
@@ -1138,8 +1103,8 @@ mod tests {
         let cfg = lc_with_hidden(
             0,
             0,
-            Slot::Widget(WidgetKind::Gpu(5)),
-            hide(&[WidgetKind::Gpu(5)]),
+            Slot::Widget(WidgetKind::Gpu),
+            hide(&[WidgetKind::Gpu]),
         );
         let (w, h) = min_terminal_size(&cfg);
         assert_eq!((w, h), (0, 0));

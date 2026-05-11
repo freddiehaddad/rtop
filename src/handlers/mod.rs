@@ -3,8 +3,8 @@ pub(crate) mod normal;
 
 use crate::{
     app::{
-        LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState, RuntimeView,
-        TerminalSize,
+        GpuViewState, LiveData, NetworkViewState, OverlayState, ProcessViewState, RenderState,
+        RuntimeView, TerminalSize, WidgetFilter,
     },
     config,
     overlay::{
@@ -30,7 +30,8 @@ pub(crate) struct InputContext<'a> {
     pub(crate) overlay: &'a mut OverlayState,
     pub(crate) process: &'a mut ProcessViewState,
     pub(crate) network: &'a mut NetworkViewState,
-    pub(crate) filter: &'a mut crate::app::WidgetFilter,
+    pub(crate) gpu: &'a mut GpuViewState,
+    pub(crate) filter: &'a mut WidgetFilter,
     pub(crate) size: TerminalSize,
     /// Set to `true` by an action to signal that the application
     /// should exit after the current dispatch completes.

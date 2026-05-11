@@ -106,9 +106,10 @@ impl Collector for DeviceCollector {
 ///
 /// Probes each vendor in canonical order (NVIDIA → AMD → Intel) and
 /// concatenates the per-vendor device collectors into a single
-/// vector. The order is preserved across rtop runs so
-/// `custom_gpu_names[i]` and `gpu_update_ms[i]` continue to address
-/// the same physical device they did before.
+/// vector. Discovery order is preserved within each vendor so that
+/// per-device collector identities (the `Vec<LatestSlot<...>>`
+/// indices in [`crate::runner::CollectorManager::gpu_slots`]) stay
+/// stable across rtop runs.
 ///
 /// Discovery is synchronous: every vendor SDK's library is loaded,
 /// every vendor init is called, and every device is enumerated
@@ -117,28 +118,14 @@ impl Collector for DeviceCollector {
 /// table drop immediately) and never abort discovery for the other
 /// vendors.
 ///
-/// The returned vector's length is the discovered device count;
-/// callers must not assume it equals [`crate::config::MAX_GPUS`].
+/// There is no architectural cap on detected device count.
+/// Hardware realities (motherboard PCIe slots, vendor SDK
+/// enumeration limits) bound it well below `u8::MAX`.
 pub(crate) fn discover() -> Vec<DeviceCollector> {
     let mut out = Vec::new();
     out.extend(nvidia::discover());
     out.extend(amd::discover());
     out.extend(intel::discover());
-    if out.len() > crate::config::MAX_GPUS {
-        // The toggle-key keybinds, per-GPU config arrays, and
-        // per-GPU dirty bits are all sized by MAX_GPUS. A system
-        // with more than MAX_GPUS detected devices truncates to
-        // the first MAX_GPUS — anything beyond would have no
-        // addressable widget, no toggle key, and no per-device
-        // config entry.
-        tracing::warn!(
-            subsystem = %crate::log::Subsystem::Gpu,
-            detected = out.len(),
-            cap = crate::config::MAX_GPUS,
-            "device count exceeds MAX_GPUS; truncating",
-        );
-        out.truncate(crate::config::MAX_GPUS);
-    }
     tracing::info!(
         subsystem = %crate::log::Subsystem::Gpu,
         devices = out.len(),
@@ -155,9 +142,10 @@ mod tests {
     fn discover_does_not_panic() {
         // Discovery probes vendor DLLs that may or may not be
         // present on the build/test host. The function must
-        // gracefully return an empty Vec on any test machine.
-        let collectors = discover();
-        assert!(collectors.len() <= crate::config::MAX_GPUS);
+        // gracefully return whatever it finds (often an empty
+        // Vec on machines without supported GPUs) on any test
+        // machine.
+        let _collectors = discover();
     }
 
     #[test]

@@ -193,9 +193,9 @@ net_download = 5000
 proc_tree = true
 proc_sorting = "memory"
 proc_filter = "chrome"
-custom_gpu_names = ["RTX 4090", "", "", "", "", "", "", ""]
+gpu_iface = "NVIDIA:GPU-aaaa"
 log_level = "info"
-hidden_widgets = ["mem", "gpu0"]
+hidden_widgets = ["mem", "gpu"]
 "#,
     )
     .unwrap();
@@ -234,16 +234,16 @@ hidden_widgets = ["mem", "gpu0"]
     assert_eq!(config.view.proc_sorting, ProcSort::Memory);
     assert_eq!(config.view.proc_filter, "chrome");
 
-    // GpuConfig
-    assert_eq!(config.gpu.custom_gpu_names[0], "RTX 4090");
-    assert_eq!(config.gpu.custom_gpu_names[1], "");
+    // GPU view (cycling-GPU widget persists the last-viewed
+    // device's stable id; no per-device labels exist).
+    assert_eq!(config.view.gpu_iface, "NVIDIA:GPU-aaaa");
 
     // LogConfig
     assert_eq!(config.log.log_level, LevelFilter::INFO);
 
     // Top-level
     assert!(config.hidden_widgets.contains(WidgetKind::Mem));
-    assert!(config.hidden_widgets.contains(WidgetKind::Gpu(0)));
+    assert!(config.hidden_widgets.contains(WidgetKind::Gpu));
 
     let _ = fs::remove_file(&tmp);
 }
@@ -259,7 +259,7 @@ fn write_and_reload_round_trips_cleanly() {
     original.refresh.update_ms = 750;
     original.view.proc_tree = true;
     original.cpu.show_cpu_freq = false;
-    original.gpu.custom_gpu_names[0] = "Test GPU 0".to_string();
+    original.view.gpu_iface = "AMD:UDID-deadbeef".to_string();
     original.log.log_level = LevelFilter::DEBUG;
 
     let tmp = std::env::temp_dir().join("rtop_test_subsystem_roundtrip.toml");
@@ -274,7 +274,7 @@ fn write_and_reload_round_trips_cleanly() {
     assert_eq!(loaded.refresh.update_ms, 750);
     assert!(loaded.view.proc_tree);
     assert!(!loaded.cpu.show_cpu_freq);
-    assert_eq!(loaded.gpu.custom_gpu_names[0], "Test GPU 0");
+    assert_eq!(loaded.view.gpu_iface, "AMD:UDID-deadbeef");
     assert_eq!(loaded.log.log_level, LevelFilter::DEBUG);
 
     let _ = fs::remove_file(&tmp);
@@ -401,7 +401,7 @@ fn cycle_preset_back_to_custom_restores_user_layout() {
     config.layout.set_custom(Slot::VStack(vec![
         Slot::Widget(WidgetKind::Mem),
         Slot::Widget(WidgetKind::Proc),
-        Slot::Widget(WidgetKind::Gpu(0)),
+        Slot::Widget(WidgetKind::Gpu),
     ]));
     config.set_active_preset(ActivePreset::Custom);
 
@@ -414,7 +414,7 @@ fn cycle_preset_back_to_custom_restores_user_layout() {
         Slot::VStack(vec![
             Slot::Widget(WidgetKind::Mem),
             Slot::Widget(WidgetKind::Proc),
-            Slot::Widget(WidgetKind::Gpu(0)),
+            Slot::Widget(WidgetKind::Gpu),
         ])
     );
 }
@@ -526,14 +526,7 @@ fn parse_int_accepts_zero_for_inherit_keys() {
         IntKey::MemUpdateMs,
         IntKey::DiskUpdateMs,
         IntKey::NetUpdateMs,
-        IntKey::Gpu0UpdateMs,
-        IntKey::Gpu1UpdateMs,
-        IntKey::Gpu2UpdateMs,
-        IntKey::Gpu3UpdateMs,
-        IntKey::Gpu4UpdateMs,
-        IntKey::Gpu5UpdateMs,
-        IntKey::Gpu6UpdateMs,
-        IntKey::Gpu7UpdateMs,
+        IntKey::GpuUpdateMs,
         IntKey::ProcUpdateMs,
     ] {
         assert_eq!(key.parse("0").unwrap(), 0);
@@ -541,42 +534,14 @@ fn parse_int_accepts_zero_for_inherit_keys() {
 }
 
 #[test]
-fn gpu_update_ms_keys_round_trip_through_array_index() {
-    // The array shape on the schema macro (`array
-    // refresh.gpu_update_ms[N]`) must read and write the matching
-    // slot in the fixed-size config array without aliasing across
-    // GPU indices.
+fn gpu_update_ms_round_trips_through_field() {
+    // The cycling-GPU widget uses a single global interval — the
+    // schema exposes one `IntKey::GpuUpdateMs` reading and writing
+    // the scalar `refresh.gpu_update_ms` field.
     let mut config = crate::config::Config::new();
-    let keys = [
-        IntKey::Gpu0UpdateMs,
-        IntKey::Gpu1UpdateMs,
-        IntKey::Gpu2UpdateMs,
-        IntKey::Gpu3UpdateMs,
-        IntKey::Gpu4UpdateMs,
-        IntKey::Gpu5UpdateMs,
-        IntKey::Gpu6UpdateMs,
-        IntKey::Gpu7UpdateMs,
-    ];
-    for (i, key) in keys.iter().enumerate() {
-        key.set(&mut config, (1000 + i as i64) * 10);
-    }
-    for (i, key) in keys.iter().enumerate() {
-        assert_eq!(key.get(&config), (1000 + i as i64) * 10);
-        assert_eq!(
-            config.refresh.gpu_update_ms[i],
-            (1000 + i as i64) * 10,
-            "gpu_update_ms[{i}] must reflect the written value",
-        );
-    }
-}
-
-#[test]
-fn gpu_update_ms_keys_expose_their_device_index() {
-    assert_eq!(IntKey::Gpu0UpdateMs.gpu_index(), Some(0));
-    assert_eq!(IntKey::Gpu7UpdateMs.gpu_index(), Some(7));
-    assert_eq!(IntKey::CpuUpdateMs.gpu_index(), None);
-    assert_eq!(IntKey::UpdateMs.gpu_index(), None);
-    assert_eq!(IntKey::NetDownload.gpu_index(), None);
+    IntKey::GpuUpdateMs.set(&mut config, 1234);
+    assert_eq!(IntKey::GpuUpdateMs.get(&config), 1234);
+    assert_eq!(config.refresh.gpu_update_ms, 1234);
 }
 
 #[test]
@@ -627,8 +592,6 @@ fn validate_string_free_form_keys_always_ok() {
         StringKey::StatusbarClockFormat,
         StringKey::CustomCpuName,
         StringKey::ProcFilter,
-        StringKey::CustomGpuName0,
-        StringKey::CustomGpuName7,
     ] {
         assert!(key.validate("").is_ok());
         assert!(key.validate("anything goes !@#$%").is_ok());

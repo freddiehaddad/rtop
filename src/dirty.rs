@@ -256,14 +256,14 @@ mod tests {
     }
 
     #[test]
-    fn per_gpu_dirty_is_independent() {
+    fn gpu_dirty_marks_singleton() {
+        // The cycling-GPU widget is a singleton — there is only
+        // one `WidgetKind::Gpu` slot in the dirty map, regardless
+        // of how many physical GPUs are present.
         let mut d = RenderDirty::empty();
-        d.mark_widget(WidgetKind::Gpu(0));
-        d.mark_widget(WidgetKind::Gpu(3));
-        assert!(d.is_widget_dirty(WidgetKind::Gpu(0)));
-        assert!(d.is_widget_dirty(WidgetKind::Gpu(3)));
-        assert!(!d.is_widget_dirty(WidgetKind::Gpu(1)));
-        assert!(!d.is_widget_dirty(WidgetKind::Gpu(2)));
+        assert!(!d.is_widget_dirty(WidgetKind::Gpu));
+        d.mark_widget(WidgetKind::Gpu);
+        assert!(d.is_widget_dirty(WidgetKind::Gpu));
         // Other widget kinds untouched.
         assert!(!d.is_widget_dirty(WidgetKind::Cpu));
     }

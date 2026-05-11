@@ -108,7 +108,7 @@ pub(crate) fn render_if_dirty_waiting(
 /// Build the "all widgets hidden" overlay text. Lists `Shift+R` as
 /// the bulk-reset key plus the per-widget toggle keys for the
 /// widgets present in `active_layout` (so users on `cpu+proc` never
-/// see "press 6 to show gpu0").
+/// see "press 6 to show gpu").
 fn render_all_hidden(
     size: TerminalSize,
     active_layout: &crate::domain::layout_spec::Slot,
@@ -139,7 +139,6 @@ fn render_all_hidden(
 /// Compose the overlay's text lines. Pure function so the layout
 /// is testable without rendering.
 fn build_all_hidden_lines(active_layout: &crate::domain::layout_spec::Slot) -> Vec<String> {
-    use crate::domain::widget_kind::WidgetKind;
     let mut lines = vec![
         "All widgets hidden.".to_string(),
         String::new(),
@@ -152,14 +151,6 @@ fn build_all_hidden_lines(active_layout: &crate::domain::layout_spec::Slot) -> V
         if active_layout.contains(kind) {
             hints.push(format!("  {key}  {kind}"));
         }
-    }
-    // The `0` key batch-toggles the GPU 4-7 range. Mention it if
-    // the active layout includes any GPU in that range — the user
-    // can't address those individually.
-    let gpu_extras_present =
-        (4..crate::config::MAX_GPUS as u8).any(|n| active_layout.contains(WidgetKind::Gpu(n)));
-    if gpu_extras_present {
-        hints.push("  0  gpu4-7".to_string());
     }
     if hints.is_empty() {
         // Active layout has nothing toggleable — only the bulk
@@ -177,24 +168,9 @@ fn build_all_hidden_lines(active_layout: &crate::domain::layout_spec::Slot) -> V
 /// addressable widget requires only updating `toggle_key`.
 fn widget_toggle_hints() -> Vec<(char, crate::domain::widget_kind::WidgetKind)> {
     use crate::domain::widget_kind::WidgetKind;
-    let base = [
-        WidgetKind::Cpu,
-        WidgetKind::Mem,
-        WidgetKind::Net,
-        WidgetKind::Proc,
-        WidgetKind::Disk,
-    ];
-    let mut out: Vec<(char, WidgetKind)> = base
-        .into_iter()
+    WidgetKind::all()
         .filter_map(|k| k.toggle_key().map(|c| (c, k)))
-        .collect();
-    for n in 0..crate::config::MAX_GPUS as u8 {
-        let kind = WidgetKind::Gpu(n);
-        if let Some(c) = kind.toggle_key() {
-            out.push((c, kind));
-        }
-    }
-    out
+        .collect()
 }
 
 /// Render the all-hidden overlay if dirty flags indicate it's needed.
@@ -292,29 +268,25 @@ mod tests {
     }
 
     #[test]
-    fn all_hidden_lines_show_gpu_extras_hint_only_when_present() {
-        // Active layout contains gpu5 (in the 4-7 range) — show "0  gpu4-7".
+    fn all_hidden_lines_list_gpu_singleton_when_present() {
+        // Active layout contains the singleton GPU widget. The
+        // toggle-key hint table emits a single "6  gpu" line.
         let active = Slot::VStack(vec![
             Slot::Widget(WidgetKind::Cpu),
-            Slot::Widget(WidgetKind::Gpu(5)),
+            Slot::Widget(WidgetKind::Gpu),
         ]);
         let lines = build_all_hidden_lines(&active);
         let body = lines.join("\n");
-        assert!(body.contains("0  gpu4-7"));
-        // gpu5 doesn't get its own per-key line because it's in
-        // the batch range; the "0  gpu4-7" hint covers it.
+        assert!(body.contains("6  gpu"));
     }
 
     #[test]
-    fn all_hidden_lines_drop_per_key_section_when_no_widgets_toggleable() {
-        // Active layout has only widgets the toggle keys can't
-        // address (none today, but verify the truncation path
-        // works defensively).
-        let active = Slot::Widget(WidgetKind::Gpu(0));
+    fn all_hidden_lines_omit_gpu_when_layout_excludes_gpu_widget() {
+        // Active layout has no GPU widget — the GPU toggle key
+        // must not appear.
+        let active = Slot::Widget(WidgetKind::Cpu);
         let lines = build_all_hidden_lines(&active);
         let body = lines.join("\n");
-        // gpu0 is on key 6 (within toggleable range), so this case
-        // does include the per-key section. Verify the structure:
-        assert!(body.contains("6  gpu0"));
+        assert!(!body.contains("gpu"));
     }
 }

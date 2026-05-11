@@ -13,8 +13,10 @@ pub const MEM_KEY: u8 = 2;
 pub const NET_KEY: u8 = 3;
 pub const PROC_KEY: u8 = 4;
 pub const DISK_KEY: u8 = 5;
-/// First GPU toggle key. GPU N uses `GPU_KEY_BASE + N`.
-pub const GPU_KEY_BASE: u8 = 6;
+/// GPU widget toggle key. The cycling-GPU widget is a singleton —
+/// one toggle key suffices, joining the existing `1`-`5` array on
+/// [`crate::handlers::normal::toggle_widget_main_action`].
+pub const GPU_KEY: u8 = 6;
 
 /// Shared area description for UI widget draw functions.
 pub struct WidgetArea {

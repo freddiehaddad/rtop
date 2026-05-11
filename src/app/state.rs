@@ -35,6 +35,7 @@ pub(crate) struct AppState {
     pub(crate) overlay: OverlayState,
     pub(crate) process: ProcessViewState,
     pub(crate) network: NetworkViewState,
+    pub(crate) gpu: GpuViewState,
     pub(crate) filter: WidgetFilter,
 }
 
@@ -44,11 +45,8 @@ impl AppState {
     /// `gpu_count` is the number of GPUs discovered by
     /// [`crate::runner::CollectorManager::start`]. Discovery is
     /// one-shot at startup so this value is fixed for the lifetime
-    /// of the `AppState`; it threads through to
-    /// [`LiveData::gpu_count`] and from there into
-    /// `compose_hidden`, `is_ready`, and `layout_hints`. Test
-    /// fixtures pass `0` because they do not exercise GPU
-    /// behaviour.
+    /// of the `AppState`. Test fixtures pass `0` because they do
+    /// not exercise GPU behaviour.
     pub(crate) fn new(config: &config::Config, gpu_count: u8) -> Self {
         Self {
             view: RuntimeView::from_config(&config.view),
@@ -57,6 +55,7 @@ impl AppState {
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
+            gpu: GpuViewState::new(),
             // Restore the persisted view filter at startup. Toggle
             // gestures during the previous session are picked up
             // here; `Shift+R` cleared the filter and saved an
@@ -69,26 +68,19 @@ impl AppState {
     }
 
     /// Compose the engine's per-frame `hidden` [`WidgetSet`] from
-    /// every visibility source: hardware absence (GPUs without a
-    /// backing device, derived from `LiveData`'s detected GPU count),
-    /// the statusbar's master `show_statusbar` config toggle, and
-    /// the user's runtime view filter.
+    /// every visibility source:
+    ///
+    /// * The statusbar's master `show_statusbar` config toggle.
+    /// * Zero-detected-GPUs hardware absence (the cycling-GPU
+    ///   widget has no devices to display, so the engine treats it
+    ///   as hidden and the layout reclaims its row).
+    /// * The user's runtime view filter.
     ///
     /// The engine consumes the result without caring why a widget
     /// is hidden — there is one source of truth per frame, built
     /// here.
     pub(crate) fn compose_hidden(&self, config: &config::Config) -> WidgetSet {
-        // Inline the single integer this function needs from
-        // `LiveData` rather than calling `layout_hints` — the full
-        // hints struct triggers the statusbar's label-width
-        // pre-computation (string allocations + `format_clock_width`
-        // for every call), and `compose_hidden` runs twice per
-        // layout-dirty frame.
-        let gpu_count = self.live.gpu_count;
         let mut hidden = WidgetSet::new();
-        for n in gpu_count..(crate::config::MAX_GPUS as u8) {
-            hidden.insert(WidgetKind::Gpu(n));
-        }
         // Master `show_statusbar` toggle. When off, route the
         // statusbar through the same engine path as any other
         // hidden widget so its row is reclaimed by the layout
@@ -96,8 +88,92 @@ impl AppState {
         if !config.statusbar.show_statusbar {
             hidden.insert(WidgetKind::Statusbar);
         }
+        // Zero detected GPUs → hide the cycling-GPU widget. The
+        // widget has nothing to render and its row should be
+        // reclaimed by sibling Fill widgets (proc, net) above it.
+        if self.live.gpu_count == 0 {
+            hidden.insert(WidgetKind::Gpu);
+        }
         hidden.extend_from(&self.filter.hidden);
         hidden
+    }
+}
+
+/// Cycling-GPU runtime view-state.
+///
+/// Mirrors [`NetworkViewState`] for the GPU subsystem. The
+/// [`crate::config::ViewConfig::gpu_iface`] field holds the
+/// **persisted/preferred** device identifier (vendor-prefixed UUID,
+/// e.g. `"NVIDIA:GPU-12345..."`); [`Self::selected_iface`] holds the
+/// **effective/displayed** identifier for this frame.
+///
+/// User-visible policy this implements (mirroring net's docstring):
+///
+/// * Saved `RTX 4090`, restart with RTX 4090 absent → display falls
+///   back to the first available device; `rtop.toml` still says
+///   `RTX 4090`. Plug RTX 4090 back in *next session* → it
+///   auto-selects.
+/// * Cycle to a different device explicitly → both fields update;
+///   `rtop.toml` on quit reflects the new selection.
+///
+/// In-session "fall forward" (preferred device reappears →
+/// auto-switch back) is **not** implemented — once
+/// `selected_iface` is non-empty and present in the live list,
+/// reconcile leaves it alone. The user's saved preference re-asserts
+/// only at the next process restart.
+pub(crate) struct GpuViewState {
+    pub(crate) selected_iface: String,
+}
+
+impl GpuViewState {
+    fn new() -> Self {
+        Self {
+            selected_iface: String::new(),
+        }
+    }
+
+    pub(crate) fn reconcile(
+        &mut self,
+        live: &[Option<Arc<runner::GpuSnapshot>>],
+        preferred: &str,
+        dirty: &mut RenderDirty,
+    ) {
+        if live.iter().all(|s| s.is_none()) {
+            if !self.selected_iface.is_empty() {
+                self.selected_iface.clear();
+                dirty.mark_widget(WidgetKind::Gpu);
+            }
+            return;
+        }
+
+        // If we have no selection yet, try the preferred device from config
+        if self.selected_iface.is_empty()
+            && preferred != "auto"
+            && !preferred.is_empty()
+            && live
+                .iter()
+                .filter_map(|s| s.as_deref())
+                .any(|s| s.info.stable_id == preferred)
+        {
+            self.selected_iface = preferred.to_string();
+            dirty.mark_widget(WidgetKind::Gpu);
+            return;
+        }
+
+        if self.selected_iface.is_empty()
+            || !live
+                .iter()
+                .filter_map(|s| s.as_deref())
+                .any(|s| s.info.stable_id == self.selected_iface)
+        {
+            let first = live
+                .iter()
+                .filter_map(|s| s.as_deref())
+                .next()
+                .expect("at least one device is present (early-return guarded above)");
+            self.selected_iface = first.info.stable_id.clone();
+            dirty.mark_widget(WidgetKind::Gpu);
+        }
     }
 }
 
@@ -121,8 +197,8 @@ impl AppState {
 ///    on-disk form reflects the current runtime values.
 ///
 /// Handler runtime toggles (`e`, `r`, `c`, Left/Right, `i`, `a`,
-/// `s`, Tab, `f`/`/`) mutate this struct only — they never reach
-/// `&mut Config`.
+/// `s`, `b`/`n`, `[`/`]`, `f`/`/`) mutate this struct only — they
+/// never reach `&mut Config`.
 #[derive(Debug, Clone)]
 pub(crate) struct RuntimeView {
     pub(crate) proc_tree: bool,
@@ -134,6 +210,7 @@ pub(crate) struct RuntimeView {
     pub(crate) net_auto: bool,
     pub(crate) net_sync: bool,
     pub(crate) net_iface: String,
+    pub(crate) gpu_iface: String,
 }
 
 impl RuntimeView {
@@ -150,6 +227,7 @@ impl RuntimeView {
             net_auto: view.net_auto,
             net_sync: view.net_sync,
             net_iface: view.net_iface.clone(),
+            gpu_iface: view.gpu_iface.clone(),
         }
     }
 
@@ -166,6 +244,7 @@ impl RuntimeView {
         view.net_auto = self.net_auto;
         view.net_sync = self.net_sync;
         view.net_iface.clone_from(&self.net_iface);
+        view.gpu_iface.clone_from(&self.gpu_iface);
     }
 
     /// Copy `view` into `self`. Called after the user commits an
@@ -180,6 +259,7 @@ impl RuntimeView {
         self.net_auto = view.net_auto;
         self.net_sync = view.net_sync;
         self.net_iface.clone_from(&view.net_iface);
+        self.gpu_iface.clone_from(&view.gpu_iface);
     }
 }
 
@@ -322,11 +402,8 @@ pub(crate) struct LiveData {
     pub(crate) disk: Option<Arc<runner::DiskSnapshot>>,
     pub(crate) net: Option<Arc<runner::NetSnapshot>>,
     /// Per-device GPU snapshots, one slot per discovered device.
-    /// Slots `n >= gpu_count` stay empty for the lifetime of the
-    /// process; slots `n < gpu_count` populate from their per-device
-    /// collector thread's [`crate::runner::CollectorManager::gpu_slots`]
-    /// entry on each pull.
-    pub(crate) gpu: [Option<Arc<runner::GpuSnapshot>>; crate::config::MAX_GPUS],
+    /// Length matches [`Self::gpu_count`].
+    pub(crate) gpu: Vec<Option<Arc<runner::GpuSnapshot>>>,
     pub(crate) proc_data: Option<Arc<runner::ProcSnapshot>>,
     /// Latest statusbar snapshot (uptime). Refreshed at the
     /// statusbar collector's hardcoded 1 Hz cadence; the
@@ -345,25 +422,25 @@ pub(crate) struct LiveData {
     /// construction via [`Self::new`] from
     /// [`crate::runner::CollectorManager::gpu_count`]; immutable
     /// thereafter — discovery is one-shot, so this is a hardware
-    /// constant for the lifetime of the process. Drives the
-    /// layout-hint `gpu_count` and the
-    /// `compose_hidden`/`is_ready` GPU iterations.
+    /// constant for the lifetime of the process. Drives `is_ready`
+    /// (waits for every device's first snapshot) and the
+    /// `layout_hints::gpu_count` integer the layout engine uses
+    /// to size GPU-bearing presets.
     pub(crate) gpu_count: u8,
 }
 
 impl LiveData {
     /// Construct an empty `LiveData` for a system with `gpu_count`
     /// detected GPUs. `gpu_count` is fixed for the lifetime of
-    /// the value; per-device snapshot slots `n < gpu_count`
-    /// populate from their per-device collector thread on each
-    /// pull, slots `n >= gpu_count` stay empty forever.
+    /// the value; per-device snapshot slots populate from their
+    /// per-device collector thread on each pull.
     fn new(gpu_count: u8) -> Self {
         Self {
             cpu: None,
             mem: None,
             disk: None,
             net: None,
-            gpu: std::array::from_fn(|_| None),
+            gpu: vec![None; gpu_count as usize],
             proc_data: None,
             statusbar: None,
             core_count: 0,
@@ -375,14 +452,14 @@ impl LiveData {
     /// True when every base subsystem has provided at least one
     /// data point AND every discovered GPU has too. A system with
     /// zero detected GPUs trivially satisfies the GPU half (the
-    /// `0..0` range is empty).
+    /// `gpu` Vec is empty so `all` returns true).
     pub(crate) fn is_ready(&self) -> bool {
         self.cpu.is_some()
             && self.mem.is_some()
             && self.disk.is_some()
             && self.net.is_some()
             && self.proc_data.is_some()
-            && (0..self.gpu_count as usize).all(|n| self.gpu[n].is_some())
+            && self.gpu.iter().all(|g| g.is_some())
     }
 
     pub(crate) fn layout_hints(
@@ -887,8 +964,9 @@ impl ProcessViewState {
 ///
 /// * [`RuntimeView::net_iface`] — the **persisted/preferred**
 ///   interface name. Initialised from `config.view.net_iface`,
-///   mirrored back on save. Mutated by `cycle_iface_*_action`
-///   handlers when the user explicitly cycles to a new interface.
+///   mirrored back on save. Mutated by `net_back_action` /
+///   `net_forward_action` when the user explicitly cycles to a
+///   new interface.
 /// * [`NetworkViewState::selected_iface`] — the **effective**
 ///   interface for this frame. Mutated by
 ///   [`Self::reconcile`] when the preferred interface isn't

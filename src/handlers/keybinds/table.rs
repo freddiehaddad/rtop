@@ -125,27 +125,11 @@ pub(crate) static BINDINGS: &[Binding] = &[
             KeySpec::Always(Key::Char('3')),
             KeySpec::Always(Key::Char('4')),
             KeySpec::Always(Key::Char('5')),
-        ],
-        states: NORMAL,
-        help: Some(HelpEntry { category: "Global", keys: "1-5", description: "Toggle widget (cpu/mem/net/proc/disk)" }),
-        action: normal::toggle_widget_main_action,
-    },
-    Binding {
-        keys: &[
             KeySpec::Always(Key::Char('6')),
-            KeySpec::Always(Key::Char('7')),
-            KeySpec::Always(Key::Char('8')),
-            KeySpec::Always(Key::Char('9')),
         ],
         states: NORMAL,
-        help: Some(HelpEntry { category: "Global", keys: "6-9", description: "Toggle GPU 0-3" }),
-        action: normal::toggle_widget_gpu_low_action,
-    },
-    Binding {
-        keys: &[KeySpec::Always(Key::Char('0'))],
-        states: NORMAL,
-        help: Some(HelpEntry { category: "Global", keys: "0", description: "Toggle GPU 4-7" }),
-        action: normal::toggle_widget_gpu_high_action,
+        help: Some(HelpEntry { category: "Global", keys: "1-6", description: "Toggle widget (cpu/mem/net/proc/disk/gpu)" }),
+        action: normal::toggle_widget_main_action,
     },
     Binding {
         keys: &[KeySpec::Always(Key::Char('R'))],
@@ -317,13 +301,13 @@ pub(crate) static BINDINGS: &[Binding] = &[
         keys: &[KeySpec::Always(Key::Char('b'))],
         states: NORMAL,
         help: Some(HelpEntry { category: "Network", keys: "n / b", description: "Cycle network interfaces" }),
-        action: normal::iface_back_action,
+        action: normal::net_back_action,
     },
     Binding {
         keys: &[KeySpec::Always(Key::Char('n'))],
         states: NORMAL,
         help: None,
-        action: normal::iface_forward_action,
+        action: normal::net_forward_action,
     },
     Binding {
         keys: &[KeySpec::Always(Key::Char('a'))],
@@ -342,6 +326,22 @@ pub(crate) static BINDINGS: &[Binding] = &[
         states: NORMAL,
         help: Some(HelpEntry { category: "Network", keys: "z", description: "Reset network totals" }),
         action: normal::net_zero_action,
+    },
+
+    // -----------------------------------------------------------------
+    // GPU
+    // -----------------------------------------------------------------
+    Binding {
+        keys: &[KeySpec::Always(Key::Char('['))],
+        states: NORMAL,
+        help: Some(HelpEntry { category: "GPU", keys: "[ / ]", description: "Cycle GPU devices" }),
+        action: normal::gpu_back_action,
+    },
+    Binding {
+        keys: &[KeySpec::Always(Key::Char(']'))],
+        states: NORMAL,
+        help: None,
+        action: normal::gpu_forward_action,
     },
 
     // -----------------------------------------------------------------
