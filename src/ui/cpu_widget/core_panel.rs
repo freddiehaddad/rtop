@@ -164,7 +164,7 @@ pub(super) fn draw_core_panel(
                 cpu.load_avg[0], cpu.load_avg[1], cpu.load_avg[2]
             )
         };
-        let lavg_vis = tools::ulen(&lavg_text, false);
+        let lavg_vis = tools::ulen(&lavg_text);
         if lavg_vis <= panel_inner_w {
             let lavg_x = content_x + (panel_inner_w.saturating_sub(lavg_vis)) / 2;
             buf.mv(lavg_x, panel.y + 1 + row).color(fg).text(&lavg_text);
@@ -177,7 +177,7 @@ pub(super) fn draw_core_panel(
     {
         let section = "Cores";
         let width = panel.width.saturating_sub(1);
-        let left_vis = tools::ulen(section, false) + 2; // +2 for inset chars
+        let left_vis = tools::ulen(section) + 2; // +2 for inset chars
         let left_dashes = 1;
 
         // Frequency inset on the right side of the divider
@@ -189,7 +189,7 @@ pub(super) fn draw_core_panel(
         let hz_vis = if hz_text.is_empty() {
             0
         } else {
-            tools::ulen(&hz_text, false) + 2 // +2 for inset chars
+            tools::ulen(&hz_text) + 2 // +2 for inset chars
         };
 
         let mid_dashes = width.saturating_sub(left_dashes + left_vis + hz_vis + 1);

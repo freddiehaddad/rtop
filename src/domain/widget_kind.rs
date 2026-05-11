@@ -292,10 +292,10 @@ mod tests {
 
     #[test]
     fn sizing_is_const_callable() {
-        const _PROC: WidgetSizing = WidgetKind::Proc.sizing();
-        const _CPU: WidgetSizing = WidgetKind::Cpu.sizing();
-        const _GPU: WidgetSizing = WidgetKind::Gpu.sizing();
-        const _SB: WidgetSizing = WidgetKind::Statusbar.sizing();
+        const _: WidgetSizing = WidgetKind::Proc.sizing();
+        const _: WidgetSizing = WidgetKind::Cpu.sizing();
+        const _: WidgetSizing = WidgetKind::Gpu.sizing();
+        const _: WidgetSizing = WidgetKind::Statusbar.sizing();
     }
 
     #[test]

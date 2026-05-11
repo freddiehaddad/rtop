@@ -143,7 +143,7 @@ fn fallback_for(state: OverlayKind) -> Option<FallbackFn> {
 /// Dispatch a single key event through the prehooks, the binding
 /// table, and any state-specific fallback.
 pub(crate) fn dispatch(key: &Key, ctx: &mut InputContext) {
-    let state = ctx.overlay.active(&ctx.process.filter_text).kind();
+    let state = ctx.overlay.active().kind();
     let vim = ctx.config.ui.vim_keys;
 
     for prehook in PREHOOKS {

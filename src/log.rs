@@ -374,7 +374,7 @@ fn windows_version() -> String {
     // RtlGetVersion writes only into the caller-provided struct and never
     // fails for a valid struct size.
     unsafe {
-        let _status = RtlGetVersion(&mut info);
+        let _ = RtlGetVersion(&mut info);
     }
     format!(
         "{}.{}.{}",

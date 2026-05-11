@@ -115,18 +115,18 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     } else {
         ("", params.proc.name.as_str())
     };
-    let prefix_w = tools::ulen(tree_prefix, false);
+    let prefix_w = tools::ulen(tree_prefix);
     let name_avail = columns.name_w.saturating_sub(prefix_w);
     // Dead rows reserve the leftmost two cells of their name field
     // for the `✗ ` prefix; the displayed name is truncated by the
     // same amount so the column layout doesn't shift.
     let (display_name, name_avail_after_prefix) = if params.dead {
         let avail = name_avail.saturating_sub(DEAD_NAME_PREFIX_WIDTH);
-        let name = tools::uresize(bare_name, avail, false);
+        let name = tools::uresize(bare_name, avail);
         let prefixed = format!("{DEAD_NAME_PREFIX}{name}");
         (prefixed, name_avail)
     } else {
-        (tools::uresize(bare_name, name_avail, false), name_avail)
+        (tools::uresize(bare_name, name_avail), name_avail)
     };
     let pid_str = format!("{:<pid_w$}", params.proc.pid, pid_w = columns.pid_w);
     let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = columns.cpu_w);
@@ -195,7 +195,7 @@ fn command_display(proc: &ProcInfo, columns: &ProcColumns) -> String {
     }
 
     let raw = if proc.cmd != proc.name { &proc.cmd } else { "" };
-    tools::uresize(raw, columns.cmd_w, false)
+    tools::uresize(raw, columns.cmd_w)
 }
 
 fn draw_selected_process_row(
@@ -592,7 +592,7 @@ mod tests {
                     seq.push(c);
                 }
                 if terminator == 'H'
-                    && let Some((y_str, _x_str)) = seq.split_once(';')
+                    && let Some((y_str, _)) = seq.split_once(';')
                     && let Ok(y) = y_str.parse::<u32>()
                 {
                     current_y = Some(y);

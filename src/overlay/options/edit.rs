@@ -182,7 +182,7 @@ use crate::overlay::ActiveModal;
 /// Handler for the `Esc` keybinding while editing: discards the
 /// in-progress edit and returns to the options menu without
 /// committing any change.
-pub(crate) fn cancel_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn cancel_action(ctx: &mut InputContext, _: &Key) {
     if let ActiveModal::Options(s) = &mut ctx.overlay.active {
         let _ = s.exit_edit();
     }
@@ -194,7 +194,7 @@ pub(crate) fn cancel_action(ctx: &mut InputContext, _key: &Key) {
 /// `set_canonical`, run [`super::apply_post_change_effects`], and
 /// return to the options menu. On validation failure, attaches an
 /// error to the edit state and stays in the editor.
-pub(crate) fn commit_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn commit_action(ctx: &mut InputContext, _: &Key) {
     let (key, kind, buffer) = {
         let ActiveModal::Options(s) = &ctx.overlay.active else {
             return;
@@ -290,27 +290,27 @@ pub(crate) fn commit_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_overlay();
 }
 
-pub(crate) fn backspace_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn backspace_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::backspace);
 }
 
-pub(crate) fn delete_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn delete_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::delete);
 }
 
-pub(crate) fn move_left_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn move_left_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::move_left);
 }
 
-pub(crate) fn move_right_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn move_right_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::move_right);
 }
 
-pub(crate) fn move_home_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn move_home_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::move_home);
 }
 
-pub(crate) fn move_end_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn move_end_action(ctx: &mut InputContext, _: &Key) {
     mutate(ctx, OptionEditState::move_end);
 }
 

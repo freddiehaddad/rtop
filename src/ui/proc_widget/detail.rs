@@ -143,21 +143,19 @@ fn draw_detail_header(
 ) {
     let pid_value = proc.pid.to_string();
     let pid_label = "PID ";
-    let pid_w = tools::ulen(pid_label, false) + tools::ulen(&pid_value, false);
+    let pid_w = tools::ulen(pid_label) + tools::ulen(&pid_value);
     let pid_text = format!("{pid_label}{pid_value}");
 
     buf.mv(x, y);
     if width <= pid_w {
         buf.color(colors.label)
-            .text(&tools::uresize(&pid_text, width, false));
+            .text(&tools::uresize(&pid_text, width));
         return;
     }
 
     let name_w = width.saturating_sub(pid_w + 1);
-    let name = tools::uresize(&proc.name, name_w, false);
-    let gap = width
-        .saturating_sub(tools::ulen(&name, false) + pid_w)
-        .max(1);
+    let name = tools::uresize(&proc.name, name_w);
+    let gap = width.saturating_sub(tools::ulen(&name) + pid_w).max(1);
 
     buf.color(colors.emphasis)
         .text(&name)
@@ -296,8 +294,8 @@ fn draw_detail_field(
 }
 
 fn detail_ljust(value: &str, width: usize) -> String {
-    let truncated = tools::uresize(value, width, false);
-    let padding = width.saturating_sub(tools::ulen(&truncated, false));
+    let truncated = tools::uresize(value, width);
+    let padding = width.saturating_sub(tools::ulen(&truncated));
     format!("{truncated}{}", " ".repeat(padding))
 }
 

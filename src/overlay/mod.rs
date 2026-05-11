@@ -119,7 +119,7 @@ pub fn render(active: &ActiveModal, term: TerminalSize, config: &Config, theme: 
     match active {
         ActiveModal::None | ActiveModal::Filter(_) => String::new(),
         ActiveModal::Main(s) => main_menu::render(s, term, theme),
-        ActiveModal::Help(s) => help::render(s, term, config, theme),
+        ActiveModal::Help(_) => help::render(term, config, theme),
         ActiveModal::Options(s) => options::render::render(s, term, config, theme),
     }
 }

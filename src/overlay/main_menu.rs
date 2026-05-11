@@ -182,11 +182,11 @@ pub fn render(state: &MainMenuState, term: TerminalSize, theme: &Theme) -> Strin
 // Per-action handlers (referenced by handlers/keybinds/table.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn quit_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;
 }
 
-pub(crate) fn close_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn close_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -196,21 +196,21 @@ pub(crate) fn close_action(ctx: &mut InputContext, _key: &Key) {
     );
 }
 
-pub(crate) fn select_prev_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn select_prev_action(ctx: &mut InputContext, _: &Key) {
     if let ActiveModal::Main(s) = &mut ctx.overlay.active {
         s.select_prev();
         ctx.render.dirty.mark_overlay();
     }
 }
 
-pub(crate) fn select_next_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn select_next_action(ctx: &mut InputContext, _: &Key) {
     if let ActiveModal::Main(s) = &mut ctx.overlay.active {
         s.select_next();
         ctx.render.dirty.mark_overlay();
     }
 }
 
-pub(crate) fn activate_selected_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn activate_selected_action(ctx: &mut InputContext, _: &Key) {
     let selected = match &ctx.overlay.active {
         ActiveModal::Main(s) => s.selected(),
         _ => return,
@@ -222,11 +222,11 @@ pub(crate) fn activate_selected_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(crate) fn open_options_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn open_options_action(ctx: &mut InputContext, _: &Key) {
     open_options_from_main(ctx);
 }
 
-pub(crate) fn open_help_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn open_help_action(ctx: &mut InputContext, _: &Key) {
     open_help_from_main(ctx);
 }
 

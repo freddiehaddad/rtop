@@ -263,15 +263,15 @@ impl super::Widget for GpuWidget {
         KINDS
     }
 
-    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn preferred_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         preferred_height()
     }
 
-    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_width(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_MEM_WIDTH
     }
 
-    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         preferred_height()
     }
 

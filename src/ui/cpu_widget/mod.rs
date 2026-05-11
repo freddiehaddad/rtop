@@ -180,7 +180,7 @@ pub fn draw(
             };
             if !name_display.is_empty() {
                 let max_name_w = b_width.saturating_sub(2);
-                let name_trunc = tools::uresize(name_display, max_name_w, false);
+                let name_trunc = tools::uresize(name_display, max_name_w);
                 if !name_trunc.is_empty() {
                     let inset =
                         box_drawing::title_inset(&name_trunc, border_color, title_color, false);
@@ -215,7 +215,7 @@ pub fn draw(
             .copied()
             .unwrap_or(0);
         let label = format!("{} {}%", upper_label, upper_pct);
-        let label_vis = tools::ulen(&label, false);
+        let label_vis = tools::ulen(&label);
         let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let upper_color = if !cpu_upper_gradient.is_empty() {
             &cpu_upper_gradient[upper_pct.clamp(0, 100) as usize]
@@ -246,7 +246,7 @@ pub fn draw(
         // Lower graph overlay label
         let lower_pct = data.back().copied().unwrap_or(0);
         let label = format!("{} {}%", lower_label, lower_pct);
-        let label_vis = tools::ulen(&label, false);
+        let label_vis = tools::ulen(&label);
         let lx = x + 1 + graph_width.saturating_sub(label_vis);
         let label_y = lower_start_y + lower_h - 1;
         let lower_color = if !cpu_lower_gradient.is_empty() {

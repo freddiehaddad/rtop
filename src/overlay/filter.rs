@@ -19,12 +19,12 @@ pub struct FilterState;
 // Per-action handlers (referenced by handlers/keybinds/table.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn cancel_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn cancel_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(crate) fn commit_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn commit_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.proc_filter = ctx.process.filter_text.clone();
     ctx.close_overlay();
     ctx.process.selected = 0;
@@ -38,7 +38,7 @@ pub(crate) fn commit_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(crate) fn backspace_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn backspace_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.filter_text.pop();
     ctx.view.proc_filter = ctx.process.filter_text.clone();
     ctx.process.selected = 0;
@@ -46,7 +46,7 @@ pub(crate) fn backspace_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(crate) fn delete_clear_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn delete_clear_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.filter_text.clear();
     ctx.view.proc_filter.clear();
     ctx.process.selected = 0;

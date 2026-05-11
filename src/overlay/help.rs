@@ -84,19 +84,11 @@ fn help_rows() -> Vec<HelpRow> {
 /// Compute the smallest `(width, height)` the help box needs to
 /// render `rows` without truncation, including borders.
 fn dimensions(rows: &[HelpRow]) -> (usize, usize) {
-    let key_col = rows
-        .iter()
-        .map(|r| tools::ulen(r.keys, false))
-        .max()
-        .unwrap_or(0);
-    let desc_col = rows
-        .iter()
-        .map(|r| tools::ulen(r.desc, false))
-        .max()
-        .unwrap_or(0);
+    let key_col = rows.iter().map(|r| tools::ulen(r.keys)).max().unwrap_or(0);
+    let desc_col = rows.iter().map(|r| tools::ulen(r.desc)).max().unwrap_or(0);
     let longest_section = rows
         .iter()
-        .map(|r| tools::ulen(r.category, false))
+        .map(|r| tools::ulen(r.category))
         .max()
         .unwrap_or(0);
 
@@ -121,16 +113,13 @@ fn dimensions(rows: &[HelpRow]) -> (usize, usize) {
 
 /// Width of the key column, derived from the longest key text.
 fn key_col_width(rows: &[HelpRow]) -> usize {
-    rows.iter()
-        .map(|r| tools::ulen(r.keys, false))
-        .max()
-        .unwrap_or(0)
+    rows.iter().map(|r| tools::ulen(r.keys)).max().unwrap_or(0)
 }
 
 /// Render the help overlay to an unstyled ANSI buffer, populated
 /// from [`BINDINGS`]. Box dimensions are derived from the help-row
 /// list via [`dimensions`], then clamped to the terminal size.
-pub fn render(_state: &HelpState, term: TerminalSize, config: &Config, theme: &Theme) -> String {
+pub fn render(term: TerminalSize, config: &Config, theme: &Theme) -> String {
     let rows = help_rows();
     let (preferred_w, preferred_h) = dimensions(&rows);
     let w = preferred_w.min(term.width);
@@ -207,7 +196,7 @@ pub fn render(_state: &HelpState, term: TerminalSize, config: &Config, theme: &T
 // Per-action handlers (referenced by handlers/keybinds/table.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn close_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn close_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -257,9 +246,7 @@ mod tests {
     fn render_emits_all_sections() {
         let theme = Theme::new();
         let config = Config::new();
-        let state = HelpState::new(ReturnTarget::Normal);
         let out = render(
-            &state,
             TerminalSize {
                 width: 80,
                 height: 45,
@@ -276,9 +263,7 @@ mod tests {
     fn render_emits_keybind_descriptions() {
         let theme = Theme::new();
         let config = Config::new();
-        let state = HelpState::new(ReturnTarget::Normal);
         let out = render(
-            &state,
             TerminalSize {
                 width: 200,
                 height: 60,

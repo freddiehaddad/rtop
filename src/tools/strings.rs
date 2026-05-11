@@ -1,15 +1,14 @@
 use unicode_width::UnicodeWidthStr;
 
 /// Returns the display width of a string, ignoring ANSI escape codes.
-/// If `wide` is true, uses full Unicode width (CJK = 2 columns).
-pub fn ulen(s: &str, _wide: bool) -> usize {
+pub fn ulen(s: &str) -> usize {
     let stripped = strip_ansi(s);
     UnicodeWidthStr::width(stripped.as_str())
 }
 
 /// Truncate a string to fit within `len` display columns.
 /// Preserves ANSI escape codes (they are zero-width).
-pub fn uresize(s: &str, len: usize, _wide: bool) -> String {
+pub fn uresize(s: &str, len: usize) -> String {
     let mut result = String::new();
     let mut current_width = 0;
     let mut in_escape = false;
@@ -39,7 +38,7 @@ pub fn uresize(s: &str, len: usize, _wide: bool) -> String {
 
 #[cfg(test)]
 /// Left-truncate a string to fit within `len` display columns.
-pub fn luresize(s: &str, len: usize, _wide: bool) -> String {
+pub fn luresize(s: &str, len: usize) -> String {
     let stripped = strip_ansi(s);
     let total = UnicodeWidthStr::width(stripped.as_str());
     if total <= len {
@@ -75,10 +74,10 @@ pub fn luresize(s: &str, len: usize, _wide: bool) -> String {
 /// Left-justify string, padding with spaces on the right to `width` columns.
 /// If string exceeds `width`, it is truncated.
 pub fn ljust(s: &str, width: usize, utf: bool) -> String {
-    let current = if utf { ulen(s, false) } else { s.len() };
+    let current = if utf { ulen(s) } else { s.len() };
     if current >= width {
         if utf {
-            uresize(s, width, false)
+            uresize(s, width)
         } else {
             s[..width].to_string()
         }
@@ -90,10 +89,10 @@ pub fn ljust(s: &str, width: usize, utf: bool) -> String {
 /// Right-justify string, padding with spaces on the left to `width` columns.
 /// If string exceeds `width`, it is truncated.
 pub fn rjust(s: &str, width: usize, utf: bool) -> String {
-    let current = if utf { ulen(s, false) } else { s.len() };
+    let current = if utf { ulen(s) } else { s.len() };
     if current >= width {
         if utf {
-            uresize(s, width, false)
+            uresize(s, width)
         } else {
             s[..width].to_string()
         }
@@ -106,10 +105,10 @@ pub fn rjust(s: &str, width: usize, utf: bool) -> String {
 /// Center string, padding with spaces on both sides to `width` columns.
 /// If string exceeds `width`, it is truncated.
 pub fn cjust(s: &str, width: usize, utf: bool) -> String {
-    let current = if utf { ulen(s, false) } else { s.len() };
+    let current = if utf { ulen(s) } else { s.len() };
     if current >= width {
         if utf {
-            uresize(s, width, false)
+            uresize(s, width)
         } else {
             s[..width].to_string()
         }
@@ -147,55 +146,55 @@ mod tests {
 
     #[test]
     fn ulen_ascii_string() {
-        assert_eq!(ulen("hello", false), 5);
+        assert_eq!(ulen("hello"), 5);
     }
 
     #[test]
     fn ulen_empty_string() {
-        assert_eq!(ulen("", false), 0);
+        assert_eq!(ulen(""), 0);
     }
 
     #[test]
     fn ulen_ansi_escape_codes_ignored() {
-        assert_eq!(ulen("\x1b[31mhello\x1b[0m", false), 5);
+        assert_eq!(ulen("\x1b[31mhello\x1b[0m"), 5);
     }
 
     #[test]
     fn ulen_cjk_characters_count_double() {
-        assert_eq!(ulen("中文", true), 4);
+        assert_eq!(ulen("中文"), 4);
     }
 
     #[test]
     fn ulen_mixed_ascii_cjk() {
-        assert_eq!(ulen("hi中", true), 4);
+        assert_eq!(ulen("hi中"), 4);
     }
 
     #[test]
     fn uresize_truncates_at_width() {
-        assert_eq!(uresize("hello world", 5, false), "hello");
+        assert_eq!(uresize("hello world", 5), "hello");
     }
 
     #[test]
     fn uresize_preserves_ansi_codes() {
         let s = "\x1b[31mhello\x1b[0m world";
-        let result = uresize(s, 5, false);
+        let result = uresize(s, 5);
         assert!(result.contains("\x1b[31m"));
-        assert_eq!(ulen(&result, false), 5);
+        assert_eq!(ulen(&result), 5);
     }
 
     #[test]
     fn uresize_no_truncation_when_fits() {
-        assert_eq!(uresize("hi", 10, false), "hi");
+        assert_eq!(uresize("hi", 10), "hi");
     }
 
     #[test]
     fn luresize_removes_from_left() {
-        assert_eq!(luresize("hello world", 5, false), "world");
+        assert_eq!(luresize("hello world", 5), "world");
     }
 
     #[test]
     fn luresize_no_change_when_fits() {
-        assert_eq!(luresize("hi", 10, false), "hi");
+        assert_eq!(luresize("hi", 10), "hi");
     }
 
     #[test]

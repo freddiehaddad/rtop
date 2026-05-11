@@ -197,7 +197,7 @@ pub fn title_inset(text: &str, border_color: &str, text_color: &str, bottom: boo
 
 /// Visible display width of an inset (text width + 2 inset chars).
 pub fn inset_width(text: &str) -> usize {
-    crate::tools::ulen(text, false) + 2
+    crate::tools::ulen(text) + 2
 }
 
 /// X position to place an inset flush against the right border of a box.
@@ -238,7 +238,7 @@ pub fn section_divider(
     border_color: &str,
     text_color: &str,
 ) -> String {
-    let title_vis = crate::tools::ulen(section, false) + 2; // display width + inset chars
+    let title_vis = crate::tools::ulen(section) + 2; // display width + inset chars
     let left_dashes = 2;
     let right_dashes = width.saturating_sub(left_dashes + title_vis);
     format!(

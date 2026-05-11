@@ -44,7 +44,7 @@ pub(super) fn draw_combined_row(
     let fg = params.theme.color(tc::MAIN_FG);
 
     let label = format!("{} IO ", disk.name);
-    let label_len = tools::ulen(&label, false);
+    let label_len = tools::ulen(&label);
     let graph_w = params
         .inner_w
         .saturating_sub(label_len + IO_COMBINED_VAL_W)
@@ -120,7 +120,7 @@ pub(super) fn draw_separate_rows(
     // trailing space after the drive label, one leading space
     // before the letter) provides visual separation.
     let label = format!("{} ", disk.name);
-    let label_len = tools::ulen(&label, false);
+    let label_len = tools::ulen(&label);
     // Right column: " R" or " W" (2 chars) + rjust(speed, IO_SPEED_W).
     let value_col_w = 2 + IO_SPEED_W;
     let graph_w = params

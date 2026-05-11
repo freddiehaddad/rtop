@@ -147,7 +147,7 @@ pub fn format_clock(format: &str) -> String {
 ///
 /// Shares [`expand_clock_format`] with [`format_clock`], so the
 /// returned width is guaranteed to equal
-/// `tools::ulen(&format_clock(fmt), false)` cell-for-cell. The
+/// `tools::ulen(&format_clock(fmt))` cell-for-cell. The
 /// sentinel values `(0, 0, 0)` are safe because every field
 /// formats as `{:02}` and the real-clock values (hour 0-23,
 /// minute/second 0-59) all fit in two digits.
@@ -160,7 +160,7 @@ pub fn format_clock_width(format: &str) -> usize {
     if format.is_empty() {
         return 0;
     }
-    crate::tools::ulen(&expand_clock_format(format, 0, 0, 0), false)
+    crate::tools::ulen(&expand_clock_format(format, 0, 0, 0))
 }
 
 /// Expand a clock format string by substituting the supported
@@ -421,7 +421,7 @@ mod tests {
         ] {
             assert_eq!(
                 format_clock_width(fmt),
-                crate::tools::ulen(&format_clock(fmt), false),
+                crate::tools::ulen(&format_clock(fmt)),
                 "width drift on format {fmt:?}",
             );
         }

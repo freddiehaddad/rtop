@@ -145,7 +145,7 @@ mod tests {
         // gracefully return whatever it finds (often an empty
         // Vec on machines without supported GPUs) on any test
         // machine.
-        let _collectors = discover();
+        let _ = discover();
     }
 
     #[test]

@@ -504,18 +504,17 @@ impl LiveData {
         let filter_active = !filter.hidden.is_empty();
         let preset_name = config.active_preset().name();
         let statusbar_preset_label_width = if sb.statusbar_show_preset {
-            crate::tools::ulen(
-                &crate::ui::statusbar_widget::preset_label(preset_name, filter_active),
-                false,
-            )
+            crate::tools::ulen(&crate::ui::statusbar_widget::preset_label(
+                preset_name,
+                filter_active,
+            ))
         } else {
             0
         };
         let statusbar_update_label_width = if sb.statusbar_show_update_interval {
-            crate::tools::ulen(
-                &crate::ui::statusbar_widget::update_label(config.refresh.update_ms as u64),
-                false,
-            )
+            crate::tools::ulen(&crate::ui::statusbar_widget::update_label(
+                config.refresh.update_ms as u64,
+            ))
         } else {
             0
         };
@@ -525,7 +524,7 @@ impl LiveData {
             // empty uptime that frame, then catches up on the next
             // tick).
             let secs = self.statusbar.as_ref().map_or(0, |s| s.info.uptime_seconds);
-            crate::tools::ulen(&crate::ui::statusbar_widget::uptime_label(secs), false)
+            crate::tools::ulen(&crate::ui::statusbar_widget::uptime_label(secs))
         } else {
             0
         };
@@ -598,10 +597,8 @@ impl OverlayState {
     }
 
     /// Snapshot of the active overlay used by render and dispatch
-    /// paths that need an [`ActiveModal`] reference. The `_filter_text`
-    /// argument is reserved for the future state-consolidation
-    /// step that moves the filter input into [`FilterState`].
-    pub(crate) fn active(&self, _filter_text: &str) -> &ActiveModal {
+    /// paths that need an [`ActiveModal`] reference.
+    pub(crate) fn active(&self) -> &ActiveModal {
         &self.active
     }
 }

@@ -201,20 +201,20 @@ const ITEM_GAP: usize = 1;
 fn render_left(frame: &StatusbarFrame, bg: &str, fg: &str, hi: &str, sep: &str) -> (String, usize) {
     let mut items: Vec<(String, usize)> = Vec::new();
     if frame.show_menu {
-        items.push((format_menu_item(fg, hi), tools::ulen(MENU_LABEL, false)));
+        items.push((format_menu_item(fg, hi), tools::ulen(MENU_LABEL)));
     }
     if frame.show_preset {
         let plain = preset_label(frame.preset_name, frame.filter_active);
         items.push((
             format_preset_item(frame.preset_name, frame.filter_active, fg, hi),
-            tools::ulen(&plain, false),
+            tools::ulen(&plain),
         ));
     }
     if frame.show_update_interval {
         let plain = update_label(frame.update_ms);
         items.push((
             format_update_item(frame.update_ms, fg, hi),
-            tools::ulen(&plain, false),
+            tools::ulen(&plain),
         ));
     }
     render_section(&items, bg, fg, sep)
@@ -227,14 +227,14 @@ fn render_right(frame: &StatusbarFrame, bg: &str, fg: &str, sep: &str) -> (Strin
     let mut items: Vec<(String, usize)> = Vec::new();
     if frame.show_uptime {
         let label = uptime_label(frame.uptime_seconds);
-        let w = tools::ulen(&label, false);
+        let w = tools::ulen(&label);
         if w > 0 {
             items.push((label, w));
         }
     }
     if frame.show_clock {
         let label = tools::format_clock(frame.clock_format);
-        let w = tools::ulen(&label, false);
+        let w = tools::ulen(&label);
         if w > 0 {
             items.push((label, w));
         }
@@ -323,7 +323,7 @@ impl super::Widget for StatusbarWidget {
         KINDS
     }
 
-    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn preferred_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         1
     }
 
@@ -342,7 +342,7 @@ impl super::Widget for StatusbarWidget {
         // widget entirely before reaching `min_width`.
         let mut left_items: Vec<usize> = Vec::new();
         if hints.statusbar_show_menu {
-            left_items.push(tools::ulen(MENU_LABEL, false));
+            left_items.push(tools::ulen(MENU_LABEL));
         }
         if hints.statusbar_show_preset && hints.statusbar_preset_label_width > 0 {
             left_items.push(hints.statusbar_preset_label_width);
@@ -375,7 +375,7 @@ impl super::Widget for StatusbarWidget {
         left_padding + left_w + separator + right_w + right_padding
     }
 
-    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         1
     }
 
@@ -482,7 +482,7 @@ mod tests {
     /// Visible-cell width of `format_*_item`'s output, derived by
     /// stripping the ANSI escapes and counting glyphs.
     fn formatted_item_width(formatted: &str) -> usize {
-        tools::ulen(&strip_ansi(formatted), false)
+        tools::ulen(&strip_ansi(formatted))
     }
 
     #[test]
@@ -495,7 +495,7 @@ mod tests {
         let fg = theme.color(tc::STATUSBAR_FG);
         let hi = theme.color(tc::STATUSBAR_HI);
         assert_eq!(
-            tools::ulen(MENU_LABEL, false),
+            tools::ulen(MENU_LABEL),
             formatted_item_width(&format_menu_item(fg, hi)),
         );
     }
@@ -510,7 +510,7 @@ mod tests {
         for filter_active in [false, true] {
             for name in ["all", "default", "minimal", "very-long-preset-name"] {
                 assert_eq!(
-                    tools::ulen(&preset_label(name, filter_active), false),
+                    tools::ulen(&preset_label(name, filter_active)),
                     formatted_item_width(&format_preset_item(name, filter_active, fg, hi)),
                     "drift on name={name:?} filter_active={filter_active}",
                 );
@@ -525,7 +525,7 @@ mod tests {
         let hi = theme.color(tc::STATUSBAR_HI);
         for ms in [50u64, 100, 500, 1_000, 2_000, 10_000, 999_999] {
             assert_eq!(
-                tools::ulen(&update_label(ms), false),
+                tools::ulen(&update_label(ms)),
                 formatted_item_width(&format_update_item(ms, fg, hi)),
                 "drift at update_ms={ms}",
             );
@@ -541,8 +541,8 @@ mod tests {
             let plain = uptime_label(secs);
             let inline = format!("up {}", tools::sec_to_dhms(secs, false, true));
             assert_eq!(
-                tools::ulen(&plain, false),
-                tools::ulen(&inline, false),
+                tools::ulen(&plain),
+                tools::ulen(&inline),
                 "drift at uptime_seconds={secs}",
             );
         }

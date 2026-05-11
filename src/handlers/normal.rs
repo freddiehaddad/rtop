@@ -18,11 +18,11 @@ use crate::{
 // Quit / menu transitions
 // ---------------------------------------------------------------------------
 
-pub(super) fn quit_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;
 }
 
-pub(super) fn open_main_menu_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn open_main_menu_action(ctx: &mut InputContext, _: &Key) {
     ctx.open_main_menu();
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -32,7 +32,7 @@ pub(super) fn open_main_menu_action(ctx: &mut InputContext, _key: &Key) {
     );
 }
 
-pub(super) fn open_help_menu_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn open_help_menu_action(ctx: &mut InputContext, _: &Key) {
     ctx.open_help_menu(ReturnTarget::Normal);
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -42,7 +42,7 @@ pub(super) fn open_help_menu_action(ctx: &mut InputContext, _key: &Key) {
     );
 }
 
-pub(super) fn open_options_menu_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn open_options_menu_action(ctx: &mut InputContext, _: &Key) {
     ctx.open_options_menu(ReturnTarget::Normal);
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -56,11 +56,11 @@ pub(super) fn open_options_menu_action(ctx: &mut InputContext, _key: &Key) {
 // Presets, config reload, update rate
 // ---------------------------------------------------------------------------
 
-pub(super) fn preset_forward_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn preset_forward_action(ctx: &mut InputContext, _: &Key) {
     cycle_preset(ctx, true);
 }
 
-pub(super) fn preset_back_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn preset_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_preset(ctx, false);
 }
 
@@ -76,7 +76,7 @@ fn cycle_preset(ctx: &mut InputContext, forward: bool) {
     ctx.render.dirty = RenderDirty::full();
 }
 
-pub(super) fn config_reload_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn config_reload_action(ctx: &mut InputContext, _: &Key) {
     let warnings = ctx.config.reload();
     for w in &warnings {
         tracing::warn!(
@@ -106,11 +106,11 @@ pub(super) fn config_reload_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty = RenderDirty::full();
 }
 
-pub(super) fn update_rate_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn update_rate_up_action(ctx: &mut InputContext, _: &Key) {
     step_update_rate(ctx, 1);
 }
 
-pub(super) fn update_rate_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn update_rate_down_action(ctx: &mut InputContext, _: &Key) {
     step_update_rate(ctx, -1);
 }
 
@@ -140,14 +140,14 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) {
 // Process navigation
 // ---------------------------------------------------------------------------
 
-pub(super) fn nav_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_up_action(ctx: &mut InputContext, _: &Key) {
     if ctx.process.selected > 0 {
         ctx.process.selected -= 1;
         ctx.render.dirty.mark_proc_widget();
     }
 }
 
-pub(super) fn nav_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_down_action(ctx: &mut InputContext, _: &Key) {
     let count = ctx.process.entries.len();
     if ctx.process.selected + 1 < count {
         ctx.process.selected += 1;
@@ -155,20 +155,20 @@ pub(super) fn nav_down_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(super) fn nav_page_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_page_up_action(ctx: &mut InputContext, _: &Key) {
     let page = ctx.size.height.saturating_sub(10);
     ctx.process.selected = ctx.process.selected.saturating_sub(page);
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn nav_page_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_page_down_action(ctx: &mut InputContext, _: &Key) {
     let page = ctx.size.height.saturating_sub(10);
     let count = ctx.process.entries.len();
     ctx.process.selected = (ctx.process.selected + page).min(count.saturating_sub(1));
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _: &Key) {
     let page = ctx.size.height.saturating_sub(10);
     let half = page / 2;
     let count = ctx.process.entries.len();
@@ -176,20 +176,20 @@ pub(super) fn nav_half_page_down_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn nav_half_page_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_half_page_up_action(ctx: &mut InputContext, _: &Key) {
     let page = ctx.size.height.saturating_sub(10);
     let half = page / 2;
     ctx.process.selected = ctx.process.selected.saturating_sub(half);
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn nav_home_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_home_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.selected = 0;
     ctx.process.start = 0;
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn nav_end_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn nav_end_action(ctx: &mut InputContext, _: &Key) {
     let count = ctx.process.entries.len();
     ctx.process.selected = count.saturating_sub(1);
     ctx.render.dirty.mark_proc_widget();
@@ -199,36 +199,36 @@ pub(super) fn nav_end_action(ctx: &mut InputContext, _key: &Key) {
 // Process modes, sorting, and actions
 // ---------------------------------------------------------------------------
 
-pub(super) fn open_filter_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn open_filter_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.filter_text = ctx.view.proc_filter.clone();
     ctx.open_filter();
 }
 
-pub(super) fn toggle_tree_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn toggle_tree_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.proc_tree = !ctx.view.proc_tree;
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(super) fn toggle_reverse_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn toggle_reverse_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.proc_reversed = !ctx.view.proc_reversed;
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(super) fn toggle_per_core_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn toggle_per_core_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.proc_per_core = !ctx.view.proc_per_core;
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(super) fn toggle_io_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn toggle_io_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.io_mode = !ctx.view.io_mode;
     ctx.render.dirty.mark_widget(WidgetKind::Disk);
 }
 
-pub(super) fn sort_back_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn sort_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_sort(ctx, -1);
 }
 
-pub(super) fn sort_forward_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn sort_forward_action(ctx: &mut InputContext, _: &Key) {
     cycle_sort(ctx, 1);
 }
 
@@ -251,7 +251,7 @@ fn cycle_sort(ctx: &mut InputContext, dir: isize) {
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn terminate_action(ctx: &mut InputContext, _: &Key) {
     if let Some((armed_pid, _, false)) = ctx.process.armed_terminate {
         // Defensive: the armed PID may have died during the arm
         // window (live update arrived between the two `t` presses).
@@ -296,7 +296,7 @@ pub(super) fn terminate_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_proc_widget();
 }
 
-pub(super) fn kill_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn kill_action(ctx: &mut InputContext, _: &Key) {
     if let Some((armed_pid, _, true)) = ctx.process.armed_terminate {
         if ctx.process.is_dead(armed_pid) {
             tracing::debug!(
@@ -334,7 +334,7 @@ pub(super) fn kill_action(ctx: &mut InputContext, _key: &Key) {
 
 /// Toggle the proc-list pause state. See `ProcessViewState::pause`
 /// for the snapshot-freeze invariant.
-pub(super) fn pause_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn pause_action(ctx: &mut InputContext, _: &Key) {
     let now_paused = ctx.process.toggle_pause(ctx.live);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
@@ -349,7 +349,7 @@ pub(super) fn pause_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_proc_data_changed();
 }
 
-pub(super) fn follow_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn follow_action(ctx: &mut InputContext, _: &Key) {
     if ctx.process.selected < ctx.process.entries.len()
         && let Some(pid) = ctx.selected_proc_pid()
     {
@@ -362,7 +362,7 @@ pub(super) fn follow_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(super) fn detail_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn detail_action(ctx: &mut InputContext, _: &Key) {
     if ctx.process.selected >= ctx.process.entries.len() {
         return;
     }
@@ -395,7 +395,7 @@ fn resolve_selected_proc(ctx: &InputContext<'_>) -> Option<crate::domain::proces
 /// watched process has exited and the row has dropped out of the
 /// process list). No-op when the panel is already closed; the
 /// keystroke is then consumed without marking anything dirty.
-pub(super) fn close_detail_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn close_detail_action(ctx: &mut InputContext, _: &Key) {
     if ctx.process.close_detail_and_unfollow() {
         ctx.render.dirty.mark_proc_widget();
     }
@@ -433,7 +433,7 @@ fn toggle_widget(ctx: &mut InputContext, kind: WidgetKind) {
     ctx.render.dirty.mark_layout();
 }
 
-pub(super) fn restore_widgets_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn restore_widgets_action(ctx: &mut InputContext, _: &Key) {
     if ctx.filter.hidden.is_empty() {
         // Idempotent: if nothing is hidden, do nothing visible —
         // and don't mark dirty. Avoids a redundant repaint on
@@ -453,11 +453,11 @@ pub(super) fn restore_widgets_action(ctx: &mut InputContext, _key: &Key) {
 // Network
 // ---------------------------------------------------------------------------
 
-pub(super) fn net_back_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn net_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_net(ctx, -1);
 }
 
-pub(super) fn net_forward_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn net_forward_action(ctx: &mut InputContext, _: &Key) {
     cycle_net(ctx, 1);
 }
 
@@ -475,17 +475,17 @@ fn cycle_net(ctx: &mut InputContext, direction: isize) {
     ctx.render.dirty.mark_widget(WidgetKind::Net);
 }
 
-pub(super) fn net_auto_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn net_auto_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.net_auto = !ctx.view.net_auto;
     ctx.render.dirty.mark_widget(WidgetKind::Net);
 }
 
-pub(super) fn net_sync_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn net_sync_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.net_sync = !ctx.view.net_sync;
     ctx.render.dirty.mark_widget(WidgetKind::Net);
 }
 
-pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn net_zero_action(ctx: &mut InputContext, _: &Key) {
     if ctx.network.selected_iface.is_empty() {
         return;
     }
@@ -498,11 +498,11 @@ pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) {
 // GPU device cycle
 // ---------------------------------------------------------------------------
 
-pub(super) fn gpu_back_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn gpu_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_gpu(ctx, -1);
 }
 
-pub(super) fn gpu_forward_action(ctx: &mut InputContext, _key: &Key) {
+pub(super) fn gpu_forward_action(ctx: &mut InputContext, _: &Key) {
     cycle_gpu(ctx, 1);
 }
 

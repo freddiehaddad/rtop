@@ -183,7 +183,7 @@ pub fn draw(
         };
         let top_color = gradient_color(top_grad, pct);
         let label = format!("{} {}", speed, top_arrow);
-        let label_vis = tools::ulen(&label, false);
+        let label_vis = tools::ulen(&label);
         let lx = x + width.saturating_sub(label_vis + 1);
         buf.mv(lx, y + 2).color(top_color).text(&label);
     }
@@ -210,7 +210,7 @@ pub fn draw(
         };
         let bot_color = gradient_color(bot_grad, pct);
         let label = format!("{} {}", speed, bot_arrow);
-        let label_vis = tools::ulen(&label, false);
+        let label_vis = tools::ulen(&label);
         let lx = x + width.saturating_sub(label_vis + 1);
         let label_y = y + height - 1;
         buf.mv(lx, label_y).color(bot_color).text(&label);
@@ -230,7 +230,7 @@ pub fn draw(
     // proc's `tre*e` convention for binary toggles). zero is a
     // momentary action and never has a marker.
     let bottom_y = y + height;
-    let iface_display = tools::uresize(settings.iface, 15, false);
+    let iface_display = tools::uresize(settings.iface, 15);
 
     let sync_marker = if net_sync { "*" } else { "" };
     let auto_marker = if net_auto { "*" } else { "" };
@@ -304,18 +304,18 @@ impl super::Widget for NetWidget {
         KINDS
     }
 
-    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn preferred_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         // Net is a Fill widget — preferred is its absolute minimum;
         // the container distributes slack from sibling Preferred
         // widgets.
         crate::draw::layout::MIN_NET_HEIGHT
     }
 
-    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_width(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_NET_WIDTH
     }
 
-    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_NET_HEIGHT
     }
 

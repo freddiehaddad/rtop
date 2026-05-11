@@ -160,11 +160,11 @@ impl OptionsState {
 // Per-action handlers (referenced by handlers/keybinds/table.rs)
 // ---------------------------------------------------------------------------
 
-pub(crate) fn quit_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;
 }
 
-pub(crate) fn close_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn close_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
@@ -174,14 +174,14 @@ pub(crate) fn close_action(ctx: &mut InputContext, _key: &Key) {
     );
 }
 
-pub(crate) fn cat_next_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn cat_next_action(ctx: &mut InputContext, _: &Key) {
     if let ActiveModal::Options(s) = &mut ctx.overlay.active {
         s.cat_next(OPTIONS_CATEGORY_COUNT);
         ctx.render.dirty.mark_overlay();
     }
 }
 
-pub(crate) fn cat_prev_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn cat_prev_action(ctx: &mut InputContext, _: &Key) {
     if let ActiveModal::Options(s) = &mut ctx.overlay.active {
         s.cat_prev(OPTIONS_CATEGORY_COUNT);
         ctx.render.dirty.mark_overlay();
@@ -202,7 +202,7 @@ pub(crate) fn cat_select_hotkey_action(ctx: &mut InputContext, key: &Key) {
     }
 }
 
-pub(crate) fn select_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn select_up_action(ctx: &mut InputContext, _: &Key) {
     let term_height = ctx.size.height;
     let ActiveModal::Options(s) = &mut ctx.overlay.active else {
         return;
@@ -224,7 +224,7 @@ pub(crate) fn select_up_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_overlay();
 }
 
-pub(crate) fn select_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn select_down_action(ctx: &mut InputContext, _: &Key) {
     let term_height = ctx.size.height;
     let ActiveModal::Options(s) = &mut ctx.overlay.active else {
         return;
@@ -248,7 +248,7 @@ pub(crate) fn select_down_action(ctx: &mut InputContext, _key: &Key) {
     ctx.render.dirty.mark_overlay();
 }
 
-pub(crate) fn page_up_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn page_up_action(ctx: &mut InputContext, _: &Key) {
     let term_height = ctx.size.height;
     let ActiveModal::Options(s) = &mut ctx.overlay.active else {
         return;
@@ -265,7 +265,7 @@ pub(crate) fn page_up_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(crate) fn page_down_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn page_down_action(ctx: &mut InputContext, _: &Key) {
     let term_height = ctx.size.height;
     let ActiveModal::Options(s) = &mut ctx.overlay.active else {
         return;
@@ -282,7 +282,7 @@ pub(crate) fn page_down_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(crate) fn enter_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn enter_action(ctx: &mut InputContext, _: &Key) {
     // Enter on Int / StringVal opens the inline editor.
     // Enter on Bool / Browsable falls through to the same
     // step-right behaviour as the arrow keys.
@@ -303,11 +303,11 @@ pub(crate) fn enter_action(ctx: &mut InputContext, _key: &Key) {
     }
 }
 
-pub(crate) fn step_left_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn step_left_action(ctx: &mut InputContext, _: &Key) {
     step_selected_option(ctx, -1);
 }
 
-pub(crate) fn step_right_action(ctx: &mut InputContext, _key: &Key) {
+pub(crate) fn step_right_action(ctx: &mut InputContext, _: &Key) {
     step_selected_option(ctx, 1);
 }
 

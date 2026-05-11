@@ -249,7 +249,7 @@ impl super::Widget for MemWidget {
         preferred_height(hints)
     }
 
-    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_width(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_MEM_WIDTH
     }
 

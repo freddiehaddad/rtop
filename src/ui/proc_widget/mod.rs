@@ -360,18 +360,18 @@ impl super::Widget for ProcWidget {
         KINDS
     }
 
-    fn preferred_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn preferred_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         // Proc is a Fill widget — preferred is its absolute
         // minimum; the container distributes slack from sibling
         // Preferred widgets.
         crate::draw::layout::MIN_PROC_HEIGHT
     }
 
-    fn min_width(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_width(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_PROC_WIDTH
     }
 
-    fn min_height(&self, _hints: &crate::draw::layout::LayoutHints) -> usize {
+    fn min_height(&self, _: &crate::draw::layout::LayoutHints) -> usize {
         crate::draw::layout::MIN_PROC_HEIGHT
     }
 
