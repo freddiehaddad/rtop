@@ -537,19 +537,29 @@ pub(super) fn net_zero_action(ctx: &mut InputContext, _key: &Key) {
 ///
 /// Called when global `update_ms` changes — collectors using the default
 /// (per-widget interval == 0) get the new global value, while collectors
-/// with a custom per-widget interval keep their own.
+/// with a custom per-widget interval keep their own. The GPU subsystem
+/// is fanned out across `0..manager.gpu_count()`; indices beyond the
+/// discovered device count are intentionally skipped (no thread to
+/// address — the matching `Option<Sender<_>>` slot in `PerSubsystem`
+/// is `None`).
 pub(crate) fn sync_all_intervals(ctx: &mut InputContext) {
-    let intervals = [
+    let base_intervals = [
         (SubsystemKind::Cpu, ctx.config.refresh.cpu_update_ms),
         (SubsystemKind::Mem, ctx.config.refresh.mem_update_ms),
         (SubsystemKind::Disk, ctx.config.refresh.disk_update_ms),
         (SubsystemKind::Net, ctx.config.refresh.net_update_ms),
-        (SubsystemKind::Gpu, ctx.config.refresh.gpu_update_ms),
         (SubsystemKind::Proc, ctx.config.refresh.proc_update_ms),
     ];
-    for (kind, widget_ms) in intervals {
+    for (kind, widget_ms) in base_intervals {
         ctx.manager
             .set_interval(kind, ctx.config.effective_interval(widget_ms));
+    }
+    for n in 0..ctx.manager.gpu_count() {
+        let widget_ms = ctx.config.refresh.gpu_update_ms[n as usize];
+        ctx.manager.set_interval(
+            SubsystemKind::Gpu(n),
+            ctx.config.effective_interval(widget_ms),
+        );
     }
 }
 

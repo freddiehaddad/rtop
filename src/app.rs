@@ -57,10 +57,18 @@ enum AppCommand {
 /// queued events, then renders any dirty widgets in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    let mut manager =
-        runner::CollectorManager::start(config.refresh.update_ms as u64, event_tx.clone());
+    // Resolve every per-GPU interval through `effective_interval`
+    // here so the spawn site sees already-resolved values and
+    // never re-implements the "0 = inherit global" rule.
+    let gpu_intervals: [u64; crate::config::MAX_GPUS] =
+        std::array::from_fn(|i| config.effective_interval(config.refresh.gpu_update_ms[i]));
+    let mut manager = runner::CollectorManager::start(
+        config.refresh.update_ms as u64,
+        event_tx.clone(),
+        gpu_intervals,
+    );
     lifecycle::spawn_input_thread(event_tx);
-    let mut state = AppState::new(config);
+    let mut state = AppState::new(config, manager.gpu_count());
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
 
     while let Ok(first) = event_rx.recv() {

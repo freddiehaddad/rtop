@@ -526,11 +526,57 @@ fn parse_int_accepts_zero_for_inherit_keys() {
         IntKey::MemUpdateMs,
         IntKey::DiskUpdateMs,
         IntKey::NetUpdateMs,
-        IntKey::GpuUpdateMs,
+        IntKey::Gpu0UpdateMs,
+        IntKey::Gpu1UpdateMs,
+        IntKey::Gpu2UpdateMs,
+        IntKey::Gpu3UpdateMs,
+        IntKey::Gpu4UpdateMs,
+        IntKey::Gpu5UpdateMs,
+        IntKey::Gpu6UpdateMs,
+        IntKey::Gpu7UpdateMs,
         IntKey::ProcUpdateMs,
     ] {
         assert_eq!(key.parse("0").unwrap(), 0);
     }
+}
+
+#[test]
+fn gpu_update_ms_keys_round_trip_through_array_index() {
+    // The array shape on the schema macro (`array
+    // refresh.gpu_update_ms[N]`) must read and write the matching
+    // slot in the fixed-size config array without aliasing across
+    // GPU indices.
+    let mut config = crate::config::Config::new();
+    let keys = [
+        IntKey::Gpu0UpdateMs,
+        IntKey::Gpu1UpdateMs,
+        IntKey::Gpu2UpdateMs,
+        IntKey::Gpu3UpdateMs,
+        IntKey::Gpu4UpdateMs,
+        IntKey::Gpu5UpdateMs,
+        IntKey::Gpu6UpdateMs,
+        IntKey::Gpu7UpdateMs,
+    ];
+    for (i, key) in keys.iter().enumerate() {
+        key.set(&mut config, (1000 + i as i64) * 10);
+    }
+    for (i, key) in keys.iter().enumerate() {
+        assert_eq!(key.get(&config), (1000 + i as i64) * 10);
+        assert_eq!(
+            config.refresh.gpu_update_ms[i],
+            (1000 + i as i64) * 10,
+            "gpu_update_ms[{i}] must reflect the written value",
+        );
+    }
+}
+
+#[test]
+fn gpu_update_ms_keys_expose_their_device_index() {
+    assert_eq!(IntKey::Gpu0UpdateMs.gpu_index(), Some(0));
+    assert_eq!(IntKey::Gpu7UpdateMs.gpu_index(), Some(7));
+    assert_eq!(IntKey::CpuUpdateMs.gpu_index(), None);
+    assert_eq!(IntKey::UpdateMs.gpu_index(), None);
+    assert_eq!(IntKey::NetDownload.gpu_index(), None);
 }
 
 #[test]

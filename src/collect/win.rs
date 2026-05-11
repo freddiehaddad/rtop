@@ -70,6 +70,17 @@ impl Drop for OwnedRegKey {
 /// Owned loaded module that calls FreeLibrary on drop.
 pub(crate) struct OwnedLibrary(HMODULE);
 
+// SAFETY: HMODULE is an opaque kernel-managed identifier. Windows
+// loader operations (LoadLibrary / FreeLibrary / GetProcAddress)
+// against the same module from multiple threads are documented as
+// safe — the loader synchronises internally — so a single owner
+// can hand the handle (or references to it) across threads.
+// `OwnedLibrary` enforces that there is only ever one owner and
+// `FreeLibrary` runs exactly once via `Drop`.
+unsafe impl Send for OwnedLibrary {}
+// SAFETY: see Send impl above.
+unsafe impl Sync for OwnedLibrary {}
+
 impl OwnedLibrary {
     pub(crate) fn new(module: HMODULE) -> Option<Self> {
         (!module.is_invalid()).then_some(Self(module))

@@ -364,16 +364,14 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "Default: 0 (inherit).",
             "Range: 0 to 86,400,000 ms.",
         ],
-        ConfigKey::Int(IntKey::GpuUpdateMs) => &[
-            "GPU refresh interval (ms).",
-            "",
-            "Overrides the global Refresh Interval for",
-            "every GPU widget. 0 inherits the global",
-            "value.",
-            "",
-            "Default: 0 (inherit).",
-            "Range: 0 to 86,400,000 ms.",
-        ],
+        ConfigKey::Int(IntKey::Gpu0UpdateMs) => gpu_update_ms_desc(0),
+        ConfigKey::Int(IntKey::Gpu1UpdateMs) => gpu_update_ms_desc(1),
+        ConfigKey::Int(IntKey::Gpu2UpdateMs) => gpu_update_ms_desc(2),
+        ConfigKey::Int(IntKey::Gpu3UpdateMs) => gpu_update_ms_desc(3),
+        ConfigKey::Int(IntKey::Gpu4UpdateMs) => gpu_update_ms_desc(4),
+        ConfigKey::Int(IntKey::Gpu5UpdateMs) => gpu_update_ms_desc(5),
+        ConfigKey::Int(IntKey::Gpu6UpdateMs) => gpu_update_ms_desc(6),
+        ConfigKey::Int(IntKey::Gpu7UpdateMs) => gpu_update_ms_desc(7),
         ConfigKey::Int(IntKey::ProcUpdateMs) => &[
             "Process refresh interval (ms).",
             "",
@@ -660,6 +658,88 @@ fn custom_gpu_desc(index: u8) -> &'static [&'static str] {
     }
 }
 
+/// All eight `GpuNUpdateMs` keys carry identical text up to the
+/// device index. Centralising the template here keeps the
+/// per-key arms in `desc()` readable and matches the
+/// [`custom_gpu_desc`] precedent for per-GPU-index help slices.
+fn gpu_update_ms_desc(index: u8) -> &'static [&'static str] {
+    match index {
+        0 => &[
+            "GPU 0 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 0 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        1 => &[
+            "GPU 1 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 1 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        2 => &[
+            "GPU 2 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 2 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        3 => &[
+            "GPU 3 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 3 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        4 => &[
+            "GPU 4 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 4 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        5 => &[
+            "GPU 5 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 5 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        6 => &[
+            "GPU 6 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 6 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+        // 7 — last index in MAX_GPUS = 8 universe.
+        _ => &[
+            "GPU 7 refresh interval (ms).",
+            "",
+            "Overrides the global Refresh Interval for the",
+            "GPU 7 widget. 0 inherits the global value.",
+            "",
+            "Default: 0 (inherit).",
+            "Range: 0 to 86,400,000 ms.",
+        ],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -738,7 +818,14 @@ mod tests {
         "mem_update_ms",
         "disk_update_ms",
         "net_update_ms",
-        "gpu_update_ms",
+        "gpu0_update_ms",
+        "gpu1_update_ms",
+        "gpu2_update_ms",
+        "gpu3_update_ms",
+        "gpu4_update_ms",
+        "gpu5_update_ms",
+        "gpu6_update_ms",
+        "gpu7_update_ms",
         "proc_update_ms",
         "net_download",
         "net_upload",

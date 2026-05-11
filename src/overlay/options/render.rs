@@ -240,16 +240,29 @@ pub const PROC: &[ConfigKey] = &[
 ];
 
 /// Options in the "gpu" category.
+///
+/// Ordered as eight interleaved (custom-name, refresh-interval)
+/// pairs per device so each GPU's settings render as adjacent
+/// rows in the options modal — the user edits "GPU N's name and
+/// refresh interval" together rather than scrolling between two
+/// disjoint blocks.
 pub const GPU: &[ConfigKey] = &[
     ConfigKey::String(StringKey::CustomGpuName0),
+    ConfigKey::Int(IntKey::Gpu0UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName1),
+    ConfigKey::Int(IntKey::Gpu1UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName2),
+    ConfigKey::Int(IntKey::Gpu2UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName3),
+    ConfigKey::Int(IntKey::Gpu3UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName4),
+    ConfigKey::Int(IntKey::Gpu4UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName5),
+    ConfigKey::Int(IntKey::Gpu5UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName6),
+    ConfigKey::Int(IntKey::Gpu6UpdateMs),
     ConfigKey::String(StringKey::CustomGpuName7),
-    ConfigKey::Int(IntKey::GpuUpdateMs),
+    ConfigKey::Int(IntKey::Gpu7UpdateMs),
 ];
 
 /// Options in the "disk" category.

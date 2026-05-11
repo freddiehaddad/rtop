@@ -1,8 +1,8 @@
-use crate::collect::win::{OwnedLibrary, percent_u64, string_from_c_buf};
-use crate::domain::gpu::GpuInfo;
+use crate::collect::CollectStatus;
+use crate::collect::win::OwnedLibrary;
 use std::ffi::{c_char, c_void};
 
-use super::{GpuBackend, clamp_percent, power_percent, push_history};
+use super::{clamp_percent, power_percent, push_history};
 
 // ---------------------------------------------------------------------------
 // NvAPI constants
@@ -400,22 +400,53 @@ impl NvApiFunctions {
 }
 
 // ---------------------------------------------------------------------------
-// NvidiaBackend
+// NvApiSession — shared per-vendor session
 // ---------------------------------------------------------------------------
 
-pub(super) struct NvidiaBackend {
+/// `Send + Sync` newtype around `NvPhysicalGpuHandle` (`*mut c_void`).
+///
+/// NvAPI handles are opaque identifiers that NvAPI dereferences
+/// internally; the rtop side never reads through them. NvAPI itself
+/// is documented thread-safe per `nvapi.h`, so a handle owned by
+/// one device thread can be passed back to NvAPI from that same
+/// thread without external synchronisation. The wrapper exists
+/// purely to satisfy the `Send + Sync` requirement on the per-device
+/// collector type that crosses a thread boundary in
+/// [`crate::runner::spawn_collector`].
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct SendNvHandle(NvPhysicalGpuHandle);
+
+// SAFETY: NvAPI handles are opaque identifiers used only by NvAPI
+// itself, which is thread-safe per nvapi.h. We never dereference the
+// pointer from Rust.
+unsafe impl Send for SendNvHandle {}
+// SAFETY: see Send impl above.
+unsafe impl Sync for SendNvHandle {}
+
+/// Shared NvAPI session: loaded library, resolved function-pointer
+/// table, and the initialised NvAPI runtime.
+///
+/// Constructed once during [`discover`] and shared across every
+/// `NvidiaDeviceCollector` via `Arc<NvApiSession>`. The `Drop` impl
+/// calls `NvAPI_Unload` exactly once when the last device thread
+/// releases its `Arc` — NvAPI's documented refcounted-init model
+/// means the unload only takes effect when the refcount drops to
+/// zero, but rtop matches that with a single `Initialize`/`Unload`
+/// pair per process.
+pub(super) struct NvApiSession {
     nvapi: NvApiFunctions,
-    devices: Vec<NvPhysicalGpuHandle>,
-    /// Default power limit (TDP) per device in milliwatts, from NVML.
-    tdp_mw: Vec<u64>,
 }
 
-impl NvidiaBackend {
-    pub(super) fn load() -> Option<Self> {
+impl NvApiSession {
+    /// Load `nvapi64.dll`, resolve the function table, and call
+    /// `NvAPI_Initialize`. Returns `None` if the DLL is absent or
+    /// initialise fails.
+    fn load() -> Option<Self> {
         let nvapi = NvApiFunctions::load()?;
 
-        // SAFETY: nvapi.initialize was resolved from nvapi64.dll and matches
-        // the NvAPI_Initialize signature.
+        // SAFETY: nvapi.initialize was resolved from nvapi64.dll
+        // and matches the NvAPI_Initialize signature.
         let ret = unsafe { (nvapi.initialize)() };
         if ret != NVAPI_OK {
             tracing::debug!(
@@ -425,253 +456,316 @@ impl NvidiaBackend {
             );
             return None;
         }
-
-        Some(Self {
-            nvapi,
-            devices: Vec::new(),
-            tdp_mw: Vec::new(),
-        })
+        Some(Self { nvapi })
     }
 }
 
-impl GpuBackend for NvidiaBackend {
-    fn init_devices(&mut self) -> Vec<GpuInfo> {
-        let mut handles = [std::ptr::null_mut::<c_void>(); NVAPI_MAX_PHYSICAL_GPUS];
-        let mut count: u32 = 0;
-
-        // SAFETY: handles is a valid array of NVAPI_MAX_PHYSICAL_GPUS pointers;
-        // count is a valid pointer to a stack-allocated u32.
-        let ret = unsafe { (self.nvapi.enum_physical_gpus)(handles.as_mut_ptr(), &mut count) };
-        if ret != NVAPI_OK {
-            tracing::warn!(
-                subsystem = %crate::log::Subsystem::GpuNvapi,
-                code = %crate::log::Hex(ret),
-                "NvAPI_EnumPhysicalGPUs failed",
-            );
-            return Vec::new();
-        }
-
-        let count = (count as usize).min(NVAPI_MAX_PHYSICAL_GPUS);
-        self.devices = handles[..count].to_vec();
-
-        // Query default TDP per device from NVML (needed to convert NvAPI
-        // PCM values to milliwatts).
-        self.tdp_mw = query_nvml_tdp(count)
-            .unwrap_or_default()
-            .into_iter()
-            .map(u64::from)
-            .collect();
-        // Pad with zeros if NVML returned fewer devices than NvAPI.
-        self.tdp_mw.resize(count, 0);
-
-        self.devices
-            .iter()
-            .zip(self.tdp_mw.iter())
-            .map(|(&device, &tdp)| {
-                let mut info = GpuInfo::default();
-
-                // GPU name
-                let mut name_buf = [0u8; NVAPI_SHORT_STRING_MAX];
-                // SAFETY: device is a valid handle; name_buf is 64 bytes
-                // matching NvAPI_ShortString.
-                let ret = unsafe {
-                    (self.nvapi.gpu_get_full_name)(device, name_buf.as_mut_ptr() as *mut c_char)
-                };
-                if ret == NVAPI_OK {
-                    info.name = string_from_c_buf(&name_buf);
-                }
-
-                // Power limit — use TDP from NVML, scaled by the NvAPI
-                // power policy max percentage (PCM).
-                if tdp > 0 {
-                    info.pwr_max_usage = tdp as i64;
-
-                    // Check if user has raised the power limit above default.
-                    let mut power_info = NvPowerInfo {
-                        version: POWER_INFO_VER,
-                        valid: 0,
-                        count: 0,
-                        padding: [0; 2],
-                        entries: [NvPowerInfoEntry::default(); 4],
-                    };
-                    // SAFETY: device is valid; power_info is a valid versioned struct.
-                    let ret = unsafe {
-                        (self.nvapi.client_power_policies_get_info)(device, &mut power_info)
-                    };
-                    if ret == NVAPI_OK && power_info.count > 0 {
-                        let max_pcm = power_info.entries[0].max_power_pcm as u64;
-                        if max_pcm > PCM_100_PERCENT {
-                            info.pwr_max_usage = pcm_to_mw(max_pcm, tdp) as i64;
-                        }
-                    }
-                }
-
-                // Max clock (boost frequency)
-                let mut clocks = NvClockFrequencies {
-                    version: CLOCK_FREQUENCIES_VER,
-                    clock_type: CLOCK_TYPE_BOOST,
-                    domains: [NvClockDomain::default(); 32],
-                };
-                // SAFETY: device is valid; clocks is a valid versioned struct.
-                let ret = unsafe { (self.nvapi.get_all_clock_frequencies)(device, &mut clocks) };
-                if ret == NVAPI_OK {
-                    let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
-                    if gfx.flags & 1 != 0 {
-                        info.gpu_max_clock_speed = gfx.frequency_khz / 1000;
-                    }
-                }
-
-                info
-            })
-            .collect()
-    }
-
-    fn collect(&mut self, gpus: &mut [GpuInfo]) {
-        for ((gpu, &device), &tdp) in gpus
-            .iter_mut()
-            .zip(self.devices.iter())
-            .zip(self.tdp_mw.iter())
-        {
-            // Utilization
-            let mut pstates = NvDynamicPstatesInfoEx {
-                version: PSTATES_INFO_VER,
-                flags: 0,
-                utilizations: [NvUtilDomain::default(); 8],
-            };
-            // SAFETY: device is a valid handle obtained during init.
-            let ret = unsafe { (self.nvapi.get_dynamic_pstates_info_ex)(device, &mut pstates) };
-            if ret == NVAPI_OK {
-                let gpu_util = &pstates.utilizations[0];
-                if gpu_util.flags & 1 != 0 {
-                    push_history(
-                        &mut gpu.gpu_percent.utilization,
-                        clamp_percent(gpu_util.percentage),
-                    );
-                }
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuNvapi,
-                    code = %crate::log::Hex(ret),
-                    "NvAPI utilization query failed",
-                );
-            }
-
-            // Temperature — request all sensors, pick the GPU target
-            let mut thermal = NvThermalSettings {
-                version: THERMAL_SETTINGS_VER,
-                count: 0,
-                sensors: [NvThermalSensor::default(); 3],
-            };
-            // SAFETY: device is valid; NVAPI_THERMAL_TARGET_ALL requests all sensors.
-            let ret = unsafe {
-                (self.nvapi.get_thermal_settings)(device, NVAPI_THERMAL_TARGET_ALL, &mut thermal)
-            };
-            if ret == NVAPI_OK {
-                let temp = thermal.sensors[..thermal.count as usize]
-                    .iter()
-                    .find(|s| s.target == NVAPI_THERMAL_TARGET_GPU)
-                    .or_else(|| thermal.sensors.first())
-                    .map(|s| s.current_temp as i64)
-                    .unwrap_or(0);
-                push_history(&mut gpu.temp, temp);
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuNvapi,
-                    code = %crate::log::Hex(ret),
-                    "NvAPI temperature query failed",
-                );
-            }
-
-            // Memory (values in KB)
-            let mut mem = NvMemoryInfo {
-                version: MEMORY_INFO_VER,
-                dedicated_video_memory_kb: 0,
-                avail_dedicated_video_memory_kb: 0,
-                system_video_memory_kb: 0,
-                shared_system_memory_kb: 0,
-                cur_avail_dedicated_video_memory_kb: 0,
-                dedicated_video_memory_evictions_size_kb: 0,
-                dedicated_video_memory_eviction_count: 0,
-            };
-            // SAFETY: device is valid; mem is a valid versioned struct.
-            let ret = unsafe { (self.nvapi.get_memory_info)(device, &mut mem) };
-            if ret == NVAPI_OK {
-                let total = mem.dedicated_video_memory_kb as u64 * 1024;
-                let avail = mem.cur_avail_dedicated_video_memory_kb as u64 * 1024;
-                let used = total.saturating_sub(avail);
-                gpu.mem_total = total;
-                gpu.mem_used = used;
-                let vram_pct = percent_u64(used, total).min(100);
-                push_history(&mut gpu.gpu_percent.vram, vram_pct);
-                push_history(&mut gpu.mem_utilization_percent, vram_pct);
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuNvapi,
-                    code = %crate::log::Hex(ret),
-                    "NvAPI memory query failed",
-                );
-            }
-
-            // Power — pick the Board domain entry (PCM) and convert to mW.
-            if tdp > 0 {
-                let mut topo = NvPowerTopo {
-                    version: POWER_TOPO_VER,
-                    count: 0,
-                    entries: [NvPowerTopoEntry::default(); 4],
-                };
-                // SAFETY: device is valid; topo is a valid versioned struct.
-                let ret = unsafe { (self.nvapi.client_power_topo_get_status)(device, &mut topo) };
-                if ret == NVAPI_OK && topo.count > 0 {
-                    let n = (topo.count as usize).min(topo.entries.len());
-                    let board_pcm = topo.entries[..n]
-                        .iter()
-                        .find(|e| e.domain == POWER_DOMAIN_BOARD)
-                        .or_else(|| topo.entries.first())
-                        .map(|e| e.power_pcm as u64)
-                        .unwrap_or(0);
-                    let power_mw = pcm_to_mw(board_pcm, tdp);
-                    gpu.pwr_usage = power_mw as i64;
-                    let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
-                    push_history(&mut gpu.gpu_percent.power, pwr_pct);
-                } else {
-                    tracing::debug!(
-                        subsystem = %crate::log::Subsystem::GpuNvapi,
-                        code = %crate::log::Hex(ret),
-                        "NvAPI power topology query failed",
-                    );
-                }
-            }
-
-            // Clock speed (current, in kHz → MHz)
-            let mut clocks = NvClockFrequencies {
-                version: CLOCK_FREQUENCIES_VER,
-                clock_type: CLOCK_TYPE_CURRENT,
-                domains: [NvClockDomain::default(); 32],
-            };
-            // SAFETY: device is valid; clocks is a valid versioned struct.
-            let ret = unsafe { (self.nvapi.get_all_clock_frequencies)(device, &mut clocks) };
-            if ret == NVAPI_OK {
-                let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
-                if gfx.flags & 1 != 0 {
-                    gpu.gpu_clock_speed = gfx.frequency_khz / 1000;
-                }
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuNvapi,
-                    code = %crate::log::Hex(ret),
-                    "NvAPI clock query failed",
-                );
-            }
-        }
-    }
-
-    fn shutdown(&mut self) {
-        // SAFETY: nvapi.unload was resolved from nvapi64.dll. Called once
-        // during cleanup while the DLL handle is still valid.
+impl Drop for NvApiSession {
+    fn drop(&mut self) {
+        // SAFETY: nvapi.unload was resolved from nvapi64.dll alongside
+        // initialize. We call it exactly once per successful
+        // `Initialize` (the session is constructed only when
+        // initialize returns NVAPI_OK).
         unsafe {
             let _ = (self.nvapi.unload)();
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// NvidiaDeviceCollector — one per detected NVIDIA GPU
+// ---------------------------------------------------------------------------
+
+/// Per-device NVIDIA GPU collector. Owns its `Arc<NvApiSession>`
+/// clone, its NVAPI device handle, the device's TDP (queried from
+/// NVML during discovery), and the in-memory `GpuInfo` that the
+/// renderer reads.
+pub(crate) struct NvidiaDeviceCollector {
+    session: std::sync::Arc<NvApiSession>,
+    device: SendNvHandle,
+    /// Default power limit (TDP) in milliwatts, from NVML during
+    /// discovery. Used to convert NvAPI Per-Cent-Mille power
+    /// readings into milliwatts.
+    tdp_mw: u64,
+    info: crate::domain::gpu::GpuInfo,
+    status: CollectStatus,
+}
+
+impl NvidiaDeviceCollector {
+    pub(super) fn collect(&mut self) {
+        self.status = CollectStatus::Ok;
+        let session = &self.session.nvapi;
+        let device = self.device.0;
+
+        // Utilization
+        let mut pstates = NvDynamicPstatesInfoEx {
+            version: PSTATES_INFO_VER,
+            flags: 0,
+            utilizations: [NvUtilDomain::default(); 8],
+        };
+        // SAFETY: device is a valid handle obtained during discovery.
+        let ret = unsafe { (session.get_dynamic_pstates_info_ex)(device, &mut pstates) };
+        if ret == NVAPI_OK {
+            let gpu_util = &pstates.utilizations[0];
+            if gpu_util.flags & 1 != 0 {
+                push_history(
+                    &mut self.info.gpu_percent.utilization,
+                    clamp_percent(gpu_util.percentage),
+                );
+            }
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI utilization query failed",
+            );
+            self.status
+                .downgrade(CollectStatus::Degraded("nvapi utilization"));
+        }
+
+        // Temperature — request all sensors, pick the GPU target.
+        let mut thermal = NvThermalSettings {
+            version: THERMAL_SETTINGS_VER,
+            count: 0,
+            sensors: [NvThermalSensor::default(); 3],
+        };
+        // SAFETY: device is valid; NVAPI_THERMAL_TARGET_ALL requests all sensors.
+        let ret = unsafe {
+            (session.get_thermal_settings)(device, NVAPI_THERMAL_TARGET_ALL, &mut thermal)
+        };
+        if ret == NVAPI_OK {
+            let temp = thermal.sensors[..thermal.count as usize]
+                .iter()
+                .find(|s| s.target == NVAPI_THERMAL_TARGET_GPU)
+                .or_else(|| thermal.sensors.first())
+                .map(|s| s.current_temp as i64)
+                .unwrap_or(0);
+            push_history(&mut self.info.temp, temp);
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI temperature query failed",
+            );
+            self.status
+                .downgrade(CollectStatus::Degraded("nvapi temperature"));
+        }
+
+        // Memory (values in KB)
+        let mut mem = NvMemoryInfo {
+            version: MEMORY_INFO_VER,
+            dedicated_video_memory_kb: 0,
+            avail_dedicated_video_memory_kb: 0,
+            system_video_memory_kb: 0,
+            shared_system_memory_kb: 0,
+            cur_avail_dedicated_video_memory_kb: 0,
+            dedicated_video_memory_evictions_size_kb: 0,
+            dedicated_video_memory_eviction_count: 0,
+        };
+        // SAFETY: device is valid; mem is a valid versioned struct.
+        let ret = unsafe { (session.get_memory_info)(device, &mut mem) };
+        if ret == NVAPI_OK {
+            let total = mem.dedicated_video_memory_kb as u64 * 1024;
+            let avail = mem.cur_avail_dedicated_video_memory_kb as u64 * 1024;
+            let used = total.saturating_sub(avail);
+            self.info.mem_total = total;
+            self.info.mem_used = used;
+            let vram_pct = crate::collect::win::percent_u64(used, total).min(100);
+            push_history(&mut self.info.gpu_percent.vram, vram_pct);
+            push_history(&mut self.info.mem_utilization_percent, vram_pct);
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI memory query failed",
+            );
+            self.status
+                .downgrade(CollectStatus::Degraded("nvapi memory"));
+        }
+
+        // Power — pick the Board domain entry (PCM) and convert to mW.
+        if self.tdp_mw > 0 {
+            let mut topo = NvPowerTopo {
+                version: POWER_TOPO_VER,
+                count: 0,
+                entries: [NvPowerTopoEntry::default(); 4],
+            };
+            // SAFETY: device is valid; topo is a valid versioned struct.
+            let ret = unsafe { (session.client_power_topo_get_status)(device, &mut topo) };
+            if ret == NVAPI_OK && topo.count > 0 {
+                let n = (topo.count as usize).min(topo.entries.len());
+                let board_pcm = topo.entries[..n]
+                    .iter()
+                    .find(|e| e.domain == POWER_DOMAIN_BOARD)
+                    .or_else(|| topo.entries.first())
+                    .map(|e| e.power_pcm as u64)
+                    .unwrap_or(0);
+                let power_mw = pcm_to_mw(board_pcm, self.tdp_mw);
+                self.info.pwr_usage = power_mw as i64;
+                let pwr_pct = power_percent(power_mw, self.info.pwr_max_usage as u64);
+                push_history(&mut self.info.gpu_percent.power, pwr_pct);
+            } else {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuNvapi,
+                    code = %crate::log::Hex(ret),
+                    "NvAPI power topology query failed",
+                );
+                self.status
+                    .downgrade(CollectStatus::Degraded("nvapi power"));
+            }
+        }
+
+        // Clock speed (current, in kHz → MHz)
+        let mut clocks = NvClockFrequencies {
+            version: CLOCK_FREQUENCIES_VER,
+            clock_type: CLOCK_TYPE_CURRENT,
+            domains: [NvClockDomain::default(); 32],
+        };
+        // SAFETY: device is valid; clocks is a valid versioned struct.
+        let ret = unsafe { (session.get_all_clock_frequencies)(device, &mut clocks) };
+        if ret == NVAPI_OK {
+            let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
+            if gfx.flags & 1 != 0 {
+                self.info.gpu_clock_speed = gfx.frequency_khz / 1000;
+            }
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI clock query failed",
+            );
+            self.status
+                .downgrade(CollectStatus::Degraded("nvapi clock"));
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> crate::runner::GpuSnapshot {
+        crate::runner::GpuSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
+    }
+}
+
+/// Discover every NVIDIA GPU and return one
+/// [`super::DeviceCollector`] wrapper per device. Returns an empty
+/// vector if NvAPI is unavailable or no GPUs are detected.
+pub(super) fn discover() -> Vec<super::DeviceCollector> {
+    let Some(session) = NvApiSession::load() else {
+        return Vec::new();
+    };
+    let session = std::sync::Arc::new(session);
+
+    let mut handles = [std::ptr::null_mut::<c_void>(); NVAPI_MAX_PHYSICAL_GPUS];
+    let mut count: u32 = 0;
+    // SAFETY: handles is a valid array of NVAPI_MAX_PHYSICAL_GPUS
+    // pointers; count is a valid pointer to a stack-allocated u32.
+    let ret = unsafe { (session.nvapi.enum_physical_gpus)(handles.as_mut_ptr(), &mut count) };
+    if ret != NVAPI_OK {
+        tracing::warn!(
+            subsystem = %crate::log::Subsystem::GpuNvapi,
+            code = %crate::log::Hex(ret),
+            "NvAPI_EnumPhysicalGPUs failed",
+        );
+        return Vec::new();
+    }
+    let count = (count as usize).min(NVAPI_MAX_PHYSICAL_GPUS);
+    if count == 0 {
+        return Vec::new();
+    }
+    let devices: Vec<NvPhysicalGpuHandle> = handles[..count].to_vec();
+
+    // Query default TDP per device from NVML (needed to convert
+    // NvAPI PCM power values to milliwatts).
+    let tdp_mw_vec: Vec<u64> = query_nvml_tdp(count)
+        .unwrap_or_default()
+        .into_iter()
+        .map(u64::from)
+        .chain(std::iter::repeat(0u64))
+        .take(count)
+        .collect();
+
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::GpuNvapi,
+        devices = count,
+        "vendor initialized",
+    );
+
+    devices
+        .into_iter()
+        .zip(tdp_mw_vec)
+        .map(|(device, tdp_mw)| {
+            let info = build_initial_info(&session.nvapi, device, tdp_mw);
+            super::DeviceCollector::Nvidia(NvidiaDeviceCollector {
+                session: std::sync::Arc::clone(&session),
+                device: SendNvHandle(device),
+                tdp_mw,
+                info,
+                status: CollectStatus::Ok,
+            })
+        })
+        .collect()
+}
+
+/// Pre-fill the per-device `GpuInfo` with static fields (name,
+/// max-power reference, max boost clock) that the collector
+/// renders but never re-queries on each cycle. Mirrors AMD's
+/// [`build_initial_info`](super::amd) helper for parity.
+fn build_initial_info(
+    nvapi: &NvApiFunctions,
+    device: NvPhysicalGpuHandle,
+    tdp_mw: u64,
+) -> crate::domain::gpu::GpuInfo {
+    let mut info = crate::domain::gpu::GpuInfo::default();
+
+    // GPU name.
+    let mut name_buf = [0u8; NVAPI_SHORT_STRING_MAX];
+    // SAFETY: device is a valid handle; name_buf is 64 bytes
+    // matching NvAPI_ShortString.
+    let ret = unsafe { (nvapi.gpu_get_full_name)(device, name_buf.as_mut_ptr() as *mut c_char) };
+    if ret == NVAPI_OK {
+        info.name = crate::collect::win::string_from_c_buf(&name_buf);
+    }
+
+    // Power limit — use TDP from NVML, scaled by the NvAPI power
+    // policy max percentage (PCM) when the user has raised the
+    // limit above default.
+    if tdp_mw > 0 {
+        info.pwr_max_usage = tdp_mw as i64;
+
+        let mut power_info = NvPowerInfo {
+            version: POWER_INFO_VER,
+            valid: 0,
+            count: 0,
+            padding: [0; 2],
+            entries: [NvPowerInfoEntry::default(); 4],
+        };
+        // SAFETY: device is valid; power_info is a valid versioned struct.
+        let ret = unsafe { (nvapi.client_power_policies_get_info)(device, &mut power_info) };
+        if ret == NVAPI_OK && power_info.count > 0 {
+            let max_pcm = power_info.entries[0].max_power_pcm as u64;
+            if max_pcm > PCM_100_PERCENT {
+                info.pwr_max_usage = pcm_to_mw(max_pcm, tdp_mw) as i64;
+            }
+        }
+    }
+
+    // Max clock (boost frequency).
+    let mut clocks = NvClockFrequencies {
+        version: CLOCK_FREQUENCIES_VER,
+        clock_type: CLOCK_TYPE_BOOST,
+        domains: [NvClockDomain::default(); 32],
+    };
+    // SAFETY: device is valid; clocks is a valid versioned struct.
+    let ret = unsafe { (nvapi.get_all_clock_frequencies)(device, &mut clocks) };
+    if ret == NVAPI_OK {
+        let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
+        if gfx.flags & 1 != 0 {
+            info.gpu_max_clock_speed = gfx.frequency_khz / 1000;
+        }
+    }
+
+    info
 }
 
 #[cfg(test)]

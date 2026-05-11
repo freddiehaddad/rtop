@@ -91,8 +91,10 @@ impl Default for UiConfig {
 }
 
 /// Refresh-interval settings (one global + per-subsystem
-/// overrides). 0 on a per-subsystem field means "inherit the
-/// global `update_ms`".
+/// overrides). Each per-subsystem `*_update_ms` field is
+/// independent of the global `update_ms`; a field set to 0
+/// inherits the global value via
+/// [`super::Config::effective_interval`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RefreshConfig {
@@ -101,7 +103,14 @@ pub struct RefreshConfig {
     pub mem_update_ms: i64,
     pub disk_update_ms: i64,
     pub net_update_ms: i64,
-    pub gpu_update_ms: i64,
+    /// Per-GPU refresh interval (ms), one slot per device index.
+    /// Each slot is independent of every other slot and of the
+    /// global `update_ms`. A slot set to 0 inherits the global
+    /// `update_ms`. The fixed-size array mirrors
+    /// `custom_gpu_names: [String; MAX_GPUS]` so the
+    /// index-to-device mapping is identical across the two
+    /// per-GPU config arrays.
+    pub gpu_update_ms: [i64; MAX_GPUS],
     pub proc_update_ms: i64,
 }
 
@@ -113,7 +122,7 @@ impl Default for RefreshConfig {
             mem_update_ms: 0,
             disk_update_ms: 0,
             net_update_ms: 0,
-            gpu_update_ms: 0,
+            gpu_update_ms: [0; MAX_GPUS],
             proc_update_ms: 0,
         }
     }

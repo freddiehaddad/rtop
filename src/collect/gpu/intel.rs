@@ -1,8 +1,8 @@
+use crate::collect::CollectStatus;
 use crate::collect::win::OwnedLibrary;
-use crate::domain::gpu::GpuInfo;
 use std::ffi::c_void;
 
-use super::{GpuBackend, clamp_percent, push_history};
+use super::{clamp_percent, push_history};
 
 const CTL_RESULT_SUCCESS: u32 = 0;
 const CTL_IMPL_VERSION: u32 = (1 << 16) | 1;
@@ -290,30 +290,80 @@ impl IgclFunctions {
 }
 
 // ---------------------------------------------------------------------------
-// Intel backend
+// Intel vendor session and per-device collector
 // ---------------------------------------------------------------------------
 
-/// Per-device cached sub-handles for telemetry queries.
-struct IntelDevice {
-    handle: CtlDeviceHandle,
-    temp_sensor: Option<CtlTempHandle>,
-    mem_module: Option<CtlMemHandle>,
-    engine_group: Option<CtlEngineHandle>,
-    freq_domain: Option<CtlFreqHandle>,
-    prev_active: u64,
-    prev_timestamp: u64,
-    prev_energy: f64,
-    prev_energy_ts: f64,
-}
+/// `Send + Sync` newtype around `CtlApiHandle` (`*mut c_void`).
+///
+/// The IGCL `api_handle` is a process-singleton in Intel's official
+/// integration pattern (their own wrapper at
+/// `intel/drivers.gpu.control-library/Source/cApiWrapper.cpp` uses
+/// a static `hinstLib` and calls `ctlInit` only when it's `NULL`).
+/// Sharing one handle across per-device threads via `Arc` matches
+/// that contract; the IGCL functions themselves take a per-device
+/// handle as their leading argument and the `api_handle` is only
+/// passed to `ctlEnumerateDevices` (called once during discovery,
+/// never again from a worker thread) and to `ctlClose` (called once
+/// from `Drop` on the last `Arc`).
+#[repr(transparent)]
+struct IgclApiHandleSafe(CtlApiHandle);
 
-pub(super) struct IntelBackend {
+// SAFETY: see type-level doc — the handle is treated as a
+// process-singleton by Intel's own integration pattern; rtop never
+// dereferences it from Rust.
+unsafe impl Send for IgclApiHandleSafe {}
+// SAFETY: see Send impl above.
+unsafe impl Sync for IgclApiHandleSafe {}
+
+/// `Send` newtype around `CtlDeviceHandle` (`*mut c_void`).
+/// Each per-device collector owns its own device handle and never
+/// shares it with another thread.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct IgclDevice(CtlDeviceHandle);
+// SAFETY: opaque IGCL handle; only passed back to IGCL functions
+// from a single owning thread.
+unsafe impl Send for IgclDevice {}
+
+/// `Send` newtype around `CtlTempHandle`. Per-device-owned;
+/// passed back only to `ctlTemperatureGetState` and friends.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct IgclTempHandle(CtlTempHandle);
+// SAFETY: opaque IGCL temperature-sensor handle; per-device-owned.
+unsafe impl Send for IgclTempHandle {}
+
+/// `Send` newtype around `CtlMemHandle`. Per-device-owned.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct IgclMemHandle(CtlMemHandle);
+// SAFETY: opaque IGCL memory-module handle; per-device-owned.
+unsafe impl Send for IgclMemHandle {}
+
+/// `Send` newtype around `CtlEngineHandle`. Per-device-owned.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct IgclEngineHandle(CtlEngineHandle);
+// SAFETY: opaque IGCL engine-group handle; per-device-owned.
+unsafe impl Send for IgclEngineHandle {}
+
+/// `Send` newtype around `CtlFreqHandle`. Per-device-owned.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct IgclFreqHandle(CtlFreqHandle);
+// SAFETY: opaque IGCL frequency-domain handle; per-device-owned.
+unsafe impl Send for IgclFreqHandle {}
+
+/// Shared IGCL session: loaded library, resolved function-pointer
+/// table, and the `api_handle` from `ctlInit`. `Drop` calls
+/// `ctlClose` once when the last `Arc<IgclSession>` releases.
+pub(super) struct IgclSession {
     igcl: IgclFunctions,
-    api_handle: CtlApiHandle,
-    devices: Vec<IntelDevice>,
+    api_handle: IgclApiHandleSafe,
 }
 
-impl IntelBackend {
-    pub(super) fn load() -> Option<Self> {
+impl IgclSession {
+    fn load() -> Option<Self> {
         let igcl = IgclFunctions::load()?;
 
         let mut init_args = CtlInitArgs {
@@ -327,7 +377,9 @@ impl IntelBackend {
         };
         let mut api_handle: CtlApiHandle = std::ptr::null_mut();
 
-        // SAFETY: init_args is valid repr(C) struct; api_handle is valid pointer.
+        // SAFETY: init_args is a valid repr(C) struct with size
+        // and version set; api_handle is a valid pointer to a
+        // stack-allocated null pointer.
         let ret = unsafe { (igcl.init)(&mut init_args, &mut api_handle) };
         if ret != CTL_RESULT_SUCCESS {
             tracing::debug!(
@@ -340,10 +392,301 @@ impl IntelBackend {
 
         Some(Self {
             igcl,
-            api_handle,
-            devices: Vec::new(),
+            api_handle: IgclApiHandleSafe(api_handle),
         })
     }
+}
+
+impl Drop for IgclSession {
+    fn drop(&mut self) {
+        if !self.api_handle.0.is_null() {
+            // SAFETY: api_handle was created by ctlInit on the same
+            // igcl function table; close was resolved from the same
+            // library and is called exactly once per successful init.
+            unsafe {
+                let _ = (self.igcl.close)(self.api_handle.0);
+            }
+            self.api_handle.0 = std::ptr::null_mut();
+        }
+    }
+}
+
+/// Per-device Intel GPU collector. Owns its `Arc<IgclSession>`
+/// clone, its IGCL device handle, the cached telemetry sub-handles
+/// (temperature/memory/engine/frequency), the four prev-counters
+/// needed for delta-based power and engine-utilization derivation,
+/// and the in-memory `GpuInfo`.
+pub(crate) struct IntelDeviceCollector {
+    session: std::sync::Arc<IgclSession>,
+    handle: IgclDevice,
+    temp_sensor: Option<IgclTempHandle>,
+    mem_module: Option<IgclMemHandle>,
+    engine_group: Option<IgclEngineHandle>,
+    freq_domain: Option<IgclFreqHandle>,
+    prev_active: u64,
+    prev_timestamp: u64,
+    prev_energy: f64,
+    prev_energy_ts: f64,
+    info: crate::domain::gpu::GpuInfo,
+    status: CollectStatus,
+}
+
+impl IntelDeviceCollector {
+    pub(super) fn collect(&mut self) {
+        self.status = CollectStatus::Ok;
+        let igcl = &self.session.igcl;
+
+        // Temperature
+        if let Some(temp_h) = self.temp_sensor {
+            let mut state = CtlTempState::default();
+            // SAFETY: temp_h cached from discovery; state is valid.
+            let ret = unsafe { (igcl.temp_get_state)(temp_h.0, &mut state) };
+            if ret == CTL_RESULT_SUCCESS {
+                push_history(&mut self.info.temp, state.temperature as i64);
+            } else {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    code = %crate::log::Hex(ret),
+                    "IGCL temperature query failed",
+                );
+                self.status
+                    .downgrade(CollectStatus::Degraded("igcl temperature"));
+            }
+        }
+
+        // Memory
+        if let Some(mem_h) = self.mem_module {
+            let mut state = CtlMemState::default();
+            // SAFETY: mem_h cached from discovery; state is valid.
+            let ret = unsafe { (igcl.mem_get_state)(mem_h.0, &mut state) };
+            if ret == CTL_RESULT_SUCCESS && state.size > 0 {
+                self.info.mem_total = state.size;
+                self.info.mem_used = state.size.saturating_sub(state.free);
+                let vram_pct =
+                    crate::collect::win::percent_u64(self.info.mem_used, state.size).min(100);
+                push_history(&mut self.info.gpu_percent.vram, vram_pct);
+                push_history(&mut self.info.mem_utilization_percent, vram_pct);
+            } else if ret != CTL_RESULT_SUCCESS {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    code = %crate::log::Hex(ret),
+                    "IGCL memory query failed",
+                );
+                self.status
+                    .downgrade(CollectStatus::Degraded("igcl memory"));
+            }
+        }
+
+        // Engine utilization (compute delta from active/timestamp pairs)
+        if let Some(eng_h) = self.engine_group {
+            let mut activity = CtlEngineActivity::default();
+            // SAFETY: eng_h cached from discovery; activity is valid.
+            let ret = unsafe { (igcl.engine_get_activity)(eng_h.0, &mut activity) };
+            if ret == CTL_RESULT_SUCCESS && activity.timestamp > 0 {
+                if self.prev_timestamp > 0 {
+                    let dt = activity.timestamp.saturating_sub(self.prev_timestamp);
+                    let da = activity.active_time.saturating_sub(self.prev_active);
+                    let pct = (da * 100).checked_div(dt).unwrap_or(0) as u32;
+                    push_history(&mut self.info.gpu_percent.utilization, clamp_percent(pct));
+                }
+                self.prev_active = activity.active_time;
+                self.prev_timestamp = activity.timestamp;
+            } else if ret != CTL_RESULT_SUCCESS {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    code = %crate::log::Hex(ret),
+                    "IGCL engine activity query failed",
+                );
+                self.status
+                    .downgrade(CollectStatus::Degraded("igcl engine"));
+            }
+        }
+
+        // Frequency
+        if let Some(freq_h) = self.freq_domain {
+            let mut state = CtlFreqState::default();
+            // SAFETY: freq_h cached from discovery; state is valid.
+            let ret = unsafe { (igcl.freq_get_state)(freq_h.0, &mut state) };
+            if ret == CTL_RESULT_SUCCESS && state.actual_frequency > 0.0 {
+                self.info.gpu_clock_speed = state.actual_frequency as u32;
+            } else if ret != CTL_RESULT_SUCCESS {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    code = %crate::log::Hex(ret),
+                    "IGCL frequency query failed",
+                );
+                self.status
+                    .downgrade(CollectStatus::Degraded("igcl frequency"));
+            }
+        }
+
+        // Power — derived from energy-counter differentiation (ΔJ / Δs).
+        let mut telemetry = CtlPowerTelemetry::new();
+        // SAFETY: self.handle.0 is a valid device handle; telemetry
+        // is a valid versioned struct with size and version set.
+        let ret = unsafe { (igcl.power_telemetry_get)(self.handle.0, &mut telemetry) };
+        if ret == CTL_RESULT_SUCCESS {
+            let energy = telemetry
+                .total_card_energy_counter
+                .get()
+                .or_else(|| telemetry.gpu_energy_counter.get());
+            let timestamp = telemetry.timestamp.get();
+
+            if let (Some(energy_j), Some(ts_s)) = (energy, timestamp) {
+                let dt = ts_s - self.prev_energy_ts;
+                let de = energy_j - self.prev_energy;
+                if dt > 0.0 && de >= 0.0 && self.prev_energy_ts > 0.0 {
+                    let watts = de / dt;
+                    let power_mw = (watts * 1000.0) as u64;
+                    self.info.pwr_usage = power_mw as i64;
+                    let pwr_pct = super::power_percent(power_mw, self.info.pwr_max_usage as u64);
+                    push_history(&mut self.info.gpu_percent.power, pwr_pct);
+                }
+                self.prev_energy = energy_j;
+                self.prev_energy_ts = ts_s;
+            }
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuIgcl,
+                code = %crate::log::Hex(ret),
+                "IGCL power telemetry query failed",
+            );
+            self.status.downgrade(CollectStatus::Degraded("igcl power"));
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> crate::runner::GpuSnapshot {
+        crate::runner::GpuSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
+    }
+}
+
+/// Discover every Intel GPU and return one
+/// [`super::DeviceCollector`] per detected device.
+pub(super) fn discover() -> Vec<super::DeviceCollector> {
+    let Some(session) = IgclSession::load() else {
+        return Vec::new();
+    };
+    let session = std::sync::Arc::new(session);
+
+    // Enumerate devices (two-call pattern).
+    let mut count: u32 = 0;
+    // SAFETY: api_handle from ctlInit; count is valid pointer; passing
+    // a null device pointer with a valid count is the documented
+    // IGCL "query count" call shape.
+    let ret = unsafe {
+        (session.igcl.enum_devices)(session.api_handle.0, &mut count, std::ptr::null_mut())
+    };
+    if ret != CTL_RESULT_SUCCESS || count == 0 {
+        return Vec::new();
+    }
+
+    let mut device_handles: Vec<CtlDeviceHandle> = vec![std::ptr::null_mut(); count as usize];
+    // SAFETY: api_handle valid; device_handles is correctly sized for the
+    // count returned by the previous call.
+    let ret = unsafe {
+        (session.igcl.enum_devices)(
+            session.api_handle.0,
+            &mut count,
+            device_handles.as_mut_ptr(),
+        )
+    };
+    if ret != CTL_RESULT_SUCCESS {
+        return Vec::new();
+    }
+    device_handles.truncate(count as usize);
+
+    let mut collectors = Vec::new();
+    for dev in device_handles {
+        // SAFETY: dev is a valid handle; props is zeroed repr(C) struct.
+        let mut props: CtlDeviceAdapterProperties = unsafe { std::mem::zeroed() };
+        props.size = std::mem::size_of::<CtlDeviceAdapterProperties>() as u32;
+        // SAFETY: dev is valid; props is a valid versioned struct.
+        let ret = unsafe { (session.igcl.get_device_props)(dev, &mut props) };
+        if ret != CTL_RESULT_SUCCESS {
+            continue;
+        }
+
+        let name = name_from_buf(&props.name);
+        if name.is_empty() {
+            continue;
+        }
+
+        // Cache first sub-handle of each telemetry type
+        let temp_sensors = unsafe { enum_handles(dev, session.igcl.enum_temp_sensors) };
+        let mem_modules = unsafe { enum_handles(dev, session.igcl.enum_mem_modules) };
+        let engine_groups = unsafe { enum_handles(dev, session.igcl.enum_engine_groups) };
+        let freq_domains = unsafe { enum_handles(dev, session.igcl.enum_freq_domains) };
+
+        // Query max power limit
+        let power_domains = unsafe { enum_handles(dev, session.igcl.enum_power_domains) };
+        let mut max_power_mw: i64 = 0;
+        if let Some(&pwr) = power_domains.first() {
+            let mut power_props = CtlPowerProperties::default();
+            // SAFETY: pwr is a valid power handle.
+            let ret = unsafe { (session.igcl.power_get_props)(pwr, &mut power_props) };
+            if ret == CTL_RESULT_SUCCESS && power_props.max_limit > 0 {
+                max_power_mw = power_props.max_limit as i64;
+            }
+        }
+
+        // Query initial memory total
+        let mut mem_total: u64 = 0;
+        if let Some(&mem_h) = mem_modules.first() {
+            let mut mem_state = CtlMemState::default();
+            // SAFETY: mem_h is a valid memory handle.
+            let ret = unsafe { (session.igcl.mem_get_state)(mem_h, &mut mem_state) };
+            if ret == CTL_RESULT_SUCCESS {
+                mem_total = mem_state.size;
+            }
+        }
+
+        // Query max clock from frequency domain
+        let mut max_clock: u32 = 0;
+        if let Some(&freq_h) = freq_domains.first() {
+            let mut freq_state = CtlFreqState::default();
+            // SAFETY: freq_h is a valid frequency handle.
+            let ret = unsafe { (session.igcl.freq_get_state)(freq_h, &mut freq_state) };
+            if ret == CTL_RESULT_SUCCESS && freq_state.tdp_frequency > 0.0 {
+                max_clock = freq_state.tdp_frequency as u32;
+            }
+        }
+
+        let info = crate::domain::gpu::GpuInfo {
+            name,
+            mem_total,
+            pwr_max_usage: max_power_mw,
+            gpu_max_clock_speed: max_clock,
+            ..crate::domain::gpu::GpuInfo::default()
+        };
+
+        collectors.push(super::DeviceCollector::Intel(IntelDeviceCollector {
+            session: std::sync::Arc::clone(&session),
+            handle: IgclDevice(dev),
+            temp_sensor: temp_sensors.into_iter().next().map(IgclTempHandle),
+            mem_module: mem_modules.into_iter().next().map(IgclMemHandle),
+            engine_group: engine_groups.into_iter().next().map(IgclEngineHandle),
+            freq_domain: freq_domains.into_iter().next().map(IgclFreqHandle),
+            prev_active: 0,
+            prev_timestamp: 0,
+            prev_energy: 0.0,
+            prev_energy_ts: 0.0,
+            info,
+            status: CollectStatus::Ok,
+        }));
+    }
+
+    if !collectors.is_empty() {
+        tracing::info!(
+            subsystem = %crate::log::Subsystem::GpuIgcl,
+            devices = collectors.len(),
+            "vendor initialized",
+        );
+    }
+
+    collectors
 }
 
 /// Extract a name string from a fixed-size byte buffer.
@@ -376,229 +719,4 @@ unsafe fn enum_handles<H: Copy>(
     }
     handles.truncate(count as usize);
     handles
-}
-
-impl GpuBackend for IntelBackend {
-    fn init_devices(&mut self) -> Vec<GpuInfo> {
-        // Enumerate devices (two-call pattern)
-        let mut count: u32 = 0;
-        // SAFETY: api_handle from ctlInit; count is valid pointer.
-        let ret =
-            unsafe { (self.igcl.enum_devices)(self.api_handle, &mut count, std::ptr::null_mut()) };
-        if ret != CTL_RESULT_SUCCESS || count == 0 {
-            return Vec::new();
-        }
-
-        let mut device_handles: Vec<CtlDeviceHandle> = vec![std::ptr::null_mut(); count as usize];
-        // SAFETY: api_handle valid; device_handles is correctly sized.
-        let ret = unsafe {
-            (self.igcl.enum_devices)(self.api_handle, &mut count, device_handles.as_mut_ptr())
-        };
-        if ret != CTL_RESULT_SUCCESS {
-            return Vec::new();
-        }
-        device_handles.truncate(count as usize);
-
-        let mut gpus = Vec::new();
-        for &dev in &device_handles {
-            // SAFETY: dev is a valid handle; props is zeroed repr(C) struct.
-            let mut props: CtlDeviceAdapterProperties = unsafe { std::mem::zeroed() };
-            props.size = std::mem::size_of::<CtlDeviceAdapterProperties>() as u32;
-            let ret = unsafe { (self.igcl.get_device_props)(dev, &mut props) };
-            if ret != CTL_RESULT_SUCCESS {
-                continue;
-            }
-
-            let name = name_from_buf(&props.name);
-            if name.is_empty() {
-                continue;
-            }
-
-            // Cache first sub-handle of each telemetry type
-            let temp_sensors = unsafe { enum_handles(dev, self.igcl.enum_temp_sensors) };
-            let mem_modules = unsafe { enum_handles(dev, self.igcl.enum_mem_modules) };
-            let engine_groups = unsafe { enum_handles(dev, self.igcl.enum_engine_groups) };
-            let freq_domains = unsafe { enum_handles(dev, self.igcl.enum_freq_domains) };
-
-            // Query max power limit
-            let power_domains = unsafe { enum_handles(dev, self.igcl.enum_power_domains) };
-            let mut max_power_mw: i64 = 0;
-            if let Some(&pwr) = power_domains.first() {
-                let mut power_props = CtlPowerProperties::default();
-                // SAFETY: pwr is a valid power handle.
-                let ret = unsafe { (self.igcl.power_get_props)(pwr, &mut power_props) };
-                if ret == CTL_RESULT_SUCCESS && power_props.max_limit > 0 {
-                    max_power_mw = power_props.max_limit as i64;
-                }
-            }
-
-            // Query initial memory total
-            let mut mem_total: u64 = 0;
-            if let Some(&mem_h) = mem_modules.first() {
-                let mut mem_state = CtlMemState::default();
-                // SAFETY: mem_h is a valid memory handle.
-                let ret = unsafe { (self.igcl.mem_get_state)(mem_h, &mut mem_state) };
-                if ret == CTL_RESULT_SUCCESS {
-                    mem_total = mem_state.size;
-                }
-            }
-
-            // Query max clock from frequency domain
-            let mut max_clock: u32 = 0;
-            if let Some(&freq_h) = freq_domains.first() {
-                let mut freq_state = CtlFreqState::default();
-                // SAFETY: freq_h is a valid frequency handle.
-                let ret = unsafe { (self.igcl.freq_get_state)(freq_h, &mut freq_state) };
-                if ret == CTL_RESULT_SUCCESS && freq_state.tdp_frequency > 0.0 {
-                    max_clock = freq_state.tdp_frequency as u32;
-                }
-            }
-
-            let gpu = GpuInfo {
-                name,
-                mem_total,
-                pwr_max_usage: max_power_mw,
-                gpu_max_clock_speed: max_clock,
-                ..GpuInfo::default()
-            };
-
-            self.devices.push(IntelDevice {
-                handle: dev,
-                temp_sensor: temp_sensors.into_iter().next(),
-                mem_module: mem_modules.into_iter().next(),
-                engine_group: engine_groups.into_iter().next(),
-                freq_domain: freq_domains.into_iter().next(),
-                prev_active: 0,
-                prev_timestamp: 0,
-                prev_energy: 0.0,
-                prev_energy_ts: 0.0,
-            });
-            gpus.push(gpu);
-        }
-
-        gpus
-    }
-
-    fn collect(&mut self, gpus: &mut [GpuInfo]) {
-        for (gpu, dev) in gpus.iter_mut().zip(self.devices.iter_mut()) {
-            // Temperature
-            if let Some(temp_h) = dev.temp_sensor {
-                let mut state = CtlTempState::default();
-                // SAFETY: temp_h cached from init; state is valid.
-                let ret = unsafe { (self.igcl.temp_get_state)(temp_h, &mut state) };
-                if ret == CTL_RESULT_SUCCESS {
-                    push_history(&mut gpu.temp, state.temperature as i64);
-                } else {
-                    tracing::debug!(
-                        subsystem = %crate::log::Subsystem::GpuIgcl,
-                        code = %crate::log::Hex(ret),
-                        "IGCL temperature query failed",
-                    );
-                }
-            }
-
-            // Memory
-            if let Some(mem_h) = dev.mem_module {
-                let mut state = CtlMemState::default();
-                // SAFETY: mem_h cached from init; state is valid.
-                let ret = unsafe { (self.igcl.mem_get_state)(mem_h, &mut state) };
-                if ret == CTL_RESULT_SUCCESS && state.size > 0 {
-                    gpu.mem_total = state.size;
-                    gpu.mem_used = state.size.saturating_sub(state.free);
-                    let vram_pct =
-                        crate::collect::win::percent_u64(gpu.mem_used, state.size).min(100);
-                    push_history(&mut gpu.gpu_percent.vram, vram_pct);
-                    push_history(&mut gpu.mem_utilization_percent, vram_pct);
-                } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!(
-                        subsystem = %crate::log::Subsystem::GpuIgcl,
-                        code = %crate::log::Hex(ret),
-                        "IGCL memory query failed",
-                    );
-                }
-            }
-
-            // Engine utilization (compute delta from active/timestamp pairs)
-            if let Some(eng_h) = dev.engine_group {
-                let mut activity = CtlEngineActivity::default();
-                // SAFETY: eng_h cached from init; activity is valid.
-                let ret = unsafe { (self.igcl.engine_get_activity)(eng_h, &mut activity) };
-                if ret == CTL_RESULT_SUCCESS && activity.timestamp > 0 {
-                    if dev.prev_timestamp > 0 {
-                        let dt = activity.timestamp.saturating_sub(dev.prev_timestamp);
-                        let da = activity.active_time.saturating_sub(dev.prev_active);
-                        let pct = (da * 100).checked_div(dt).unwrap_or(0) as u32;
-                        push_history(&mut gpu.gpu_percent.utilization, clamp_percent(pct));
-                    }
-                    dev.prev_active = activity.active_time;
-                    dev.prev_timestamp = activity.timestamp;
-                } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!(
-                        subsystem = %crate::log::Subsystem::GpuIgcl,
-                        code = %crate::log::Hex(ret),
-                        "IGCL engine activity query failed",
-                    );
-                }
-            }
-
-            // Frequency
-            if let Some(freq_h) = dev.freq_domain {
-                let mut state = CtlFreqState::default();
-                // SAFETY: freq_h cached from init; state is valid.
-                let ret = unsafe { (self.igcl.freq_get_state)(freq_h, &mut state) };
-                if ret == CTL_RESULT_SUCCESS && state.actual_frequency > 0.0 {
-                    gpu.gpu_clock_speed = state.actual_frequency as u32;
-                } else if ret != CTL_RESULT_SUCCESS {
-                    tracing::debug!(
-                        subsystem = %crate::log::Subsystem::GpuIgcl,
-                        code = %crate::log::Hex(ret),
-                        "IGCL frequency query failed",
-                    );
-                }
-            }
-
-            // Power — derived from energy counter differentiation (ΔJ / Δs).
-            let mut telemetry = CtlPowerTelemetry::new();
-            // SAFETY: dev.handle is a valid device handle; telemetry is a valid
-            // versioned struct with size and version set.
-            let ret = unsafe { (self.igcl.power_telemetry_get)(dev.handle, &mut telemetry) };
-            if ret == CTL_RESULT_SUCCESS {
-                let energy = telemetry
-                    .total_card_energy_counter
-                    .get()
-                    .or_else(|| telemetry.gpu_energy_counter.get());
-                let timestamp = telemetry.timestamp.get();
-
-                if let (Some(energy_j), Some(ts_s)) = (energy, timestamp) {
-                    let dt = ts_s - dev.prev_energy_ts;
-                    let de = energy_j - dev.prev_energy;
-                    if dt > 0.0 && de >= 0.0 && dev.prev_energy_ts > 0.0 {
-                        let watts = de / dt;
-                        let power_mw = (watts * 1000.0) as u64;
-                        gpu.pwr_usage = power_mw as i64;
-                        let pwr_pct = super::power_percent(power_mw, gpu.pwr_max_usage as u64);
-                        push_history(&mut gpu.gpu_percent.power, pwr_pct);
-                    }
-                    dev.prev_energy = energy_j;
-                    dev.prev_energy_ts = ts_s;
-                }
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuIgcl,
-                    code = %crate::log::Hex(ret),
-                    "IGCL power telemetry query failed",
-                );
-            }
-        }
-    }
-
-    fn shutdown(&mut self) {
-        if !self.api_handle.is_null() {
-            // SAFETY: api_handle was created by ctlInit.
-            unsafe {
-                let _ = (self.igcl.close)(self.api_handle);
-            }
-            self.api_handle = std::ptr::null_mut();
-        }
-    }
 }

@@ -51,7 +51,7 @@ macro_rules! config_schema {
             $( $bvar:ident => $bname:literal => $bsection:ident . $bfield:ident ),* $(,)?
         }
         ints {
-            $( $ivar:ident => $iname:literal => $isection:ident . $ifield:ident ),* $(,)?
+            $( $ivar:ident => $iname:literal => { $($ishape:tt)+ } ),* $(,)?
         }
         enums {
             $( $evar:ident => $ename:literal => $esection:ident . $efield:ident ),* $(,)?
@@ -109,13 +109,17 @@ macro_rules! config_schema {
 
             /// Read the current int value.
             pub fn get(self, config: &Config) -> i64 {
-                match self { $( Self::$ivar => config.$isection.$ifield, )* }
+                match self {
+                    $( Self::$ivar => config_schema!(@int_get config $($ishape)+), )*
+                }
             }
 
             /// Write the int value. No clamping — caller should
             /// invoke [`Config::validate`] to apply bounds.
             pub fn set(self, config: &mut Config, value: i64) {
-                match self { $( Self::$ivar => { config.$isection.$ifield = value; } )* }
+                match self {
+                    $( Self::$ivar => { config_schema!(@int_set config value $($ishape)+); } )*
+                }
             }
 
             /// Display string for the options menu (the integer
@@ -238,6 +242,12 @@ macro_rules! config_schema {
         impl From<StringKey> for ConfigKey { fn from(k: StringKey) -> Self { Self::String(k) } }
     };
 
+    // === @int_get / @int_set: dispatch by access shape ===
+    (@int_get $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f };
+    (@int_get $cfg:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i] };
+    (@int_set $cfg:ident $value:ident field $section:ident . $f:ident) => { $cfg.$section.$f = $value };
+    (@int_set $cfg:ident $value:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i] = $value };
+
     // === @string_display: dispatch by access shape ===
     (@string_display $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f.clone() };
     (@string_display $cfg:ident joined_vec $section:ident . $f:ident) => { $cfg.$section.$f.join(" ") };
@@ -283,15 +293,22 @@ config_schema! {
         StatusbarShowClock => "statusbar_show_clock" => statusbar.statusbar_show_clock,
     }
     ints {
-        UpdateMs => "update_ms" => refresh.update_ms,
-        CpuUpdateMs => "cpu_update_ms" => refresh.cpu_update_ms,
-        MemUpdateMs => "mem_update_ms" => refresh.mem_update_ms,
-        DiskUpdateMs => "disk_update_ms" => refresh.disk_update_ms,
-        NetUpdateMs => "net_update_ms" => refresh.net_update_ms,
-        GpuUpdateMs => "gpu_update_ms" => refresh.gpu_update_ms,
-        ProcUpdateMs => "proc_update_ms" => refresh.proc_update_ms,
-        NetDownload => "net_download" => net.net_download,
-        NetUpload => "net_upload" => net.net_upload,
+        UpdateMs => "update_ms" => { field refresh.update_ms },
+        CpuUpdateMs => "cpu_update_ms" => { field refresh.cpu_update_ms },
+        MemUpdateMs => "mem_update_ms" => { field refresh.mem_update_ms },
+        DiskUpdateMs => "disk_update_ms" => { field refresh.disk_update_ms },
+        NetUpdateMs => "net_update_ms" => { field refresh.net_update_ms },
+        Gpu0UpdateMs => "gpu0_update_ms" => { array refresh.gpu_update_ms[0] },
+        Gpu1UpdateMs => "gpu1_update_ms" => { array refresh.gpu_update_ms[1] },
+        Gpu2UpdateMs => "gpu2_update_ms" => { array refresh.gpu_update_ms[2] },
+        Gpu3UpdateMs => "gpu3_update_ms" => { array refresh.gpu_update_ms[3] },
+        Gpu4UpdateMs => "gpu4_update_ms" => { array refresh.gpu_update_ms[4] },
+        Gpu5UpdateMs => "gpu5_update_ms" => { array refresh.gpu_update_ms[5] },
+        Gpu6UpdateMs => "gpu6_update_ms" => { array refresh.gpu_update_ms[6] },
+        Gpu7UpdateMs => "gpu7_update_ms" => { array refresh.gpu_update_ms[7] },
+        ProcUpdateMs => "proc_update_ms" => { field refresh.proc_update_ms },
+        NetDownload => "net_download" => { field net.net_download },
+        NetUpload => "net_upload" => { field net.net_upload },
     }
     enums {
         GraphSymbol => "graph_symbol" => ui.graph_symbol,
@@ -330,6 +347,26 @@ config_schema! {
 // ---------------------------------------------------------------------------
 
 impl IntKey {
+    /// If `self` is one of the eight per-GPU `GpuNUpdateMs`
+    /// variants, return its device index `n`; otherwise `None`.
+    /// Used by the options-menu handler fan-out, the help-text
+    /// helper, and `sync_all_intervals` to map from the typed
+    /// key back to the per-device subsystem index without
+    /// re-spelling the eight-arm match at every site.
+    pub fn gpu_index(self) -> Option<u8> {
+        match self {
+            Self::Gpu0UpdateMs => Some(0),
+            Self::Gpu1UpdateMs => Some(1),
+            Self::Gpu2UpdateMs => Some(2),
+            Self::Gpu3UpdateMs => Some(3),
+            Self::Gpu4UpdateMs => Some(4),
+            Self::Gpu5UpdateMs => Some(5),
+            Self::Gpu6UpdateMs => Some(6),
+            Self::Gpu7UpdateMs => Some(7),
+            _ => None,
+        }
+    }
+
     /// Per-key step size used by the options-menu arrow-step path.
     /// `*UpdateMs` keys step in 100 ms increments; throughput caps
     /// step in single-unit increments.
@@ -340,7 +377,14 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::GpuUpdateMs
+            | Self::Gpu0UpdateMs
+            | Self::Gpu1UpdateMs
+            | Self::Gpu2UpdateMs
+            | Self::Gpu3UpdateMs
+            | Self::Gpu4UpdateMs
+            | Self::Gpu5UpdateMs
+            | Self::Gpu6UpdateMs
+            | Self::Gpu7UpdateMs
             | Self::ProcUpdateMs => 100,
             Self::NetDownload | Self::NetUpload => 1,
         }
@@ -358,7 +402,14 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::GpuUpdateMs
+            | Self::Gpu0UpdateMs
+            | Self::Gpu1UpdateMs
+            | Self::Gpu2UpdateMs
+            | Self::Gpu3UpdateMs
+            | Self::Gpu4UpdateMs
+            | Self::Gpu5UpdateMs
+            | Self::Gpu6UpdateMs
+            | Self::Gpu7UpdateMs
             | Self::ProcUpdateMs => 0..=86_400_000,
             Self::NetDownload | Self::NetUpload => 0..=10_000_000,
         }
@@ -396,7 +447,14 @@ impl IntKey {
             | Self::MemUpdateMs
             | Self::DiskUpdateMs
             | Self::NetUpdateMs
-            | Self::GpuUpdateMs
+            | Self::Gpu0UpdateMs
+            | Self::Gpu1UpdateMs
+            | Self::Gpu2UpdateMs
+            | Self::Gpu3UpdateMs
+            | Self::Gpu4UpdateMs
+            | Self::Gpu5UpdateMs
+            | Self::Gpu6UpdateMs
+            | Self::Gpu7UpdateMs
             | Self::ProcUpdateMs => "must be 0..86400000 ms (0=inherit)",
             Self::NetDownload | Self::NetUpload => "must be 0..10000000 KiB/s",
         }

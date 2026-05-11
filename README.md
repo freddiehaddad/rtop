@@ -204,6 +204,8 @@ update_ms = 2000
 cpu_update_ms = 1000     # CPU updates every 1s
 proc_update_ms = 5000    # Processes update every 5s
 mem_update_ms = 0        # 0 = use global (2000ms)
+gpu0_update_ms = 500     # First GPU updates every 500ms
+gpu1_update_ms = 0       # Second GPU inherits the global value
 ```
 
 Set per-widget intervals via the options menu (each category tab has an update interval option) or in `rtop.toml`.

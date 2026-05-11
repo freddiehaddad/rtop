@@ -143,6 +143,10 @@ pub enum Subsystem {
     GpuNvapi,
     GpuIgcl,
     GpuAdl,
+    /// Cross-vendor GPU subsystem (discovery, per-device collector
+    /// lifecycle) — distinct from the per-vendor variants above
+    /// which name the SDK responsible for an individual log event.
+    Gpu,
     Theme,
     Config,
     Terminal,
@@ -166,6 +170,7 @@ impl std_fmt::Display for Subsystem {
             Self::GpuNvapi => "gpu_nvapi",
             Self::GpuIgcl => "gpu_igcl",
             Self::GpuAdl => "gpu_adl",
+            Self::Gpu => "gpu",
             Self::Theme => "theme",
             Self::Config => "config",
             Self::Terminal => "terminal",
@@ -479,6 +484,7 @@ mod tests {
             (Subsystem::GpuNvapi, "gpu_nvapi"),
             (Subsystem::GpuIgcl, "gpu_igcl"),
             (Subsystem::GpuAdl, "gpu_adl"),
+            (Subsystem::Gpu, "gpu"),
             (Subsystem::Theme, "theme"),
             (Subsystem::Config, "config"),
             (Subsystem::Terminal, "terminal"),
@@ -491,7 +497,7 @@ mod tests {
         for (variant, expected) in cases {
             assert_eq!(variant.to_string(), *expected);
         }
-        assert_eq!(cases.len(), 18);
+        assert_eq!(cases.len(), 19);
     }
 
     #[test]

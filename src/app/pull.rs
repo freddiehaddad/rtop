@@ -68,49 +68,38 @@ pub(crate) fn pull_subsystem_data(
                     }
                 }
             }
-            SubsystemKind::Gpu => {
-                if let Some(snap) = manager.gpu_slot.latest() {
-                    if render_ui {
-                        // Per-instance GPU dirty: compare each GPU's
-                        // render fingerprint against the previous
-                        // snapshot. Mark only those whose displayed
-                        // values changed. First publish (no previous)
-                        // marks every present GPU dirty. A change
-                        // in GPU count or in collector status forces
-                        // a layout recompute (which marks every
-                        // widget dirty too).
-                        let prev = state.live.gpu.as_ref();
-                        let new_count = snap.gpus.len();
-                        let prev_count = prev.map_or(0, |s| s.gpus.len());
-                        let status_changed = prev.is_none_or(|s| s.status != snap.status);
-
-                        if new_count != prev_count {
-                            // Layout sizing depends on `gpu_count`
-                            // via `LiveData::layout_hints`; a GPU
-                            // appearing or vanishing changes the
-                            // visible widget set. The layout-hint
-                            // check at the bottom of this fn would
-                            // catch it on the *next* poll, but
-                            // marking layout here too means the
-                            // first frame after the change is
-                            // already correct.
-                            state.render.dirty.mark_layout();
-                        }
-
-                        for (i, gpu) in snap.gpus.iter().enumerate() {
-                            let fingerprint_changed = prev
-                                .and_then(|s| s.gpus.get(i))
-                                .map(|p| p.render_fingerprint() != gpu.render_fingerprint())
-                                .unwrap_or(true);
-                            if (fingerprint_changed || status_changed)
-                                && let Some(kind) = WidgetKind::gpu(i)
-                            {
-                                state.render.dirty.mark_widget(kind);
-                            }
-                        }
+            SubsystemKind::Gpu(n) => {
+                let n = n as usize;
+                let Some(snap) = manager.gpu_slots[n].latest() else {
+                    continue;
+                };
+                if render_ui {
+                    // Per-instance GPU dirty: compare this device's
+                    // render fingerprint against the previous
+                    // snapshot. Mark the matching `WidgetKind::Gpu(n)`
+                    // dirty only when the displayed values changed
+                    // OR the per-device status flipped. First
+                    // publish (no previous) marks the GPU dirty.
+                    //
+                    // The "GPU appeared / vanished" branch the
+                    // pre-per-device pipeline carried is gone:
+                    // discovery is one-shot at startup, so
+                    // `gpu_count` is fixed for the process lifetime
+                    // and the layout-hint check at the bottom of
+                    // this fn will never observe a delta from this
+                    // arm.
+                    let prev = state.live.gpu[n].as_ref();
+                    let fingerprint_changed = prev
+                        .map(|p| p.info.render_fingerprint() != snap.info.render_fingerprint())
+                        .unwrap_or(true);
+                    let status_changed = prev.is_none_or(|p| p.status != snap.status);
+                    if (fingerprint_changed || status_changed)
+                        && let Some(kind) = WidgetKind::gpu(n)
+                    {
+                        state.render.dirty.mark_widget(kind);
                     }
-                    state.live.gpu = Some(snap);
                 }
+                state.live.gpu[n] = Some(snap);
             }
             SubsystemKind::Proc => {
                 if let Some(snap) = manager.proc_slot.latest() {
@@ -267,7 +256,7 @@ mod tests {
     #[test]
     fn reconcile_selected_iface_selects_first_available_interface() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.render.clear_dirty();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
@@ -283,7 +272,7 @@ mod tests {
         // interface; reconcile must honour it when the iface is
         // currently in the live list.
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.view.net_iface = "Wi-Fi".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
@@ -300,7 +289,7 @@ mod tests {
         // `Ethernet` so the user's preference re-asserts on the
         // next process restart (when Ethernet may be back).
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Wi-Fi"]));
 
@@ -321,7 +310,7 @@ mod tests {
         // session (the user's saved preference re-asserts only
         // at the next restart).
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.network.selected_iface = "Wi-Fi".into();
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
@@ -346,7 +335,7 @@ mod tests {
         // Cached hints = None (initial state) → any current hints
         // count as a "change" → mark_layout fires.
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.render.clear_dirty();
         assert!(state.render.last_layout_hints.is_none());
 
@@ -380,7 +369,7 @@ mod tests {
         // NOT update the cache (so the change is detected on the
         // next render_ui=true pull).
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         state.render.clear_dirty();
         assert!(state.render.last_layout_hints.is_none());
 
@@ -396,11 +385,26 @@ mod tests {
         );
     }
 
+    /// Build a memory snapshot whose `swap_total` is non-zero so
+    /// that `LayoutHints::has_swap` resolves to `true` (the gate
+    /// also requires `config.mem.show_swap`, which defaults to
+    /// `true`). Used by drift tests that need a hint to flip
+    /// during the test body.
+    fn mem_snap_with_swap() -> Arc<runner::MemSnapshot> {
+        let mut info = crate::domain::memory::MemInfo::default();
+        info.stats.swap_total = 4 * 1024 * 1024 * 1024;
+        Arc::new(runner::MemSnapshot {
+            info,
+            status: crate::collect::CollectStatus::Ok,
+        })
+    }
+
     #[test]
     fn hints_drift_during_overlay_marks_dirty_after_overlay_closes() {
-        // Pre-overlay: cache populated with current hints.
+        // Pre-overlay: cache populated with current hints. No mem
+        // snapshot yet → has_swap = false.
         let config = config::Config::new();
-        let mut state = AppState::new(&config);
+        let mut state = AppState::new(&config, 0);
         maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
         let pre_overlay = state
             .render
@@ -408,17 +412,15 @@ mod tests {
             .expect("cache populated by previous call");
         state.render.clear_dirty();
 
-        // Overlay opens; meanwhile a hardware event makes hints
-        // drift (here: simulate a GPU appearing). With
-        // render_ui=false the change must not be observed.
-        state.live.gpu = Some(Arc::new(runner::GpuSnapshot {
-            gpus: vec![Default::default()],
-            status: crate::collect::CollectStatus::Ok,
-        }));
+        // Overlay opens; meanwhile the memory collector publishes
+        // its first snapshot revealing a non-zero swap partition,
+        // which flips `LayoutHints::has_swap` from false to true.
+        // With render_ui=false this drift must not be observed.
+        state.live.mem = Some(mem_snap_with_swap());
         let drifted = state.live.layout_hints(&config, &state.view, &state.filter);
         assert_ne!(
             pre_overlay, drifted,
-            "test setup precondition: gpu addition must change hints",
+            "test setup precondition: swap appearing must flip has_swap",
         );
 
         maybe_mark_layout_dirty_from_hints_change(&mut state, &config, false);

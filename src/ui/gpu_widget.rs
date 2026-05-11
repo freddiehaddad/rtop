@@ -265,15 +265,14 @@ impl super::Widget for GpuWidget {
     }
 
     fn render(&self, params: &crate::app::RenderParams<'_>, output: &mut String) {
-        let Some(gpu) = params.gpu else {
-            return;
-        };
         // Iterate by actual GPU index n. Layout slots are keyed by
         // WidgetKind::Gpu(n), so a sparse selection (e.g. only
-        // gpu1) renders gpu.gpus[1] with the correct title and
-        // toggle key. The defensive bounds check on gpu.gpus
-        // covers the narrow window where layout was computed
-        // against an older device count.
+        // gpu1) renders the right device's snapshot with the
+        // correct title and toggle key. Each GPU's snapshot is
+        // independent — a missing slot simply means the per-device
+        // collector hasn't published yet (or the device isn't
+        // present at all, in which case `compose_hidden` will
+        // already have hidden the widget).
         for n in 0..crate::config::MAX_GPUS {
             let kind = crate::domain::widget_kind::WidgetKind::Gpu(n as u8);
             // Per-instance dirty filter: only redraw the GPU(s)
@@ -287,7 +286,7 @@ impl super::Widget for GpuWidget {
             let Some(gpu_dim) = params.layout.dims_for(kind) else {
                 continue;
             };
-            let Some(gpu_info) = gpu.gpus.get(n) else {
+            let Some(snap) = params.gpu[n].as_deref() else {
                 continue;
             };
             let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
@@ -304,7 +303,7 @@ impl super::Widget for GpuWidget {
                 custom_name,
                 base_10: params.config.ui.base_10_sizes,
             };
-            output.push_str(&draw(gpu_info, &area, params.theme, &frame, &gpu.status));
+            output.push_str(&draw(&snap.info, &area, params.theme, &frame, &snap.status));
         }
     }
 }

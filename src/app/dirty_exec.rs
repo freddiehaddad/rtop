@@ -25,7 +25,7 @@ use crate::term;
 use crate::theme;
 use crate::ui;
 use std::collections::HashSet;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 pub(crate) fn execute_dirty_work(
     state: &mut AppState,
@@ -283,7 +283,7 @@ pub(crate) struct RenderParams<'a> {
     pub(crate) mem: Option<&'a runner::MemSnapshot>,
     pub(crate) disk: Option<&'a runner::DiskSnapshot>,
     pub(crate) net: Option<&'a runner::NetSnapshot>,
-    pub(crate) gpu: Option<&'a runner::GpuSnapshot>,
+    pub(crate) gpu: &'a [Option<Arc<runner::GpuSnapshot>>; crate::config::MAX_GPUS],
     pub(crate) proc_data: Option<&'a runner::ProcSnapshot>,
     pub(crate) statusbar: Option<&'a runner::StatusbarSnapshot>,
     pub(crate) proc_entries: &'a [ProcDisplayEntry],
@@ -379,7 +379,7 @@ impl<'a> RenderInputs<'a> {
             mem: self.live.mem.as_deref(),
             disk: self.live.disk.as_deref(),
             net: self.live.net.as_deref(),
-            gpu: self.live.gpu.as_deref(),
+            gpu: &self.live.gpu,
             proc_data: self.live.proc_data.as_deref(),
             statusbar: self.live.statusbar.as_deref(),
             proc_entries: &self.process.entries,
@@ -510,7 +510,7 @@ mod tests {
     /// the privacy of `ProcessViewState::new` / `LiveData::new`.
     fn make_state() -> AppState {
         let config = config::Config::new();
-        AppState::new(&config)
+        AppState::new(&config, 0)
     }
 
     #[test]

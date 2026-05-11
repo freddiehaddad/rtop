@@ -1,8 +1,8 @@
+use crate::collect::CollectStatus;
 use crate::collect::win::{OwnedLibrary, percent_u64};
-use crate::domain::gpu::GpuInfo;
 use std::ffi::c_void;
 
-use super::{GpuBackend, clamp_percent, power_percent, push_history};
+use super::{clamp_percent, power_percent, push_history};
 
 const ADL_OK: i32 = 0;
 const ADL_MAX_PATH: usize = 256;
@@ -207,24 +207,77 @@ impl AdlFunctions {
 }
 
 // ---------------------------------------------------------------------------
-// AMD backend
+// AMD vendor session and per-device collector
 // ---------------------------------------------------------------------------
 
-pub(super) struct AmdBackend {
-    adl: AdlFunctions,
-    context: *mut c_void,
-    adapter_indices: Vec<i32>,
+/// Extract a C string from a fixed-size byte buffer (ADL adapter
+/// name fields use this shape).
+fn string_from_buf(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).trim().to_string()
 }
 
-impl AmdBackend {
-    pub(super) fn load() -> Option<Self> {
-        let adl = AdlFunctions::load()?;
+/// Owned ADL2 context. RAII: drops via `ADL2_Main_Control_Destroy`.
+/// Holds an `Arc<AdlSession>` so the destroy function pointer
+/// stays reachable until the context is freed.
+///
+/// Each `AmdDeviceCollector` owns its own `AdlContext` (per ADL2's
+/// "do not share contexts across threads" guidance). The
+/// enumeration context built in [`discover`] is also an
+/// `AdlContext` and is freed automatically when it goes out of
+/// scope. The pointer is opaque and never dereferenced from Rust.
+struct AdlContext {
+    session: std::sync::Arc<AdlSession>,
+    raw: *mut c_void,
+}
 
-        let mut context: *mut c_void = std::ptr::null_mut();
-        // SAFETY: adl.main_control_create was loaded from atiadlxx.dll.
-        // adl_malloc is a valid callback; 1 = enumerate connected adapters only.
-        let ret = unsafe { (adl.main_control_create)(adl_malloc, 1, &mut context) };
-        if ret != ADL_OK {
+// SAFETY: ADL2 contexts are owned exclusively by the per-device
+// collector that created them; ADL2 itself synchronises calls
+// against a single context. The pointer is opaque and never
+// dereferenced from Rust.
+unsafe impl Send for AdlContext {}
+
+impl Drop for AdlContext {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            // SAFETY: raw was created by ADL2_Main_Control_Create
+            // on the session we still hold an Arc to;
+            // main_control_destroy was resolved from the same
+            // library and is called exactly once per context.
+            unsafe {
+                let _ = (self.session.adl.main_control_destroy)(self.raw);
+            }
+            self.raw = std::ptr::null_mut();
+        }
+    }
+}
+
+/// Shared AMD vendor session: loaded library + resolved
+/// function-pointer table only. There is no shared ADL2 context —
+/// each `AmdDeviceCollector` creates its own — so the session has
+/// no `Drop` work beyond the `OwnedLibrary` field's automatic
+/// cleanup.
+pub(super) struct AdlSession {
+    adl: AdlFunctions,
+}
+
+impl AdlSession {
+    fn load() -> Option<Self> {
+        let adl = AdlFunctions::load()?;
+        Some(Self { adl })
+    }
+
+    /// Open a fresh ADL2 context bound to this session. Returns
+    /// `None` if `ADL2_Main_Control_Create` fails. The caller
+    /// owns the context; dropping it releases the underlying ADL2
+    /// resource via `Drop for AdlContext`.
+    fn open_context(self: &std::sync::Arc<Self>) -> Option<AdlContext> {
+        let mut raw: *mut c_void = std::ptr::null_mut();
+        // SAFETY: adl.main_control_create was loaded from atiadlxx.dll;
+        // adl_malloc is a valid C-ABI callback; 1 = enumerate connected
+        // adapters only.
+        let ret = unsafe { (self.adl.main_control_create)(adl_malloc, 1, &mut raw) };
+        if ret != ADL_OK || raw.is_null() {
             tracing::debug!(
                 subsystem = %crate::log::Subsystem::GpuAdl,
                 code = %crate::log::Hex(ret),
@@ -232,176 +285,239 @@ impl AmdBackend {
             );
             return None;
         }
-
-        Some(Self {
-            adl,
-            context,
-            adapter_indices: Vec::new(),
+        Some(AdlContext {
+            session: std::sync::Arc::clone(self),
+            raw,
         })
     }
 }
 
-/// Extract a C string from a fixed-size byte buffer.
-fn string_from_buf(buf: &[u8]) -> String {
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8_lossy(&buf[..end]).trim().to_string()
+/// Per-device AMD GPU collector. Owns its `AdlContext` (which in
+/// turn carries an `Arc<AdlSession>`); destroying the context is
+/// automatic via `Drop for AdlContext` when the collector drops.
+pub(crate) struct AmdDeviceCollector {
+    context: AdlContext,
+    adapter_index: i32,
+    info: crate::domain::gpu::GpuInfo,
+    status: CollectStatus,
 }
 
-impl GpuBackend for AmdBackend {
-    fn init_devices(&mut self) -> Vec<GpuInfo> {
-        let mut num_adapters: i32 = 0;
-        // SAFETY: context is valid; num_adapters is a valid pointer.
-        let ret =
-            unsafe { (self.adl.adapter_number_of_adapters_get)(self.context, &mut num_adapters) };
-        if ret != ADL_OK || num_adapters <= 0 {
-            return Vec::new();
+impl AmdDeviceCollector {
+    pub(super) fn collect(&mut self) {
+        self.status = CollectStatus::Ok;
+        let adl = &self.context.session.adl;
+        let ctx = self.context.raw;
+        let idx = self.adapter_index;
+
+        // PMLog one-shot query — provides utilization, clocks, temp, power.
+        let mut pmlog = AdlPMLogDataOutput::zeroed();
+        // SAFETY: ctx is a valid context owned by this collector;
+        // idx is the adapter index recorded during discovery; pmlog
+        // is a valid pointer to a zeroed output struct.
+        let ret = unsafe { (adl.query_pmlog_data_get)(ctx, idx, &mut pmlog) };
+        if ret == ADL_OK {
+            // Utilization (direct %).
+            if let Some(pct) = pmlog.get(SENSOR_ACTIVITY_GFX) {
+                push_history(
+                    &mut self.info.gpu_percent.utilization,
+                    clamp_percent(pct.max(0) as u32),
+                );
+            }
+
+            // Clock speed (direct MHz).
+            if let Some(mhz) = pmlog.get(SENSOR_CLK_GFXCLK) {
+                self.info.gpu_clock_speed = mhz.max(0) as u32;
+            }
+
+            // Temperature (direct °C).
+            if let Some(temp) = pmlog.get(SENSOR_TEMPERATURE_EDGE) {
+                push_history(&mut self.info.temp, temp as i64);
+            }
+
+            // Power — prefer board power (RDNA3+), fall back to ASIC power.
+            // Sensor values are in watts; domain stores milliwatts.
+            let power_w = pmlog
+                .get(SENSOR_BOARD_POWER)
+                .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
+            if let Some(w) = power_w {
+                let power_mw = w.max(0) as u64 * 1000;
+                self.info.pwr_usage = power_mw as i64;
+                let pwr_pct = power_percent(power_mw, self.info.pwr_max_usage as u64);
+                push_history(&mut self.info.gpu_percent.power, pwr_pct);
+            }
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuAdl,
+                code = %crate::log::Hex(ret),
+                "ADL PMLog query failed",
+            );
+            self.status.downgrade(CollectStatus::Degraded("adl pmlog"));
         }
 
-        let count = num_adapters as usize;
-        let mut adapter_infos: Vec<AdapterInfo> =
-            (0..count).map(|_| AdapterInfo::zeroed()).collect();
-        let buf_size = (count * std::mem::size_of::<AdapterInfo>()) as i32;
-        // SAFETY: adapter_infos is a valid buffer of count AdapterInfo structs.
-        let ret = unsafe {
-            (self.adl.adapter_adapter_info_get)(self.context, adapter_infos.as_mut_ptr(), buf_size)
+        // VRAM usage (direct MB from ADL).
+        let mut vram_used_mb: i32 = 0;
+        // SAFETY: ctx and idx are valid; vram_used_mb is a valid pointer.
+        let ret = unsafe { (adl.dedicated_vram_usage_get)(ctx, idx, &mut vram_used_mb) };
+        if ret == ADL_OK && vram_used_mb > 0 {
+            self.info.mem_used = vram_used_mb as u64 * 1024 * 1024;
+            let vram_pct = percent_u64(self.info.mem_used, self.info.mem_total).min(100);
+            push_history(&mut self.info.gpu_percent.vram, vram_pct);
+            push_history(&mut self.info.mem_utilization_percent, vram_pct);
+        } else if ret != ADL_OK {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuAdl,
+                code = %crate::log::Hex(ret),
+                "ADL VRAM usage query failed",
+            );
+            self.status.downgrade(CollectStatus::Degraded("adl vram"));
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> crate::runner::GpuSnapshot {
+        crate::runner::GpuSnapshot {
+            info: self.info.clone(),
+            status: self.status.clone(),
+        }
+    }
+}
+
+/// Discover every AMD GPU and return one [`super::DeviceCollector`]
+/// per detected adapter.
+pub(super) fn discover() -> Vec<super::DeviceCollector> {
+    let Some(session) = AdlSession::load() else {
+        return Vec::new();
+    };
+    let session = std::sync::Arc::new(session);
+
+    // Enumerate adapters using a temporary context. The context
+    // drops at the end of this scope via Drop for AdlContext —
+    // per-device collectors open their own contexts in the loop
+    // below per ADL2's "do not share contexts across threads"
+    // guidance (see vendor docs at the top of collect/gpu/mod.rs).
+    let adapters = {
+        let Some(enum_ctx) = session.open_context() else {
+            return Vec::new();
         };
-        if ret != ADL_OK {
-            return Vec::new();
+        match enumerate_adapters(&session.adl, enum_ctx.raw) {
+            Some(adapters) => adapters,
+            None => return Vec::new(),
         }
+    };
 
-        let mut gpus = Vec::new();
-        let mut seen_bus = std::collections::HashSet::new();
-
-        for info in &adapter_infos {
-            // Skip inactive adapters.
-            let mut active: i32 = 0;
-            // SAFETY: context is valid; adapter index from ADL; active is valid pointer.
-            let ret = unsafe {
-                (self.adl.adapter_active_get)(self.context, info.i_adapter_index, &mut active)
-            };
-            if ret != ADL_OK || active == 0 {
-                continue;
-            }
-
-            // Deduplicate by PCI bus number (ADL reports multiple entries per GPU).
-            if !seen_bus.insert(info.i_bus_number) {
-                continue;
-            }
-
-            let idx = info.i_adapter_index;
-            self.adapter_indices.push(idx);
-
-            let mut gpu = GpuInfo {
-                name: string_from_buf(&info.str_adapter_name),
-                ..GpuInfo::default()
-            };
-
-            // Query initial PMLog snapshot for power limit reference.
-            let mut pmlog = AdlPMLogDataOutput::zeroed();
-            // SAFETY: context and idx are valid; pmlog is a valid pointer.
-            let ret = unsafe { (self.adl.query_pmlog_data_get)(self.context, idx, &mut pmlog) };
-            if ret == ADL_OK {
-                // Use board power as the max reference (best available from
-                // a single PMLog snapshot at init — actual TDP is not exposed
-                // via PMLog, so we rely on the live reading at startup and
-                // let the meter scale naturally).
-                let power_w = pmlog
-                    .get(SENSOR_BOARD_POWER)
-                    .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
-                if let Some(w) = power_w {
-                    // Sensor reports watts; domain stores milliwatts.
-                    // Use the initial reading as a baseline — the UI meter
-                    // will rescale if power exceeds this on later samples.
-                    gpu.pwr_max_usage = w.max(1) as i64 * 1000;
-                }
-            }
-
-            // Query total VRAM.
-            let mut mem = AdlMemoryInfoX4::zeroed();
-            // SAFETY: context and idx are valid; mem is a valid pointer.
-            let ret = unsafe { (self.adl.adapter_memory_info_x4_get)(self.context, idx, &mut mem) };
-            if ret == ADL_OK && mem.i_memory_size > 0 {
-                gpu.mem_total = (mem.i_memory_size * 1024 * 1024) as u64;
-            }
-
-            gpus.push(gpu);
-        }
-
-        gpus
+    if adapters.is_empty() {
+        return Vec::new();
     }
 
-    fn collect(&mut self, gpus: &mut [GpuInfo]) {
-        for (gpu, &idx) in gpus.iter_mut().zip(self.adapter_indices.iter()) {
-            // PMLog one-shot query — provides utilization, clocks, temp, power.
-            let mut pmlog = AdlPMLogDataOutput::zeroed();
-            // SAFETY: context and idx are valid; pmlog is a valid pointer.
-            let ret = unsafe { (self.adl.query_pmlog_data_get)(self.context, idx, &mut pmlog) };
-            if ret == ADL_OK {
-                // Utilization (direct %).
-                if let Some(pct) = pmlog.get(SENSOR_ACTIVITY_GFX) {
-                    push_history(
-                        &mut gpu.gpu_percent.utilization,
-                        clamp_percent(pct.max(0) as u32),
-                    );
-                }
+    tracing::info!(
+        subsystem = %crate::log::Subsystem::GpuAdl,
+        devices = adapters.len(),
+        "vendor initialized",
+    );
 
-                // Clock speed (direct MHz).
-                if let Some(mhz) = pmlog.get(SENSOR_CLK_GFXCLK) {
-                    gpu.gpu_clock_speed = mhz.max(0) as u32;
-                }
+    adapters
+        .into_iter()
+        .filter_map(|adapter| {
+            let device_ctx = session.open_context()?;
+            // Pre-fill static fields (name, max power, total VRAM)
+            // using this device's own context. The same context is
+            // then retained by the collector for all subsequent
+            // per-cycle queries from the device thread.
+            let info = build_initial_info(&session.adl, device_ctx.raw, &adapter);
+            Some(super::DeviceCollector::Amd(AmdDeviceCollector {
+                context: device_ctx,
+                adapter_index: adapter.adapter_index,
+                info,
+                status: CollectStatus::Ok,
+            }))
+        })
+        .collect()
+}
 
-                // Temperature (direct °C).
-                if let Some(temp) = pmlog.get(SENSOR_TEMPERATURE_EDGE) {
-                    push_history(&mut gpu.temp, temp as i64);
-                }
+/// Adapter metadata captured during enumeration. Holds only what
+/// the per-device collector needs for its own context init; the
+/// raw `AdapterInfo` is not retained because most of its fields
+/// (driver path, display name, OS index) are unused.
+struct AdapterMeta {
+    adapter_index: i32,
+    name: String,
+}
 
-                // Power — prefer board power (RDNA3+), fall back to ASIC power.
-                // Sensor values are in watts; domain stores milliwatts.
-                let power_w = pmlog
-                    .get(SENSOR_BOARD_POWER)
-                    .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
-                if let Some(w) = power_w {
-                    let power_mw = w.max(0) as u64 * 1000;
-                    gpu.pwr_usage = power_mw as i64;
-                    let pwr_pct = power_percent(power_mw, gpu.pwr_max_usage as u64);
-                    push_history(&mut gpu.gpu_percent.power, pwr_pct);
-                }
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuAdl,
-                    code = %crate::log::Hex(ret),
-                    "ADL PMLog query failed",
-                );
-            }
+/// Enumerate ADL adapters using `ctx`, deduplicating by PCI bus
+/// number and skipping inactive entries.
+fn enumerate_adapters(adl: &AdlFunctions, ctx: *mut c_void) -> Option<Vec<AdapterMeta>> {
+    let mut num_adapters: i32 = 0;
+    // SAFETY: ctx is valid; num_adapters is a valid pointer.
+    let ret = unsafe { (adl.adapter_number_of_adapters_get)(ctx, &mut num_adapters) };
+    if ret != ADL_OK || num_adapters <= 0 {
+        return None;
+    }
 
-            // VRAM usage (direct MB from ADL).
-            let mut vram_used_mb: i32 = 0;
-            // SAFETY: context and idx are valid; vram_used_mb is a valid pointer.
-            let ret = unsafe {
-                (self.adl.dedicated_vram_usage_get)(self.context, idx, &mut vram_used_mb)
-            };
-            if ret == ADL_OK && vram_used_mb > 0 {
-                gpu.mem_used = vram_used_mb as u64 * 1024 * 1024;
-                let vram_pct = percent_u64(gpu.mem_used, gpu.mem_total).min(100);
-                push_history(&mut gpu.gpu_percent.vram, vram_pct);
-                push_history(&mut gpu.mem_utilization_percent, vram_pct);
-            } else if ret != ADL_OK {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuAdl,
-                    code = %crate::log::Hex(ret),
-                    "ADL VRAM usage query failed",
-                );
-            }
+    let count = num_adapters as usize;
+    let mut adapter_infos: Vec<AdapterInfo> = (0..count).map(|_| AdapterInfo::zeroed()).collect();
+    let buf_size = (count * std::mem::size_of::<AdapterInfo>()) as i32;
+    // SAFETY: adapter_infos is a valid buffer of count AdapterInfo structs.
+    let ret = unsafe { (adl.adapter_adapter_info_get)(ctx, adapter_infos.as_mut_ptr(), buf_size) };
+    if ret != ADL_OK {
+        return None;
+    }
+
+    let mut out = Vec::new();
+    let mut seen_bus = std::collections::HashSet::new();
+    for info in &adapter_infos {
+        let mut active: i32 = 0;
+        // SAFETY: ctx is valid; adapter index from ADL; active is valid pointer.
+        let ret = unsafe { (adl.adapter_active_get)(ctx, info.i_adapter_index, &mut active) };
+        if ret != ADL_OK || active == 0 {
+            continue;
+        }
+        if !seen_bus.insert(info.i_bus_number) {
+            continue;
+        }
+        out.push(AdapterMeta {
+            adapter_index: info.i_adapter_index,
+            name: string_from_buf(&info.str_adapter_name),
+        });
+    }
+    Some(out)
+}
+
+/// Pre-fill the per-device `GpuInfo` with static fields (name, max
+/// power reference, total VRAM) using this device's own context.
+fn build_initial_info(
+    adl: &AdlFunctions,
+    ctx: *mut c_void,
+    adapter: &AdapterMeta,
+) -> crate::domain::gpu::GpuInfo {
+    let mut gpu = crate::domain::gpu::GpuInfo {
+        name: adapter.name.clone(),
+        ..crate::domain::gpu::GpuInfo::default()
+    };
+
+    // PMLog one-shot snapshot for the initial power-limit reference.
+    let mut pmlog = AdlPMLogDataOutput::zeroed();
+    // SAFETY: ctx and adapter.adapter_index are valid; pmlog is a
+    // valid pointer.
+    let ret = unsafe { (adl.query_pmlog_data_get)(ctx, adapter.adapter_index, &mut pmlog) };
+    if ret == ADL_OK {
+        let power_w = pmlog
+            .get(SENSOR_BOARD_POWER)
+            .or_else(|| pmlog.get(SENSOR_ASIC_POWER));
+        if let Some(w) = power_w {
+            // Sensor reports watts; domain stores milliwatts. Use
+            // the initial reading as a baseline — the meter rescales
+            // if power exceeds this on later samples.
+            gpu.pwr_max_usage = w.max(1) as i64 * 1000;
         }
     }
 
-    fn shutdown(&mut self) {
-        if !self.context.is_null() {
-            // SAFETY: context was created by ADL2_Main_Control_Create.
-            unsafe {
-                let _ = (self.adl.main_control_destroy)(self.context);
-            }
-            self.context = std::ptr::null_mut();
-        }
+    // Total VRAM.
+    let mut mem = AdlMemoryInfoX4::zeroed();
+    // SAFETY: ctx and adapter.adapter_index are valid; mem is a
+    // valid pointer.
+    let ret = unsafe { (adl.adapter_memory_info_x4_get)(ctx, adapter.adapter_index, &mut mem) };
+    if ret == ADL_OK && mem.i_memory_size > 0 {
+        gpu.mem_total = (mem.i_memory_size * 1024 * 1024) as u64;
     }
+
+    gpu
 }
