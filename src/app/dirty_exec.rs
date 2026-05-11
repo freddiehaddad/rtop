@@ -13,8 +13,8 @@
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::{
-    AppState, DetailPanel, GpuViewState, LiveData, NetworkViewState, ProcessViewState, RuntimeView,
-    WidgetFilter,
+    AppState, DetailPanel, DimComposeMode, GpuViewState, LiveData, ModalFootprint,
+    NetworkViewState, ProcessViewState, RuntimeView, WidgetFilter,
 };
 use crate::config;
 use crate::dirty::RenderDirty;
@@ -95,16 +95,23 @@ pub(crate) fn write_dirty_frame(
     // mutate `state.render` below. `ActiveModal` is cheap to
     // clone — variants are unit-like or carry small state.
     let active = state.overlay.active.clone();
-    // Reconcile the dim cache against the current modal boundary.
-    // If the boundary moved since the previous frame the cached
-    // snapshot is invalidated atomically — no separate "set last
-    // boundary" step is possible to forget.
-    let dims_now = state.render.reconcile_dim_boundary(active.dims_underlay());
-    let output = if dims_now {
-        compose_modal_frame(state, config, theme, &active, size)
-    } else {
-        let raw = render_dirty_frame(state, config, theme);
-        style_terminal_output(&raw, config, theme)
+    // Reconcile the dim cache against the current modal footprint
+    // (Main, Help, Options, NoModal). The cache encodes whether
+    // the underlay snapshot is still valid AND whether the
+    // previous modal's pixels need wiping; the returned mode
+    // tells the compose path exactly what to emit this frame.
+    let footprint = ModalFootprint::from_active(&active);
+    let mode = state.render.reconcile_dim_compose(footprint);
+    let output = match mode {
+        DimComposeMode::Skip => {
+            let raw = render_dirty_frame(state, config, theme);
+            style_terminal_output(&raw, config, theme)
+        }
+        DimComposeMode::BuildAndEmit
+        | DimComposeMode::EmitFromCache
+        | DimComposeMode::ModalOnly => {
+            compose_modal_frame(state, config, theme, &active, size, mode)
+        }
     };
     if let Err(e) = terminal.write_synced(&output) {
         tracing::warn!(
@@ -122,59 +129,83 @@ pub(crate) fn write_dirty_frame(
 ///
 /// The dimmed underlay snapshot is held inside [`crate::app::RenderState`]
 /// for the lifetime of the modal — modal-internal navigation
-/// repaints only the modal layer. The cache is invalidated by
-/// modal open/close transitions (via
-/// [`crate::app::RenderState::reconcile_dim_boundary`]) and by
-/// terminal resize (via `mark_resize`).
+/// repaints only the modal layer ([`DimComposeMode::ModalOnly`]).
+/// The cache is invalidated by modal open/close transitions and
+/// by terminal resize.
 ///
-/// **CLEAR_SCREEN gating.** When the underlay is being rebuilt
-/// (cache miss — first paint after open, or after resize), the
-/// frame begins with `CLEAR_SCREEN` so the transition from the
-/// previous content (full-bright widgets, or stale post-resize
-/// content) to the new dimmed underlay starts from a clean
-/// canvas. When the cache is hit (modal-internal navigation), the
-/// dimmed underlay is already on screen and the modal layer
-/// simply paints over its own rectangle — no `CLEAR_SCREEN`, no
-/// re-emit of the underlay. This is what lets a user keep an
-/// active mouse text-selection on the dimmed area while the menu
-/// is open.
+/// `mode` is the [`DimComposeMode`] returned by
+/// [`crate::app::RenderState::reconcile_dim_compose`]; it carries
+/// the per-frame decision (build vs. re-emit vs. modal-only).
+///
+/// **CLEAR_SCREEN gating.** Both [`DimComposeMode::BuildAndEmit`]
+/// (cache miss — first paint after open, or after resize) and
+/// [`DimComposeMode::EmitFromCache`] (modal kind changed mid-flight,
+/// cache still valid) emit `CLEAR_SCREEN` as a frame prefix so the
+/// transition starts from a clean canvas. The `EmitFromCache`
+/// branch is what wipes the previous modal's footprint on a
+/// kind-change transition (e.g. closing Options back to Main from
+/// the main menu); without it, the larger previous modal's outer
+/// ring would remain visible behind the smaller new modal.
+///
+/// [`DimComposeMode::ModalOnly`] (modal-internal navigation: same
+/// modal kind, cache present) emits only the modal layer painted
+/// over its own rectangle — no `CLEAR_SCREEN`, no re-emit of the
+/// underlay. This is what lets a user keep an active mouse text-
+/// selection on the dimmed area while navigating within a single
+/// menu.
 fn compose_modal_frame(
     state: &mut AppState,
     config: &config::Config,
     theme: &theme::Theme,
     active: &crate::overlay::ActiveModal,
     size: TerminalSize,
+    mode: DimComposeMode,
 ) -> String {
-    let underlay_was_rebuilt = state.render.cached_dimmed_underlay().is_none();
-    if underlay_was_rebuilt {
-        // Build a fresh underlay: render every widget, theme-style
-        // the result, then run the dim transform. Order matters —
-        // theme styling runs before dim so the base style
-        // (including theme bg) is dimmed too; otherwise every
-        // `\x1b[0m` reset in the underlay would re-apply the
-        // full-brightness base style and leave bright halos.
-        let raw = render_widget_layer_full(state, config, theme);
-        let styled = style_terminal_output(&raw, config, theme);
-        state
-            .render
-            .store_dimmed_underlay(crate::draw::dim::dim_truecolor(&styled));
-    }
-
     let raw_modal = crate::overlay::render(active, size, config, theme);
     let styled_modal = style_terminal_output(&raw_modal, config, theme);
 
-    if underlay_was_rebuilt {
-        let dimmed = state
-            .render
-            .cached_dimmed_underlay()
-            .expect("cached_dimmed_underlay just populated above");
-        format!("{}{dimmed}{styled_modal}", term::CLEAR_SCREEN)
-    } else {
-        // Cache hit: the dimmed underlay is already on screen from
-        // a previous frame. Paint only the modal layer over its
-        // own rectangle. Cells outside the modal are untouched —
-        // no `CLEAR_SCREEN`, no full-screen repaint.
-        styled_modal
+    match mode {
+        DimComposeMode::BuildAndEmit => {
+            // Build a fresh underlay: render every widget, theme-style
+            // the result, then run the dim transform. Order matters —
+            // theme styling runs before dim so the base style
+            // (including theme bg) is dimmed too; otherwise every
+            // `\x1b[0m` reset in the underlay would re-apply the
+            // full-brightness base style and leave bright halos.
+            let raw = render_widget_layer_full(state, config, theme);
+            let styled = style_terminal_output(&raw, config, theme);
+            state
+                .render
+                .store_dimmed_underlay(crate::draw::dim::dim_truecolor(&styled));
+            let dimmed = state
+                .render
+                .cached_dimmed_underlay()
+                .expect("cached_dimmed_underlay just populated above");
+            format!("{}{dimmed}{styled_modal}", term::CLEAR_SCREEN)
+        }
+        DimComposeMode::EmitFromCache => {
+            // Modal kind changed but the dimmed underlay is still
+            // valid (widgets unchanged while a modal was on top).
+            // Re-emit the cached underlay to wipe the previous
+            // modal's footprint, then paint the new modal on top.
+            let dimmed = state
+                .render
+                .cached_dimmed_underlay()
+                .expect("EmitFromCache is only returned by reconcile when the snapshot is present");
+            format!("{}{dimmed}{styled_modal}", term::CLEAR_SCREEN)
+        }
+        DimComposeMode::ModalOnly => {
+            // Cache hit, footprint unchanged: the dimmed underlay
+            // is already on screen from a previous frame and the
+            // modal box bounds haven't moved. Paint only the modal
+            // layer over its own rectangle — cells outside the
+            // modal are untouched.
+            styled_modal
+        }
+        DimComposeMode::Skip => unreachable!(
+            "compose_modal_frame is only entered for the three dim-modal modes; \
+             write_dirty_frame routes Skip to the widget render path"
+        ),
     }
 }
 
@@ -626,55 +657,227 @@ mod tests {
     }
 
     // ─────────────────────────────────────────────────────────────
-    // compose_modal_frame — CLEAR_SCREEN gating contract.
+    // Dim-cache compose path — CLEAR_SCREEN gating contract +
+    // modal-kind-change regression coverage.
     //
-    // The modal compose path emits CLEAR_SCREEN only when the
-    // dimmed underlay is being rebuilt (cache miss — first paint
-    // after open, or after resize). When the cache is hit
-    // (modal-internal navigation), no CLEAR_SCREEN appears so an
-    // active mouse text-selection on the dim cells survives.
+    // `compose_modal_frame` now takes an explicit `DimComposeMode`.
+    // The mode is produced by `RenderState::reconcile_dim_compose`
+    // from the current `ModalFootprint`; these tests drive both the
+    // reconcile and the compose to lock in the end-to-end behaviour.
     // ─────────────────────────────────────────────────────────────
 
-    #[test]
-    fn compose_modal_frame_emits_clear_screen_only_on_cache_miss() {
+    /// Build a fresh `AppState` ready for modal compose: empty layout
+    /// cached, the requested modal active, and the dim-cache footprint
+    /// reset to `NoModal` so the first reconcile sees an open
+    /// transition.
+    fn modal_state(active: crate::overlay::ActiveModal) -> AppState {
         let mut state = make_state();
-        // An empty layout is sufficient — render_widget_layer_full
-        // iterates widgets via `dims_for(kind)`, which returns
-        // None for every widget in `Layout::default()`. The dim
-        // cache built from it is structurally minimal but still
-        // begins with the CLEAR_SCREEN emitted by
-        // render_widget_layer_full's prefix.
         state
             .render
             .set_cached_layout(crate::draw::layout::Layout::default());
-        state.overlay.active =
-            crate::overlay::ActiveModal::Main(crate::overlay::main_menu::MainMenuState::new());
+        state.overlay.active = active;
+        state
+    }
 
-        let config = config::Config::new();
-        let theme = theme::Theme::new();
-        let size = TerminalSize {
+    fn fixture_size() -> TerminalSize {
+        TerminalSize {
             width: 80,
             height: 30,
-        };
-        let active = state.overlay.active.clone();
+        }
+    }
 
-        // First call: dim cache is empty → underlay built →
-        // CLEAR_SCREEN must appear at the start of the output.
-        let out_miss = compose_modal_frame(&mut state, &config, &theme, &active, size);
+    /// Drive one full pass through the dim-cache pipeline:
+    /// reconcile → compose. Returns the produced frame. Mirrors
+    /// what `write_dirty_frame` does, minus the terminal write.
+    fn compose_one_frame(
+        state: &mut AppState,
+        config: &config::Config,
+        theme: &theme::Theme,
+        size: TerminalSize,
+    ) -> String {
+        let active = state.overlay.active.clone();
+        let footprint = ModalFootprint::from_active(&active);
+        let mode = state.render.reconcile_dim_compose(footprint);
+        compose_modal_frame(state, config, theme, &active, size, mode)
+    }
+
+    #[test]
+    fn first_modal_frame_emits_clear_screen_and_underlay() {
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let mut state = modal_state(crate::overlay::ActiveModal::Main(
+            crate::overlay::main_menu::MainMenuState::new(),
+        ));
+
+        let out = compose_one_frame(&mut state, &config, &theme, fixture_size());
         assert!(
-            out_miss.starts_with(term::CLEAR_SCREEN),
-            "cache-miss render must begin with CLEAR_SCREEN; got prefix: {:?}",
-            &out_miss.chars().take(10).collect::<String>(),
+            out.starts_with(term::CLEAR_SCREEN),
+            "first modal frame (cache miss) must begin with CLEAR_SCREEN; got prefix: {:?}",
+            &out.chars().take(10).collect::<String>(),
+        );
+        assert!(
+            state.render.cached_dimmed_underlay().is_some(),
+            "first modal frame must populate the dim cache",
+        );
+    }
+
+    #[test]
+    fn same_modal_navigation_emits_modal_only_no_clear_screen() {
+        // Regression guard for the mouse-text-selection invariant:
+        // navigating *within* a single modal must not re-emit
+        // CLEAR_SCREEN or the underlay.
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let mut state = modal_state(crate::overlay::ActiveModal::Main(
+            crate::overlay::main_menu::MainMenuState::new(),
+        ));
+
+        let _first = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        let second = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        assert!(
+            !second.contains(term::CLEAR_SCREEN),
+            "same-modal repaint must NOT emit CLEAR_SCREEN anywhere; got: {second:?}",
+        );
+    }
+
+    #[test]
+    fn modal_kind_change_re_emits_underlay_with_clear_screen() {
+        // The bug this fix targets: pressing m → Enter (open Help
+        // or Options from Main) → Esc (back to Main) used to leave
+        // the previous modal's outer ring visible because the
+        // cache-hit branch only emitted the new (smaller) modal.
+        // After the fix, a footprint change re-emits the cached
+        // dimmed underlay (wiping the previous modal's pixels)
+        // before painting the new modal.
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let mut state = modal_state(crate::overlay::ActiveModal::Main(
+            crate::overlay::main_menu::MainMenuState::new(),
+        ));
+
+        // Frame 1: open Main (BuildAndEmit — populates the cache).
+        let _main_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        let cached_underlay = state
+            .render
+            .cached_dimmed_underlay()
+            .expect("Main frame populates the cache")
+            .to_string();
+
+        // Frame 2: switch to Options. Footprint changes from
+        // Main → Options while dim stays true → EmitFromCache.
+        // The cached underlay must appear in the output prefixed
+        // by CLEAR_SCREEN, NOT just the Options modal alone.
+        state.overlay.active = crate::overlay::ActiveModal::Options(
+            crate::overlay::options::OptionsState::new(crate::overlay::ReturnTarget::Main),
+        );
+        let kind_change_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        assert!(
+            kind_change_frame.starts_with(term::CLEAR_SCREEN),
+            "modal-kind-change frame must begin with CLEAR_SCREEN; got prefix: {:?}",
+            &kind_change_frame.chars().take(10).collect::<String>(),
+        );
+        assert!(
+            kind_change_frame.contains(&cached_underlay),
+            "modal-kind-change frame must re-emit the cached dimmed underlay so the \
+             previous modal's pixels are wiped",
+        );
+    }
+
+    #[test]
+    fn modal_kind_change_does_not_rebuild_underlay() {
+        // The cached underlay must be reused (not regenerated)
+        // across a kind change — widgets did not change while a
+        // modal was on top, so the snapshot is still valid; we
+        // only need to re-emit it. Asserting snapshot identity by
+        // value: the cached String content is identical before
+        // and after the kind change.
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let mut state = modal_state(crate::overlay::ActiveModal::Main(
+            crate::overlay::main_menu::MainMenuState::new(),
+        ));
+
+        let _main_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        let before = state
+            .render
+            .cached_dimmed_underlay()
+            .expect("Main frame populates the cache")
+            .to_string();
+
+        state.overlay.active = crate::overlay::ActiveModal::Help(
+            crate::overlay::help::HelpState::new(crate::overlay::ReturnTarget::Main),
+        );
+        let _help_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        let after = state
+            .render
+            .cached_dimmed_underlay()
+            .expect("cache must survive the kind change")
+            .to_string();
+        assert_eq!(
+            before, after,
+            "kind-change re-emit must not rebuild the dimmed underlay",
+        );
+    }
+
+    #[test]
+    fn options_to_options_edit_is_same_footprint() {
+        // Options ↔ Options-with-edit-buffer share a footprint
+        // (same modal box, only the box's interior content
+        // changes). The dim-cache reconcile must treat this
+        // transition as same-modal, returning ModalOnly so no
+        // CLEAR_SCREEN is emitted.
+        let config = config::Config::new();
+        let theme = theme::Theme::new();
+        let mut opts =
+            crate::overlay::options::OptionsState::new(crate::overlay::ReturnTarget::Normal);
+        let mut state = modal_state(crate::overlay::ActiveModal::Options(opts.clone()));
+
+        let _first = compose_one_frame(&mut state, &config, &theme, fixture_size());
+
+        // Enter the inline-edit sub-state. ActiveModal::Options
+        // discriminant is unchanged; OverlayKind would flip from
+        // Options to OptionsEdit but ModalFootprint stays Options.
+        opts.enter_edit(crate::overlay::options::edit::OptionEditState::placeholder());
+        state.overlay.active = crate::overlay::ActiveModal::Options(opts);
+        let edit_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
+        assert!(
+            !edit_frame.contains(term::CLEAR_SCREEN),
+            "Options ↔ OptionsEdit shares a footprint; transition must NOT emit \
+             CLEAR_SCREEN; got: {edit_frame:?}",
+        );
+    }
+
+    #[test]
+    fn modal_close_drops_cache_and_skips_compose() {
+        // Closing the modal entirely (dim_now → false) drops the
+        // cached underlay so the next modal-open transition
+        // rebuilds. We can observe this via reconcile's return
+        // value: after close, the next compose call for a fresh
+        // modal must be BuildAndEmit (cache empty), not
+        // EmitFromCache.
+        let mut state = make_state();
+
+        // Open Main → BuildAndEmit (populates the cache).
+        assert_eq!(
+            state.render.reconcile_dim_compose(ModalFootprint::Main),
+            DimComposeMode::BuildAndEmit,
+        );
+        state.render.store_dimmed_underlay("dummy".to_string());
+
+        // Close → Skip, snapshot dropped.
+        assert_eq!(
+            state.render.reconcile_dim_compose(ModalFootprint::NoModal),
+            DimComposeMode::Skip,
+        );
+        assert!(
+            state.render.cached_dimmed_underlay().is_none(),
+            "modal close must drop the dim-cache snapshot",
         );
 
-        // Second call: dim cache is populated by the previous
-        // call → underlay is NOT re-emitted, only the modal layer
-        // is painted. CLEAR_SCREEN must NOT appear anywhere in
-        // the output (no full-screen wipe).
-        let out_hit = compose_modal_frame(&mut state, &config, &theme, &active, size);
-        assert!(
-            !out_hit.contains(term::CLEAR_SCREEN),
-            "cache-hit render must NOT emit CLEAR_SCREEN anywhere; got: {out_hit:?}",
+        // Re-open Main → BuildAndEmit again (not EmitFromCache).
+        assert_eq!(
+            state.render.reconcile_dim_compose(ModalFootprint::Main),
+            DimComposeMode::BuildAndEmit,
         );
     }
 }

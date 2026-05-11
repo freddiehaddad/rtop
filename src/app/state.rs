@@ -263,33 +263,160 @@ impl RuntimeView {
     }
 }
 
+/// Identifier for which centered modal occupies the screen this
+/// frame. Used as the dim-cache invalidation key in
+/// [`DimUnderlayCache`].
+///
+/// [`Options`](Self::Options) covers both the option-list view
+/// and its inline-edit sub-state because the two render the same
+/// modal box footprint — only the box's interior content changes
+/// when the user enters edit mode, and the cache only cares about
+/// the bounding rectangle.
+///
+/// [`Filter`](crate::overlay::ActiveModal::Filter) and
+/// [`None`](crate::overlay::ActiveModal::None) both map to
+/// `NoModal` because neither paints a centered dimming overlay
+/// over the widget layer (Filter is an inline prompt rendered by
+/// the proc widget itself).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ModalFootprint {
+    #[default]
+    NoModal,
+    Main,
+    Help,
+    Options,
+}
+
+impl ModalFootprint {
+    /// Project from the source-of-truth [`ActiveModal`].
+    pub(crate) fn from_active(active: &crate::overlay::ActiveModal) -> Self {
+        match active {
+            crate::overlay::ActiveModal::None | crate::overlay::ActiveModal::Filter(_) => {
+                Self::NoModal
+            }
+            crate::overlay::ActiveModal::Main(_) => Self::Main,
+            crate::overlay::ActiveModal::Help(_) => Self::Help,
+            crate::overlay::ActiveModal::Options(_) => Self::Options,
+        }
+    }
+
+    /// True when the modal occupies the centered overlay layer and
+    /// dims the widgets beneath it. False for [`Self::NoModal`]
+    /// (no overlay or inline-only overlay).
+    pub(crate) fn dims_underlay(self) -> bool {
+        !matches!(self, Self::NoModal)
+    }
+}
+
+/// What the modal compose path should do this frame.
+///
+/// The dimmed-underlay cache lifecycle has four observable states
+/// — making them an explicit enum forces the dispatch site to
+/// handle each one and lets future variants fail compilation at
+/// every match instead of silently falling through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DimComposeMode {
+    /// No centered modal active. Caller falls through to the
+    /// normal widget render path.
+    Skip,
+    /// Build a fresh dimmed underlay snapshot, store it, and
+    /// emit `CLEAR_SCREEN + dimmed + modal`. Used on first paint
+    /// after a modal opens, after a resize that invalidated the
+    /// snapshot, or any time the snapshot is missing.
+    BuildAndEmit,
+    /// Re-emit the cached dimmed underlay snapshot followed by
+    /// the new modal layer, prefixed with `CLEAR_SCREEN`. Used
+    /// when the modal kind changes between two dim-underlay
+    /// modals — the underlay is still valid (widgets unchanged)
+    /// but the previous modal's footprint must be wiped before
+    /// painting the new one.
+    EmitFromCache,
+    /// Cache hit AND footprint unchanged — emit only the modal
+    /// layer over its own rectangle. Cells outside the modal are
+    /// untouched, preserving any active mouse text-selection on
+    /// the dim cells.
+    ModalOnly,
+}
+
 /// Cached dimmed snapshot of the widget layer plus the
-/// previous-frame dim boundary. Packaged together so that the
-/// "snapshot" and "boundary moved since last frame" data points
-/// cannot drift apart, and so the reconciliation rule lives in one
-/// method instead of being open-coded at the call site.
+/// previous-frame modal footprint. Packaged together so the
+/// "snapshot" and "what's currently on screen behind the modal
+/// layer" data points cannot drift apart, and so the
+/// reconciliation rule lives in one method instead of being
+/// open-coded at the call site.
 #[derive(Debug, Default)]
 struct DimUnderlayCache {
     /// Cached dimmed snapshot of the widget layer. Populated on
     /// the first render after a centered modal opens, held until
     /// the modal closes or the terminal resizes.
     snapshot: Option<String>,
-    /// The previous frame's `dims_underlay()` result. Together with
-    /// the snapshot this lets `reconcile_boundary` notice modal
-    /// open/close transitions and invalidate reactively.
-    last_dims: bool,
+    /// The previous frame's modal footprint. Drives the
+    /// `ModalOnly` vs `EmitFromCache` decision in [`Self::reconcile`]:
+    /// equal footprints with a present snapshot keep painting only
+    /// the modal layer (preserves text-selection); a footprint
+    /// change re-emits the cached underlay to wipe the previous
+    /// modal's pixels.
+    last_footprint: ModalFootprint,
 }
 
 impl DimUnderlayCache {
-    /// Note the current modal-dim state. If the boundary moved since
-    /// the previous call, drop the cached snapshot. Returns the
-    /// (now-reconciled) current dim state for caller convenience.
-    fn reconcile_boundary(&mut self, dims_now: bool) -> bool {
-        if dims_now != self.last_dims {
-            self.snapshot = None;
-            self.last_dims = dims_now;
-        }
-        dims_now
+    /// Reconcile the cache against the current modal footprint and
+    /// return what the compose path should do this frame. Owns the
+    /// snapshot-invalidation rules so callers cannot get them
+    /// wrong.
+    ///
+    /// The seven cases (collapsed into the four return variants):
+    ///
+    /// | previous       | current        | snapshot | result          |
+    /// |----------------|----------------|----------|-----------------|
+    /// | `NoModal`      | `NoModal`      | (any)    | `Skip`          |
+    /// | `NoModal`      | dim            | dropped  | `BuildAndEmit`  |
+    /// | dim            | `NoModal`      | dropped  | `Skip`          |
+    /// | dim *A*        | dim *A*        | present  | `ModalOnly`     |
+    /// | dim *A*        | dim *A*        | missing  | `BuildAndEmit`  |
+    /// | dim *A*        | dim *B*        | present  | `EmitFromCache` |
+    /// | dim *A*        | dim *B*        | missing  | `BuildAndEmit`  |
+    fn reconcile(&mut self, current: ModalFootprint) -> DimComposeMode {
+        let mode = match (self.last_footprint.dims_underlay(), current.dims_underlay()) {
+            (false, false) => DimComposeMode::Skip,
+            (false, true) => {
+                // Modal opened. Snapshot from a previous run is
+                // stale by definition; drop it so the compose
+                // path rebuilds.
+                self.snapshot = None;
+                DimComposeMode::BuildAndEmit
+            }
+            (true, false) => {
+                // Modal closed. Caller falls through to the full
+                // widget render path; the snapshot is no longer
+                // useful.
+                self.snapshot = None;
+                DimComposeMode::Skip
+            }
+            (true, true) => {
+                if current == self.last_footprint {
+                    if self.snapshot.is_some() {
+                        DimComposeMode::ModalOnly
+                    } else {
+                        // Snapshot dropped between frames (e.g.
+                        // by a resize) but the modal is still
+                        // open. Rebuild.
+                        DimComposeMode::BuildAndEmit
+                    }
+                } else if self.snapshot.is_some() {
+                    // Modal kind swapped. Underlay is still
+                    // valid (widgets didn't change while a modal
+                    // was on top), but the previous modal's
+                    // pixels need to be wiped before the new
+                    // modal paints. Re-emit the cached underlay.
+                    DimComposeMode::EmitFromCache
+                } else {
+                    DimComposeMode::BuildAndEmit
+                }
+            }
+        };
+        self.last_footprint = current;
+        mode
     }
 
     /// Borrow the cached snapshot, if any.
@@ -312,10 +439,10 @@ pub(crate) struct RenderState {
     pub(crate) dirty: RenderDirty,
     cached_layout: Option<draw::layout::Layout>,
     pub(crate) last_layout_hints: Option<draw::layout::LayoutHints>,
-    /// Dimmed-underlay cache + boundary tracker. Encapsulated so
+    /// Dimmed-underlay cache + footprint tracker. Encapsulated so
     /// that no caller can read the snapshot without going through
-    /// [`RenderState::reconcile_dim_boundary`], and the snapshot
-    /// cannot drift past a modal open/close transition.
+    /// [`RenderState::reconcile_dim_compose`], and the snapshot
+    /// cannot drift past a modal footprint change.
     dim_cache: DimUnderlayCache,
 }
 
@@ -355,13 +482,11 @@ impl RenderState {
         self.cached_layout = Some(layout);
     }
 
-    /// Reconcile the dimmed-underlay cache against the current modal
-    /// boundary. If the boundary moved since the previous frame,
-    /// drop the cached snapshot. Returns the (now-reconciled)
-    /// current dim state — `true` if a centered modal is active and
-    /// the caller should compose, `false` otherwise.
-    pub(crate) fn reconcile_dim_boundary(&mut self, dims_now: bool) -> bool {
-        self.dim_cache.reconcile_boundary(dims_now)
+    /// Reconcile the dimmed-underlay cache against the current
+    /// modal footprint and return the compose action for this
+    /// frame. See [`DimComposeMode`] for the four cases.
+    pub(crate) fn reconcile_dim_compose(&mut self, current: ModalFootprint) -> DimComposeMode {
+        self.dim_cache.reconcile(current)
     }
 
     /// Borrow the cached dimmed underlay snapshot, if one is
