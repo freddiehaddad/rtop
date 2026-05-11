@@ -20,7 +20,7 @@ use crate::theme_keys as tc;
 // ---------------------------------------------------------------------------
 
 /// Items in the main menu, in display order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MainMenuItem {
     Options,
     Help,
@@ -51,7 +51,7 @@ impl MainMenuItem {
 
 /// Persistent state for the main menu overlay: just the current
 /// selection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MainMenuState {
     selected: MainMenuItem,
 }
@@ -211,27 +211,35 @@ pub(crate) fn select_next_action(ctx: &mut InputContext, _: &Key) {
 }
 
 pub(crate) fn activate_selected_action(ctx: &mut InputContext, _: &Key) {
-    let selected = match &ctx.overlay.active {
-        ActiveModal::Main(s) => s.selected(),
+    let main_state = match &ctx.overlay.active {
+        ActiveModal::Main(s) => *s,
         _ => return,
     };
-    match selected {
-        MainMenuItem::Options => open_options_from_main(ctx),
-        MainMenuItem::Help => open_help_from_main(ctx),
+    match main_state.selected() {
+        MainMenuItem::Options => open_options_from_main(ctx, main_state),
+        MainMenuItem::Help => open_help_from_main(ctx, main_state),
         MainMenuItem::Quit => *ctx.quit = true,
     }
 }
 
 pub(crate) fn open_options_action(ctx: &mut InputContext, _: &Key) {
-    open_options_from_main(ctx);
+    let main_state = match &ctx.overlay.active {
+        ActiveModal::Main(s) => *s,
+        _ => return,
+    };
+    open_options_from_main(ctx, main_state);
 }
 
 pub(crate) fn open_help_action(ctx: &mut InputContext, _: &Key) {
-    open_help_from_main(ctx);
+    let main_state = match &ctx.overlay.active {
+        ActiveModal::Main(s) => *s,
+        _ => return,
+    };
+    open_help_from_main(ctx, main_state);
 }
 
-fn open_options_from_main(ctx: &mut InputContext) {
-    ctx.open_options_menu(ReturnTarget::Main);
+fn open_options_from_main(ctx: &mut InputContext, main_state: MainMenuState) {
+    ctx.open_options_menu(ReturnTarget::Main(main_state));
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
         menu = "options",
@@ -240,8 +248,8 @@ fn open_options_from_main(ctx: &mut InputContext) {
     );
 }
 
-fn open_help_from_main(ctx: &mut InputContext) {
-    ctx.open_help_menu(ReturnTarget::Main);
+fn open_help_from_main(ctx: &mut InputContext, main_state: MainMenuState) {
+    ctx.open_help_menu(ReturnTarget::Main(main_state));
     tracing::debug!(
         subsystem = %crate::log::Subsystem::Ui,
         menu = "help",

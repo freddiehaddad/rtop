@@ -212,10 +212,13 @@ mod tests {
 
     #[test]
     fn carries_return_target() {
+        use crate::overlay::main_menu::MainMenuState;
+
         let s = HelpState::new(ReturnTarget::Normal);
         assert_eq!(s.return_to, ReturnTarget::Normal);
-        let s = HelpState::new(ReturnTarget::Main);
-        assert_eq!(s.return_to, ReturnTarget::Main);
+        let main_state = MainMenuState::new();
+        let s = HelpState::new(ReturnTarget::Main(main_state));
+        assert_eq!(s.return_to, ReturnTarget::Main(main_state));
     }
 
     #[test]

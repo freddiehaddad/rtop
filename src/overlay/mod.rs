@@ -70,12 +70,14 @@ pub enum OverlayKind {
 
 /// Where an overlay returns to when it closes. Help and Options can
 /// be opened either directly from Normal mode (return to `Normal`)
-/// or from the Main menu (return to `Main`). Main itself always
-/// returns to `Normal`.
+/// or from the Main menu (return to `Main`, carrying the
+/// [`MainMenuState`] snapshot to restore on close so the user's
+/// selection survives the round-trip). Main itself always returns
+/// to `Normal`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ReturnTarget {
     Normal,
-    Main,
+    Main(main_menu::MainMenuState),
 }
 
 impl ActiveModal {

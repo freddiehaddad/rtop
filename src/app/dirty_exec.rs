@@ -767,9 +767,10 @@ mod tests {
         // Main → Options while dim stays true → EmitFromCache.
         // The cached underlay must appear in the output prefixed
         // by CLEAR_SCREEN, NOT just the Options modal alone.
-        state.overlay.active = crate::overlay::ActiveModal::Options(
-            crate::overlay::options::OptionsState::new(crate::overlay::ReturnTarget::Main),
-        );
+        state.overlay.active =
+            crate::overlay::ActiveModal::Options(crate::overlay::options::OptionsState::new(
+                crate::overlay::ReturnTarget::Main(crate::overlay::main_menu::MainMenuState::new()),
+            ));
         let kind_change_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
         assert!(
             kind_change_frame.starts_with(term::CLEAR_SCREEN),
@@ -804,9 +805,10 @@ mod tests {
             .expect("Main frame populates the cache")
             .to_string();
 
-        state.overlay.active = crate::overlay::ActiveModal::Help(
-            crate::overlay::help::HelpState::new(crate::overlay::ReturnTarget::Main),
-        );
+        state.overlay.active =
+            crate::overlay::ActiveModal::Help(crate::overlay::help::HelpState::new(
+                crate::overlay::ReturnTarget::Main(crate::overlay::main_menu::MainMenuState::new()),
+            ));
         let _help_frame = compose_one_frame(&mut state, &config, &theme, fixture_size());
         let after = state
             .render
