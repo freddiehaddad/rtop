@@ -5,7 +5,7 @@
 //! tests on top of the production code; the test module remains gated
 //! by `#[cfg(test)]` from mod.rs declaration.
 
-use super::schema::parse_disks_filter;
+use super::schema::parse_disk_filter;
 use super::*;
 use crate::collect::process_display::ProcSort;
 use crate::domain::config_enums::GraphSymbol;
@@ -187,7 +187,7 @@ statusbar_show_uptime = false
 custom_cpu_name = "My CPU"
 show_swap = false
 io_mode = true
-disks_filter = ["C:", "!D:"]
+disk_filter = ["C:", "!D:"]
 net_iface = "Ethernet"
 net_download = 5000
 proc_tree = true
@@ -223,7 +223,7 @@ hidden_widgets = ["mem", "gpu0"]
 
     // DiskConfig
     assert!(config.view.io_mode);
-    assert_eq!(config.disk.disks_filter, vec!["C:", "!D:"]);
+    assert_eq!(config.disk.disk_filter, vec!["C:", "!D:"]);
 
     // NetConfig
     assert_eq!(config.view.net_iface, "Ethernet");
@@ -292,24 +292,24 @@ fn validate_clamps_ints() {
 }
 
 #[test]
-fn validate_keeps_valid_disks_filter_unchanged() {
+fn validate_keeps_valid_disk_filter_unchanged() {
     let mut config = Config::new();
-    config.disk.disks_filter = vec!["C:".into(), "!D:".into()];
+    config.disk.disk_filter = vec!["C:".into(), "!D:".into()];
     let warnings = config.validate();
     assert!(
-        !warnings.iter().any(|w| w.contains("disks_filter")),
-        "valid disks_filter should not warn, got: {warnings:?}"
+        !warnings.iter().any(|w| w.contains("disk_filter")),
+        "valid disk_filter should not warn, got: {warnings:?}"
     );
     assert_eq!(
-        config.disk.disks_filter,
+        config.disk.disk_filter,
         vec!["C:".to_string(), "!D:".to_string()]
     );
 }
 
 #[test]
-fn validate_warns_and_strips_invalid_disks_filter_entries() {
+fn validate_warns_and_strips_invalid_disk_filter_entries() {
     let mut config = Config::new();
-    config.disk.disks_filter = vec![
+    config.disk.disk_filter = vec![
         "C:".into(),
         "abc".into(),
         "D:".into(),
@@ -319,24 +319,24 @@ fn validate_warns_and_strips_invalid_disks_filter_entries() {
     let warnings = config.validate();
     let disks_warning = warnings
         .iter()
-        .find(|w| w.contains("disks_filter"))
-        .expect("validate must surface a disks_filter warning");
+        .find(|w| w.contains("disk_filter"))
+        .expect("validate must surface a disk_filter warning");
     assert!(disks_warning.contains("abc"));
     assert!(disks_warning.contains('3'));
     assert!(disks_warning.contains("!!"));
     assert_eq!(
-        config.disk.disks_filter,
+        config.disk.disk_filter,
         vec!["C:".to_string(), "D:".to_string()]
     );
 }
 
 #[test]
-fn validate_empty_disks_filter_does_not_warn() {
+fn validate_empty_disk_filter_does_not_warn() {
     let mut config = Config::new();
-    config.disk.disks_filter = Vec::new();
+    config.disk.disk_filter = Vec::new();
     let warnings = config.validate();
-    assert!(!warnings.iter().any(|w| w.contains("disks_filter")));
-    assert!(config.disk.disks_filter.is_empty());
+    assert!(!warnings.iter().any(|w| w.contains("disk_filter")));
+    assert!(config.disk.disk_filter.is_empty());
 }
 
 #[test]
@@ -492,14 +492,14 @@ fn config_key_roundtrip_through_parser() {
 // -----------------------------------------------------------------
 
 #[test]
-fn parse_disks_filter_accepts_empty() {
-    assert_eq!(parse_disks_filter("").unwrap(), Vec::<String>::new());
-    assert_eq!(parse_disks_filter("   ").unwrap(), Vec::<String>::new());
+fn parse_disk_filter_accepts_empty() {
+    assert_eq!(parse_disk_filter("").unwrap(), Vec::<String>::new());
+    assert_eq!(parse_disk_filter("   ").unwrap(), Vec::<String>::new());
 }
 
 #[test]
-fn parse_disks_filter_preserves_case_and_prefix() {
-    let result = parse_disks_filter("c: !D: E:").unwrap();
+fn parse_disk_filter_preserves_case_and_prefix() {
+    let result = parse_disk_filter("c: !D: E:").unwrap();
     assert_eq!(
         result,
         vec!["c:".to_string(), "!D:".to_string(), "E:".to_string()]
@@ -507,10 +507,10 @@ fn parse_disks_filter_preserves_case_and_prefix() {
 }
 
 #[test]
-fn parse_disks_filter_rejects_bare_letter() {
-    assert!(parse_disks_filter("C").is_err());
-    assert!(parse_disks_filter("C: D").is_err());
-    assert!(parse_disks_filter("!E").is_err());
+fn parse_disk_filter_rejects_bare_letter() {
+    assert!(parse_disk_filter("C").is_err());
+    assert!(parse_disk_filter("C: D").is_err());
+    assert!(parse_disk_filter("!E").is_err());
 }
 
 #[test]
@@ -615,10 +615,10 @@ fn validate_string_shape() {
 }
 
 #[test]
-fn validate_string_disks_filter() {
-    assert!(StringKey::DisksFilter.validate("").is_ok());
-    assert!(StringKey::DisksFilter.validate("C: !D:").is_ok());
-    assert!(StringKey::DisksFilter.validate("X").is_err());
+fn validate_string_disk_filter() {
+    assert!(StringKey::DiskFilter.validate("").is_ok());
+    assert!(StringKey::DiskFilter.validate("C: !D:").is_ok());
+    assert!(StringKey::DiskFilter.validate("X").is_err());
 }
 
 #[test]
@@ -740,17 +740,17 @@ fn set_string_custom_layout_invalid_returns_err() {
 }
 
 #[test]
-fn set_string_disks_filter_via_inline_editor_path() {
+fn set_string_disk_filter_via_inline_editor_path() {
     let mut config = Config::new();
-    StringKey::DisksFilter.set(&mut config, "C: !D:").unwrap();
+    StringKey::DiskFilter.set(&mut config, "C: !D:").unwrap();
     assert_eq!(
-        config.disk.disks_filter,
+        config.disk.disk_filter,
         vec!["C:".to_string(), "!D:".to_string()]
     );
 }
 
 #[test]
-fn set_string_disks_filter_invalid_returns_err() {
+fn set_string_disk_filter_invalid_returns_err() {
     let mut config = Config::new();
-    assert!(StringKey::DisksFilter.set(&mut config, "X").is_err());
+    assert!(StringKey::DiskFilter.set(&mut config, "X").is_err());
 }

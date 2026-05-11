@@ -465,7 +465,7 @@ impl LiveData {
         draw::layout::LayoutHints {
             core_count: self.core_count,
             gpu_count: self.gpu_count as usize,
-            disk_count: crate::domain::disk::DisksFilter::parse(&config.disk.disks_filter)
+            disk_count: crate::domain::disk::DiskFilter::parse(&config.disk.disk_filter)
                 .count_matching(self.disk.as_ref().map_or(&[], |d| &d.info.disks)),
             has_swap: config.mem.show_swap
                 && self

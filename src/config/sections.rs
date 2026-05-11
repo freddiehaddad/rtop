@@ -293,7 +293,7 @@ pub struct DiskConfig {
     pub show_io_stat: bool,
     pub io_graph_combined: bool,
     pub disk_io_mode: bool,
-    pub disks_filter: Vec<String>,
+    pub disk_filter: Vec<String>,
 }
 
 impl Default for DiskConfig {
@@ -303,7 +303,7 @@ impl Default for DiskConfig {
             show_io_stat: true,
             io_graph_combined: false,
             disk_io_mode: false,
-            disks_filter: Vec::new(),
+            disk_filter: Vec::new(),
         }
     }
 }

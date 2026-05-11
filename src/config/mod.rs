@@ -378,18 +378,18 @@ impl Config {
             ));
         }
 
-        // Validate disks_filter: surface invalid drive entries as
+        // Validate disk_filter: surface invalid drive entries as
         // warnings and drop them in place so the saved config
         // matches what the runtime actually uses.
-        let filter = crate::domain::disk::DisksFilter::parse(&self.disk.disks_filter);
+        let filter = crate::domain::disk::DiskFilter::parse(&self.disk.disk_filter);
         if !filter.invalid().is_empty() {
             warnings.push(format!(
-                "Invalid drive entry/entries in 'disks_filter': {}",
+                "Invalid drive entry/entries in 'disk_filter': {}",
                 filter.invalid().join(", ")
             ));
             let invalid_tokens = filter.invalid().to_vec();
             self.disk
-                .disks_filter
+                .disk_filter
                 .retain(|tok| !invalid_tokens.contains(tok));
         }
 

@@ -35,12 +35,12 @@ pub struct DiskFrame {
 /// Draw the disk widget into an ANSI string.
 ///
 /// `disks` is the post-filter slice of disks the caller wants rendered,
-/// in display order. Filtering (via `DisksFilter`) and the resulting
+/// in display order. Filtering (via `DiskFilter`) and the resulting
 /// height sizing happen at the call site so the renderer stays a pure
 /// function of (data, settings, theme).
 ///
 /// Layout (default, `show_io_stat=true`, `io_mode=false`):
-/// ╭─┐⁵disks┌─────────────────────────────────────────────────────────╮
+/// ╭─┐⁵disk┌──────────────────────────────────────────────────────────╮
 /// │ C: NTFS ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■ 286G/1.6T │
 /// │ R 0.0B/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ W  52K/s ⣀⣀⣸⣇⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ B   0% │
 /// │ S: NTFS ■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■ 83G/1024G │
@@ -53,7 +53,7 @@ pub struct DiskFrame {
 /// order); the graph fills the variable space between drive label
 /// and letter. The bottom-border `io` inset gains a trailing `*`
 /// to signal the toggle is active.
-/// ╭─┐⁵disks┌─────────────────────────────────────────────────────────╮
+/// ╭─┐⁵disk┌──────────────────────────────────────────────────────────╮
 /// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀ R 0.0B/s │
 /// │ C: ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣸⣇⣀⣀⣀⣀⣀ W 0.0B/s │
 /// ╰─┘io*└────────────────────────────────────────────────────────────╯
@@ -90,7 +90,7 @@ pub fn draw(
         height,
         line_color: border_color,
         fill: true,
-        title: "disks",
+        title: "disk",
         title2: "",
         num: super::DISK_KEY,
         rounded,
@@ -98,7 +98,7 @@ pub fn draw(
         title_color,
     }));
 
-    super::draw_status_inset(&mut buf, status, "disks", x, y, border_color, title_color);
+    super::draw_status_inset(&mut buf, status, "disk", x, y, border_color, title_color);
 
     let io_view = settings.io_mode || settings.disk_io_mode;
 
@@ -213,7 +213,7 @@ impl super::Widget for DiskWidget {
             disk_io_mode: params.config.disk.disk_io_mode,
             io_graph_combined: params.config.disk.io_graph_combined,
         };
-        let filter = crate::domain::disk::DisksFilter::parse(&params.config.disk.disks_filter);
+        let filter = crate::domain::disk::DiskFilter::parse(&params.config.disk.disk_filter);
         let visible = filter.apply(&disk.info.disks);
         output.push_str(&draw(&visible, &area, params.theme, &frame, &disk.status));
     }
@@ -337,14 +337,14 @@ mod tests {
 
     /// Borrow every disk in the test fixture into the `&[&DiskInfo]`
     /// shape that `draw` consumes after filtering. Production callers
-    /// build the same shape via `DisksFilter::apply`; tests want the
+    /// build the same shape via `DiskFilter::apply`; tests want the
     /// unfiltered set.
     fn all_disks(data: &DiskData) -> Vec<&DiskInfo> {
         data.disks.iter().collect()
     }
 
     #[test]
-    fn draw_contains_disks_title() {
+    fn draw_contains_disk_title() {
         let data = make_disk_data();
         let output = draw(
             &all_disks(&data),
@@ -355,8 +355,8 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains("disks"),
-            "output should contain 'disks' title"
+            plain.contains("disk"),
+            "output should contain 'disk' title"
         );
     }
 
@@ -850,15 +850,15 @@ mod tests {
     }
 
     #[test]
-    fn draw_with_disks_filter_renders_only_matching_drives() {
+    fn draw_with_disk_filter_renders_only_matching_drives() {
         // End-to-end: the same code path the app uses — parse the user's
-        // disks_filter, apply it to the live disk list, hand the borrowed
+        // disk_filter, apply it to the live disk list, hand the borrowed
         // result to draw. The renderer must show only the matching drives
         // and no ghost rows for filtered-out drives.
-        use crate::domain::disk::DisksFilter;
+        use crate::domain::disk::DiskFilter;
 
         let data = make_disk_data();
-        let filter = DisksFilter::parse(&["C:".to_string()]);
+        let filter = DiskFilter::parse(&["C:".to_string()]);
         let visible = filter.apply(&data.disks);
         assert_eq!(visible.len(), 1);
 
@@ -879,10 +879,10 @@ mod tests {
 
     #[test]
     fn draw_with_exclude_filter_hides_listed_drives() {
-        use crate::domain::disk::DisksFilter;
+        use crate::domain::disk::DiskFilter;
 
         let data = make_disk_data();
-        let filter = DisksFilter::parse(&["!C:".to_string()]);
+        let filter = DiskFilter::parse(&["!C:".to_string()]);
         let visible = filter.apply(&data.disks);
         assert_eq!(visible.len(), 1);
 

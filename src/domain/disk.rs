@@ -1,9 +1,9 @@
 use std::collections::VecDeque;
 
-/// Parsed representation of the user-supplied `disks_filter` config list.
+/// Parsed representation of the user-supplied `disk_filter` config list.
 ///
 /// Filter entries are individual drive selectors stored as a TOML
-/// array (e.g. `disks_filter = ["C:", "!D:"]`). A bare entry
+/// array (e.g. `disk_filter = ["C:", "!D:"]`). A bare entry
 /// (`"C:"`) joins the include allow-list; an entry prefixed with
 /// `!` (`"!C:"`) joins the exclude deny-list. Drive selectors are
 /// case-insensitive but the trailing colon is mandatory: `"c:"`
@@ -25,14 +25,14 @@ use std::collections::VecDeque;
 /// `invalid` for warning surfaces. They are silently ignored at
 /// match time so a malformed user input never causes false matches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DisksFilter {
+pub struct DiskFilter {
     include: Vec<String>,
     exclude: Vec<String>,
     invalid: Vec<String>,
 }
 
-impl DisksFilter {
-    /// Parse a `disks_filter` TOML array into a typed filter.
+impl DiskFilter {
+    /// Parse a `disk_filter` TOML array into a typed filter.
     pub fn parse(entries: &[String]) -> Self {
         let mut filter = Self::default();
         for entry in entries {
@@ -220,7 +220,7 @@ mod tests {
         assert!(data.disks.is_empty());
     }
 
-    // -- DisksFilter --
+    // -- DiskFilter --
 
     fn disk(name: &str) -> DiskInfo {
         DiskInfo {
@@ -236,8 +236,8 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_empty_input_matches_all() {
-        let f = DisksFilter::parse(&[]);
+    fn disk_filter_empty_input_matches_all() {
+        let f = DiskFilter::parse(&[]);
         assert!(f.is_empty());
         assert!(f.matches("C:"));
         assert!(f.matches("D:"));
@@ -245,8 +245,8 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_include_single_drive() {
-        let f = DisksFilter::parse(&entries(&["C:"]));
+    fn disk_filter_include_single_drive() {
+        let f = DiskFilter::parse(&entries(&["C:"]));
         assert!(!f.is_empty());
         assert!(f.matches("C:"));
         assert!(!f.matches("D:"));
@@ -254,8 +254,8 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_include_multiple_drives() {
-        let f = DisksFilter::parse(&entries(&["C:", "D:", "E:"]));
+    fn disk_filter_include_multiple_drives() {
+        let f = DiskFilter::parse(&entries(&["C:", "D:", "E:"]));
         assert!(f.matches("C:"));
         assert!(f.matches("D:"));
         assert!(f.matches("E:"));
@@ -263,8 +263,8 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_exclude_single_drive() {
-        let f = DisksFilter::parse(&entries(&["!C:"]));
+    fn disk_filter_exclude_single_drive() {
+        let f = DiskFilter::parse(&entries(&["!C:"]));
         assert!(!f.is_empty());
         assert!(!f.matches("C:"));
         assert!(f.matches("D:"));
@@ -272,16 +272,16 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_exclude_multiple_drives() {
-        let f = DisksFilter::parse(&entries(&["!C:", "!D:"]));
+    fn disk_filter_exclude_multiple_drives() {
+        let f = DiskFilter::parse(&entries(&["!C:", "!D:"]));
         assert!(!f.matches("C:"));
         assert!(!f.matches("D:"));
         assert!(f.matches("E:"));
     }
 
     #[test]
-    fn disks_filter_exclude_takes_precedence_over_include() {
-        let f = DisksFilter::parse(&entries(&["C:", "D:", "!D:"]));
+    fn disk_filter_exclude_takes_precedence_over_include() {
+        let f = DiskFilter::parse(&entries(&["C:", "D:", "!D:"]));
         assert!(f.matches("C:"));
         assert!(!f.matches("D:"));
         // E: is not in include so it's still rejected.
@@ -289,23 +289,23 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_normalises_case() {
-        let f = DisksFilter::parse(&entries(&["c:", "d:"]));
+    fn disk_filter_normalises_case() {
+        let f = DiskFilter::parse(&entries(&["c:", "d:"]));
         assert!(f.matches("C:"));
         assert!(f.matches("D:"));
         assert!(!f.matches("E:"));
 
-        let f2 = DisksFilter::parse(&entries(&["C:"]));
+        let f2 = DiskFilter::parse(&entries(&["C:"]));
         assert!(f2.matches("c:"));
     }
 
     #[test]
-    fn disks_filter_rejects_letter_without_trailing_colon() {
+    fn disk_filter_rejects_letter_without_trailing_colon() {
         // The trailing `:` is mandatory — it's the Windows convention
         // for drive identifiers and matches what rtop displays on
         // screen. Bare letters are captured as invalid entries so the
         // user sees a warning at config load time.
-        let f = DisksFilter::parse(&entries(&["C", "D", "!a", "!B"]));
+        let f = DiskFilter::parse(&entries(&["C", "D", "!a", "!B"]));
         assert!(f.is_empty());
         assert_eq!(
             f.invalid(),
@@ -319,8 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_invalid_entries_captured_and_dropped() {
-        let f = DisksFilter::parse(&entries(&[
+    fn disk_filter_invalid_entries_captured_and_dropped() {
+        let f = DiskFilter::parse(&entries(&[
             "C:",
             "abc",
             "3",
@@ -345,17 +345,17 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_lone_bang_is_invalid() {
-        let f = DisksFilter::parse(&entries(&["!"]));
+    fn disk_filter_lone_bang_is_invalid() {
+        let f = DiskFilter::parse(&entries(&["!"]));
         assert!(f.is_empty());
         assert_eq!(f.invalid(), &["!".to_string()]);
     }
 
     #[test]
-    fn disks_filter_apply_preserves_input_order_not_filter_order() {
+    fn disk_filter_apply_preserves_input_order_not_filter_order() {
         let disks = vec![disk("C:"), disk("D:"), disk("E:")];
         // Filter order: E:, then C:. Input order is C:, D:, E:.
-        let f = DisksFilter::parse(&entries(&["E:", "C:"]));
+        let f = DiskFilter::parse(&entries(&["E:", "C:"]));
         let kept = f.apply(&disks);
         assert_eq!(kept.len(), 2);
         assert_eq!(kept[0].name, "C:");
@@ -363,17 +363,17 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_apply_with_empty_filter_yields_all() {
+    fn disk_filter_apply_with_empty_filter_yields_all() {
         let disks = vec![disk("C:"), disk("D:"), disk("E:")];
-        let f = DisksFilter::parse(&[]);
+        let f = DiskFilter::parse(&[]);
         let kept = f.apply(&disks);
         assert_eq!(kept.len(), 3);
     }
 
     #[test]
-    fn disks_filter_apply_exclude_only_removes_listed() {
+    fn disk_filter_apply_exclude_only_removes_listed() {
         let disks = vec![disk("C:"), disk("D:"), disk("E:")];
-        let f = DisksFilter::parse(&entries(&["!D:"]));
+        let f = DiskFilter::parse(&entries(&["!D:"]));
         let kept = f.apply(&disks);
         assert_eq!(kept.len(), 2);
         assert_eq!(kept[0].name, "C:");
@@ -381,12 +381,12 @@ mod tests {
     }
 
     #[test]
-    fn disks_filter_includes_absent_drives_yields_only_present() {
+    fn disk_filter_includes_absent_drives_yields_only_present() {
         // The filter lists more drives than physically exist. The
         // result is sized to the present-and-matching set: no ghost
         // rows for the absent drives.
         let disks = vec![disk("C:"), disk("D:")];
-        let f = DisksFilter::parse(&entries(&["C:", "D:", "E:", "F:", "G:", "H:", "I:"]));
+        let f = DiskFilter::parse(&entries(&["C:", "D:", "E:", "F:", "G:", "H:", "I:"]));
         let kept = f.apply(&disks);
         assert_eq!(kept.len(), 2);
         assert_eq!(kept[0].name, "C:");

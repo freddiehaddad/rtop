@@ -45,7 +45,7 @@ pub struct WidgetDimensions {
 /// `app::pull_subsystem_data`) and the actual `calc_sizes` call.
 /// Each field is the *user-visible* derived value: `has_swap`
 /// already accounts for `config.mem.show_swap`, `disk_count` is the
-/// post-`disks_filter` count, etc.
+/// post-`disk_filter` count, etc.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LayoutHints {
     pub core_count: usize,

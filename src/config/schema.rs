@@ -329,7 +329,7 @@ config_schema! {
         StatusbarClockFormat => "statusbar_clock_format" => { field statusbar.statusbar_clock_format },
         CustomCpuName => "custom_cpu_name" => { field cpu.custom_cpu_name },
         ProcFilter => "proc_filter" => { field view.proc_filter },
-        DisksFilter => "disks_filter" => { joined_vec disk.disks_filter },
+        DiskFilter => "disk_filter" => { joined_vec disk.disk_filter },
         CustomLayout => "custom_layout" => { custom_layout },
         CustomGpuName0 => "custom_gpu_name0" => { array gpu.custom_gpu_names[0] },
         CustomGpuName1 => "custom_gpu_name1" => { array gpu.custom_gpu_names[1] },
@@ -517,7 +517,7 @@ impl EnumKey {
 impl StringKey {
     /// Optional closed set of canonical names. `Some` only for
     /// constrained string keys (today: just `color_theme`); `None`
-    /// for free-form keys and the special `disks_filter` /
+    /// for free-form keys and the special `disk_filter` /
     /// `custom_layout` parsers.
     pub fn choices(self) -> Option<&'static [&'static str]> {
         match self {
@@ -538,7 +538,7 @@ impl StringKey {
                 .parse::<Slot>()
                 .map(|_| ())
                 .map_err(|_| "invalid layout"),
-            Self::DisksFilter => parse_disks_filter(value).map(|_| ()),
+            Self::DiskFilter => parse_disk_filter(value).map(|_| ()),
             Self::ColorTheme => {
                 if self
                     .choices()
@@ -567,7 +567,7 @@ impl StringKey {
 
     /// Set the field from a string. Returns `Err(SetStringError)`
     /// if `value` does not parse for the field's shape (currently
-    /// only `CustomLayout` and `DisksFilter` can fail here; other
+    /// only `CustomLayout` and `DiskFilter` can fail here; other
     /// string keys are free-form or pre-validated by the caller).
     pub fn set(self, config: &mut Config, value: &str) -> Result<(), SetStringError> {
         let err = || SetStringError {
@@ -584,8 +584,8 @@ impl StringKey {
             Self::CustomLayout => {
                 config.set_custom_layout(value).map_err(|_| err())?;
             }
-            Self::DisksFilter => {
-                config.disk.disks_filter = parse_disks_filter(value).map_err(|_| err())?;
+            Self::DiskFilter => {
+                config.disk.disk_filter = parse_disk_filter(value).map_err(|_| err())?;
             }
             Self::CustomGpuName0 => config.gpu.custom_gpu_names[0] = value.to_string(),
             Self::CustomGpuName1 => config.gpu.custom_gpu_names[1] = value.to_string(),
@@ -608,9 +608,9 @@ impl StringKey {
 /// with `!`. Returns the original token list (so case and `!`
 /// prefixes are preserved verbatim for round-trip fidelity);
 /// normalisation happens at match time.
-pub(super) fn parse_disks_filter(value: &str) -> Result<Vec<String>, &'static str> {
+pub(super) fn parse_disk_filter(value: &str) -> Result<Vec<String>, &'static str> {
     let tokens: Vec<String> = value.split_whitespace().map(str::to_string).collect();
-    let parsed = crate::domain::disk::DisksFilter::parse(&tokens);
+    let parsed = crate::domain::disk::DiskFilter::parse(&tokens);
     if !parsed.invalid().is_empty() {
         return Err("drive entries must be like 'C:' or '!D:'");
     }

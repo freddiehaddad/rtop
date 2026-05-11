@@ -445,7 +445,7 @@ pub fn desc(key: ConfigKey) -> &'static [&'static str] {
             "",
             "Default: empty.",
         ],
-        ConfigKey::String(StringKey::DisksFilter) => &[
+        ConfigKey::String(StringKey::DiskFilter) => &[
             "Disk include/exclude list.",
             "",
             "Whitespace-separated drive letters. Plain",
@@ -833,7 +833,7 @@ mod tests {
         "statusbar_clock_format",
         "custom_cpu_name",
         "proc_filter",
-        "disks_filter",
+        "disk_filter",
         "custom_layout",
         "custom_gpu_name0",
         "custom_gpu_name1",

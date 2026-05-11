@@ -272,7 +272,7 @@ pub const DISK: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::IoMode),
     ConfigKey::Bool(BoolKey::IoGraphCombined),
     ConfigKey::Bool(BoolKey::DiskIoMode),
-    ConfigKey::String(StringKey::DisksFilter),
+    ConfigKey::String(StringKey::DiskFilter),
     ConfigKey::Int(IntKey::DiskUpdateMs),
 ];
 
