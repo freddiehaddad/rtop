@@ -544,6 +544,91 @@ fn gpu_update_ms_round_trips_through_field() {
     assert_eq!(config.refresh.gpu_update_ms, 1234);
 }
 
+// ---------------------------------------------------------------------------
+// RefreshConfig::effective — the single resolver of the
+// "0 = inherit global" rule. Behavior is byte-identical to the
+// (now-removed) Config::effective_interval. The tests below lock
+// every branch and bound: zero / negative widget_ms, zero / sub-100
+// global, mid-range overrides, override floor (100), override ceiling
+// (86_400_000), and over-ceiling clamping.
+// ---------------------------------------------------------------------------
+
+fn refresh_with_global(global: i64) -> RefreshConfig {
+    RefreshConfig {
+        update_ms: global,
+        ..RefreshConfig::default()
+    }
+}
+
+#[test]
+fn refresh_effective_zero_widget_ms_returns_global() {
+    let r = refresh_with_global(2000);
+    assert_eq!(r.effective(0), 2000);
+}
+
+#[test]
+fn refresh_effective_negative_widget_ms_returns_global() {
+    let r = refresh_with_global(2000);
+    assert_eq!(r.effective(-1), 2000);
+    assert_eq!(r.effective(i64::MIN), 2000);
+}
+
+#[test]
+fn refresh_effective_zero_global_floors_at_100() {
+    // A 0 (or negative) global would cause the worker loop's
+    // recv_timeout(Duration::from_millis(0)) to busy-spin. The
+    // resolver pins the floor at 100 ms before that ever happens.
+    let r = refresh_with_global(0);
+    assert_eq!(r.effective(0), 100);
+    let r = refresh_with_global(-500);
+    assert_eq!(r.effective(0), 100);
+}
+
+#[test]
+fn refresh_effective_sub_100_global_floors_at_100() {
+    let r = refresh_with_global(50);
+    assert_eq!(r.effective(0), 100);
+    let r = refresh_with_global(99);
+    assert_eq!(r.effective(0), 100);
+    let r = refresh_with_global(100);
+    assert_eq!(r.effective(0), 100);
+}
+
+#[test]
+fn refresh_effective_widget_ms_passes_through() {
+    let r = refresh_with_global(2000);
+    assert_eq!(r.effective(250), 250);
+    assert_eq!(r.effective(500), 500);
+    assert_eq!(r.effective(1500), 1500);
+}
+
+#[test]
+fn refresh_effective_widget_ms_floors_at_100() {
+    let r = refresh_with_global(2000);
+    assert_eq!(r.effective(1), 100);
+    assert_eq!(r.effective(99), 100);
+    assert_eq!(r.effective(100), 100);
+}
+
+#[test]
+fn refresh_effective_widget_ms_ceilings_at_86_400_000() {
+    let r = refresh_with_global(2000);
+    assert_eq!(r.effective(86_400_000), 86_400_000);
+    assert_eq!(r.effective(86_400_001), 86_400_000);
+    assert_eq!(r.effective(i64::MAX), 86_400_000);
+}
+
+#[test]
+fn refresh_effective_widget_override_independent_of_global() {
+    // The override path does NOT consult `update_ms`. A widget with
+    // its own non-zero override polls at that override regardless of
+    // any global value (sub-100 global, huge global, anything).
+    for global in [0, 50, 100, 2000, 86_400_000, i64::MAX] {
+        let r = refresh_with_global(global);
+        assert_eq!(r.effective(750), 750, "global={global}");
+    }
+}
+
 #[test]
 fn parse_int_rejects_negative_and_overflow() {
     assert!(IntKey::CpuUpdateMs.parse("-1").is_err());

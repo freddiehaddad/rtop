@@ -271,18 +271,6 @@ impl Config {
         Self::default()
     }
 
-    /// Return the effective update interval for a per-widget field.
-    ///
-    /// If `widget_ms` is 0 (the default), returns the global `update_ms`.
-    /// Otherwise returns `widget_ms` clamped to [100, 86_400_000].
-    pub fn effective_interval(&self, widget_ms: i64) -> u64 {
-        if widget_ms > 0 {
-            (widget_ms.clamp(100, 86_400_000)) as u64
-        } else {
-            self.refresh.update_ms.max(100) as u64
-        }
-    }
-
     /// Load config from a TOML file. Returns warnings for invalid values.
     pub fn load(&mut self, path: &Path) -> Vec<String> {
         let mut warnings = Vec::new();

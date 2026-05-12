@@ -57,17 +57,7 @@ enum AppCommand {
 /// queued events, then renders any dirty widgets in one frame.
 pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &mut theme::Theme) {
     let (event_tx, event_rx) = std::sync::mpsc::channel();
-    // Resolve the GPU interval through `effective_interval` here so
-    // the spawn site sees an already-resolved value and never
-    // re-implements the "0 = inherit global" rule. The cycling-GPU
-    // widget shares one interval across every detected device, so
-    // every GPU thread starts with the same value.
-    let gpu_update_ms = config.effective_interval(config.refresh.gpu_update_ms);
-    let mut manager = runner::CollectorManager::start(
-        config.refresh.update_ms as u64,
-        event_tx.clone(),
-        gpu_update_ms,
-    );
+    let mut manager = runner::CollectorManager::start(&config.refresh, event_tx.clone());
     lifecycle::spawn_input_thread(event_tx);
     let mut state = AppState::new(config, manager.gpu_count());
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");

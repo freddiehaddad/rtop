@@ -19,7 +19,7 @@ pub use render::{OptKind, cycle_browsable, opt_key, opt_kind, page_count, select
 
 use crate::{
     config::{BoolKey, ConfigKey, EnumKey, IntKey, StringKey},
-    handlers::{InputContext, normal::sync_all_intervals},
+    handlers::InputContext,
     input::Key,
     theme,
 };
@@ -421,57 +421,21 @@ pub(crate) fn apply_post_change_effects(key: ConfigKey, ctx: &mut InputContext) 
         ConfigKey::Enum(EnumKey::LogLevel) => {
             crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
         }
-        ConfigKey::Int(IntKey::UpdateMs) => {
-            sync_all_intervals(ctx);
-        }
-        ConfigKey::Int(IntKey::CpuUpdateMs) => {
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.cpu_update_ms);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Cpu, ms);
-        }
-        ConfigKey::Int(IntKey::MemUpdateMs) => {
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.mem_update_ms);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Mem, ms);
-        }
-        ConfigKey::Int(IntKey::DiskUpdateMs) => {
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.disk_update_ms);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Disk, ms);
-        }
-        ConfigKey::Int(IntKey::NetUpdateMs) => {
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.net_update_ms);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Net, ms);
-        }
-        ConfigKey::Int(IntKey::GpuUpdateMs) => {
-            // Cycling-GPU widget: a single global interval is
-            // broadcast to every detected device's collector
-            // thread. Keeps every GPU thread's poll cadence in
-            // lockstep so the cycle action lands on a fresh
-            // snapshot regardless of which device is selected.
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.gpu_update_ms);
-            for n in 0..ctx.manager.gpu_count() {
-                ctx.manager
-                    .set_interval(crate::event::SubsystemKind::Gpu(n), ms);
-            }
-        }
-        ConfigKey::Int(IntKey::ProcUpdateMs) => {
-            let ms = ctx
-                .config
-                .effective_interval(ctx.config.refresh.proc_update_ms);
-            ctx.manager
-                .set_interval(crate::event::SubsystemKind::Proc, ms);
+        ConfigKey::Int(
+            IntKey::UpdateMs
+            | IntKey::CpuUpdateMs
+            | IntKey::MemUpdateMs
+            | IntKey::DiskUpdateMs
+            | IntKey::NetUpdateMs
+            | IntKey::GpuUpdateMs
+            | IntKey::ProcUpdateMs,
+        ) => {
+            // Every refresh-interval edit (global or per-widget)
+            // routes through the single resolver in the runner —
+            // see [`crate::runner::CollectorManager::apply_refresh`].
+            // Sending an unchanged value to a worker is harmless,
+            // so the broadcast is unconditional.
+            ctx.manager.apply_refresh(&ctx.config.refresh);
         }
         _ => {}
     }

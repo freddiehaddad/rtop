@@ -91,15 +91,14 @@ impl Default for UiConfig {
 /// Refresh-interval settings (one global + per-subsystem
 /// overrides). Each per-subsystem `*_update_ms` field is
 /// independent of the global `update_ms`; a field set to 0
-/// inherits the global value via
-/// [`super::Config::effective_interval`].
+/// inherits the global value via [`RefreshConfig::effective`].
 ///
 /// `gpu_update_ms` applies to **every** discovered GPU
 /// uniformly. The cycling-GPU widget displays one device at a
 /// time and the per-device collector threads share a single
-/// configured interval; an option-menu commit broadcasts the
-/// resolved value to every GPU thread (see
-/// [`crate::handlers::normal::sync_all_intervals`]).
+/// configured interval; every refresh-related action broadcasts
+/// the resolved value to every GPU thread via
+/// [`crate::runner::CollectorManager::apply_refresh`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RefreshConfig {
@@ -122,6 +121,29 @@ impl Default for RefreshConfig {
             net_update_ms: 0,
             gpu_update_ms: 0,
             proc_update_ms: 0,
+        }
+    }
+}
+
+impl RefreshConfig {
+    /// Return the effective update interval for a per-widget field.
+    ///
+    /// If `widget_ms` is `> 0` the per-widget override is used,
+    /// clamped to `[100, 86_400_000]`. Otherwise the field inherits
+    /// the global `update_ms`, floored at 100 ms (so a 0 or negative
+    /// global also yields 100 ms — the worker loop's
+    /// `recv_timeout(0)` would otherwise busy-spin).
+    ///
+    /// This rule is the **single source of truth** for "which
+    /// interval should subsystem X poll at?" and is invoked from
+    /// exactly one place: [`crate::runner::CollectorManager`] (at
+    /// startup via `start`, at every runtime change via
+    /// `apply_refresh`).
+    pub fn effective(&self, widget_ms: i64) -> u64 {
+        if widget_ms > 0 {
+            widget_ms.clamp(100, 86_400_000) as u64
+        } else {
+            self.update_ms.max(100) as u64
         }
     }
 }

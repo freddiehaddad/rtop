@@ -11,7 +11,7 @@
 
 use crate::{
     collect::process_display::ProcSort, dirty::RenderDirty, domain::widget_kind::WidgetKind,
-    event::SubsystemKind, handlers::InputContext, input::Key, overlay::ReturnTarget, theme,
+    handlers::InputContext, input::Key, overlay::ReturnTarget, theme,
 };
 
 // ---------------------------------------------------------------------------
@@ -66,7 +66,7 @@ pub(super) fn preset_back_action(ctx: &mut InputContext, _: &Key) {
 
 fn cycle_preset(ctx: &mut InputContext, forward: bool) {
     ctx.config.cycle_preset(forward);
-    sync_update_ms(ctx);
+    ctx.manager.apply_refresh(&ctx.config.refresh);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "preset_cycle",
@@ -86,7 +86,7 @@ pub(super) fn config_reload_action(ctx: &mut InputContext, _: &Key) {
         );
     }
     *ctx.theme = theme::Theme::from_name(&ctx.config.ui.color_theme);
-    sync_update_ms(ctx);
+    ctx.manager.apply_refresh(&ctx.config.refresh);
     crate::log::set_level(ctx.config.log.log_level).expect("log level change must succeed");
     // Re-initialise RuntimeView from the freshly loaded config so
     // runtime-toggle state reflects the on-disk values (otherwise
@@ -122,7 +122,7 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) {
     };
     let new_ms = (ctx.config.refresh.update_ms + delta * step).clamp(100, 86_400_000);
     ctx.config.refresh.update_ms = new_ms;
-    sync_all_intervals(ctx);
+    ctx.manager.apply_refresh(&ctx.config.refresh);
     tracing::info!(
         subsystem = %crate::log::Subsystem::Input,
         action = "update_rate",
@@ -518,42 +518,6 @@ fn cycle_gpu(ctx: &mut InputContext, direction: isize) {
         "GPU device switched",
     );
     ctx.render.dirty.mark_widget(WidgetKind::Gpu);
-}
-
-// ---------------------------------------------------------------------------
-// Helpers (shared with options actions)
-// ---------------------------------------------------------------------------
-
-/// Sync all collector intervals to their effective values.
-///
-/// Called when global `update_ms` changes — collectors using the default
-/// (per-widget interval == 0) get the new global value, while collectors
-/// with a custom per-widget interval keep their own. The GPU subsystem
-/// shares a single `gpu_update_ms` across every detected device, so the
-/// resolved value broadcasts to every GPU thread via a `0..gpu_count`
-/// loop.
-pub(crate) fn sync_all_intervals(ctx: &mut InputContext) {
-    let base_intervals = [
-        (SubsystemKind::Cpu, ctx.config.refresh.cpu_update_ms),
-        (SubsystemKind::Mem, ctx.config.refresh.mem_update_ms),
-        (SubsystemKind::Disk, ctx.config.refresh.disk_update_ms),
-        (SubsystemKind::Net, ctx.config.refresh.net_update_ms),
-        (SubsystemKind::Proc, ctx.config.refresh.proc_update_ms),
-    ];
-    for (kind, widget_ms) in base_intervals {
-        ctx.manager
-            .set_interval(kind, ctx.config.effective_interval(widget_ms));
-    }
-    let gpu_ms = ctx
-        .config
-        .effective_interval(ctx.config.refresh.gpu_update_ms);
-    for n in 0..ctx.manager.gpu_count() {
-        ctx.manager.set_interval(SubsystemKind::Gpu(n), gpu_ms);
-    }
-}
-
-fn sync_update_ms(ctx: &mut InputContext) {
-    sync_all_intervals(ctx);
 }
 
 fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
