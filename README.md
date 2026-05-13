@@ -96,7 +96,6 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 | `n` / `b` | Cycle network interfaces |
 | `a` | Toggle network auto scale |
 | `s` | Toggle network sync scale |
-| `z` | Reset network totals |
 
 #### GPU
 

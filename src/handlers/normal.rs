@@ -485,15 +485,6 @@ pub(super) fn net_sync_action(ctx: &mut InputContext, _: &Key) {
     ctx.render.dirty.mark_widget(WidgetKind::Net);
 }
 
-pub(super) fn net_zero_action(ctx: &mut InputContext, _: &Key) {
-    if ctx.network.selected_iface.is_empty() {
-        return;
-    }
-    ctx.manager
-        .reset_net_totals(ctx.network.selected_iface.clone());
-    ctx.render.dirty.mark_widget(WidgetKind::Net);
-}
-
 // ---------------------------------------------------------------------------
 // GPU device cycle
 // ---------------------------------------------------------------------------

@@ -321,12 +321,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         help: Some(HelpEntry { category: "Network", keys: "s", description: "Toggle network sync scale" }),
         action: normal::net_sync_action,
     },
-    Binding {
-        keys: &[KeySpec::Always(Key::Char('z'))],
-        states: NORMAL,
-        help: Some(HelpEntry { category: "Network", keys: "z", description: "Reset network totals" }),
-        action: normal::net_zero_action,
-    },
 
     // -----------------------------------------------------------------
     // GPU

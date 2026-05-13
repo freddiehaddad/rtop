@@ -1,7 +1,10 @@
 use crate::domain::network::{NetInfo, NetStat};
 use std::{mem::size_of, slice};
 
-use super::{Collector, counters::bytes_per_sec};
+use super::{
+    Collector,
+    counters::{accumulate_total, bytes_per_sec},
+};
 
 const MAX_ADAPTER_ADDRESSES_BUFFER: u32 = 1024 * 1024;
 const MAX_ADAPTER_TRAVERSAL: usize = 1024;
@@ -34,23 +37,6 @@ impl NetCollector {
             status: super::CollectStatus::Ok,
             last_time: std::time::Instant::now(),
         }
-    }
-
-    pub fn reset_totals(&mut self, iface: &str) -> bool {
-        let Some(net_info) = self.nets.iter_mut().find(|n| n.name == iface) else {
-            return false;
-        };
-
-        let dl = net_info.stat.download;
-        let ul = net_info.stat.upload;
-        if dl.offset.saturating_add(ul.offset) > 0 {
-            net_info.stat.download.offset = 0;
-            net_info.stat.upload.offset = 0;
-        } else {
-            net_info.stat.download.offset = dl.last.saturating_add(dl.rollover);
-            net_info.stat.upload.offset = ul.last.saturating_add(ul.rollover);
-        }
-        true
     }
 
     fn collect_impl(&mut self) {
@@ -158,16 +144,14 @@ impl NetCollector {
                     speed: dl_speed,
                     top: dl_stat.top.max(dl_speed),
                     last: rx_bytes,
-                    offset: dl_stat.offset,
-                    rollover: dl_stat.rollover,
+                    total: accumulate_total(dl_stat.total, rx_bytes, dl_stat.last),
                 };
 
                 entry.stat.upload = NetStat {
                     speed: ul_speed,
                     top: ul_stat.top.max(ul_speed),
                     last: tx_bytes,
-                    offset: ul_stat.offset,
-                    rollover: ul_stat.rollover,
+                    total: accumulate_total(ul_stat.total, tx_bytes, ul_stat.last),
                 };
 
                 let bw_dl = &mut entry.bandwidth.download;
@@ -374,52 +358,6 @@ mod tests {
         // SAFETY: name is a local null-terminated UTF-16 buffer.
         let parsed = unsafe { wide_ptr_to_string_bounded(name.as_ptr(), name.len()) };
         assert_eq!(parsed.as_deref(), Some("LAN"));
-    }
-
-    #[test]
-    fn reset_totals_toggles_interface_offsets() {
-        let mut collector = NetCollector::new();
-        collector.nets.push(NetInfo {
-            name: "Ethernet".into(),
-            stat: crate::domain::network::NetStatPair {
-                download: NetStat {
-                    last: 100,
-                    rollover: 10,
-                    ..NetStat::default()
-                },
-                upload: NetStat {
-                    last: 200,
-                    rollover: 20,
-                    ..NetStat::default()
-                },
-            },
-            ..NetInfo::default()
-        });
-
-        assert!(collector.reset_totals("Ethernet"));
-        let net = collector
-            .nets
-            .iter()
-            .find(|n| n.name == "Ethernet")
-            .unwrap();
-        assert_eq!(net.stat.download.offset, 110);
-        assert_eq!(net.stat.upload.offset, 220);
-
-        assert!(collector.reset_totals("Ethernet"));
-        let net = collector
-            .nets
-            .iter()
-            .find(|n| n.name == "Ethernet")
-            .unwrap();
-        assert_eq!(net.stat.download.offset, 0);
-        assert_eq!(net.stat.upload.offset, 0);
-    }
-
-    #[test]
-    fn reset_totals_returns_false_for_missing_interface() {
-        let mut collector = NetCollector::new();
-
-        assert!(!collector.reset_totals("missing"));
     }
 
     #[test]

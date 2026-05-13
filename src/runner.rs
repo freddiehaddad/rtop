@@ -112,34 +112,25 @@ impl<T> LatestSlot<T> {
 // Collector commands
 // ---------------------------------------------------------------------------
 
-/// Commands sent to a collector thread.
-///
-/// Every collector accepts the same command type. Variants that don't
-/// apply to a given collector are silently ignored by that collector's
-/// loop — see the per-loop match arms in [`run_collector_loop`] (the
-/// generic loop) and [`run_net_loop`] (the network loop, which handles
-/// the additional [`CollectorCommand::ResetNetTotals`] variant).
+/// Universal control commands accepted by every collector loop.
 pub(crate) enum CollectorCommand {
     /// Change the collection interval.
     SetInterval(u64),
     /// Graceful shutdown.
     Shutdown,
-    /// Reset cumulative network totals for an interface. Only the
-    /// network collector acts on this; other collectors ignore it.
-    ResetNetTotals(String),
 }
 
 // ---------------------------------------------------------------------------
-// Generic collector thread loop
+// Collector thread loop
 // ---------------------------------------------------------------------------
 
 /// Run a collector in a loop: collect → publish → sleep → repeat.
 ///
-/// Used for CPU, memory, disk, GPU, and process collectors. The
-/// snapshot is built via the collector's own
-/// [`Collector::snapshot`] — no `snapshot_fn` closure is threaded
-/// through, since the snapshot type is bound at the trait level
-/// (`LatestSlot<C::Snapshot>`).
+/// Used for every per-widget collector (CPU, memory, disk, network,
+/// GPU, process) and the statusbar. The snapshot is built via the
+/// collector's own [`Collector::snapshot`] — no `snapshot_fn` closure
+/// is threaded through, since the snapshot type is bound at the trait
+/// level (`LatestSlot<C::Snapshot>`).
 fn run_collector_loop<C>(
     mut collector: C,
     initial_interval_ms: u64,
@@ -158,41 +149,6 @@ fn run_collector_loop<C>(
 
         match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
             Ok(CollectorCommand::SetInterval(ms)) => interval_ms = ms.max(100),
-            Ok(CollectorCommand::Shutdown) => break,
-            // Not applicable — only the network collector acts on
-            // ResetNetTotals; every other collector silently drops it.
-            Ok(CollectorCommand::ResetNetTotals(_)) => {}
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-}
-
-/// Run the network collector with support for `ResetNetTotals` commands.
-fn run_net_loop(
-    mut collector: NetCollector,
-    initial_interval_ms: u64,
-    slot: LatestSlot<NetSnapshot>,
-    event_tx: Sender<AppEvent>,
-    cmd_rx: Receiver<CollectorCommand>,
-) {
-    let mut interval_ms = initial_interval_ms.max(100);
-    let publish = |c: &NetCollector| {
-        slot.publish(c.snapshot());
-        let _ = event_tx.send(AppEvent::SubsystemReady(SubsystemKind::Net));
-    };
-
-    loop {
-        collector.collect();
-        publish(&collector);
-
-        match cmd_rx.recv_timeout(Duration::from_millis(interval_ms)) {
-            Ok(CollectorCommand::SetInterval(ms)) => interval_ms = ms.max(100),
-            Ok(CollectorCommand::ResetNetTotals(iface)) => {
-                if collector.reset_totals(&iface) {
-                    publish(&collector);
-                }
-            }
             Ok(CollectorCommand::Shutdown) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -366,16 +322,14 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Disk),
         );
 
-        // Network thread (custom loop — handles the optional
-        // ResetNetTotals variant of CollectorCommand).
-        let (net_tx, net_rx) = mpsc::channel();
-        let net_join = {
-            let slot = net_slot.clone();
-            let tx = event_tx.clone();
-            std::thread::spawn(move || {
-                run_net_loop(NetCollector::new(), net_ms, slot, tx, net_rx);
-            })
-        };
+        // Network thread
+        let (net_tx, net_join) = spawn_collector(
+            NetCollector::new,
+            net_ms,
+            &net_slot,
+            &event_tx,
+            AppEvent::SubsystemReady(SubsystemKind::Net),
+        );
 
         // GPU thread — single aggregator that owns every detected
         // device's vendor session and per-device state. Discovery
@@ -485,16 +439,6 @@ impl CollectorManager {
                 CollectorCommand::SetInterval(ms),
             );
         }
-    }
-
-    /// Reset cumulative network totals for an interface.
-    pub(crate) fn reset_net_totals(&self, iface: String) {
-        send_command(
-            self.txs.get(SubsystemKind::Net),
-            SubsystemKind::Net,
-            "reset_net_totals",
-            CollectorCommand::ResetNetTotals(iface),
-        );
     }
 
     /// Shut down all collector threads and wait for them to finish.

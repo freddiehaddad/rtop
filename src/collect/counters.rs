@@ -33,6 +33,19 @@ pub(crate) fn percent_u64(part: u64, total: u64) -> i64 {
     ((part as u128 * 100 + total as u128 / 2) / total as u128).min(i64::MAX as u128) as i64
 }
 
+/// Sum positive deltas of a monotonic counter across observations.
+///
+/// Returns `prev_total` unchanged on the first observation
+/// (`last == 0`) and on counter resets (`current < last`), matching
+/// the no-signal rule used by [`bytes_per_sec`]. Otherwise adds the
+/// delta to the running total, saturating at `u64::MAX`.
+pub(crate) fn accumulate_total(prev_total: u64, current: u64, last: u64) -> u64 {
+    if last == 0 || current < last {
+        return prev_total;
+    }
+    prev_total.saturating_add(current - last)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +82,28 @@ mod tests {
         assert_eq!(percent_u64(50, 100), 50);
         assert_eq!(percent_u64(1, 0), 0);
         assert_eq!(percent_u64(u64::MAX, u64::MAX), 100);
+    }
+
+    #[test]
+    fn accumulate_total_returns_prev_on_first_observation() {
+        // last == 0 means we haven't observed the counter yet this run.
+        assert_eq!(accumulate_total(42, 1_000, 0), 42);
+    }
+
+    #[test]
+    fn accumulate_total_returns_prev_on_counter_reset() {
+        // current < last means the OS counter went backwards
+        // (interface re-bind, etc.) — skip the delta.
+        assert_eq!(accumulate_total(500, 100, 200), 500);
+    }
+
+    #[test]
+    fn accumulate_total_adds_positive_delta() {
+        assert_eq!(accumulate_total(100, 250, 200), 150);
+    }
+
+    #[test]
+    fn accumulate_total_saturates_at_u64_max() {
+        assert_eq!(accumulate_total(u64::MAX - 5, 100, 10), u64::MAX);
     }
 }

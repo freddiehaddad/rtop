@@ -56,7 +56,7 @@ pub struct NetFrame<'a> {
 /// │             ⢸⡏⠉⠁                      ⠈⢹⡇                                 │
 /// │             ⢸⡇                         ⢸⡇                                 │
 /// │                                        ⢸⡇                        0.0B/s ▲ │
-/// ╰─┘sync└┘auto└┘zero└┘← b Ethernet n →└──────────────────────────────────────╯
+/// ╰─┘sync└┘auto└┘← b Ethernet n →└────────────────────────────────────────────╯
 pub fn draw(
     net: &NetInfo,
     area: &WidgetArea,
@@ -224,11 +224,10 @@ pub fn draw(
         buf.mv(inset_x, y + 1).text(&inset);
     }
 
-    // Bottom border: sync, auto, zero, interface selector (left side);
+    // Bottom border: sync, auto, interface selector (left side);
     // cumulative totals (right side).
     // sync/auto append `*` when active (mirrors disk's `io*` and
-    // proc's `tre*e` convention for binary toggles). zero is a
-    // momentary action and never has a marker.
+    // proc's `tre*e` convention for binary toggles).
     let bottom_y = y + height;
     let iface_display = tools::uresize(settings.iface, 15);
 
@@ -238,7 +237,6 @@ pub fn draw(
     let auto_text = format!("{hi}a{title_color}uto{auto_marker}");
     let sync_inset = box_drawing::title_inset(&sync_text, border_color, title_color, true);
     let auto_inset = box_drawing::title_inset(&auto_text, border_color, title_color, true);
-    let zero_inset = box_drawing::keybind_inset("zero", border_color, hi, title_color, true);
     let iface_text = format!(
         "← {}b{} {} {}n{} →",
         hi, title_color, iface_display, hi, title_color,
@@ -250,31 +248,15 @@ pub fn draw(
     bx += box_drawing::inset_width(&format!("sync{sync_marker}"));
     buf.mv(bx, bottom_y).text(&auto_inset);
     bx += box_drawing::inset_width(&format!("auto{auto_marker}"));
-    buf.mv(bx, bottom_y).text(&zero_inset);
-    bx += box_drawing::inset_width("zero");
     buf.mv(bx, bottom_y).text(&iface_inset);
     bx += box_drawing::inset_width(&iface_text);
 
-    // Bottom-right: cumulative totals since last reset (the data
-    // that `z` operates on). Format `↓ 12.4G ↑ 3.1G`. Skipped when
-    // the bottom border doesn't have room without overlapping the
-    // left-side keybind/iface insets.
-    let dl_total = tools::floating_humanizer(
-        net.stat.download.displayed_total(),
-        true,
-        0,
-        false,
-        false,
-        base_10,
-    );
-    let ul_total = tools::floating_humanizer(
-        net.stat.upload.displayed_total(),
-        true,
-        0,
-        false,
-        false,
-        base_10,
-    );
+    // Bottom-right: cumulative totals since rtop started. Format
+    // `↓ 12.4G ↑ 3.1G`. Skipped when the bottom border doesn't have
+    // room without overlapping the left-side keybind/iface insets.
+    let dl_total =
+        tools::floating_humanizer(net.stat.download.total, true, 0, false, false, base_10);
+    let ul_total = tools::floating_humanizer(net.stat.upload.total, true, 0, false, false, base_10);
     let totals_text = format!("↓ {dl_total} ↑ {ul_total}");
     let totals_vis = box_drawing::inset_width(&totals_text);
     let totals_x = box_drawing::right_inset_x(x, width, totals_vis);
@@ -588,38 +570,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn zero_inset_never_shows_marker() {
-        // `z` is a momentary action (resets totals); it has no
-        // toggle state, so the `zero` inset must never grow a `*`.
-        for (auto, sync) in [(false, false), (true, false), (false, true), (true, true)] {
-            let mut s = make_frame();
-            s.auto_scale = auto;
-            s.sync_scale = sync;
-            let output = draw(
-                &make_net_info(),
-                &make_area(),
-                &Theme::default(),
-                &s,
-                &CollectStatus::Ok,
-            );
-            let plain = strip_ansi(&output);
-            assert!(
-                !plain.contains("zero*"),
-                "zero inset must never show a '*' marker (auto={auto} sync={sync})",
-            );
-        }
-    }
-
-    /// Build a NetInfo whose displayed totals are exactly
-    /// `dl_total_bytes` / `ul_total_bytes`. Uses `last` only
-    /// (zero offset, zero rollover).
+    /// Build a NetInfo whose cumulative totals are exactly
+    /// `dl_total_bytes` / `ul_total_bytes`.
     fn make_net_info_with_totals(dl_total_bytes: u64, ul_total_bytes: u64) -> NetInfo {
         let mut info = make_net_info();
-        info.stat.download.last = dl_total_bytes;
-        info.stat.upload.last = ul_total_bytes;
-        info.stat.download.offset = 0;
-        info.stat.upload.offset = 0;
+        info.stat.download.total = dl_total_bytes;
+        info.stat.upload.total = ul_total_bytes;
         info
     }
 
@@ -644,33 +600,10 @@ mod tests {
     }
 
     #[test]
-    fn totals_inset_uses_displayed_total_after_reset() {
-        // After `z`, offset == last + rollover, so displayed total
-        // is 0. Confirm the rendered inset reflects that, not raw
-        // `last`.
-        let mut info = make_net_info_with_totals(5_000_000, 7_000_000);
-        info.stat.download.offset = info.stat.download.last;
-        info.stat.upload.offset = info.stat.upload.last;
-        let output = draw(
-            &info,
-            &make_area(),
-            &Theme::default(),
-            &make_frame(),
-            &CollectStatus::Ok,
-        );
-        let plain = strip_ansi(&output);
-        assert!(
-            plain.contains("↓ 0.0B ↑ 0.0B") || plain.contains("↓ 0B ↑ 0B"),
-            "displayed totals should be 0 after offset == last; got: {plain}"
-        );
-    }
-
-    #[test]
     fn totals_inset_skipped_when_bottom_border_lacks_room() {
-        // A narrow widget where the four left-side insets +
-        // iface name leave no horizontal room on the bottom
-        // border for a totals inset must omit the totals rather
-        // than overlap.
+        // A narrow widget where the left-side insets + iface name
+        // leave no horizontal room on the bottom border for a
+        // totals inset must omit the totals rather than overlap.
         let mut area = make_area();
         area.width = 50;
         let info = make_net_info_with_totals(1_000_000, 2_000_000);
