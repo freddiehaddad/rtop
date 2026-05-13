@@ -1,7 +1,7 @@
 use crate::domain::network::{NetInfo, NetStat};
 use std::{mem::size_of, slice};
 
-use super::{Collector, win::bytes_per_sec};
+use super::{Collector, counters::bytes_per_sec};
 
 const MAX_ADAPTER_ADDRESSES_BUFFER: u32 = 1024 * 1024;
 const MAX_ADAPTER_TRAVERSAL: usize = 1024;

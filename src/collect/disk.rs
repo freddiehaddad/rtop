@@ -3,7 +3,8 @@ use std::collections::HashMap;
 
 use super::{
     Collector,
-    win::{PdhCounter, PdhQuery, percent_u64, string_from_utf16_buf},
+    counters::percent_u64,
+    win::{PdhCounter, PdhQuery, string_from_utf16_buf},
 };
 
 const MAX_HISTORY: usize = 300;

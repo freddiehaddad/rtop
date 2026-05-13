@@ -472,7 +472,8 @@ pub(super) fn collect(
         if ret == CTL_RESULT_SUCCESS && state.size > 0 {
             info.mem_total = state.size;
             info.mem_used = state.size.saturating_sub(state.free);
-            let vram_pct = crate::collect::win::percent_u64(info.mem_used, state.size).min(100);
+            let vram_pct =
+                crate::collect::counters::percent_u64(info.mem_used, state.size).min(100);
             push_history(&mut info.gpu_percent.vram, vram_pct);
             push_history(&mut info.mem_utilization_percent, vram_pct);
         } else if ret != CTL_RESULT_SUCCESS {

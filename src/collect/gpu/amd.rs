@@ -1,5 +1,6 @@
 use crate::collect::CollectStatus;
-use crate::collect::win::{OwnedLibrary, percent_u64};
+use crate::collect::counters::percent_u64;
+use crate::collect::win::OwnedLibrary;
 use std::ffi::c_void;
 
 use super::{clamp_percent, power_percent, push_history};

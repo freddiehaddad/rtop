@@ -54,7 +54,7 @@ fn power_percent(power_mw: u64, max_power_mw: u64) -> i64 {
     if max_power_mw == 0 {
         return 0;
     }
-    super::win::percent_u64(power_mw, max_power_mw).min(100)
+    super::counters::percent_u64(power_mw, max_power_mw).min(100)
 }
 
 /// Per-device state, vendor-discriminated. One per detected device,

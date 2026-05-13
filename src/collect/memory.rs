@@ -1,7 +1,7 @@
 use crate::domain::memory::MemInfo;
 use std::collections::VecDeque;
 
-use super::{Collector, win::percent_u64};
+use super::{Collector, counters::percent_u64};
 
 const MAX_HISTORY: usize = 300;
 

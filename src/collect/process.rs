@@ -4,7 +4,8 @@ use thiserror::Error;
 
 use super::{
     Collector,
-    win::{CounterDelta, OwnedHandle, counter_delta},
+    counters::{CounterDelta, counter_delta},
+    win::OwnedHandle,
 };
 use windows::Win32::Foundation::{HANDLE, UNICODE_STRING};
 

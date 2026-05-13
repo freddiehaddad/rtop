@@ -4,9 +4,8 @@ use std::collections::VecDeque;
 
 use super::{
     Collector,
-    win::{
-        OwnedRegKey, PdhCounter, PdhQuery, checked_u32_size, percent_u64, string_from_utf16_buf,
-    },
+    counters::percent_u64,
+    win::{OwnedRegKey, PdhCounter, PdhQuery, checked_u32_size, string_from_utf16_buf},
 };
 
 /// Maximum number of data points to retain in history deques.

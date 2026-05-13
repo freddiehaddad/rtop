@@ -1,3 +1,4 @@
+pub(crate) mod counters;
 pub mod cpu;
 pub(crate) mod cpu_thermal;
 pub mod disk;

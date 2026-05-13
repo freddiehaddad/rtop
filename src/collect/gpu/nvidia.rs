@@ -626,7 +626,7 @@ pub(super) fn collect(
         let used = total.saturating_sub(avail);
         info.mem_total = total;
         info.mem_used = used;
-        let vram_pct = crate::collect::win::percent_u64(used, total).min(100);
+        let vram_pct = crate::collect::counters::percent_u64(used, total).min(100);
         push_history(&mut info.gpu_percent.vram, vram_pct);
         push_history(&mut info.mem_utilization_percent, vram_pct);
     } else {
