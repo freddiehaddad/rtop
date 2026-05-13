@@ -36,12 +36,12 @@ pub(crate) struct DiskSnapshot {
     pub(crate) status: CollectStatus,
 }
 
-/// Per-device GPU snapshot. One per detected GPU; published by
-/// the per-device collector thread to its own
-/// [`CollectorManager::gpu_slots`] slot.
+/// GPU snapshot containing every detected device's data, published
+/// once per cycle by [`CollectorManager::gpu_slot`]. Mirrors
+/// [`NetSnapshot`] — one snapshot, one Vec of devices, one status.
 #[derive(Debug, Clone)]
 pub(crate) struct GpuSnapshot {
-    pub(crate) info: GpuInfo,
+    pub(crate) devices: Vec<GpuInfo>,
     pub(crate) status: CollectStatus,
 }
 
@@ -243,31 +243,17 @@ where
 /// All collectors share the same [`CollectorCommand`] wire format —
 /// variants that don't apply to a given subsystem are silently
 /// dropped by that collector's loop.
-///
-/// GPU is fanned out per device: there are `gpu_count` GPU threads
-/// (one per detected device), each owning its own
-/// [`LatestSlot<GpuSnapshot>`] in [`Self::gpu_slots`] and its own
-/// `Sender<CollectorCommand>` in the matching slot of `txs.gpu`.
-/// `gpu_slots` and `txs.gpu` both have length `gpu_count`; there
-/// are no phantom slots to skip.
 pub(crate) struct CollectorManager {
-    /// Command sender per subsystem and per GPU device. The GPU
-    /// slot of `txs` is a `Vec<Sender<CollectorCommand>>` of
-    /// length `gpu_count`.
+    /// Command sender per subsystem.
     txs: PerSubsystem<Sender<CollectorCommand>>,
 
     pub(crate) cpu_slot: LatestSlot<CpuSnapshot>,
     pub(crate) mem_slot: LatestSlot<MemSnapshot>,
     pub(crate) disk_slot: LatestSlot<DiskSnapshot>,
     pub(crate) net_slot: LatestSlot<NetSnapshot>,
-    /// Per-device GPU snapshot slots. Length matches `gpu_count`.
-    pub(crate) gpu_slots: Vec<LatestSlot<GpuSnapshot>>,
+    pub(crate) gpu_slot: LatestSlot<GpuSnapshot>,
     pub(crate) proc_slot: LatestSlot<ProcSnapshot>,
     pub(crate) statusbar_slot: LatestSlot<StatusbarSnapshot>,
-
-    /// Number of GPU devices discovered at startup. Fixed for the
-    /// lifetime of the process.
-    gpu_count: u8,
 
     joins: Vec<(SubsystemKind, JoinHandle<()>)>,
 }
@@ -294,35 +280,31 @@ fn send_command(
 
 /// Resolve every collector subsystem's effective interval from
 /// `refresh` and yield one `(SubsystemKind, u64)` per subsystem
-/// in `SubsystemKind::all_for`-canonical order, except
-/// `Statusbar` which has a hardcoded cadence
+/// in `SubsystemKind::iter`-canonical order, except `Statusbar`
+/// which has a hardcoded cadence
 /// ([`crate::collect::statusbar::STATUSBAR_UPDATE_MS`]) and is
 /// not user-configurable.
 ///
 /// This is the shared driver behind both startup spawning (where
 /// each subsystem's spawn site reads its own field directly for
 /// readability) and `apply_refresh` (which iterates here to
-/// broadcast every resolved value uniformly). Behavior is
-/// byte-identical to the per-field reads in `start`.
-fn resolved_intervals(
-    refresh: &RefreshConfig,
-    gpu_count: u8,
-) -> impl Iterator<Item = (SubsystemKind, u64)> + '_ {
-    let cpu_ms = refresh.effective(refresh.cpu_update_ms);
-    let mem_ms = refresh.effective(refresh.mem_update_ms);
-    let disk_ms = refresh.effective(refresh.disk_update_ms);
-    let net_ms = refresh.effective(refresh.net_update_ms);
-    let gpu_ms = refresh.effective(refresh.gpu_update_ms);
-    let proc_ms = refresh.effective(refresh.proc_update_ms);
+/// broadcast every resolved value uniformly).
+fn resolved_intervals(refresh: &RefreshConfig) -> impl Iterator<Item = (SubsystemKind, u64)> {
     [
-        (SubsystemKind::Cpu, cpu_ms),
-        (SubsystemKind::Mem, mem_ms),
-        (SubsystemKind::Disk, disk_ms),
-        (SubsystemKind::Net, net_ms),
+        (SubsystemKind::Cpu, refresh.effective(refresh.cpu_update_ms)),
+        (SubsystemKind::Mem, refresh.effective(refresh.mem_update_ms)),
+        (
+            SubsystemKind::Disk,
+            refresh.effective(refresh.disk_update_ms),
+        ),
+        (SubsystemKind::Net, refresh.effective(refresh.net_update_ms)),
+        (SubsystemKind::Gpu, refresh.effective(refresh.gpu_update_ms)),
+        (
+            SubsystemKind::Proc,
+            refresh.effective(refresh.proc_update_ms),
+        ),
     ]
     .into_iter()
-    .chain((0..gpu_count).map(move |n| (SubsystemKind::Gpu(n), gpu_ms)))
-    .chain(std::iter::once((SubsystemKind::Proc, proc_ms)))
 }
 
 impl CollectorManager {
@@ -331,10 +313,9 @@ impl CollectorManager {
     ///
     /// `CollectorManager` is the **single resolver** of the
     /// "0 = inherit global" rule (see [`RefreshConfig::effective`]):
-    /// every per-widget interval is resolved here, including
-    /// `gpu_update_ms` which is broadcast uniformly to every
-    /// detected GPU device. The same resolution rule is reapplied
-    /// at runtime via [`Self::apply_refresh`], so startup and every
+    /// every per-widget interval is resolved here. The same
+    /// resolution rule is reapplied at runtime via
+    /// [`Self::apply_refresh`], so startup and every
     /// refresh-related action go through one code path.
     pub(crate) fn start(refresh: &RefreshConfig, event_tx: Sender<AppEvent>) -> Self {
         let core_count = crate::collect::cpu::get_core_count();
@@ -350,6 +331,7 @@ impl CollectorManager {
         let mem_slot = LatestSlot::new();
         let disk_slot = LatestSlot::new();
         let net_slot = LatestSlot::new();
+        let gpu_slot = LatestSlot::new();
         let proc_slot = LatestSlot::new();
         let statusbar_slot = LatestSlot::new();
 
@@ -395,28 +377,18 @@ impl CollectorManager {
             })
         };
 
-        // GPU threads — one per detected device. Discovery is
-        // synchronous (loads each vendor DLL, calls each vendor
-        // init, enumerates devices) and runs here so that
-        // gpu_count is fixed before we publish the manager.
-        let devices = crate::collect::gpu::discover();
-        let gpu_count = devices.len() as u8;
-        let gpu_slots: Vec<LatestSlot<GpuSnapshot>> =
-            (0..gpu_count).map(|_| LatestSlot::new()).collect();
-        let mut gpu_txs: Vec<Sender<CollectorCommand>> = Vec::with_capacity(gpu_count as usize);
-        let mut gpu_joins: Vec<JoinHandle<()>> = Vec::with_capacity(gpu_count as usize);
-        for (n, device) in devices.into_iter().enumerate() {
-            let kind = SubsystemKind::Gpu(n as u8);
-            let (tx, join) = spawn_collector(
-                move || device,
-                gpu_ms,
-                &gpu_slots[n],
-                &event_tx,
-                AppEvent::SubsystemReady(kind),
-            );
-            gpu_txs.push(tx);
-            gpu_joins.push(join);
-        }
+        // GPU thread — single aggregator that owns every detected
+        // device's vendor session and per-device state. Discovery
+        // (vendor DLL loads, vendor inits, device enumeration) runs
+        // inside the spawned thread via `GpuCollector::new`,
+        // matching the pattern used by every other subsystem.
+        let (gpu_tx, gpu_join) = spawn_collector(
+            crate::collect::gpu::GpuCollector::new,
+            gpu_ms,
+            &gpu_slot,
+            &event_tx,
+            AppEvent::SubsystemReady(SubsystemKind::Gpu),
+        );
 
         // Process thread
         let (proc_tx, proc_join) = spawn_collector(
@@ -453,17 +425,15 @@ impl CollectorManager {
         // Build the joins table in canonical-subsystem order so
         // shutdown joins in a stable sequence. The SubsystemKind
         // tag drives the diagnostic log target via `as_str()`.
-        let mut joins: Vec<(SubsystemKind, JoinHandle<()>)> =
-            Vec::with_capacity(gpu_count as usize + 6);
-        joins.push((SubsystemKind::Cpu, cpu_join));
-        joins.push((SubsystemKind::Mem, mem_join));
-        joins.push((SubsystemKind::Disk, disk_join));
-        joins.push((SubsystemKind::Net, net_join));
-        for (n, join) in gpu_joins.into_iter().enumerate() {
-            joins.push((SubsystemKind::Gpu(n as u8), join));
-        }
-        joins.push((SubsystemKind::Proc, proc_join));
-        joins.push((SubsystemKind::Statusbar, statusbar_join));
+        let joins: Vec<(SubsystemKind, JoinHandle<()>)> = vec![
+            (SubsystemKind::Cpu, cpu_join),
+            (SubsystemKind::Mem, mem_join),
+            (SubsystemKind::Disk, disk_join),
+            (SubsystemKind::Net, net_join),
+            (SubsystemKind::Gpu, gpu_join),
+            (SubsystemKind::Proc, proc_join),
+            (SubsystemKind::Statusbar, statusbar_join),
+        ];
 
         Self {
             txs: PerSubsystem::new(
@@ -471,7 +441,7 @@ impl CollectorManager {
                 mem_tx,
                 disk_tx,
                 net_tx,
-                gpu_txs,
+                gpu_tx,
                 proc_tx,
                 statusbar_tx,
             ),
@@ -479,18 +449,11 @@ impl CollectorManager {
             mem_slot,
             disk_slot,
             net_slot,
-            gpu_slots,
+            gpu_slot,
             proc_slot,
             statusbar_slot,
-            gpu_count,
             joins,
         }
-    }
-
-    /// Number of GPU devices discovered at startup. Fixed for the
-    /// lifetime of the process.
-    pub(crate) fn gpu_count(&self) -> u8 {
-        self.gpu_count
     }
 
     /// Re-resolve every per-widget interval from `refresh` and
@@ -514,7 +477,7 @@ impl CollectorManager {
     /// [`crate::collect::statusbar::STATUSBAR_UPDATE_MS`]) and
     /// `RefreshConfig` carries no field for it.
     pub(crate) fn apply_refresh(&self, refresh: &RefreshConfig) {
-        for (kind, ms) in resolved_intervals(refresh, self.gpu_count) {
+        for (kind, ms) in resolved_intervals(refresh) {
             send_command(
                 self.txs.get(kind),
                 kind,
@@ -536,7 +499,7 @@ impl CollectorManager {
 
     /// Shut down all collector threads and wait for them to finish.
     pub(crate) fn shutdown(&mut self) {
-        for kind in SubsystemKind::all_for(self.gpu_count) {
+        for kind in SubsystemKind::iter() {
             // Shutdown send errors are intentionally discarded:
             // by this point the collector thread may have already
             // exited (e.g. on a panic), and the join below will
@@ -615,8 +578,8 @@ mod tests {
     // resolved_intervals — the iterator that drives apply_refresh.
     // The rule itself (RefreshConfig::effective) is exhaustively
     // tested in src/config/tests.rs; the tests below lock the
-    // shape: which subsystems are covered, in what order, with what
-    // resolved value per kind, and how `gpu_count` fans out.
+    // shape: which subsystems are covered, in what order, and with
+    // what resolved value per kind.
     // ---------------------------------------------------------------
 
     fn refresh_with(
@@ -640,15 +603,20 @@ mod tests {
     }
 
     #[test]
-    fn resolved_intervals_zero_gpu_count_yields_five_entries() {
+    fn resolved_intervals_yields_one_entry_per_user_configurable_subsystem() {
         let r = refresh_with(2000, 0, 0, 0, 0, 0, 0);
-        let pairs: Vec<_> = resolved_intervals(&r, 0).collect();
-        assert_eq!(pairs.len(), 5);
-        assert_eq!(pairs[0], (SubsystemKind::Cpu, 2000));
-        assert_eq!(pairs[1], (SubsystemKind::Mem, 2000));
-        assert_eq!(pairs[2], (SubsystemKind::Disk, 2000));
-        assert_eq!(pairs[3], (SubsystemKind::Net, 2000));
-        assert_eq!(pairs[4], (SubsystemKind::Proc, 2000));
+        let pairs: Vec<_> = resolved_intervals(&r).collect();
+        assert_eq!(
+            pairs,
+            vec![
+                (SubsystemKind::Cpu, 2000),
+                (SubsystemKind::Mem, 2000),
+                (SubsystemKind::Disk, 2000),
+                (SubsystemKind::Net, 2000),
+                (SubsystemKind::Gpu, 2000),
+                (SubsystemKind::Proc, 2000),
+            ],
+        );
         assert!(
             !pairs
                 .iter()
@@ -659,42 +627,27 @@ mod tests {
     }
 
     #[test]
-    fn resolved_intervals_fans_gpu_value_across_every_device() {
-        let r = refresh_with(2000, 0, 0, 0, 0, 750, 0);
-        let pairs: Vec<_> = resolved_intervals(&r, 4).collect();
-        assert_eq!(pairs.len(), 9);
-        for n in 0..4 {
-            let (kind, ms) = pairs[4 + n as usize];
-            assert_eq!(kind, SubsystemKind::Gpu(n));
-            assert_eq!(ms, 750, "every GPU device shares one resolved value");
-        }
-    }
-
-    #[test]
     fn resolved_intervals_mix_of_overrides_and_inheritance() {
         // CPU overridden, Mem inherits, Disk overridden, Net inherits,
         // GPU overridden, Proc inherits. The contract is that each
         // subsystem independently applies effective(widget_ms).
         let r = refresh_with(2000, 250, 0, 500, 0, 1000, 0);
-        let pairs: Vec<(SubsystemKind, u64)> = resolved_intervals(&r, 2).collect();
-        let by_kind: std::collections::HashMap<_, _> = pairs.iter().copied().collect();
+        let by_kind: std::collections::HashMap<_, _> = resolved_intervals(&r).collect();
         assert_eq!(by_kind[&SubsystemKind::Cpu], 250);
         assert_eq!(by_kind[&SubsystemKind::Mem], 2000);
         assert_eq!(by_kind[&SubsystemKind::Disk], 500);
         assert_eq!(by_kind[&SubsystemKind::Net], 2000);
-        assert_eq!(by_kind[&SubsystemKind::Gpu(0)], 1000);
-        assert_eq!(by_kind[&SubsystemKind::Gpu(1)], 1000);
+        assert_eq!(by_kind[&SubsystemKind::Gpu], 1000);
         assert_eq!(by_kind[&SubsystemKind::Proc], 2000);
     }
 
     #[test]
     fn resolved_intervals_canonical_order_matches_subsystem_kind() {
-        // Iteration order is contract: Cpu, Mem, Disk, Net,
-        // Gpu(0..gpu_count), Proc. This mirrors
-        // `SubsystemKind::all_for` minus Statusbar.
+        // Iteration order is contract: Cpu, Mem, Disk, Net, Gpu,
+        // Proc. This mirrors `SubsystemKind::iter` minus Statusbar.
         let r = refresh_with(1000, 0, 0, 0, 0, 0, 0);
-        let kinds: Vec<SubsystemKind> = resolved_intervals(&r, 3).map(|(k, _)| k).collect();
-        let expected: Vec<SubsystemKind> = SubsystemKind::all_for(3)
+        let kinds: Vec<SubsystemKind> = resolved_intervals(&r).map(|(k, _)| k).collect();
+        let expected: Vec<SubsystemKind> = SubsystemKind::iter()
             .filter(|k| !matches!(k, SubsystemKind::Statusbar))
             .collect();
         assert_eq!(kinds, expected);
@@ -705,7 +658,7 @@ mod tests {
         // Each subsystem hits the rule independently — under-100
         // overrides are floored, over-ceiling are capped.
         let r = refresh_with(2000, 50, 86_400_001, 0, 99, 200, -1);
-        let by_kind: std::collections::HashMap<_, _> = resolved_intervals(&r, 1).collect();
+        let by_kind: std::collections::HashMap<_, _> = resolved_intervals(&r).collect();
         assert_eq!(by_kind[&SubsystemKind::Cpu], 100, "50 → floored to 100");
         assert_eq!(
             by_kind[&SubsystemKind::Mem],
@@ -714,7 +667,7 @@ mod tests {
         );
         assert_eq!(by_kind[&SubsystemKind::Disk], 2000, "0 → inherits global",);
         assert_eq!(by_kind[&SubsystemKind::Net], 100, "99 → floored to 100");
-        assert_eq!(by_kind[&SubsystemKind::Gpu(0)], 200);
+        assert_eq!(by_kind[&SubsystemKind::Gpu], 200);
         assert_eq!(
             by_kind[&SubsystemKind::Proc],
             2000,

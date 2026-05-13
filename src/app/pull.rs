@@ -25,7 +25,7 @@ pub(crate) fn pull_subsystem_data(
 ) {
     // Each arm owns the per-subsystem fetch + side effects; the loop
     // owns the dispatch.
-    for kind in SubsystemKind::all_for(manager.gpu_count()) {
+    for kind in SubsystemKind::iter() {
         if !*ready.get(kind) {
             continue;
         }
@@ -68,28 +68,41 @@ pub(crate) fn pull_subsystem_data(
                     }
                 }
             }
-            SubsystemKind::Gpu(n) => {
-                let n = n as usize;
-                if let Some(snap) = manager.gpu_slots[n].latest() {
+            SubsystemKind::Gpu => {
+                if let Some(snap) = manager.gpu_slot.latest() {
                     if render_ui {
-                        // Only the displayed device drives a redraw;
-                        // background-device updates publish silently.
-                        let is_displayed = !state.gpu.selected_iface.is_empty()
-                            && state.gpu.selected_iface == snap.info.stable_id;
-                        if is_displayed {
-                            let prev = state.live.gpu[n].as_ref();
-                            let fingerprint_changed = prev
-                                .map(|p| {
-                                    p.info.render_fingerprint() != snap.info.render_fingerprint()
-                                })
-                                .unwrap_or(true);
-                            let status_changed = prev.is_none_or(|p| p.status != snap.status);
-                            if fingerprint_changed || status_changed {
-                                state.render.dirty.mark_widget(WidgetKind::Gpu);
-                            }
+                        // Only the displayed device drives a redraw.
+                        // The GPU widget renders point values
+                        // (latest sample of each history + scalars),
+                        // not graphs; on an idle system the
+                        // displayed device's render_fingerprint is
+                        // stable across cycles, and skipping the
+                        // redraw is correct (see
+                        // `domain/gpu.rs::render_fingerprint`).
+                        // Background-device updates publish
+                        // silently into the snapshot but never
+                        // mark the widget dirty.
+                        let displayed_id = state.gpu.selected_iface.as_str();
+                        let prev_displayed = state.live.gpu.as_ref().and_then(|prev| {
+                            prev.devices.iter().find(|d| d.stable_id == displayed_id)
+                        });
+                        let new_displayed =
+                            snap.devices.iter().find(|d| d.stable_id == displayed_id);
+                        let displayed_fingerprint_changed = match (prev_displayed, new_displayed) {
+                            (None, None) => false,
+                            (None, Some(_)) | (Some(_), None) => true,
+                            (Some(p), Some(n)) => p.render_fingerprint() != n.render_fingerprint(),
+                        };
+                        let status_changed = state
+                            .live
+                            .gpu
+                            .as_ref()
+                            .is_none_or(|prev| prev.status != snap.status);
+                        if displayed_fingerprint_changed || status_changed {
+                            state.render.dirty.mark_widget(WidgetKind::Gpu);
                         }
                     }
-                    state.live.gpu[n] = Some(snap);
+                    state.live.gpu = Some(snap);
                 }
             }
             SubsystemKind::Proc => {
@@ -228,11 +241,11 @@ pub(crate) fn reconcile_selected_net_iface(state: &mut AppState) {
 }
 
 pub(crate) fn reconcile_selected_gpu_iface(state: &mut AppState) {
-    state.gpu.reconcile(
-        &state.live.gpu,
-        &state.view.gpu_iface,
-        &mut state.render.dirty,
-    );
+    let devices: &[crate::domain::gpu::GpuInfo] =
+        state.live.gpu.as_ref().map_or(&[], |s| &s.devices);
+    state
+        .gpu
+        .reconcile(devices, &state.view.gpu_iface, &mut state.render.dirty);
 }
 
 #[cfg(test)]
@@ -256,7 +269,7 @@ mod tests {
     #[test]
     fn reconcile_selected_net_iface_selects_first_available_interface() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
@@ -272,7 +285,7 @@ mod tests {
         // interface; reconcile must honour it when the iface is
         // currently in the live list.
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.view.net_iface = "Wi-Fi".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
 
@@ -289,7 +302,7 @@ mod tests {
         // `Ethernet` so the user's preference re-asserts on the
         // next process restart (when Ethernet may be back).
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Wi-Fi"]));
 
@@ -310,7 +323,7 @@ mod tests {
         // session (the user's saved preference re-asserts only
         // at the next restart).
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.network.selected_iface = "Wi-Fi".into();
         state.view.net_iface = "Ethernet".into();
         state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
@@ -335,7 +348,7 @@ mod tests {
         // Cached hints = None (initial state) → any current hints
         // count as a "change" → mark_layout fires.
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
         assert!(state.render.last_layout_hints.is_none());
 
@@ -369,7 +382,7 @@ mod tests {
         // NOT update the cache (so the change is detected on the
         // next render_ui=true pull).
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
         assert!(state.render.last_layout_hints.is_none());
 
@@ -404,7 +417,7 @@ mod tests {
         // Pre-overlay: cache populated with current hints. No mem
         // snapshot yet → has_swap = false.
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         maybe_mark_layout_dirty_from_hints_change(&mut state, &config, true);
         let pre_overlay = state
             .render

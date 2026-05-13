@@ -4,7 +4,6 @@ use crate::domain::gpu::GpuInfo;
 use crate::draw::box_drawing;
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
-use crate::runner;
 use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
@@ -282,18 +281,20 @@ impl super::Widget for GpuWidget {
         else {
             return;
         };
+        let Some(snapshot) = params.gpu else {
+            return;
+        };
+        let devices = &snapshot.devices;
         let iface = params.selected_gpu_iface;
-        let present: Vec<&runner::GpuSnapshot> =
-            params.gpu.iter().filter_map(|s| s.as_deref()).collect();
-        let Some((idx, snapshot)) = present
+        let Some((idx, info)) = devices
             .iter()
             .enumerate()
-            .find(|(_, s)| s.info.stable_id == iface)
+            .find(|(_, d)| d.stable_id == iface)
         else {
             return;
         };
         let cycle_position = idx + 1;
-        let cycle_total = present.len();
+        let cycle_total = devices.len();
         let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
         let frame = GpuFrame {
             temp_scale: params.config.cpu.temp_scale,
@@ -301,13 +302,7 @@ impl super::Widget for GpuWidget {
             cycle_position,
             cycle_total,
         };
-        output.push_str(&draw(
-            &snapshot.info,
-            &area,
-            params.theme,
-            &frame,
-            &snapshot.status,
-        ));
+        output.push_str(&draw(info, &area, params.theme, &frame, &snapshot.status));
     }
 }
 

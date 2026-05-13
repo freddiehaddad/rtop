@@ -471,7 +471,7 @@ impl NvApiFunctions {
 /// [`crate::runner::spawn_collector`].
 #[repr(transparent)]
 #[derive(Clone, Copy)]
-struct SendNvHandle(NvPhysicalGpuHandle);
+pub(super) struct SendNvHandle(NvPhysicalGpuHandle);
 
 // SAFETY: NvAPI handles are opaque identifiers used only by NvAPI
 // itself, which is thread-safe per nvapi.h. We never dereference the
@@ -480,16 +480,12 @@ unsafe impl Send for SendNvHandle {}
 // SAFETY: see Send impl above.
 unsafe impl Sync for SendNvHandle {}
 
-/// Shared NvAPI session: loaded library, resolved function-pointer
-/// table, and the initialised NvAPI runtime.
-///
-/// Constructed once during [`discover`] and shared across every
-/// `NvidiaDeviceCollector` via `Arc<NvApiSession>`. The `Drop` impl
-/// calls `NvAPI_Unload` exactly once when the last device thread
-/// releases its `Arc` — NvAPI's documented refcounted-init model
-/// means the unload only takes effect when the refcount drops to
-/// zero, but rtop matches that with a single `Initialize`/`Unload`
-/// pair per process.
+/// NvAPI vendor session: loaded library, resolved function-pointer
+/// table, and the initialised NvAPI runtime. Owned once by
+/// [`super::GpuCollector`] when at least one NVIDIA device is
+/// detected; constructed by [`discover`] and dropped when the
+/// collector drops. The `Drop` impl calls `NvAPI_Unload` exactly
+/// once per successful `NvAPI_Initialize`.
 pub(super) struct NvApiSession {
     nvapi: NvApiFunctions,
 }
@@ -529,188 +525,188 @@ impl Drop for NvApiSession {
 }
 
 // ---------------------------------------------------------------------------
-// NvidiaDeviceCollector — one per detected NVIDIA GPU
+// Per-device state and collect entry point
 // ---------------------------------------------------------------------------
 
-/// Per-device NVIDIA GPU collector. Owns its `Arc<NvApiSession>`
-/// clone, its NVAPI device handle, the device's TDP (queried from
-/// NVML during discovery), and the in-memory `GpuInfo` that the
-/// renderer reads.
-pub(crate) struct NvidiaDeviceCollector {
-    session: std::sync::Arc<NvApiSession>,
-    device: SendNvHandle,
+/// Slim per-device NVIDIA state. One per detected GPU; held inside
+/// [`super::GpuCollector`]'s `Vec<DeviceEntry>`. Carries only the
+/// fields that genuinely vary per device — the function-pointer
+/// table, library handle, and `NvAPI_Initialize` refcount live in
+/// the singleton [`NvApiSession`] inside the parent
+/// [`super::GpuCollector`].
+pub(super) struct DeviceState {
+    pub(super) handle: SendNvHandle,
     /// Default power limit (TDP) in milliwatts, from NVML during
     /// discovery. Used to convert NvAPI Per-Cent-Mille power
     /// readings into milliwatts.
-    tdp_mw: u64,
-    info: crate::domain::gpu::GpuInfo,
-    status: CollectStatus,
+    pub(super) tdp_mw: u64,
 }
 
-impl NvidiaDeviceCollector {
-    pub(super) fn collect(&mut self) {
-        self.status = CollectStatus::Ok;
-        let session = &self.session.nvapi;
-        let device = self.device.0;
+/// One collection cycle for a single NVIDIA device.
+///
+/// Reads vendor function pointers from `session`, the per-device
+/// handle and TDP from `dev`, mutates the rendered `info` in place,
+/// and downgrades `status` on partial failures.
+pub(super) fn collect(
+    session: &NvApiSession,
+    dev: &DeviceState,
+    info: &mut crate::domain::gpu::GpuInfo,
+    status: &mut CollectStatus,
+) {
+    let nvapi = &session.nvapi;
+    let device = dev.handle.0;
 
-        // Utilization
-        let mut pstates = NvDynamicPstatesInfoEx {
-            version: PSTATES_INFO_VER,
-            flags: 0,
-            utilizations: [NvUtilDomain::default(); 8],
-        };
-        // SAFETY: device is a valid handle obtained during discovery.
-        let ret = unsafe { (session.get_dynamic_pstates_info_ex)(device, &mut pstates) };
-        if ret == NVAPI_OK {
-            let gpu_util = &pstates.utilizations[0];
-            if gpu_util.flags & 1 != 0 {
-                push_history(
-                    &mut self.info.gpu_percent.utilization,
-                    clamp_percent(gpu_util.percentage),
-                );
-            }
-        } else {
-            tracing::debug!(
-                subsystem = %crate::log::Subsystem::GpuNvapi,
-                code = %crate::log::Hex(ret),
-                "NvAPI utilization query failed",
-            );
-            self.status
-                .downgrade(CollectStatus::Degraded("nvapi utilization"));
-        }
-
-        // Temperature — request all sensors, pick the GPU target.
-        let mut thermal = NvThermalSettings {
-            version: THERMAL_SETTINGS_VER,
-            count: 0,
-            sensors: [NvThermalSensor::default(); 3],
-        };
-        // SAFETY: device is valid; NVAPI_THERMAL_TARGET_ALL requests all sensors.
-        let ret = unsafe {
-            (session.get_thermal_settings)(device, NVAPI_THERMAL_TARGET_ALL, &mut thermal)
-        };
-        if ret == NVAPI_OK {
-            let temp = thermal.sensors[..thermal.count as usize]
-                .iter()
-                .find(|s| s.target == NVAPI_THERMAL_TARGET_GPU)
-                .or_else(|| thermal.sensors.first())
-                .map(|s| s.current_temp as i64)
-                .unwrap_or(0);
-            push_history(&mut self.info.temp, temp);
-        } else {
-            tracing::debug!(
-                subsystem = %crate::log::Subsystem::GpuNvapi,
-                code = %crate::log::Hex(ret),
-                "NvAPI temperature query failed",
-            );
-            self.status
-                .downgrade(CollectStatus::Degraded("nvapi temperature"));
-        }
-
-        // Memory (values in KB)
-        let mut mem = NvMemoryInfo {
-            version: MEMORY_INFO_VER,
-            dedicated_video_memory_kb: 0,
-            avail_dedicated_video_memory_kb: 0,
-            system_video_memory_kb: 0,
-            shared_system_memory_kb: 0,
-            cur_avail_dedicated_video_memory_kb: 0,
-            dedicated_video_memory_evictions_size_kb: 0,
-            dedicated_video_memory_eviction_count: 0,
-        };
-        // SAFETY: device is valid; mem is a valid versioned struct.
-        let ret = unsafe { (session.get_memory_info)(device, &mut mem) };
-        if ret == NVAPI_OK {
-            let total = mem.dedicated_video_memory_kb as u64 * 1024;
-            let avail = mem.cur_avail_dedicated_video_memory_kb as u64 * 1024;
-            let used = total.saturating_sub(avail);
-            self.info.mem_total = total;
-            self.info.mem_used = used;
-            let vram_pct = crate::collect::win::percent_u64(used, total).min(100);
-            push_history(&mut self.info.gpu_percent.vram, vram_pct);
-            push_history(&mut self.info.mem_utilization_percent, vram_pct);
-        } else {
-            tracing::debug!(
-                subsystem = %crate::log::Subsystem::GpuNvapi,
-                code = %crate::log::Hex(ret),
-                "NvAPI memory query failed",
-            );
-            self.status
-                .downgrade(CollectStatus::Degraded("nvapi memory"));
-        }
-
-        // Power — pick the Board domain entry (PCM) and convert to mW.
-        if self.tdp_mw > 0 {
-            let mut topo = NvPowerTopo {
-                version: POWER_TOPO_VER,
-                count: 0,
-                entries: [NvPowerTopoEntry::default(); 4],
-            };
-            // SAFETY: device is valid; topo is a valid versioned struct.
-            let ret = unsafe { (session.client_power_topo_get_status)(device, &mut topo) };
-            if ret == NVAPI_OK && topo.count > 0 {
-                let n = (topo.count as usize).min(topo.entries.len());
-                let board_pcm = topo.entries[..n]
-                    .iter()
-                    .find(|e| e.domain == POWER_DOMAIN_BOARD)
-                    .or_else(|| topo.entries.first())
-                    .map(|e| e.power_pcm as u64)
-                    .unwrap_or(0);
-                let power_mw = pcm_to_mw(board_pcm, self.tdp_mw);
-                self.info.pwr_usage = power_mw as i64;
-                let pwr_pct = power_percent(power_mw, self.info.pwr_max_usage as u64);
-                push_history(&mut self.info.gpu_percent.power, pwr_pct);
-            } else {
-                tracing::debug!(
-                    subsystem = %crate::log::Subsystem::GpuNvapi,
-                    code = %crate::log::Hex(ret),
-                    "NvAPI power topology query failed",
-                );
-                self.status
-                    .downgrade(CollectStatus::Degraded("nvapi power"));
-            }
-        }
-
-        // Clock speed (current, in kHz → MHz)
-        let mut clocks = NvClockFrequencies {
-            version: CLOCK_FREQUENCIES_VER,
-            clock_type: CLOCK_TYPE_CURRENT,
-            domains: [NvClockDomain::default(); 32],
-        };
-        // SAFETY: device is valid; clocks is a valid versioned struct.
-        let ret = unsafe { (session.get_all_clock_frequencies)(device, &mut clocks) };
-        if ret == NVAPI_OK {
-            let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
-            if gfx.flags & 1 != 0 {
-                self.info.gpu_clock_speed = gfx.frequency_khz / 1000;
-            }
-        } else {
-            tracing::debug!(
-                subsystem = %crate::log::Subsystem::GpuNvapi,
-                code = %crate::log::Hex(ret),
-                "NvAPI clock query failed",
-            );
-            self.status
-                .downgrade(CollectStatus::Degraded("nvapi clock"));
-        }
-    }
-
-    pub(super) fn snapshot(&self) -> crate::runner::GpuSnapshot {
-        crate::runner::GpuSnapshot {
-            info: self.info.clone(),
-            status: self.status.clone(),
-        }
-    }
-}
-
-/// Discover every NVIDIA GPU and return one
-/// [`super::DeviceCollector`] wrapper per device. Returns an empty
-/// vector if NvAPI is unavailable or no GPUs are detected.
-pub(super) fn discover() -> Vec<super::DeviceCollector> {
-    let Some(session) = NvApiSession::load() else {
-        return Vec::new();
+    // Utilization
+    let mut pstates = NvDynamicPstatesInfoEx {
+        version: PSTATES_INFO_VER,
+        flags: 0,
+        utilizations: [NvUtilDomain::default(); 8],
     };
-    let session = std::sync::Arc::new(session);
+    // SAFETY: device is a valid handle obtained during discovery.
+    let ret = unsafe { (nvapi.get_dynamic_pstates_info_ex)(device, &mut pstates) };
+    if ret == NVAPI_OK {
+        let gpu_util = &pstates.utilizations[0];
+        if gpu_util.flags & 1 != 0 {
+            push_history(
+                &mut info.gpu_percent.utilization,
+                clamp_percent(gpu_util.percentage),
+            );
+        }
+    } else {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuNvapi,
+            code = %crate::log::Hex(ret),
+            "NvAPI utilization query failed",
+        );
+        status.downgrade(CollectStatus::Degraded("nvapi utilization"));
+    }
+
+    // Temperature — request all sensors, pick the GPU target.
+    let mut thermal = NvThermalSettings {
+        version: THERMAL_SETTINGS_VER,
+        count: 0,
+        sensors: [NvThermalSensor::default(); 3],
+    };
+    // SAFETY: device is valid; NVAPI_THERMAL_TARGET_ALL requests all sensors.
+    let ret =
+        unsafe { (nvapi.get_thermal_settings)(device, NVAPI_THERMAL_TARGET_ALL, &mut thermal) };
+    if ret == NVAPI_OK {
+        let temp = thermal.sensors[..thermal.count as usize]
+            .iter()
+            .find(|s| s.target == NVAPI_THERMAL_TARGET_GPU)
+            .or_else(|| thermal.sensors.first())
+            .map(|s| s.current_temp as i64)
+            .unwrap_or(0);
+        push_history(&mut info.temp, temp);
+    } else {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuNvapi,
+            code = %crate::log::Hex(ret),
+            "NvAPI temperature query failed",
+        );
+        status.downgrade(CollectStatus::Degraded("nvapi temperature"));
+    }
+
+    // Memory (values in KB)
+    let mut mem = NvMemoryInfo {
+        version: MEMORY_INFO_VER,
+        dedicated_video_memory_kb: 0,
+        avail_dedicated_video_memory_kb: 0,
+        system_video_memory_kb: 0,
+        shared_system_memory_kb: 0,
+        cur_avail_dedicated_video_memory_kb: 0,
+        dedicated_video_memory_evictions_size_kb: 0,
+        dedicated_video_memory_eviction_count: 0,
+    };
+    // SAFETY: device is valid; mem is a valid versioned struct.
+    let ret = unsafe { (nvapi.get_memory_info)(device, &mut mem) };
+    if ret == NVAPI_OK {
+        let total = mem.dedicated_video_memory_kb as u64 * 1024;
+        let avail = mem.cur_avail_dedicated_video_memory_kb as u64 * 1024;
+        let used = total.saturating_sub(avail);
+        info.mem_total = total;
+        info.mem_used = used;
+        let vram_pct = crate::collect::win::percent_u64(used, total).min(100);
+        push_history(&mut info.gpu_percent.vram, vram_pct);
+        push_history(&mut info.mem_utilization_percent, vram_pct);
+    } else {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuNvapi,
+            code = %crate::log::Hex(ret),
+            "NvAPI memory query failed",
+        );
+        status.downgrade(CollectStatus::Degraded("nvapi memory"));
+    }
+
+    // Power — pick the Board domain entry (PCM) and convert to mW.
+    if dev.tdp_mw > 0 {
+        let mut topo = NvPowerTopo {
+            version: POWER_TOPO_VER,
+            count: 0,
+            entries: [NvPowerTopoEntry::default(); 4],
+        };
+        // SAFETY: device is valid; topo is a valid versioned struct.
+        let ret = unsafe { (nvapi.client_power_topo_get_status)(device, &mut topo) };
+        if ret == NVAPI_OK && topo.count > 0 {
+            let n = (topo.count as usize).min(topo.entries.len());
+            let board_pcm = topo.entries[..n]
+                .iter()
+                .find(|e| e.domain == POWER_DOMAIN_BOARD)
+                .or_else(|| topo.entries.first())
+                .map(|e| e.power_pcm as u64)
+                .unwrap_or(0);
+            let power_mw = pcm_to_mw(board_pcm, dev.tdp_mw);
+            info.pwr_usage = power_mw as i64;
+            let pwr_pct = power_percent(power_mw, info.pwr_max_usage as u64);
+            push_history(&mut info.gpu_percent.power, pwr_pct);
+        } else {
+            tracing::debug!(
+                subsystem = %crate::log::Subsystem::GpuNvapi,
+                code = %crate::log::Hex(ret),
+                "NvAPI power topology query failed",
+            );
+            status.downgrade(CollectStatus::Degraded("nvapi power"));
+        }
+    }
+
+    // Clock speed (current, in kHz → MHz)
+    let mut clocks = NvClockFrequencies {
+        version: CLOCK_FREQUENCIES_VER,
+        clock_type: CLOCK_TYPE_CURRENT,
+        domains: [NvClockDomain::default(); 32],
+    };
+    // SAFETY: device is valid; clocks is a valid versioned struct.
+    let ret = unsafe { (nvapi.get_all_clock_frequencies)(device, &mut clocks) };
+    if ret == NVAPI_OK {
+        let gfx = &clocks.domains[CLOCK_DOMAIN_GRAPHICS];
+        if gfx.flags & 1 != 0 {
+            info.gpu_clock_speed = gfx.frequency_khz / 1000;
+        }
+    } else {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuNvapi,
+            code = %crate::log::Hex(ret),
+            "NvAPI clock query failed",
+        );
+        status.downgrade(CollectStatus::Degraded("nvapi clock"));
+    }
+}
+
+/// Discovery result for the NVIDIA vendor.
+///
+/// Returned by [`discover`] when at least one device was detected;
+/// owned by [`super::GpuCollector`] which holds the session for the
+/// lifetime of every device entry derived from this bundle.
+pub(super) struct NvApiBundle {
+    pub(super) session: NvApiSession,
+    pub(super) entries: Vec<(DeviceState, crate::domain::gpu::GpuInfo)>,
+}
+
+/// Discover every NVIDIA GPU. Returns `None` when NvAPI is
+/// unavailable or no GPUs are detected (vendor session drops on the
+/// spot — no library / init resources outlive an empty discovery).
+pub(super) fn discover() -> Option<NvApiBundle> {
+    let session = NvApiSession::load()?;
 
     let mut handles = [std::ptr::null_mut::<c_void>(); NVAPI_MAX_PHYSICAL_GPUS];
     let mut count: u32 = 0;
@@ -723,11 +719,11 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
             code = %crate::log::Hex(ret),
             "NvAPI_EnumPhysicalGPUs failed",
         );
-        return Vec::new();
+        return None;
     }
     let count = (count as usize).min(NVAPI_MAX_PHYSICAL_GPUS);
     if count == 0 {
-        return Vec::new();
+        return None;
     }
     let devices: Vec<NvPhysicalGpuHandle> = handles[..count].to_vec();
 
@@ -752,7 +748,7 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
         "vendor initialized",
     );
 
-    devices
+    let entries: Vec<(DeviceState, crate::domain::gpu::GpuInfo)> = devices
         .into_iter()
         .zip(nvml_metas)
         .enumerate()
@@ -769,15 +765,17 @@ pub(super) fn discover() -> Vec<super::DeviceCollector> {
                 format!("NVIDIA:{}", meta.uuid)
             };
             let info = build_initial_info(&session.nvapi, device, tdp_mw, stable_id);
-            super::DeviceCollector::Nvidia(NvidiaDeviceCollector {
-                session: std::sync::Arc::clone(&session),
-                device: SendNvHandle(device),
-                tdp_mw,
+            (
+                DeviceState {
+                    handle: SendNvHandle(device),
+                    tdp_mw,
+                },
                 info,
-                status: CollectStatus::Ok,
-            })
+            )
         })
-        .collect()
+        .collect();
+
+    Some(NvApiBundle { session, entries })
 }
 
 /// Pre-fill the per-device `GpuInfo` with static fields (stable

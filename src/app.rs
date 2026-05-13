@@ -59,10 +59,10 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     let (event_tx, event_rx) = std::sync::mpsc::channel();
     let mut manager = runner::CollectorManager::start(&config.refresh, event_tx.clone());
     lifecycle::spawn_input_thread(event_tx);
-    let mut state = AppState::new(config, manager.gpu_count());
+    let mut state = AppState::new(config);
     tracing::info!(subsystem = %crate::log::Subsystem::Startup, "ready");
 
-    let mut ready = PerSubsystem::<bool>::with_default(manager.gpu_count());
+    let mut ready = PerSubsystem::<bool>::with_default();
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);

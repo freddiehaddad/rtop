@@ -1,45 +1,38 @@
 //! GPU data collection.
 //!
-//! Each detected GPU runs in its own collector thread (spawned by
-//! [`crate::runner::CollectorManager`]) and publishes per-device
-//! snapshots to its own [`crate::runner::LatestSlot`]. This module
-//! owns the per-vendor discovery seam and the central
-//! [`DeviceCollector`] enum that wraps the three vendor-specific
-//! per-device collectors.
+//! A single [`GpuCollector`] aggregates every detected device
+//! across the three vendor SDKs (NVIDIA, AMD, Intel) and runs in
+//! one collector thread spawned by
+//! [`crate::runner::CollectorManager`]. Each collect cycle queries
+//! every device sequentially and publishes a single
+//! [`crate::runner::GpuSnapshot`] containing every device's data —
+//! mirroring the [`crate::collect::network::NetCollector`] shape.
 //!
-//! # Vendor session/device split
+//! # Vendor session model
 //!
-//! Each vendor SDK has a different documented thread-safety model;
-//! the session/device split is shaped to match each vendor's actual
-//! contract rather than forcing a uniform shape across the three:
+//! Each vendor exposes a session type ([`nvidia::NvApiSession`],
+//! [`amd::AdlSession`], [`intel::IgclSession`]) that owns the loaded
+//! library, the resolved function-pointer table, and the vendor
+//! init refcount / context. The session is owned **once** by
+//! [`GpuCollector`] when at least one device of that vendor was
+//! detected; per-device state lives in slim
+//! `nvidia/amd/intel::DeviceState` structs that carry only the
+//! genuinely per-device fields (handles, prev counters).
 //!
-//! * **NVIDIA** — `NvAPI_Initialize` is process-global, refcounted,
-//!   thread-safe per `nvapi.h`. The function-pointer table and the
-//!   library handle are wrapped in a single shared [`Arc<NvApiSession>`]
-//!   that drops via `NvAPI_Unload` when the last NVIDIA device thread
-//!   releases its `Arc`.
+//! # Drop ordering
 //!
-//! * **AMD** — ADL2 is multi-context. Per the GPUOpen documentation,
-//!   *"do not share one context handle across threads unless you
-//!   implement your own synchronisation"*. The function-pointer
-//!   table is shared via [`Arc<AdlSession>`] (function pointers are
-//!   read-only and trivially `Send + Sync`); each
-//!   `AmdDeviceCollector` creates and owns **its own** ADL2 context
-//!   (one `ADL2_Main_Control_Create` per device thread, destroyed
-//!   via `ADL2_Main_Control_Destroy` on `Drop`).
-//!
-//! * **Intel** — IGCL's `ctlInit` is treated as a process-singleton
-//!   by Intel's official wrapper (`hinstLib` is a static; the docs
-//!   do not cover concurrent multi-init). The `api_handle` from
-//!   `ctlInit` is wrapped in a shared [`Arc<IgclSession>`] that
-//!   drops via `ctlClose` when the last Intel device thread
-//!   releases its `Arc`.
+//! [`GpuCollector`] declares `devices` first so it drops first. The
+//! per-device handles inside `devices` are vendor-opaque pointers
+//! whose validity expires when the vendor session tears down
+//! (`NvAPI_Unload`, `ADL2_Main_Control_Destroy`, `ctlClose`); the
+//! field declaration order ensures every handle is released before
+//! its parent session.
 
 mod amd;
 mod intel;
 mod nvidia;
 
-use crate::collect::Collector;
+use crate::collect::{CollectStatus, Collector};
 
 const MAX_HISTORY: usize = 300;
 
@@ -64,74 +57,172 @@ fn power_percent(power_mw: u64, max_power_mw: u64) -> i64 {
     super::win::percent_u64(power_mw, max_power_mw).min(100)
 }
 
-/// Per-device GPU collector wrapping one of the three per-vendor
-/// implementations.
+/// Per-device state, vendor-discriminated. One per detected device,
+/// held inside [`GpuCollector`]'s `Vec<DeviceEntry>`.
 ///
-/// Three vendors are a closed set, so an enum is the idiomatic
-/// shape (codebase rule: enums for closed sets, no `Box<dyn Trait>`
-/// for polymorphism unless dynamic dispatch is genuinely required).
-/// `Collector::collect` and `Collector::snapshot` dispatch via a
-/// single per-variant `match` — no virtual call, no allocation.
-///
-/// Constructed exclusively by the per-vendor `discover()`
-/// functions invoked from [`discover`]. `CollectorManager` moves
-/// each `DeviceCollector` into its own collector thread.
-pub(crate) enum DeviceCollector {
-    Nvidia(nvidia::NvidiaDeviceCollector),
-    Amd(amd::AmdDeviceCollector),
-    Intel(intel::IntelDeviceCollector),
+/// The variant payload is the slim per-vendor `DeviceState` that
+/// carries only the genuinely per-device fields. Vendor sessions
+/// (function pointers, library handles, init refcounts, AMD's
+/// shared context, IGCL's `api_handle`) live exactly once each in
+/// the parent [`GpuCollector`]; per-cycle collection borrows them
+/// by reference.
+enum GpuDevice {
+    Nvidia(nvidia::DeviceState),
+    Amd(amd::DeviceState),
+    Intel(intel::DeviceState),
 }
 
-impl Collector for DeviceCollector {
+/// A single device entry: vendor-specific state, the device's
+/// rendered `GpuInfo` (mutated in place by per-cycle collection),
+/// and the device's status for the most recent cycle.
+struct DeviceEntry {
+    device: GpuDevice,
+    info: crate::domain::gpu::GpuInfo,
+    status: CollectStatus,
+}
+
+/// Single GPU collector aggregating every detected device.
+///
+/// Implements [`Collector`] like every other subsystem; spawned
+/// once via [`crate::runner::CollectorManager::start`] using the
+/// shared `spawn_collector` helper. One collect cycle queries every
+/// device sequentially in vendor → discovery order; one snapshot
+/// per cycle contains every device's data.
+pub(crate) struct GpuCollector {
+    /// Per-device entries in vendor → discovery order. Declared
+    /// first so this field drops first: every per-device handle
+    /// inside the entries releases before the vendor session
+    /// fields below tear down the loader / init refcount /
+    /// shared context.
+    devices: Vec<DeviceEntry>,
+
+    /// Vendor sessions. `Some(_)` when at least one device of that
+    /// vendor was discovered; `None` when the vendor's library was
+    /// absent or returned no devices (in which case discovery
+    /// dropped the session immediately rather than retaining an
+    /// idle library handle).
+    nvapi: Option<nvidia::NvApiSession>,
+    adl: Option<amd::AdlSession>,
+    igcl: Option<intel::IgclSession>,
+
+    /// Worst per-device status this cycle, reset to `Ok` at the
+    /// start of every `collect()` call.
+    status: CollectStatus,
+}
+
+impl GpuCollector {
+    /// Discover every detected GPU across the three vendor SDKs.
+    ///
+    /// Probes each vendor in canonical NVIDIA → AMD → Intel order
+    /// and concatenates the per-vendor device entries. Discovery
+    /// order is stable for any configuration that does not
+    /// physically rearrange devices, so per-device identities
+    /// (the `info.stable_id` strings the renderer matches against
+    /// `view.gpu_iface`) survive across rtop runs.
+    ///
+    /// Vendor probes that find no devices return `None` and drop
+    /// any library handle they loaded. Probes never abort discovery
+    /// for the other vendors.
+    ///
+    /// There is no architectural cap on detected device count;
+    /// hardware realities (PCIe slots, vendor SDK enumeration
+    /// limits) bound it well below `usize::MAX`.
+    pub(crate) fn new() -> Self {
+        let mut devices: Vec<DeviceEntry> = Vec::new();
+
+        let nvapi = nvidia::discover().map(|bundle| {
+            devices.extend(bundle.entries.into_iter().map(|(d, info)| DeviceEntry {
+                device: GpuDevice::Nvidia(d),
+                info,
+                status: CollectStatus::Ok,
+            }));
+            bundle.session
+        });
+        let adl = amd::discover().map(|bundle| {
+            devices.extend(bundle.entries.into_iter().map(|(d, info)| DeviceEntry {
+                device: GpuDevice::Amd(d),
+                info,
+                status: CollectStatus::Ok,
+            }));
+            bundle.session
+        });
+        let igcl = intel::discover().map(|bundle| {
+            devices.extend(bundle.entries.into_iter().map(|(d, info)| DeviceEntry {
+                device: GpuDevice::Intel(d),
+                info,
+                status: CollectStatus::Ok,
+            }));
+            bundle.session
+        });
+
+        tracing::info!(
+            subsystem = %crate::log::Subsystem::Gpu,
+            devices = devices.len(),
+            "GPU discovery complete",
+        );
+
+        Self {
+            devices,
+            nvapi,
+            adl,
+            igcl,
+            status: CollectStatus::Ok,
+        }
+    }
+}
+
+impl Default for GpuCollector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Collector for GpuCollector {
     type Snapshot = crate::runner::GpuSnapshot;
 
     fn collect(&mut self) {
-        match self {
-            Self::Nvidia(c) => c.collect(),
-            Self::Amd(c) => c.collect(),
-            Self::Intel(c) => c.collect(),
+        self.status = CollectStatus::Ok;
+        for entry in &mut self.devices {
+            entry.status = CollectStatus::Ok;
+            match &mut entry.device {
+                GpuDevice::Nvidia(d) => nvidia::collect(
+                    self.nvapi.as_ref().expect(
+                        "GpuDevice::Nvidia entry implies nvapi.is_some() — both are populated \
+                         together by GpuCollector::new",
+                    ),
+                    d,
+                    &mut entry.info,
+                    &mut entry.status,
+                ),
+                GpuDevice::Amd(d) => amd::collect(
+                    self.adl.as_ref().expect(
+                        "GpuDevice::Amd entry implies adl.is_some() — both are populated \
+                         together by GpuCollector::new",
+                    ),
+                    d,
+                    &mut entry.info,
+                    &mut entry.status,
+                ),
+                GpuDevice::Intel(d) => intel::collect(
+                    self.igcl.as_ref().expect(
+                        "GpuDevice::Intel entry implies igcl.is_some() — both are populated \
+                         together by GpuCollector::new",
+                    ),
+                    d,
+                    &mut entry.info,
+                    &mut entry.status,
+                ),
+            }
+            self.status.downgrade(entry.status.clone());
         }
     }
 
     fn snapshot(&self) -> Self::Snapshot {
-        match self {
-            Self::Nvidia(c) => c.snapshot(),
-            Self::Amd(c) => c.snapshot(),
-            Self::Intel(c) => c.snapshot(),
+        crate::runner::GpuSnapshot {
+            devices: self.devices.iter().map(|e| e.info.clone()).collect(),
+            status: self.status.clone(),
         }
     }
-}
-
-/// Discover every detected GPU across the three vendor SDKs.
-///
-/// Probes each vendor in canonical order (NVIDIA → AMD → Intel) and
-/// concatenates the per-vendor device collectors into a single
-/// vector. Discovery order is preserved within each vendor so that
-/// per-device collector identities (the `Vec<LatestSlot<...>>`
-/// indices in [`crate::runner::CollectorManager::gpu_slots`]) stay
-/// stable across rtop runs.
-///
-/// Discovery is synchronous: every vendor SDK's library is loaded,
-/// every vendor init is called, and every device is enumerated
-/// before the function returns. Vendor-init failures contribute
-/// zero devices for that vendor (the library handle and function
-/// table drop immediately) and never abort discovery for the other
-/// vendors.
-///
-/// There is no architectural cap on detected device count.
-/// Hardware realities (motherboard PCIe slots, vendor SDK
-/// enumeration limits) bound it well below `u8::MAX`.
-pub(crate) fn discover() -> Vec<DeviceCollector> {
-    let mut out = Vec::new();
-    out.extend(nvidia::discover());
-    out.extend(amd::discover());
-    out.extend(intel::discover());
-    tracing::info!(
-        subsystem = %crate::log::Subsystem::Gpu,
-        devices = out.len(),
-        "GPU discovery complete",
-    );
-    out
 }
 
 #[cfg(test)]
@@ -139,13 +230,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn discover_does_not_panic() {
+    fn gpu_collector_new_does_not_panic() {
         // Discovery probes vendor DLLs that may or may not be
-        // present on the build/test host. The function must
-        // gracefully return whatever it finds (often an empty
-        // Vec on machines without supported GPUs) on any test
-        // machine.
-        let _ = discover();
+        // present on the build/test host. The constructor must
+        // gracefully return whatever it finds (often a collector
+        // with zero devices on machines without supported GPUs)
+        // on any test machine.
+        let _ = GpuCollector::new();
+    }
+
+    #[test]
+    fn gpu_collector_collect_with_no_devices_publishes_empty_snapshot() {
+        // On hosts without any vendor DLL, GpuCollector::new()
+        // populates an empty `devices` vec. `collect()` must be a
+        // no-op and `snapshot()` must return an empty `devices`
+        // Vec with `Ok` status. (On hosts WITH a vendor present,
+        // this test still passes — we only assert the empty case
+        // when devices is empty.)
+        let mut c = GpuCollector::new();
+        if c.devices.is_empty() {
+            c.collect();
+            let snap = c.snapshot();
+            assert!(snap.devices.is_empty());
+            assert_eq!(snap.status, CollectStatus::Ok);
+        }
     }
 
     #[test]

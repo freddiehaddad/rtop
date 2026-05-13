@@ -41,17 +41,11 @@ pub(crate) struct AppState {
 
 impl AppState {
     /// Construct fresh app state.
-    ///
-    /// `gpu_count` is the number of GPUs discovered by
-    /// [`crate::runner::CollectorManager::start`]. Discovery is
-    /// one-shot at startup so this value is fixed for the lifetime
-    /// of the `AppState`. Test fixtures pass `0` because they do
-    /// not exercise GPU behaviour.
-    pub(crate) fn new(config: &config::Config, gpu_count: u8) -> Self {
+    pub(crate) fn new(config: &config::Config) -> Self {
         Self {
             view: RuntimeView::from_config(&config.view),
             render: RenderState::new(),
-            live: LiveData::new(gpu_count),
+            live: LiveData::new(),
             overlay: OverlayState::new(),
             process: ProcessViewState::new(),
             network: NetworkViewState::new(),
@@ -91,7 +85,13 @@ impl AppState {
         // Zero detected GPUs → hide the cycling-GPU widget. The
         // widget has nothing to render and its row should be
         // reclaimed by sibling Fill widgets (proc, net) above it.
-        if self.live.gpu_count == 0 {
+        // Mirrors the disk-count-derived layout pattern: read from
+        // the latest snapshot. Before the first GPU snapshot
+        // arrives, the conservative default is "no GPUs" — but
+        // `LiveData::is_ready` gates rendering until that first
+        // snapshot lands so this branch is not user-visible
+        // during the pre-ready window.
+        if self.live.gpu.as_ref().is_none_or(|s| s.devices.is_empty()) {
             hidden.insert(WidgetKind::Gpu);
         }
         hidden.extend_from(&self.filter.hidden);
@@ -134,11 +134,11 @@ impl GpuViewState {
 
     pub(crate) fn reconcile(
         &mut self,
-        live: &[Option<Arc<runner::GpuSnapshot>>],
+        devices: &[crate::domain::gpu::GpuInfo],
         preferred: &str,
         dirty: &mut RenderDirty,
     ) {
-        if live.iter().all(|s| s.is_none()) {
+        if devices.is_empty() {
             if !self.selected_iface.is_empty() {
                 self.selected_iface.clear();
                 dirty.mark_widget(WidgetKind::Gpu);
@@ -150,10 +150,7 @@ impl GpuViewState {
         if self.selected_iface.is_empty()
             && preferred != "auto"
             && !preferred.is_empty()
-            && live
-                .iter()
-                .filter_map(|s| s.as_deref())
-                .any(|s| s.info.stable_id == preferred)
+            && devices.iter().any(|d| d.stable_id == preferred)
         {
             self.selected_iface = preferred.to_string();
             dirty.mark_widget(WidgetKind::Gpu);
@@ -161,17 +158,12 @@ impl GpuViewState {
         }
 
         if self.selected_iface.is_empty()
-            || !live
-                .iter()
-                .filter_map(|s| s.as_deref())
-                .any(|s| s.info.stable_id == self.selected_iface)
+            || !devices.iter().any(|d| d.stable_id == self.selected_iface)
         {
-            let first = live
-                .iter()
-                .filter_map(|s| s.as_deref())
-                .next()
+            let first = devices
+                .first()
                 .expect("at least one device is present (early-return guarded above)");
-            self.selected_iface = first.info.stable_id.clone();
+            self.selected_iface = first.stable_id.clone();
             dirty.mark_widget(WidgetKind::Gpu);
         }
     }
@@ -526,9 +518,11 @@ pub(crate) struct LiveData {
     pub(crate) mem: Option<Arc<runner::MemSnapshot>>,
     pub(crate) disk: Option<Arc<runner::DiskSnapshot>>,
     pub(crate) net: Option<Arc<runner::NetSnapshot>>,
-    /// Per-device GPU snapshots, one slot per discovered device.
-    /// Length matches [`Self::gpu_count`].
-    pub(crate) gpu: Vec<Option<Arc<runner::GpuSnapshot>>>,
+    /// Latest GPU snapshot containing every detected device's
+    /// data. `None` until the first publish from
+    /// [`crate::runner::CollectorManager::gpu_slot`] arrives;
+    /// shape mirrors `net` exactly.
+    pub(crate) gpu: Option<Arc<runner::GpuSnapshot>>,
     pub(crate) proc_data: Option<Arc<runner::ProcSnapshot>>,
     /// Latest statusbar snapshot (uptime). Refreshed at the
     /// statusbar collector's hardcoded 1 Hz cadence; the
@@ -543,48 +537,37 @@ pub(crate) struct LiveData {
     pub(crate) core_count: usize,
     /// Cached total physical memory for proc widget (stable hardware constant).
     pub(crate) total_mem: u64,
-    /// Number of GPU devices discovered at startup. Bound at
-    /// construction via [`Self::new`] from
-    /// [`crate::runner::CollectorManager::gpu_count`]; immutable
-    /// thereafter — discovery is one-shot, so this is a hardware
-    /// constant for the lifetime of the process. Drives `is_ready`
-    /// (waits for every device's first snapshot) and the
-    /// `layout_hints::gpu_count` integer the layout engine uses
-    /// to size GPU-bearing presets.
-    pub(crate) gpu_count: u8,
 }
 
 impl LiveData {
-    /// Construct an empty `LiveData` for a system with `gpu_count`
-    /// detected GPUs. `gpu_count` is fixed for the lifetime of
-    /// the value; per-device snapshot slots populate from their
-    /// per-device collector thread on each pull.
-    fn new(gpu_count: u8) -> Self {
+    /// Construct an empty `LiveData`. Per-subsystem snapshot slots
+    /// populate from their collector threads on each pull.
+    fn new() -> Self {
         Self {
             cpu: None,
             mem: None,
             disk: None,
             net: None,
-            gpu: vec![None; gpu_count as usize],
+            gpu: None,
             proc_data: None,
             statusbar: None,
             core_count: 0,
             total_mem: 0,
-            gpu_count,
         }
     }
 
     /// True when every base subsystem has provided at least one
-    /// data point AND every discovered GPU has too. A system with
-    /// zero detected GPUs trivially satisfies the GPU half (the
-    /// `gpu` Vec is empty so `all` returns true).
+    /// data point. The GPU subsystem participates: a system with
+    /// zero detected GPUs still publishes an empty-`devices`
+    /// snapshot on its first cycle, so this gate flips reliably
+    /// regardless of detected device count.
     pub(crate) fn is_ready(&self) -> bool {
         self.cpu.is_some()
             && self.mem.is_some()
             && self.disk.is_some()
             && self.net.is_some()
+            && self.gpu.is_some()
             && self.proc_data.is_some()
-            && self.gpu.iter().all(|g| g.is_some())
     }
 
     pub(crate) fn layout_hints(
@@ -665,7 +648,7 @@ impl LiveData {
 
         draw::layout::LayoutHints {
             core_count: self.core_count,
-            gpu_count: self.gpu_count as usize,
+            gpu_count: self.gpu.as_ref().map_or(0, |s| s.devices.len()),
             disk_count: crate::domain::disk::DiskFilter::parse(&config.disk.disk_filter)
                 .count_matching(self.disk.as_ref().map_or(&[], |d| &d.info.disks)),
             has_swap: config.mem.show_swap
@@ -1161,7 +1144,7 @@ mod tests {
         config.ui.rounded_corners = false;
         config.refresh.update_ms = 1_500;
 
-        let state = AppState::new(&config, 0);
+        let state = AppState::new(&config);
 
         assert!(matches!(state.overlay.active, ActiveModal::None));
         assert_eq!(state.render.dirty, RenderDirty::full());
@@ -1181,7 +1164,7 @@ mod tests {
         config.view.io_mode = true;
         config.view.net_iface = "Ethernet".to_string();
 
-        let state = AppState::new(&config, 0);
+        let state = AppState::new(&config);
 
         assert!(state.view.proc_tree);
         assert_eq!(state.view.proc_filter, "chrome");
@@ -1200,7 +1183,7 @@ mod tests {
         // `Statusbar` in `hidden`, so the bar is laid out at its
         // preferred 1-row height.
         let config = config::Config::new();
-        let state = AppState::new(&config, 0);
+        let state = AppState::new(&config);
         let hidden = state.compose_hidden(&config);
         assert!(
             !hidden.contains(WidgetKind::Statusbar),
@@ -1217,7 +1200,7 @@ mod tests {
         // engine-level test in `draw/layout.rs`.
         let mut config = config::Config::new();
         config.statusbar.show_statusbar = false;
-        let state = AppState::new(&config, 0);
+        let state = AppState::new(&config);
         let hidden = state.compose_hidden(&config);
         assert!(
             hidden.contains(WidgetKind::Statusbar),
@@ -1232,7 +1215,7 @@ mod tests {
         // them so neither path can shadow the other.
         let mut config = config::Config::new();
         config.statusbar.show_statusbar = false;
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.filter.hidden.insert(WidgetKind::Mem);
 
         let hidden = state.compose_hidden(&config);
@@ -1310,7 +1293,7 @@ mod tests {
             options::OptionsState,
         };
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
 
         state.overlay.active = ActiveModal::None;
         assert!(state.overlay.render_ui());
@@ -1331,7 +1314,7 @@ mod tests {
     #[test]
     fn layout_hints_disk_rows_per_unit_covers_all_four_view_modes() {
         let mut config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
 
         // Usage view + show_io_stat on → 2 rows per disk.
         // (`io_mode` lives on `RuntimeView` not `Config` after the
@@ -1395,7 +1378,7 @@ mod tests {
     #[test]
     fn mark_resize_sets_layout_and_all_widgets() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.render.clear_dirty();
 
         state.render.mark_resize();
@@ -1425,7 +1408,7 @@ mod tests {
     #[test]
     fn pause_activation_captures_live_snapshot() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         let live_snap = snap(&[1, 2, 3]);
         state.live.proc_data = Some(Arc::clone(&live_snap));
 
@@ -1440,7 +1423,7 @@ mod tests {
     #[test]
     fn pause_activation_noop_when_no_live_data() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         // live.proc_data is None.
 
         let now_paused = state.process.toggle_pause(&state.live);
@@ -1452,7 +1435,7 @@ mod tests {
     #[test]
     fn pause_deactivation_drops_snapshot() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.live.proc_data = Some(snap(&[1, 2]));
 
         assert!(state.process.toggle_pause(&state.live));
@@ -1466,7 +1449,7 @@ mod tests {
     #[test]
     fn dead_pids_recomputes_on_live_update() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.live.proc_data = Some(snap(&[1, 2, 3]));
         state.process.toggle_pause(&state.live);
 
@@ -1492,7 +1475,7 @@ mod tests {
         // count as "dead" — it's a brand new live process, not a
         // departed one.
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.live.proc_data = Some(snap(&[1, 2]));
         state.process.toggle_pause(&state.live);
 
@@ -1506,7 +1489,7 @@ mod tests {
     #[test]
     fn refresh_dead_pids_returns_false_when_set_unchanged() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         state.live.proc_data = Some(snap(&[1, 2, 3]));
         state.process.toggle_pause(&state.live);
 
@@ -1522,14 +1505,14 @@ mod tests {
     #[test]
     fn is_dead_returns_false_when_not_paused() {
         let config = config::Config::new();
-        let state = AppState::new(&config, 0);
+        let state = AppState::new(&config);
         assert!(!state.process.is_dead(123));
     }
 
     #[test]
     fn procs_source_returns_paused_when_paused_else_live() {
         let config = config::Config::new();
-        let mut state = AppState::new(&config, 0);
+        let mut state = AppState::new(&config);
         let live_snap = snap(&[10, 20]);
         state.live.proc_data = Some(Arc::clone(&live_snap));
 

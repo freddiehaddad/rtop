@@ -507,7 +507,7 @@ pub(super) fn gpu_forward_action(ctx: &mut InputContext, _: &Key) {
 }
 
 fn cycle_gpu(ctx: &mut InputContext, direction: isize) {
-    if ctx.live.gpu.iter().all(|s| s.is_none()) {
+    if ctx.live.gpu.as_ref().is_none_or(|s| s.devices.is_empty()) {
         return;
     }
     cycle_gpu_iface(ctx, direction);
@@ -543,26 +543,24 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
 }
 
 fn cycle_gpu_iface(ctx: &mut InputContext, direction: isize) {
-    let present: Vec<&str> = ctx
-        .live
-        .gpu
-        .iter()
-        .filter_map(|s| s.as_deref().map(|s| s.info.stable_id.as_str()))
-        .collect();
-    if present.is_empty() {
+    let Some(snap) = ctx.live.gpu.as_ref() else {
+        return;
+    };
+    let devices = &snap.devices;
+    if devices.is_empty() {
         return;
     }
 
-    let current = present
+    let current = devices
         .iter()
-        .position(|id| *id == ctx.gpu.selected_iface)
+        .position(|d| d.stable_id == ctx.gpu.selected_iface)
         .unwrap_or(0);
     let new_idx = if direction < 0 {
-        current.checked_sub(1).unwrap_or(present.len() - 1)
+        current.checked_sub(1).unwrap_or(devices.len() - 1)
     } else {
-        (current + 1) % present.len()
+        (current + 1) % devices.len()
     };
-    ctx.gpu.selected_iface = present[new_idx].to_string();
+    ctx.gpu.selected_iface = devices[new_idx].stable_id.clone();
     ctx.view.gpu_iface = ctx.gpu.selected_iface.clone();
 }
 

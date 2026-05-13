@@ -171,7 +171,7 @@ rtop detects GPUs from all three major vendors automatically at runtime. For eac
 | **AMD** | Vega and newer (RX Vega, 5000, 6000, 7000, 9000 series) |
 | **Intel** | Arc discrete GPUs |
 
-Up to 8 GPUs are supported. Mixed GPU systems show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
+Mixed GPU systems show all detected devices. If a vendor's driver is not installed, that backend is silently skipped.
 
 ---
 

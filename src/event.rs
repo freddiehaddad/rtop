@@ -9,12 +9,10 @@ use std::fmt;
 /// `runner` / `app` so the same subsystems are no longer
 /// enumerated by hand at every site.
 ///
-/// The `Gpu(u8)` variant carries the device index — one collector
-/// thread per discovered GPU. The index is purely an internal
-/// addressing handle (collector wakeup, command channel routing);
-/// the user-facing widget is a single cycling [`WidgetKind::Gpu`]
-/// that selects which device's snapshot to render via stable
-/// device IDs (see [`crate::app::GpuViewState`]).
+/// The GPU subsystem is unified: one collector, one slot, one
+/// snapshot containing every detected device. The cycling-display
+/// widget selects which device to render via stable device IDs
+/// (see [`crate::app::GpuViewState`]).
 ///
 /// [`WidgetKind::Gpu`]: crate::domain::widget_kind::WidgetKind::Gpu
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -23,35 +21,29 @@ pub(crate) enum SubsystemKind {
     Mem,
     Disk,
     Net,
-    Gpu(u8),
+    Gpu,
     Proc,
     Statusbar,
 }
 
 impl SubsystemKind {
-    /// Every subsystem variant in canonical order for a system
-    /// with `gpu_count` discovered GPUs: the four base subsystems,
-    /// then `Gpu(0..gpu_count)`, then `Proc`, then `Statusbar`.
-    /// Iterate this instead of repeating the match by hand.
-    pub(crate) fn all_for(gpu_count: u8) -> impl Iterator<Item = SubsystemKind> {
-        const SCALAR_PREFIX: [SubsystemKind; 4] = [
+    /// Every subsystem variant in canonical order. Iterate this
+    /// instead of repeating the match by hand.
+    pub(crate) fn iter() -> impl Iterator<Item = SubsystemKind> {
+        const ALL: [SubsystemKind; 7] = [
             SubsystemKind::Cpu,
             SubsystemKind::Mem,
             SubsystemKind::Disk,
             SubsystemKind::Net,
+            SubsystemKind::Gpu,
+            SubsystemKind::Proc,
+            SubsystemKind::Statusbar,
         ];
-        const SCALAR_SUFFIX: [SubsystemKind; 2] = [SubsystemKind::Proc, SubsystemKind::Statusbar];
-        SCALAR_PREFIX
-            .into_iter()
-            .chain((0..gpu_count).map(SubsystemKind::Gpu))
-            .chain(SCALAR_SUFFIX)
+        ALL.into_iter()
     }
 }
 
-/// Stable short name for diagnostics and tracing fields. The
-/// scalar variants format as their interned constant; `Gpu(n)`
-/// formats as `"gpu{n}"` (no allocation — `write!` streams the
-/// integer directly into the formatter).
+/// Stable short name for diagnostics and tracing fields.
 impl fmt::Display for SubsystemKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -59,7 +51,7 @@ impl fmt::Display for SubsystemKind {
             SubsystemKind::Mem => f.write_str("memory"),
             SubsystemKind::Disk => f.write_str("disk"),
             SubsystemKind::Net => f.write_str("network"),
-            SubsystemKind::Gpu(n) => write!(f, "gpu{n}"),
+            SubsystemKind::Gpu => f.write_str("gpu"),
             SubsystemKind::Proc => f.write_str("process"),
             SubsystemKind::Statusbar => f.write_str("statusbar"),
         }
@@ -73,31 +65,27 @@ impl fmt::Display for SubsystemKind {
 /// command channels. The exhaustive `match` in the accessors is
 /// checked by the compiler: adding a variant to [`SubsystemKind`]
 /// forces every `PerSubsystem<T>` accessor to be updated.
-///
-/// GPU slots are stored in a `Vec<T>` sized at construction by the
-/// discovered device count; there is no compile-time cap on GPU
-/// slots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PerSubsystem<T> {
     cpu: T,
     mem: T,
     disk: T,
     net: T,
-    gpu: Vec<T>,
+    gpu: T,
     process: T,
     statusbar: T,
 }
 
 impl<T: Default> PerSubsystem<T> {
     /// Construct a `PerSubsystem<T>` with `T::default()` in every
-    /// slot, including `gpu_count` GPU slots.
-    pub(crate) fn with_default(gpu_count: u8) -> Self {
+    /// slot.
+    pub(crate) fn with_default() -> Self {
         Self {
             cpu: T::default(),
             mem: T::default(),
             disk: T::default(),
             net: T::default(),
-            gpu: (0..gpu_count).map(|_| T::default()).collect(),
+            gpu: T::default(),
             process: T::default(),
             statusbar: T::default(),
         }
@@ -105,15 +93,13 @@ impl<T: Default> PerSubsystem<T> {
 
     /// Overwrite every slot with `T::default()` in place. Used by
     /// the per-event-loop "ready" bitmap to drop the previous
-    /// cycle's state without reallocating the GPU `Vec`.
+    /// cycle's state.
     pub(crate) fn reset(&mut self) {
         self.cpu = T::default();
         self.mem = T::default();
         self.disk = T::default();
         self.net = T::default();
-        for slot in &mut self.gpu {
-            *slot = T::default();
-        }
+        self.gpu = T::default();
         self.process = T::default();
         self.statusbar = T::default();
     }
@@ -121,18 +107,9 @@ impl<T: Default> PerSubsystem<T> {
 
 impl<T> PerSubsystem<T> {
     /// Construct from one value per subsystem, in `SubsystemKind`
-    /// canonical order. The `gpu` parameter is a `Vec<T>` of
-    /// length matching the discovered GPU count. Use this when
-    /// `T` does not implement `Default` (e.g. `Sender<_>`).
-    pub(crate) fn new(
-        cpu: T,
-        mem: T,
-        disk: T,
-        net: T,
-        gpu: Vec<T>,
-        process: T,
-        statusbar: T,
-    ) -> Self {
+    /// canonical order. Use this when `T` does not implement
+    /// `Default` (e.g. `Sender<_>`).
+    pub(crate) fn new(cpu: T, mem: T, disk: T, net: T, gpu: T, process: T, statusbar: T) -> Self {
         Self {
             cpu,
             mem,
@@ -144,30 +121,27 @@ impl<T> PerSubsystem<T> {
         }
     }
 
-    /// Borrow the slot for `kind`. Panics if `kind` is `Gpu(n)`
-    /// with `n >= gpu_count` — callers must respect the
-    /// discovered device count.
+    /// Borrow the slot for `kind`.
     pub(crate) fn get(&self, kind: SubsystemKind) -> &T {
         match kind {
             SubsystemKind::Cpu => &self.cpu,
             SubsystemKind::Mem => &self.mem,
             SubsystemKind::Disk => &self.disk,
             SubsystemKind::Net => &self.net,
-            SubsystemKind::Gpu(n) => &self.gpu[n as usize],
+            SubsystemKind::Gpu => &self.gpu,
             SubsystemKind::Proc => &self.process,
             SubsystemKind::Statusbar => &self.statusbar,
         }
     }
 
-    /// Mutably borrow the slot for `kind`. Panics if `kind` is
-    /// `Gpu(n)` with `n >= gpu_count`.
+    /// Mutably borrow the slot for `kind`.
     pub(crate) fn get_mut(&mut self, kind: SubsystemKind) -> &mut T {
         match kind {
             SubsystemKind::Cpu => &mut self.cpu,
             SubsystemKind::Mem => &mut self.mem,
             SubsystemKind::Disk => &mut self.disk,
             SubsystemKind::Net => &mut self.net,
-            SubsystemKind::Gpu(n) => &mut self.gpu[n as usize],
+            SubsystemKind::Gpu => &mut self.gpu,
             SubsystemKind::Proc => &mut self.process,
             SubsystemKind::Statusbar => &mut self.statusbar,
         }
@@ -193,9 +167,6 @@ pub(crate) enum AppEvent {
 mod tests {
     use super::*;
     use std::sync::mpsc;
-
-    /// Test fixture: representative non-zero GPU count.
-    const TEST_GPU_COUNT: u8 = 4;
 
     #[test]
     fn events_roundtrip_through_channel() {
@@ -266,51 +237,46 @@ mod tests {
     }
 
     #[test]
-    fn all_for_lists_every_variant_once_in_canonical_order() {
-        let all: Vec<SubsystemKind> = SubsystemKind::all_for(TEST_GPU_COUNT).collect();
-        assert_eq!(all.len(), TEST_GPU_COUNT as usize + 6);
-        assert_eq!(all[0], SubsystemKind::Cpu);
-        assert_eq!(all[1], SubsystemKind::Mem);
-        assert_eq!(all[2], SubsystemKind::Disk);
-        assert_eq!(all[3], SubsystemKind::Net);
-        for n in 0..TEST_GPU_COUNT {
-            assert_eq!(all[4 + n as usize], SubsystemKind::Gpu(n));
-        }
-        assert_eq!(all[4 + TEST_GPU_COUNT as usize], SubsystemKind::Proc);
-        assert_eq!(all[5 + TEST_GPU_COUNT as usize], SubsystemKind::Statusbar);
-    }
-
-    #[test]
-    fn all_for_zero_gpus_skips_gpu_variants() {
-        let all: Vec<SubsystemKind> = SubsystemKind::all_for(0).collect();
-        assert_eq!(all.len(), 6);
-        assert!(!all.iter().any(|k| matches!(k, SubsystemKind::Gpu(_))));
+    fn iter_lists_every_variant_once_in_canonical_order() {
+        let all: Vec<SubsystemKind> = SubsystemKind::iter().collect();
+        assert_eq!(
+            all,
+            vec![
+                SubsystemKind::Cpu,
+                SubsystemKind::Mem,
+                SubsystemKind::Disk,
+                SubsystemKind::Net,
+                SubsystemKind::Gpu,
+                SubsystemKind::Proc,
+                SubsystemKind::Statusbar,
+            ],
+        );
     }
 
     #[test]
     fn per_subsystem_with_default_initialises_every_slot() {
-        let p = PerSubsystem::<bool>::with_default(TEST_GPU_COUNT);
-        for kind in SubsystemKind::all_for(TEST_GPU_COUNT) {
+        let p = PerSubsystem::<bool>::with_default();
+        for kind in SubsystemKind::iter() {
             assert!(!*p.get(kind));
         }
     }
 
     #[test]
     fn per_subsystem_reset_clears_all_slots_in_place() {
-        let mut p = PerSubsystem::<bool>::with_default(TEST_GPU_COUNT);
-        for kind in SubsystemKind::all_for(TEST_GPU_COUNT) {
+        let mut p = PerSubsystem::<bool>::with_default();
+        for kind in SubsystemKind::iter() {
             *p.get_mut(kind) = true;
         }
         p.reset();
-        for kind in SubsystemKind::all_for(TEST_GPU_COUNT) {
+        for kind in SubsystemKind::iter() {
             assert!(!*p.get(kind), "{kind:?} must be reset to default");
         }
     }
 
     #[test]
     fn per_subsystem_get_mut_writes_to_named_slot() {
-        let mut p = PerSubsystem::<bool>::with_default(TEST_GPU_COUNT);
-        for kind in SubsystemKind::all_for(TEST_GPU_COUNT) {
+        let mut p = PerSubsystem::<bool>::with_default();
+        for kind in SubsystemKind::iter() {
             assert!(!*p.get(kind));
             *p.get_mut(kind) = true;
             assert!(*p.get(kind));
@@ -318,43 +284,13 @@ mod tests {
     }
 
     #[test]
-    fn per_subsystem_gpu_slots_are_independent() {
-        let mut p = PerSubsystem::<u32>::with_default(TEST_GPU_COUNT);
-        for n in 0..TEST_GPU_COUNT {
-            *p.get_mut(SubsystemKind::Gpu(n)) = 100 + n as u32;
-        }
-        for n in 0..TEST_GPU_COUNT {
-            assert_eq!(*p.get(SubsystemKind::Gpu(n)), 100 + n as u32);
-        }
-    }
-
-    #[test]
     fn per_subsystem_new_assigns_each_slot_in_canonical_order() {
-        let gpu_values: Vec<&str> = (0..TEST_GPU_COUNT as usize)
-            .map(|i| match i {
-                0 => "gpu0",
-                1 => "gpu1",
-                2 => "gpu2",
-                3 => "gpu3",
-                _ => unreachable!("TEST_GPU_COUNT is 4"),
-            })
-            .collect();
-        let p = PerSubsystem::new(
-            "cpu",
-            "mem",
-            "disk",
-            "net",
-            gpu_values.clone(),
-            "process",
-            "statusbar",
-        );
+        let p = PerSubsystem::new("cpu", "mem", "disk", "net", "gpu", "process", "statusbar");
         assert_eq!(*p.get(SubsystemKind::Cpu), "cpu");
         assert_eq!(*p.get(SubsystemKind::Mem), "mem");
         assert_eq!(*p.get(SubsystemKind::Disk), "disk");
         assert_eq!(*p.get(SubsystemKind::Net), "net");
-        for n in 0..TEST_GPU_COUNT {
-            assert_eq!(*p.get(SubsystemKind::Gpu(n)), gpu_values[n as usize]);
-        }
+        assert_eq!(*p.get(SubsystemKind::Gpu), "gpu");
         assert_eq!(*p.get(SubsystemKind::Proc), "process");
         assert_eq!(*p.get(SubsystemKind::Statusbar), "statusbar");
     }
@@ -365,10 +301,8 @@ mod tests {
         assert_eq!(SubsystemKind::Mem.to_string(), "memory");
         assert_eq!(SubsystemKind::Disk.to_string(), "disk");
         assert_eq!(SubsystemKind::Net.to_string(), "network");
+        assert_eq!(SubsystemKind::Gpu.to_string(), "gpu");
         assert_eq!(SubsystemKind::Proc.to_string(), "process");
         assert_eq!(SubsystemKind::Statusbar.to_string(), "statusbar");
-        for n in [0_u8, 1, 7, 31, 255] {
-            assert_eq!(SubsystemKind::Gpu(n).to_string(), format!("gpu{n}"));
-        }
     }
 }
