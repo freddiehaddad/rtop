@@ -18,11 +18,6 @@ use super::WidgetArea;
 pub struct GpuFrame {
     pub temp_scale: TempScale,
     pub base_10: bool,
-    /// 1-based index of the displayed device within the present-
-    /// device list.
-    pub cycle_position: usize,
-    /// Total number of present GPU snapshots.
-    pub cycle_total: usize,
 }
 
 /// Preferred intrinsic height for a GPU widget instance, in rows
@@ -113,29 +108,19 @@ pub fn draw(
         return buf.finish();
     }
 
-    // Cycle chip on the top-right border:
-    //   ← [ <name> ] →           single-GPU systems
-    //   ← [ <name> (N/M) ] →     multi-GPU systems
-    let counter = if frame.cycle_total > 1 {
-        format!(
-            " ({pos}/{total})",
-            pos = frame.cycle_position,
-            total = frame.cycle_total,
-        )
-    } else {
-        String::new()
-    };
-    let max_name_w = inner_w
-        .saturating_sub(title.len() + 10 + counter.len())
-        .max(1);
+    // Cycle chip on the top-right border: ← [ <name> ] →
+    //
+    // The chip form is identical regardless of how many GPUs are
+    // detected — the per-widget border grammar reserves the
+    // top-right zone for scope info, not aggregate counts. Users
+    // discover whether more devices exist by pressing `[` / `]`
+    // and watching the name change.
+    let max_name_w = inner_w.saturating_sub(title.len() + 10).max(1);
     let name_trunc: String = gpu.name.chars().take(max_name_w).collect();
     if !name_trunc.is_empty() {
-        let chip_text = format!(
-            "← {hi}[{title_color} {name}{counter} {hi}]{title_color} →",
-            name = name_trunc,
-        );
+        let chip_text = format!("← {hi}[{title_color} {name_trunc} {hi}]{title_color} →");
         let chip_inset = box_drawing::title_inset(&chip_text, border_color, title_color, false);
-        let plain_chip = format!("← [ {name_trunc}{counter} ] →");
+        let plain_chip = format!("← [ {name_trunc} ] →");
         let chip_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&plain_chip));
         buf.mv(chip_x, y + 1).text(&chip_inset);
     }
@@ -286,21 +271,13 @@ impl super::Widget for GpuWidget {
         };
         let devices = &snapshot.devices;
         let iface = params.selected_gpu_iface;
-        let Some((idx, info)) = devices
-            .iter()
-            .enumerate()
-            .find(|(_, d)| d.stable_id == iface)
-        else {
+        let Some(info) = devices.iter().find(|d| d.stable_id == iface) else {
             return;
         };
-        let cycle_position = idx + 1;
-        let cycle_total = devices.len();
         let area = super::WidgetArea::from_dim(gpu_dim, params.rounded);
         let frame = GpuFrame {
             temp_scale: params.config.cpu.temp_scale,
             base_10: params.config.ui.base_10_sizes,
-            cycle_position,
-            cycle_total,
         };
         output.push_str(&draw(info, &area, params.theme, &frame, &snapshot.status));
     }
@@ -365,8 +342,6 @@ mod tests {
         GpuFrame {
             temp_scale: TempScale::Celsius,
             base_10: false,
-            cycle_position: 1,
-            cycle_total: 1,
         }
     }
 
@@ -541,6 +516,37 @@ mod tests {
             assert!(
                 output.contains(&format!("{fg}{label}")),
                 "gpu label {label:?} should be preceded by MAIN_FG"
+            );
+        }
+    }
+
+    #[test]
+    fn device_chip_omits_position_of_total_counter() {
+        // The GPU device cycler chip does not display an `(N/M)`
+        // position-of-total counter — the chip text is always
+        // `← [ name ] →` regardless of how many devices are
+        // present. Locks in the cycler-form rule for the GPU widget.
+        let output = draw(
+            &make_gpu_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_frame(),
+            &CollectStatus::Ok,
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("← [ Test GPU RTX 5090 ] →"),
+            "device chip must read '← [ <name> ] →' with no counter: {plain}"
+        );
+        // Sanity: no `(N/M)` shaped substring inside the chip's
+        // bracket span. Search for `(1/`, `(2/` … which would
+        // indicate a leftover counter token from any future device
+        // count. The GPU widget should never emit them.
+        for n in 1..=9 {
+            let needle = format!("({n}/");
+            assert!(
+                !plain.contains(&needle),
+                "device chip must not contain position-of-total counter '{needle}': {plain}"
             );
         }
     }
