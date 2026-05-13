@@ -248,6 +248,7 @@ mod tests {
     #[test]
     fn bytes_per_sec_from_counter_delta() {
         assert_eq!(bytes_per_sec(3_000, 1_000, 2.0), 1_000);
+        assert_eq!(bytes_per_sec(2_000, 1_000, 1.0), 1_000);
     }
 
     #[test]

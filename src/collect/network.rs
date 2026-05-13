@@ -151,8 +151,8 @@ impl NetCollector {
                 let dl_stat = entry.stat.download;
                 let ul_stat = entry.stat.upload;
 
-                let dl_speed = speed_from_delta(rx_bytes, dl_stat.last, elapsed);
-                let ul_speed = speed_from_delta(tx_bytes, ul_stat.last, elapsed);
+                let dl_speed = bytes_per_sec(rx_bytes, dl_stat.last, elapsed);
+                let ul_speed = bytes_per_sec(tx_bytes, ul_stat.last, elapsed);
 
                 entry.stat.download = NetStat {
                     speed: dl_speed,
@@ -351,36 +351,9 @@ fn get_if_stats(if_index: u32) -> (u64, u64, u64) {
     }
 }
 
-/// Calculate speed from byte counter delta (for unit testing).
-pub fn speed_from_delta(current: u64, previous: u64, elapsed_secs: f64) -> u64 {
-    bytes_per_sec(current, previous, elapsed_secs)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn speed_from_octet_delta() {
-        assert_eq!(speed_from_delta(2000, 1000, 1.0), 1000);
-        assert_eq!(speed_from_delta(3000, 1000, 2.0), 1000);
-    }
-
-    #[test]
-    fn speed_zero_when_no_previous() {
-        assert_eq!(speed_from_delta(1000, 0, 1.0), 0);
-    }
-
-    #[test]
-    fn speed_zero_when_zero_elapsed() {
-        assert_eq!(speed_from_delta(2000, 1000, 0.0), 0);
-    }
-
-    #[test]
-    fn rollover_handling() {
-        // Counter resets and rollovers are treated as no rate for the sample.
-        assert_eq!(speed_from_delta(500, 1000, 1.0), 0);
-    }
 
     #[test]
     fn format_ipv4_from_network_order_formats_octets() {
