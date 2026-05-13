@@ -522,14 +522,14 @@ fn cycle_net_iface(ctx: &mut InputContext, direction: isize) {
 
     let current = nets
         .iter()
-        .position(|n| n.name == ctx.network.selected_iface)
+        .position(|n| n.stable_id == ctx.network.selected_iface)
         .unwrap_or(0);
     let new_idx = if direction < 0 {
         current.checked_sub(1).unwrap_or(nets.len() - 1)
     } else {
         (current + 1) % nets.len()
     };
-    ctx.network.selected_iface = nets[new_idx].name.clone();
+    ctx.network.selected_iface = nets[new_idx].stable_id.clone();
     ctx.view.net_iface = ctx.network.selected_iface.clone();
 }
 

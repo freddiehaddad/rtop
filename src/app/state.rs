@@ -11,9 +11,9 @@
 //! widget-visibility filter ([`WidgetFilter`]).
 //!
 //! Note that [`RuntimeView`] holds the **persisted/preferred**
-//! interface name in `net_iface`, while [`NetworkViewState`] holds
-//! the **effective/displayed** interface in `selected_iface` —
-//! these can diverge when the saved interface isn't currently
+//! adapter identifier in `net_iface`, while [`NetworkViewState`]
+//! holds the **effective/displayed** adapter in `selected_iface` —
+//! these can diverge when the saved adapter isn't currently
 //! present (e.g. unplugged Ethernet, disabled Wi-Fi). See
 //! [`NetworkViewState`] for the full policy.
 
@@ -1061,32 +1061,33 @@ impl ProcessViewState {
     }
 }
 
-/// Effective network-interface selection — the interface
-/// currently being **displayed**.
+/// Effective network-adapter selection — the adapter currently
+/// being **displayed**.
 ///
-/// This is **not** always the interface the user has saved as
-/// their preference. Two roles must be distinguished:
+/// This is **not** always the adapter the user has saved as their
+/// preference. Two roles must be distinguished:
 ///
 /// * [`RuntimeView::net_iface`] — the **persisted/preferred**
-///   interface name. Initialised from `config.view.net_iface`,
-///   mirrored back on save. Mutated by `net_back_action` /
-///   `net_forward_action` when the user explicitly cycles to a
-///   new interface.
+///   adapter identifier (the Win32 `AdapterName` GUID; see
+///   [`crate::domain::network::NetInfo::stable_id`]). Initialised
+///   from `config.view.net_iface`, mirrored back on save. Mutated
+///   by `net_back_action` / `net_forward_action` when the user
+///   explicitly cycles to a new adapter.
 /// * [`NetworkViewState::selected_iface`] — the **effective**
-///   interface for this frame. Mutated by
-///   [`Self::reconcile`] when the preferred interface isn't
-///   currently present (cable unplugged, Wi-Fi disabled), and by
-///   the same cycle handlers (which keep both fields in sync).
+///   adapter for this frame. Mutated by [`Self::reconcile`] when
+///   the preferred adapter isn't currently present (cable
+///   unplugged, Wi-Fi disabled, adapter uninstalled), and by the
+///   same cycle handlers (which keep both fields in sync).
 ///
 /// User-visible policy this implements:
 ///
-/// * Saved `Ethernet`, unplug Ethernet → display falls back to
-///   Wi-Fi; `rtop.toml` still says `Ethernet`. Plug Ethernet back
-///   in *next session* → it auto-selects.
-/// * Cycle to Wi-Fi explicitly → both fields update; `rtop.toml`
-///   on quit says `Wi-Fi`.
+/// * Saved adapter A, A goes away → display falls back to whatever
+///   adapter is first in the live list; `rtop.toml` still records
+///   A's GUID. A reappears *next session* → it auto-selects.
+/// * Cycle to adapter B explicitly → both fields update; `rtop.toml`
+///   on quit records B's GUID.
 ///
-/// In-session "fall forward" (preferred iface reappears →
+/// In-session "fall forward" (preferred adapter reappears →
 /// auto-switch back) is **not** implemented — once
 /// `selected_iface` is non-empty and present in the live list,
 /// reconcile leaves it alone. The user's saved preference re-asserts
@@ -1120,15 +1121,17 @@ impl NetworkViewState {
         if self.selected_iface.is_empty()
             && preferred != "auto"
             && !preferred.is_empty()
-            && nets.iter().any(|n| n.name == preferred)
+            && nets.iter().any(|n| n.stable_id == preferred)
         {
             self.selected_iface = preferred.to_string();
             dirty.mark_widget(WidgetKind::Net);
             return;
         }
 
-        if self.selected_iface.is_empty() || !nets.iter().any(|n| n.name == self.selected_iface) {
-            self.selected_iface = nets[0].name.clone();
+        if self.selected_iface.is_empty()
+            || !nets.iter().any(|n| n.stable_id == self.selected_iface)
+        {
+            self.selected_iface = nets[0].stable_id.clone();
             dirty.mark_widget(WidgetKind::Net);
         }
     }
@@ -1162,14 +1165,17 @@ mod tests {
         config.view.proc_tree = true;
         config.view.proc_filter = "chrome".to_string();
         config.view.io_mode = true;
-        config.view.net_iface = "Ethernet".to_string();
+        config.view.net_iface = "{12345678-1234-1234-1234-123456789012}".to_string();
 
         let state = AppState::new(&config);
 
         assert!(state.view.proc_tree);
         assert_eq!(state.view.proc_filter, "chrome");
         assert!(state.view.io_mode);
-        assert_eq!(state.view.net_iface, "Ethernet");
+        assert_eq!(
+            state.view.net_iface,
+            "{12345678-1234-1234-1234-123456789012}"
+        );
     }
 
     // ────────────────────────────────────────────────────────────
@@ -1247,7 +1253,7 @@ mod tests {
         view.io_mode = true;
         view.net_auto = false;
         view.net_sync = true;
-        view.net_iface = "Wi-Fi".to_string();
+        view.net_iface = "{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}".to_string();
 
         view.sync_to_config(&mut config.view);
 
@@ -1262,7 +1268,10 @@ mod tests {
         assert!(config.view.io_mode);
         assert!(!config.view.net_auto);
         assert!(config.view.net_sync);
-        assert_eq!(config.view.net_iface, "Wi-Fi");
+        assert_eq!(
+            config.view.net_iface,
+            "{aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee}"
+        );
     }
 
     #[test]
@@ -1277,13 +1286,13 @@ mod tests {
         // Simulate options-menu edits (BoolKey::toggle, etc.).
         config.view.proc_tree = true;
         config.view.io_mode = true;
-        config.view.net_iface = "Ethernet".to_string();
+        config.view.net_iface = "{12345678-1234-1234-1234-123456789012}".to_string();
 
         view.sync_from_config(&config.view);
 
         assert!(view.proc_tree);
         assert!(view.io_mode);
-        assert_eq!(view.net_iface, "Ethernet");
+        assert_eq!(view.net_iface, "{12345678-1234-1234-1234-123456789012}");
     }
 
     #[test]

@@ -354,9 +354,15 @@ pub struct ViewConfig {
     pub io_mode: bool,
     pub net_auto: bool,
     pub net_sync: bool,
-    /// Preferred network interface name. `"auto"` picks the first
-    /// available interface; any other value is the user's pinned
-    /// selection (cycled at runtime via `b` / `n`).
+    /// Preferred network adapter identifier. The string form of
+    /// the Win32 `IP_ADAPTER_ADDRESSES_LH.AdapterName` GUID — for
+    /// example `{12345678-1234-1234-1234-123456789012}`. `"auto"`
+    /// picks the first available adapter; any other value is the
+    /// user's pinned selection (cycled at runtime via `<` / `>`).
+    /// The persisted GUID is stable across reboots, driver updates
+    /// and connection renames; only adapter uninstall + reinstall
+    /// invalidates it (in which case `reconcile` falls back to
+    /// the first available adapter).
     pub net_iface: String,
     /// Preferred GPU device identifier (vendor-prefixed UUID, e.g.
     /// `NVIDIA:GPU-12345...`). `"auto"` picks the first available

@@ -17,8 +17,25 @@ pub struct NetStatPair {
 /// Network interface statistics.
 #[derive(Debug, Clone, Default)]
 pub struct NetInfo {
-    /// Interface display name.
-    pub name: String,
+    /// Permanent adapter identifier from Windows. The string form
+    /// of `IP_ADAPTER_ADDRESSES_LH.AdapterName` — a GUID assigned
+    /// at adapter installation that is documented as "permanent and
+    /// cannot be modified by the user." This is the stable key
+    /// used for cycling and persistence (`RuntimeView::net_iface`,
+    /// `ViewConfig::net_iface`). It survives reboots, driver
+    /// updates, IP changes, and connection renames; it changes
+    /// only when an adapter is uninstalled and reinstalled.
+    /// Two physically distinct NICs (even if identical make/model)
+    /// always have different `stable_id`s — the only field on the
+    /// adapter struct that guarantees uniqueness.
+    pub stable_id: String,
+    /// Adapter description from the driver's INF (e.g. "Realtek
+    /// PCIe GbE Family Controller", "Intel(R) Ethernet I225-V").
+    /// Used as the human-readable display name in the widget chip.
+    /// Two identical adapters in the same machine share the same
+    /// description — uniqueness is provided by `stable_id`, not
+    /// this field.
+    pub description: String,
     /// Bandwidth history (values in bytes/sec).
     pub bandwidth: NetBandwidth,
     /// Cumulative statistics.

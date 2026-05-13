@@ -9,7 +9,15 @@ use super::{
 const MAX_ADAPTER_ADDRESSES_BUFFER: u32 = 1024 * 1024;
 const MAX_ADAPTER_TRAVERSAL: usize = 1024;
 const MAX_UNICAST_TRAVERSAL: usize = 256;
-const MAX_FRIENDLY_NAME_CHARS: usize = 512;
+/// Generous upper bound for an adapter description (driver name
+/// from the INF). Real-world descriptions are < 100 chars.
+const MAX_DESCRIPTION_CHARS: usize = 512;
+/// AdapterName is a GUID-shaped string of the form
+/// `"{12345678-1234-1234-1234-123456789012}"` — exactly 38 chars
+/// plus a NUL terminator. The bound is set generously above that
+/// to defend against malformed input without arbitrarily clamping
+/// any well-formed value.
+const MAX_ADAPTER_NAME_CHARS: usize = 64;
 
 enum FormattedIp {
     V4(String),
@@ -83,13 +91,19 @@ impl NetCollector {
                     continue;
                 }
 
-                // Get friendly name
-                let Some(name) =
-                    wide_ptr_to_string_bounded(adapter.FriendlyName.0, MAX_FRIENDLY_NAME_CHARS)
+                // Read the permanent adapter GUID (cycling and
+                // persistence identifier; see
+                // `domain::network::NetInfo::stable_id`) and the
+                // driver description (display name).
+                let Some(stable_id) =
+                    ansi_ptr_to_string_bounded(adapter.AdapterName.0, MAX_ADAPTER_NAME_CHARS)
                 else {
                     current = adapter.Next;
                     continue;
                 };
+                let description =
+                    wide_ptr_to_string_bounded(adapter.Description.0, MAX_DESCRIPTION_CHARS)
+                        .unwrap_or_default();
 
                 let oper_status = adapter.OperStatus.0;
                 let connected = oper_status == 1; // IfOperStatusUp = 1
@@ -123,10 +137,11 @@ impl NetCollector {
 
                 let mut entry = previous_nets
                     .iter()
-                    .find(|n| n.name == name)
+                    .find(|n| n.stable_id == stable_id)
                     .cloned()
                     .unwrap_or_default();
-                entry.name = name;
+                entry.stable_id = stable_id;
+                entry.description = description;
 
                 entry.connected = connected;
                 entry.ipv4 = ipv4;
@@ -252,6 +267,38 @@ unsafe fn wide_ptr_to_string_bounded(ptr: *const u16, max_units: usize) -> Optio
     None
 }
 
+/// Read a NUL-terminated single-byte (ANSI) string pointed to by
+/// `ptr`, scanning at most `max_units` bytes. Returns `None` if
+/// `ptr` is null, `max_units` is zero, or no NUL is found within
+/// the bound.
+///
+/// Used for `IP_ADAPTER_ADDRESSES_LH.AdapterName`, which Windows
+/// documents as a `PSTR` (single-byte) GUID-shaped string. The
+/// adapter GUID is pure ASCII (`{`, hex digits, `-`, `}`), so
+/// byte-to-char conversion via `String::from_utf8_lossy` is exact
+/// for any well-formed value.
+unsafe fn ansi_ptr_to_string_bounded(ptr: *const u8, max_units: usize) -> Option<String> {
+    if ptr.is_null() || max_units == 0 {
+        return None;
+    }
+
+    let mut len = 0usize;
+    while len < max_units {
+        // SAFETY: the caller guarantees ptr points to a foreign single-byte
+        // string. The scan is bounded by max_units and stops before reading
+        // past it.
+        if unsafe { *ptr.add(len) } == 0 {
+            // SAFETY: len was discovered by a bounded scan from ptr, so this
+            // slice covers only initialized bytes before the terminator.
+            let slice = unsafe { slice::from_raw_parts(ptr, len) };
+            return Some(String::from_utf8_lossy(slice).into_owned());
+        }
+        len += 1;
+    }
+
+    None
+}
+
 unsafe fn socket_address_to_ip(
     address: &windows::Win32::Networking::WinSock::SOCKET_ADDRESS,
 ) -> Option<FormattedIp> {
@@ -358,6 +405,26 @@ mod tests {
         // SAFETY: name is a local null-terminated UTF-16 buffer.
         let parsed = unsafe { wide_ptr_to_string_bounded(name.as_ptr(), name.len()) };
         assert_eq!(parsed.as_deref(), Some("LAN"));
+    }
+
+    #[test]
+    fn ansi_ptr_to_string_bounded_stops_at_nul() {
+        let buf = b"{12345678-1234-1234-1234-123456789012}\0extra";
+        // SAFETY: buf is a local null-terminated single-byte buffer.
+        let parsed = unsafe { ansi_ptr_to_string_bounded(buf.as_ptr(), buf.len()) };
+        assert_eq!(
+            parsed.as_deref(),
+            Some("{12345678-1234-1234-1234-123456789012}")
+        );
+    }
+
+    #[test]
+    fn ansi_ptr_to_string_bounded_returns_none_when_no_nul() {
+        let buf = b"NoTerminator";
+        // SAFETY: buf is a local single-byte buffer; passing buf.len() bounds
+        // the scan to its initialized range.
+        let parsed = unsafe { ansi_ptr_to_string_bounded(buf.as_ptr(), buf.len()) };
+        assert_eq!(parsed, None);
     }
 
     #[test]

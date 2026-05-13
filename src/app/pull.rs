@@ -253,12 +253,13 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
-    fn net_snap(names: &[&str]) -> Arc<runner::NetSnapshot> {
+    fn net_snap(stable_ids: &[&str]) -> Arc<runner::NetSnapshot> {
         Arc::new(runner::NetSnapshot {
-            nets: names
+            nets: stable_ids
                 .iter()
-                .map(|n| crate::domain::network::NetInfo {
-                    name: (*n).into(),
+                .map(|id| crate::domain::network::NetInfo {
+                    stable_id: (*id).into(),
+                    description: format!("Test Adapter {id}"),
                     ..Default::default()
                 })
                 .collect(),
@@ -266,51 +267,57 @@ mod tests {
         })
     }
 
+    /// Two GUID-shaped fixture strings used across the reconcile
+    /// tests below. Real Windows AdapterName values are 38-char
+    /// `{GUID}` strings — these match that shape exactly.
+    const ID_A: &str = "{aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa}";
+    const ID_B: &str = "{bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb}";
+
     #[test]
     fn reconcile_selected_net_iface_selects_first_available_interface() {
         let config = config::Config::new();
         let mut state = AppState::new(&config);
         state.render.clear_dirty();
-        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
+        state.live.net = Some(net_snap(&[ID_A, ID_B]));
 
         reconcile_selected_net_iface(&mut state);
 
-        assert_eq!(state.network.selected_iface, "Ethernet");
+        assert_eq!(state.network.selected_iface, ID_A);
         assert!(state.render.dirty.is_widget_dirty(WidgetKind::Net));
     }
 
     #[test]
     fn reconcile_uses_preferred_iface_when_present() {
         // RuntimeView.net_iface holds the persisted/preferred
-        // interface; reconcile must honour it when the iface is
-        // currently in the live list.
+        // interface (an adapter GUID); reconcile must honour it
+        // when that adapter is currently in the live list.
         let config = config::Config::new();
         let mut state = AppState::new(&config);
-        state.view.net_iface = "Wi-Fi".into();
-        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
+        state.view.net_iface = ID_B.into();
+        state.live.net = Some(net_snap(&[ID_A, ID_B]));
 
         reconcile_selected_net_iface(&mut state);
 
-        assert_eq!(state.network.selected_iface, "Wi-Fi");
+        assert_eq!(state.network.selected_iface, ID_B);
     }
 
     #[test]
     fn reconcile_falls_back_when_preferred_iface_missing_but_preserves_preference() {
-        // Saved preference is `Ethernet` but the live list only
-        // has `Wi-Fi`. The displayed iface falls back to `Wi-Fi`,
-        // BUT the persisted `RuntimeView.net_iface` must remain
-        // `Ethernet` so the user's preference re-asserts on the
-        // next process restart (when Ethernet may be back).
+        // Saved preference is ID_A but the live list only has
+        // ID_B. The displayed iface falls back to ID_B, BUT the
+        // persisted `RuntimeView.net_iface` must remain ID_A so
+        // the user's preference re-asserts on the next process
+        // restart (when the preferred adapter may be back).
         let config = config::Config::new();
         let mut state = AppState::new(&config);
-        state.view.net_iface = "Ethernet".into();
-        state.live.net = Some(net_snap(&["Wi-Fi"]));
+        state.view.net_iface = ID_A.into();
+        state.live.net = Some(net_snap(&[ID_B]));
 
         reconcile_selected_net_iface(&mut state);
 
-        assert_eq!(state.network.selected_iface, "Wi-Fi");
+        assert_eq!(state.network.selected_iface, ID_B);
         assert_eq!(
-            state.view.net_iface, "Ethernet",
+            state.view.net_iface, ID_A,
             "preferred iface must NOT be overwritten by auto-fallback"
         );
     }
@@ -324,14 +331,14 @@ mod tests {
         // at the next restart).
         let config = config::Config::new();
         let mut state = AppState::new(&config);
-        state.network.selected_iface = "Wi-Fi".into();
-        state.view.net_iface = "Ethernet".into();
-        state.live.net = Some(net_snap(&["Ethernet", "Wi-Fi"]));
+        state.network.selected_iface = ID_B.into();
+        state.view.net_iface = ID_A.into();
+        state.live.net = Some(net_snap(&[ID_A, ID_B]));
 
         reconcile_selected_net_iface(&mut state);
 
-        assert_eq!(state.network.selected_iface, "Wi-Fi");
-        assert_eq!(state.view.net_iface, "Ethernet");
+        assert_eq!(state.network.selected_iface, ID_B);
+        assert_eq!(state.view.net_iface, ID_A);
     }
 
     // ─────────────────────────────────────────────────────────────

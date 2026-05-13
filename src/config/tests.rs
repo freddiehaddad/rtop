@@ -188,7 +188,7 @@ custom_cpu_name = "My CPU"
 show_swap = false
 io_mode = true
 disk_filter = ["C:", "!D:"]
-net_iface = "Ethernet"
+net_iface = "{12345678-1234-1234-1234-123456789012}"
 net_download = 5000
 proc_tree = true
 proc_sorting = "memory"
@@ -226,7 +226,10 @@ hidden_widgets = ["mem", "gpu"]
     assert_eq!(config.disk.disk_filter, vec!["C:", "!D:"]);
 
     // NetConfig
-    assert_eq!(config.view.net_iface, "Ethernet");
+    assert_eq!(
+        config.view.net_iface,
+        "{12345678-1234-1234-1234-123456789012}"
+    );
     assert_eq!(config.net.net_download, 5000);
 
     // ProcConfig

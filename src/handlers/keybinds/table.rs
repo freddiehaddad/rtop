@@ -298,13 +298,13 @@ pub(crate) static BINDINGS: &[Binding] = &[
     // Network
     // -----------------------------------------------------------------
     Binding {
-        keys: &[KeySpec::Always(Key::Char('b'))],
+        keys: &[KeySpec::Always(Key::Char('<'))],
         states: NORMAL,
-        help: Some(HelpEntry { category: "Network", keys: "n / b", description: "Cycle network interfaces" }),
+        help: Some(HelpEntry { category: "Network", keys: "> / <", description: "Cycle network interfaces" }),
         action: normal::net_back_action,
     },
     Binding {
-        keys: &[KeySpec::Always(Key::Char('n'))],
+        keys: &[KeySpec::Always(Key::Char('>'))],
         states: NORMAL,
         help: None,
         action: normal::net_forward_action,

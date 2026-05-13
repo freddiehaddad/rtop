@@ -93,7 +93,7 @@ The UI design is based on [btop](https://github.com/aristocratos/btop) by aristo
 
 | Key | Action |
 |-----|--------|
-| `n` / `b` | Cycle network interfaces |
+| `>` / `<` | Cycle network interfaces |
 | `a` | Toggle network auto scale |
 | `s` | Toggle network sync scale |
 

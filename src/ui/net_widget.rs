@@ -24,13 +24,14 @@ fn format_link_speed(bps: u64) -> String {
 
 /// Per-frame view passed to [`draw`].
 ///
-/// `iface` is the currently-selected interface name (per-frame,
-/// from `NetworkViewState::selected_iface`). `auto_scale` /
-/// `sync_scale` come from `RuntimeView`. `graph_symbol` is
-/// pre-resolved from `NetConfig::graph_symbol_net +
-/// UiConfig::graph_symbol`.
-pub struct NetFrame<'a> {
-    pub iface: &'a str,
+/// `auto_scale` / `sync_scale` come from `RuntimeView`.
+/// `graph_symbol` is pre-resolved from
+/// `NetConfig::graph_symbol_net` + `UiConfig::graph_symbol`. The
+/// currently-selected adapter is passed to [`draw`] as the first
+/// argument (`&NetInfo`); it carries both the stable identifier
+/// (`stable_id`) and the description used for the chip text, so
+/// the frame doesn't carry an adapter handle.
+pub struct NetFrame {
     pub auto_scale: bool,
     pub sync_scale: bool,
     pub max_download: i64,
@@ -43,7 +44,7 @@ pub struct NetFrame<'a> {
 /// Draw the network widget into an ANSI string matching btop's layout.
 ///
 /// Layout:
-/// ╭─┐³net┌───────────────────────────────────────────────────────────┐1 Gbps┌─╮
+/// ╭─┐³net┌────────────────────────────────────────┐← < Ethernet (1 Gbps) > →┌─╮
 /// │              ⢸⡇                        ⢸⡇                        0.0B/s ▼ │
 /// │              ⢸⣿⣿⡇                      ⢸⡇                                 │
 /// │              ⢸⣿⣿⣇⡀                     ⢸⡇                                 │
@@ -56,7 +57,7 @@ pub struct NetFrame<'a> {
 /// │             ⢸⡏⠉⠁                      ⠈⢹⡇                                 │
 /// │             ⢸⡇                         ⢸⡇                                 │
 /// │                                        ⢸⡇                        0.0B/s ▲ │
-/// ╰─┘sync└┘auto└┘← b Ethernet n →└────────────────────────────────────────────╯
+/// ╰─┘sync└┘auto└────────────────────────────────────────────────┘↓ 12G ↑ 3G└─╯
 pub fn draw(
     net: &NetInfo,
     area: &WidgetArea,
@@ -216,20 +217,98 @@ pub fn draw(
         buf.mv(lx, label_y).color(bot_color).text(&label);
     }
 
-    // Link speed inset on top right border
-    if net.link_speed > 0 {
-        let speed_str = format_link_speed(net.link_speed);
-        let inset = box_drawing::title_inset(&speed_str, border_color, title_color, false);
-        let inset_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&speed_str));
-        buf.mv(inset_x, y + 1).text(&inset);
+    // Top-right border (combined scope chip):
+    //   ← < <description> [ (<link>) ] > →
+    //
+    // The chip text is the adapter's driver description (e.g.
+    // "Realtek PCIe GbE Family Controller"). The persistent
+    // identifier is the adapter GUID (`NetInfo::stable_id`),
+    // resolved upstream by the dispatch path; the description is
+    // queried at render time from the looked-up `NetInfo` and
+    // displayed verbatim.
+    //
+    // link_speed merges into the same chip rather than rendering
+    // as a separate inset because both pieces are properties of
+    // the currently-selected interface — the cycler answers
+    // "which adapter?" and the link speed answers "running at what?".
+    //
+    // Truncation is dynamic: when the available zone is too narrow,
+    // the description truncates with `…`; if that still doesn't fit,
+    // the link is dropped from the chip; if even the link-less chip
+    // won't fit, the chip is omitted entirely.
+    {
+        let display_name_full = net.description.as_str();
+        let link_str = if net.link_speed > 0 {
+            format_link_speed(net.link_speed)
+        } else {
+            String::new()
+        };
+
+        // Available zone width: from one column past the title chip's
+        // right edge, to one column before the widget's right border.
+        // `(zone_right + 1).saturating_sub(zone_left)` reports 0
+        // columns (rather than a phantom 1) when the title chip
+        // would already overflow the right edge.
+        let title_chip_end = x + 3 + box_drawing::inset_width("\u{00B3}net");
+        let zone_left = title_chip_end + 1;
+        let zone_right = x + width - 2;
+        let zone_width = (zone_right + 1).saturating_sub(zone_left);
+
+        // Fixed visible width (excluding the variable name section)
+        // for each chip variant, including the two outer connectors
+        // (┐ ... ┌) and the inner spacing around chevrons:
+        //   With link:    ┐← < <NAME> (<LINK>) > →┌  =  13 + name + link
+        //   Without link: ┐← < <NAME> > →┌            =  10 + name
+        let with_link_overhead = 13 + tools::ulen(&link_str);
+        let without_link_overhead = 10;
+        let with_link_max_name = zone_width.saturating_sub(with_link_overhead);
+        let without_link_max_name = zone_width.saturating_sub(without_link_overhead);
+        let name_full_len = tools::ulen(display_name_full);
+
+        let (display_name, link_in_chip) =
+            if !link_str.is_empty() && with_link_max_name >= name_full_len {
+                (display_name_full.to_string(), true)
+            } else if !link_str.is_empty() && with_link_max_name >= 2 {
+                let truncated = format!(
+                    "{}…",
+                    tools::uresize(display_name_full, with_link_max_name - 1)
+                );
+                (truncated, true)
+            } else if without_link_max_name >= name_full_len {
+                (display_name_full.to_string(), false)
+            } else if without_link_max_name >= 2 {
+                let truncated = format!(
+                    "{}…",
+                    tools::uresize(display_name_full, without_link_max_name - 1)
+                );
+                (truncated, false)
+            } else {
+                (String::new(), false)
+            };
+
+        if !display_name.is_empty() {
+            let chip_text = if link_in_chip {
+                format!("← {hi}<{title_color} {display_name} ({link_str}) {hi}>{title_color} →")
+            } else {
+                format!("← {hi}<{title_color} {display_name} {hi}>{title_color} →")
+            };
+            let plain = if link_in_chip {
+                format!("← < {display_name} ({link_str}) > →")
+            } else {
+                format!("← < {display_name} > →")
+            };
+            let chip_x = box_drawing::right_inset_x(x, width, box_drawing::inset_width(&plain));
+            let chip_inset = box_drawing::title_inset(&chip_text, border_color, title_color, false);
+            buf.mv(chip_x, y + 1).text(&chip_inset);
+        }
     }
 
-    // Bottom border: sync, auto, interface selector (left side);
-    // cumulative totals (right side).
-    // sync/auto append `*` when active (mirrors disk's `io*` and
-    // proc's `tre*e` convention for binary toggles).
+    // Bottom border: sync and auto on the left side; cumulative
+    // totals on the right side. The adapter chip lives on the
+    // top-right border (see the chip block above). sync/auto append
+    // `*` when active (mirrors disk's `io*` convention for binary
+    // toggles).
     let bottom_y = y + height;
-    let iface_display = tools::uresize(settings.iface, 15);
 
     let sync_marker = if net_sync { "*" } else { "" };
     let auto_marker = if net_auto { "*" } else { "" };
@@ -237,30 +316,23 @@ pub fn draw(
     let auto_text = format!("{hi}a{title_color}uto{auto_marker}");
     let sync_inset = box_drawing::title_inset(&sync_text, border_color, title_color, true);
     let auto_inset = box_drawing::title_inset(&auto_text, border_color, title_color, true);
-    let iface_text = format!(
-        "← {}b{} {} {}n{} →",
-        hi, title_color, iface_display, hi, title_color,
-    );
-    let iface_inset = box_drawing::title_inset(&iface_text, border_color, title_color, true);
 
     let mut bx = x + 3;
     buf.mv(bx, bottom_y).text(&sync_inset);
     bx += box_drawing::inset_width(&format!("sync{sync_marker}"));
     buf.mv(bx, bottom_y).text(&auto_inset);
     bx += box_drawing::inset_width(&format!("auto{auto_marker}"));
-    buf.mv(bx, bottom_y).text(&iface_inset);
-    bx += box_drawing::inset_width(&iface_text);
 
     // Bottom-right: cumulative totals since rtop started. Format
     // `↓ 12.4G ↑ 3.1G`. Skipped when the bottom border doesn't have
-    // room without overlapping the left-side keybind/iface insets.
+    // room without overlapping the left-side sync/auto insets.
     let dl_total =
         tools::floating_humanizer(net.stat.download.total, true, 0, false, false, base_10);
     let ul_total = tools::floating_humanizer(net.stat.upload.total, true, 0, false, false, base_10);
     let totals_text = format!("↓ {dl_total} ↑ {ul_total}");
     let totals_vis = box_drawing::inset_width(&totals_text);
     let totals_x = box_drawing::right_inset_x(x, width, totals_vis);
-    // Need at least one column of border between the iface inset's
+    // Need at least one column of border between the auto inset's
     // right edge and the totals inset's left edge so they read as
     // separate elements rather than a continuous string.
     if totals_x > bx {
@@ -311,16 +383,15 @@ impl super::Widget for NetWidget {
         let Some(net) = params.net else {
             return;
         };
-        let iface = params.selected_net_iface;
+        let iface_id = params.selected_net_iface;
         let default_net = crate::domain::network::NetInfo::default();
         let net_info = net
             .nets
             .iter()
-            .find(|n| n.name == iface)
+            .find(|n| n.stable_id == iface_id)
             .unwrap_or(&default_net);
         let area = super::WidgetArea::from_dim(net_dim, params.rounded);
         let frame = NetFrame {
-            iface,
             auto_scale: params.view.net_auto,
             sync_scale: params.view.net_sync,
             max_download: params.config.net.net_download,
@@ -363,7 +434,8 @@ mod tests {
 
     fn make_net_info() -> NetInfo {
         NetInfo {
-            name: "Ethernet".into(),
+            stable_id: "{12345678-1234-1234-1234-123456789012}".into(),
+            description: "Ethernet".into(),
             bandwidth: NetBandwidth {
                 download: VecDeque::from([1024, 2048, 4096]),
                 upload: VecDeque::from([512, 1024, 2048]),
@@ -397,9 +469,8 @@ mod tests {
         }
     }
 
-    fn make_frame() -> NetFrame<'static> {
+    fn make_frame() -> NetFrame {
         NetFrame {
-            iface: "Ethernet",
             auto_scale: true,
             sync_scale: false,
             max_download: 100,
@@ -463,10 +534,10 @@ mod tests {
     fn iface_inset_colours_arrows_as_label_and_letters_as_keybind() {
         // Locks in the rule that arrow-style keybind insets render
         // arrows + spaces in the label colour (TITLE) and only the
-        // keybind letters themselves in the keybind colour (HI_FG).
-        // Pre-fix everything in `←b Ethernet n→` was rendered in HI_FG.
+        // keybind characters themselves in the keybind colour (HI_FG).
         // The format also has a space on each side of every arrow so
-        // the keybind letter and the arrow read as separate tokens.
+        // the keybind char and the arrow read as separate tokens.
+        // Chip text: `← < Ethernet (1 Gbps) > →`. Keybinds are `<` / `>`.
         use crate::theme_keys as tc;
         let theme = Theme::default();
         let output = draw(
@@ -485,23 +556,23 @@ mod tests {
             output.contains(&format!("{title}← ")),
             "left arrow + trailing space should render in TITLE colour"
         );
-        // `b` is preceded by HI (embedded switch).
+        // `<` is preceded by HI (embedded switch).
         assert!(
-            output.contains(&format!("{hi}b")),
-            "keybind 'b' should render in HI colour"
+            output.contains(&format!("{hi}<")),
+            "keybind '<' should render in HI colour"
         );
         // The space + iface name + space region is in TITLE.
         assert!(
             output.contains(&format!("{title} Ethernet ")),
             "iface name and surrounding spaces should render in TITLE colour"
         );
-        // `n` is preceded by HI.
+        // `>` is preceded by HI.
         assert!(
-            output.contains(&format!("{hi}n")),
-            "keybind 'n' should render in HI colour"
+            output.contains(&format!("{hi}>")),
+            "keybind '>' should render in HI colour"
         );
         // ` →` (leading space + arrow) is in TITLE so the closing
-        // border isn't HI-coloured and the arrow isn't fused with `n`.
+        // border isn't HI-coloured and the arrow isn't fused with `>`.
         assert!(
             output.contains(&format!("{title} →")),
             "leading space + right arrow should render in TITLE colour"
@@ -601,11 +672,14 @@ mod tests {
 
     #[test]
     fn totals_inset_skipped_when_bottom_border_lacks_room() {
-        // A narrow widget where the left-side insets + iface name
+        // A narrow widget where the left-side `sync` + `auto*` insets
         // leave no horizontal room on the bottom border for a
-        // totals inset must omit the totals rather than overlap.
+        // cumulative-totals inset must omit the totals rather than
+        // overlap. The iface cycler moved to the top-right zone, so
+        // the bottom-left is much shorter than before — this guard
+        // now triggers only at very narrow widths.
         let mut area = make_area();
-        area.width = 50;
+        area.width = 30;
         let info = make_net_info_with_totals(1_000_000, 2_000_000);
         let output = draw(
             &info,
@@ -616,12 +690,96 @@ mod tests {
         );
         let plain = strip_ansi(&output);
         // Down arrow + space + value would be present on a wider
-        // widget. With width=50 it should be absent. (The in-graph
+        // widget. With width=30 it should be absent. (The in-graph
         // ▼ arrow uses a different glyph, so this check is unique
         // to the border inset.)
         assert!(
             !plain.contains("↓ "),
             "totals inset must be skipped when there is no room; got: {plain}"
+        );
+    }
+
+    // ── Cycler chip placement ───────────────────────────────────────
+
+    /// Returns the row of the most recent cursor-position escape
+    /// (`\x1b[<row>;<col>H`) in `output` that appears before the
+    /// first occurrence of `needle`. Returns `None` if `needle`
+    /// is not found or no cursor move precedes it.
+    fn cursor_row_for_substring(output: &str, needle: &str) -> Option<usize> {
+        let chip_pos = output.find(needle)?;
+        let prefix = &output[..chip_pos];
+        let mut last_h_row: Option<usize> = None;
+        let mut search = 0;
+        while let Some(esc_rel) = prefix[search..].find("\x1b[") {
+            let esc_abs = search + esc_rel + 2;
+            let rest = &prefix[esc_abs..];
+            let Some(end_rel) = rest.find(|c: char| c.is_ascii_alphabetic()) else {
+                break;
+            };
+            if rest.as_bytes()[end_rel] == b'H' {
+                let params = &rest[..end_rel];
+                if let Some(semi) = params.find(';')
+                    && let Ok(r) = params[..semi].parse::<usize>()
+                {
+                    last_h_row = Some(r);
+                }
+            }
+            search = esc_abs + end_rel + 1;
+        }
+        last_h_row
+    }
+
+    #[test]
+    fn iface_cycler_chip_uses_chevron_keybinds() {
+        // The cycler chip text must contain `<` and `>` (the new
+        // keybind characters) in HI colour, with the iface name
+        // between them in TITLE colour.
+        use crate::theme_keys as tc;
+        let theme = Theme::default();
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &theme,
+            &make_frame(),
+            &CollectStatus::Ok,
+        );
+        let hi = theme.color(tc::HI_FG);
+        assert!(
+            output.contains(&format!("{hi}<")),
+            "iface cycler must contain '<' in HI colour"
+        );
+        assert!(
+            output.contains(&format!("{hi}>")),
+            "iface cycler must contain '>' in HI colour"
+        );
+        let plain = strip_ansi(&output);
+        assert!(
+            plain.contains("← < Ethernet (1 Gbps) > →"),
+            "iface cycler text must read '← < Ethernet (1 Gbps) > →': {plain}"
+        );
+    }
+
+    #[test]
+    fn iface_cycler_chip_renders_on_top_border_not_bottom() {
+        // The iface cycler is a scope cycler (top-right zone), not
+        // a display toggle. With `make_area()` (y=1, height=14) the
+        // top border lives at row y+1 = 2 and the bottom border at
+        // y+height = 15. The chip text "Ethernet" appears once in
+        // the rendered output (inside the cycler chip) — the most
+        // recent cursor-position escape preceding it must be a move
+        // to row 2.
+        let output = draw(
+            &make_net_info(),
+            &make_area(),
+            &Theme::default(),
+            &make_frame(),
+            &CollectStatus::Ok,
+        );
+        let row = cursor_row_for_substring(&output, "Ethernet")
+            .expect("iface chip text must be preceded by a cursor-position escape");
+        assert_eq!(
+            row, 2,
+            "iface cycler chip must be rendered on the top border (row 2), not row {row}"
         );
     }
 }
