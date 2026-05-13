@@ -11,7 +11,7 @@ use crate::draw::buffer::AnsiBuffer;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 
-use self::borders::{BottomBorderParams, draw_bottom_border, draw_top_border};
+use self::borders::{BottomBorderParams, TopBorderParams, draw_bottom_border, draw_top_border};
 use self::detail::{DetailPanelParams, draw_detail_panel};
 use self::layout::{ProcWidgetLayout, SortState};
 use self::rows::{ProcessRowsParams, draw_rows};
@@ -316,12 +316,15 @@ fn draw_proc_borders(
     theme: &Theme,
 ) {
     buf.text(&draw_top_border(
-        layout.x,
-        layout.y,
-        layout.width,
-        view.sort_by,
-        view.tree_mode,
-        view.paused,
+        &TopBorderParams {
+            x: layout.x,
+            y: layout.y,
+            width: layout.width,
+            sort_by: view.sort_by,
+            tree_mode: view.tree_mode,
+            reversed: view.sort_reversed,
+            paused: view.paused,
+        },
         theme,
     ));
 

@@ -4,53 +4,86 @@ use crate::term;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 
-/// Fixed characters consumed by the sort selector inset on the bottom border:
+/// Fixed characters consumed by the sort selector inset on the top border:
 /// left_connector(1) + "← "(2) + " →"(2) + right_connector(1) + gap(1).
 const SORT_INSET_OVERHEAD: usize = 7;
+
+/// Leftmost column an optional chip on the top border may occupy
+/// while preserving a one-column gap after the title chip.
+///
+/// `create_box` places the title chip starting at column `x + 3`
+/// with visible width `inset_width("⁴proc") = 7`, so the title
+/// chip ends at column `x + 9`. Column `x + 10` is reserved as the
+/// inter-chip gap; the next chip's left edge therefore starts at
+/// column `x + 11`.
+const MIN_OPTIONAL_CHIP_LEFT: usize = 11;
+
+/// Parameters for the proc top border rendering.
+pub(super) struct TopBorderParams {
+    pub(super) x: usize,
+    pub(super) y: usize,
+    pub(super) width: usize,
+    pub(super) sort_by: crate::collect::process_display::ProcSort,
+    /// `true` when tree view is active. Drives the `tree*` marker.
+    pub(super) tree_mode: bool,
+    /// `true` when the sort order is reversed. Drives the
+    /// `reverse*` marker.
+    pub(super) reversed: bool,
+    /// `true` when the proc list is paused. Drives the `paused`
+    /// state chip immediately after the title.
+    pub(super) paused: bool,
+}
 
 /// Render the top border with reverse, tree, sort selector, and (when
 /// the proc list is paused) a `paused` state chip immediately after
 /// the title.
-pub(super) fn draw_top_border(
-    x: usize,
-    y: usize,
-    width: usize,
-    sort_by: crate::collect::process_display::ProcSort,
-    tree_mode: bool,
-    paused: bool,
-    theme: &Theme,
-) -> String {
+///
+/// Display toggles use a `<word>*` marker convention when active —
+/// `tree*`, `reverse*` — matching the `sync*` / `auto*` / `io*`
+/// pattern on the other widgets. The marker always sits at the end
+/// of the chip text regardless of whether the highlighted keybind
+/// letter is at the start or end of the word.
+pub(super) fn draw_top_border(p: &TopBorderParams, theme: &Theme) -> String {
     let border_color = theme.color(tc::PROC_WIDGET);
     let hi = theme.color(tc::HI_FG);
     let title_color = theme.color(tc::TITLE);
     let mut buf = AnsiBuffer::new();
 
-    let sort_name = sort_by.as_str();
-    let tree_star = if tree_mode { "*" } else { "" };
+    let sort_name = p.sort_by.as_str();
+    let tree_star = if p.tree_mode { "*" } else { "" };
 
-    // Build positions right-to-left from the right corner
-    let mut pos = x + width - sort_name.len() - SORT_INSET_OVERHEAD;
+    // Build positions right-to-left from the right corner.
+    let mut pos = p.x + p.width - sort_name.len() - SORT_INSET_OVERHEAD;
 
     // Sort selector: ┐← sorting →┌
-    let sort_text = format!("← {}{} {}→", title_color, sort_name, hi);
+    let sort_text = format!("← {title_color}{sort_name} {hi}→");
     let sort_inset = box_drawing::title_inset(&sort_text, border_color, hi, false);
-    buf.mv(pos, y + 1).text(&sort_inset);
+    buf.mv(pos, p.y + 1).text(&sort_inset);
 
-    // Tree button: ┐tree┌
-    let tree_content = format!("tre{}{}", tree_star, "e");
-    let tree_len = tree_content.len();
-    if pos > x + 12 + tree_len {
-        pos -= tree_len + 2;
-        let tree_text = format!("tre{}{}e", tree_star, hi);
+    let min_chip_left = p.x + MIN_OPTIONAL_CHIP_LEFT;
+
+    // Tree button: ┐tree[*]┌. The `e` is the keybind letter and is
+    // rendered in `hi`; the optional `*` follows in `title_color`
+    // so the active marker reads as a state, not as part of the
+    // keybind hint.
+    let tree_vis = box_drawing::inset_width(&format!("tree{tree_star}"));
+    if pos >= min_chip_left + tree_vis {
+        pos -= tree_vis;
+        let tree_text = format!("tre{hi}e{title_color}{tree_star}");
         let tree_inset = box_drawing::title_inset(&tree_text, border_color, title_color, false);
-        buf.mv(pos, y + 1).text(&tree_inset);
+        buf.mv(pos, p.y + 1).text(&tree_inset);
     }
 
-    // Reverse button: ┐reverse┌
-    if pos > x + 12 {
-        pos -= 9;
-        let rev_inset = box_drawing::keybind_inset("reverse", border_color, hi, title_color, false);
-        buf.mv(pos, y + 1).text(&rev_inset);
+    // Reverse button: ┐reverse[*]┌. `r` is the keybind letter
+    // (first char, auto-highlighted by `keybind_inset`); the `*`
+    // sits at the end when reversed.
+    let rev_content = if p.reversed { "reverse*" } else { "reverse" };
+    let rev_vis = box_drawing::inset_width(rev_content);
+    if pos >= min_chip_left + rev_vis {
+        pos -= rev_vis;
+        let rev_inset =
+            box_drawing::keybind_inset(rev_content, border_color, hi, title_color, false);
+        buf.mv(pos, p.y + 1).text(&rev_inset);
     }
 
     // Pause state chip: ┐paused┌, immediately after the title chip.
@@ -60,15 +93,15 @@ pub(super) fn draw_top_border(
     // sits at x + 3 + 7 = x + 10. The chip is rendered only when
     // paused; when not paused the right-side chip positions stay
     // unchanged because they're computed from the right edge.
-    if paused {
+    if p.paused {
         let pause_inset = box_drawing::title_inset("paused", border_color, hi, false);
         let title_w = box_drawing::inset_width("\u{2074}proc"); // matches the title chip
-        let pause_x = x + 3 + title_w;
+        let pause_x = p.x + 3 + title_w;
         // Defensive: only render if there's room before the
         // right-side chips (which start at `pos`). Avoids garbled
         // borders on extremely narrow proc widgets.
         if pause_x + box_drawing::inset_width("paused") <= pos {
-            buf.mv(pause_x, y + 1).text(&pause_inset);
+            buf.mv(pause_x, p.y + 1).text(&pause_inset);
         }
     }
 
@@ -201,10 +234,22 @@ mod tests {
         out
     }
 
+    fn top_params(tree_mode: bool, reversed: bool, paused: bool) -> TopBorderParams {
+        TopBorderParams {
+            x: 0,
+            y: 0,
+            width: 80,
+            sort_by: ProcSort::Cpu,
+            tree_mode,
+            reversed,
+            paused,
+        }
+    }
+
     #[test]
     fn paused_top_border_contains_paused_chip() {
         let theme = Theme::default();
-        let out = draw_top_border(0, 0, 80, ProcSort::Cpu, false, true, &theme);
+        let out = draw_top_border(&top_params(false, false, true), &theme);
         let plain = strip_ansi(&out);
         assert!(
             plain.contains("paused"),
@@ -215,7 +260,7 @@ mod tests {
     #[test]
     fn live_top_border_omits_paused_chip() {
         let theme = Theme::default();
-        let out = draw_top_border(0, 0, 80, ProcSort::Cpu, false, false, &theme);
+        let out = draw_top_border(&top_params(false, false, false), &theme);
         let plain = strip_ansi(&out);
         assert!(
             !plain.contains("paused"),
@@ -230,7 +275,7 @@ mod tests {
         // word `paused` ensures the chip uses the standard helper
         // and not raw ANSI / hand-rolled text.
         let theme = Theme::default();
-        let out = draw_top_border(0, 0, 80, ProcSort::Cpu, false, true, &theme);
+        let out = draw_top_border(&top_params(false, false, true), &theme);
         let plain = strip_ansi(&out);
         // title_inset on a top border emits TITLE_LEFT before and
         // TITLE_RIGHT after the content. We only need to confirm
@@ -288,6 +333,74 @@ mod tests {
         assert!(
             out.contains(&format!("{title_color}erminate")),
             "live terminate chip body should be in TITLE color"
+        );
+    }
+
+    // ── Top-border chip placement ───────────────────────────────────
+
+    #[test]
+    fn tree_and_reverse_chips_omitted_from_bottom_border() {
+        // Display toggles (tree, reverse) live on the top border.
+        // The bottom border holds action verbs (select, info,
+        // terminate, filter) only.
+        let theme = Theme::default();
+        let out = draw_bottom_border(&bottom_params(false), &theme);
+        let plain = strip_ansi(&out);
+        assert!(
+            !plain.contains("tree"),
+            "tree chip must not appear on the bottom border: {plain}"
+        );
+        assert!(
+            !plain.contains("reverse"),
+            "reverse chip must not appear on the bottom border: {plain}"
+        );
+    }
+
+    #[test]
+    fn tree_chip_renders_on_top_border_with_marker_when_tree_mode_active() {
+        // Marker convention: `tree*` (asterisk at the end), matching
+        // the `sync*`/`auto*`/`io*`/`reverse*` pattern. The keybind
+        // letter `e` stays in the same position whether the marker
+        // is shown or not.
+        let theme = Theme::default();
+        let out = draw_top_border(&top_params(true, false, false), &theme);
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("tree*"),
+            "tree chip must show '*' marker on top border when tree_mode=true: {plain}"
+        );
+    }
+
+    #[test]
+    fn tree_chip_renders_without_marker_when_tree_mode_inactive() {
+        let theme = Theme::default();
+        let out = draw_top_border(&top_params(false, false, false), &theme);
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("tree") && !plain.contains("tree*"),
+            "tree chip must render without '*' when tree_mode=false: {plain}"
+        );
+    }
+
+    #[test]
+    fn reverse_chip_renders_on_top_border_with_marker_when_reversed() {
+        let theme = Theme::default();
+        let out = draw_top_border(&top_params(false, true, false), &theme);
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("reverse*"),
+            "reverse chip must show '*' marker on top border when reversed=true: {plain}"
+        );
+    }
+
+    #[test]
+    fn reverse_chip_renders_without_marker_when_not_reversed() {
+        let theme = Theme::default();
+        let out = draw_top_border(&top_params(false, false, false), &theme);
+        let plain = strip_ansi(&out);
+        assert!(
+            plain.contains("reverse") && !plain.contains("reverse*"),
+            "reverse chip must render without '*' when reversed=false: {plain}"
         );
     }
 }

@@ -103,8 +103,9 @@ pub fn draw(
     let io_view = settings.io_mode || settings.disk_io_mode;
 
     // Bottom-border keybind hint: `io` (with `i` highlighted) when
-    // showing usage, `io*` when the IO view is active. Mirrors the
-    // proc-widget `tree` / `tre*e` convention for binary toggles.
+    // showing usage, `io*` when the IO view is active. Marker
+    // convention matches the `sync*` / `auto*` / `tree*` /
+    // `reverse*` chips on the other widgets.
     let star = if io_view { "*" } else { "" };
     let io_text = format!("{hi}i{title_color}o{star}");
     let io_inset = box_drawing::title_inset(&io_text, border_color, title_color, true);
