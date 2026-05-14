@@ -66,8 +66,9 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
     while let Ok(first) = event_rx.recv() {
         // Drain all queued events to batch work before rendering.
         let mut has_resize = matches!(first, AppEvent::Resize);
-        // Reset the per-cycle ready bitmap in place so the GPU
-        // `Vec<bool>` doesn't reallocate every iteration.
+        // Clear the per-cycle ready bitmap before draining this
+        // cycle's events so flags reflect only subsystems that
+        // signaled `SubsystemReady` during this iteration.
         ready.reset();
         let mut keys: Vec<input::Key> = Vec::new();
         match first {
