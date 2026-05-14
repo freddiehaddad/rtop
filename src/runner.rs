@@ -293,11 +293,7 @@ impl CollectorManager {
 
         // CPU thread
         let (cpu_tx, cpu_join) = spawn_collector(
-            || {
-                let mut cpu = CpuCollector::new();
-                cpu.init();
-                cpu
-            },
+            CpuCollector::new,
             cpu_ms,
             &cpu_slot,
             &event_tx,

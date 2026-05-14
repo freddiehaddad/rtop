@@ -37,7 +37,6 @@ pub struct CpuCollector {
     prev_kernel: Vec<u64>,
     prev_user: Vec<u64>,
     load_avg_samples: VecDeque<f64>,
-    initialized: bool,
     // Persistent PDH query for CPU frequency (needs two collections for rate counters)
     pdh_counters: Option<CpuPdhCounters>,
     pdh_has_first_sample: bool,
@@ -45,50 +44,41 @@ pub struct CpuCollector {
 }
 
 impl Default for CpuCollector {
-    /// Creates a new `CpuCollector`. Note: `init()` must be called separately
-    /// to populate CPU name, core count, and temperature source.
+    /// Equivalent to [`CpuCollector::new`].
+    ///
+    /// Note: this performs Win32 system queries (CPU brand, core count) and
+    /// loads the PawnIO thermal driver. It is not a cheap operation in the
+    /// way `Default` typically implies.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl CpuCollector {
-    /// Create a new CPU collector with default state.
+    /// Create a CPU collector populated with system info (CPU brand, core
+    /// count) and the detected thermal driver.
     pub fn new() -> Self {
+        let core_count = get_core_count();
         Self {
-            info: CpuInfo::default(),
+            info: CpuInfo {
+                cpu_name: get_cpu_name(),
+                core_count,
+                core_percent: vec![VecDeque::new(); core_count],
+                ..Default::default()
+            },
             status: super::CollectStatus::Ok,
-            prev_idle: Vec::new(),
-            prev_kernel: Vec::new(),
-            prev_user: Vec::new(),
+            prev_idle: vec![0; core_count + 1],
+            prev_kernel: vec![0; core_count + 1],
+            prev_user: vec![0; core_count + 1],
             load_avg_samples: VecDeque::with_capacity(900),
-            initialized: false,
             pdh_counters: None,
             pdh_has_first_sample: false,
-            thermal: ThermalCollector::default(),
+            thermal: ThermalCollector::detect(core_count),
         }
-    }
-
-    /// Initialize CPU information (model name, core count).
-    pub fn init(&mut self) {
-        self.info.cpu_name = get_cpu_name();
-        self.info.core_count = get_core_count();
-        self.info.core_percent = vec![VecDeque::new(); self.info.core_count];
-        self.prev_idle = vec![0; self.info.core_count + 1];
-        self.prev_kernel = vec![0; self.info.core_count + 1];
-        self.prev_user = vec![0; self.info.core_count + 1];
-        self.initialized = true;
-
-        // Detect CPU vendor and load PawnIO module for temperature/power.
-        self.thermal = ThermalCollector::detect(self.info.core_count);
     }
 
     fn collect_impl(&mut self) {
         self.status = super::CollectStatus::Ok;
-
-        if !self.initialized {
-            self.init();
-        }
 
         self.collect_cpu_times();
         self.collect_frequency();
@@ -600,8 +590,7 @@ mod tests {
 
     #[test]
     fn collect_returns_valid_cpu_info() {
-        let mut collector = CpuCollector::new();
-        collector.init();
+        let collector = CpuCollector::new();
         assert!(collector.info.core_count > 0);
         assert!(!collector.info.cpu_name.is_empty());
     }
