@@ -43,17 +43,6 @@ pub struct CpuCollector {
     thermal: ThermalCollector,
 }
 
-impl Default for CpuCollector {
-    /// Equivalent to [`CpuCollector::new`].
-    ///
-    /// Note: this performs Win32 system queries (CPU brand, core count) and
-    /// loads the PawnIO thermal driver. It is not a cheap operation in the
-    /// way `Default` typically implies.
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CpuCollector {
     /// Create a CPU collector populated with system info (CPU brand, core
     /// count) and the detected thermal driver.

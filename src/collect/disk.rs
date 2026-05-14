@@ -28,12 +28,6 @@ pub struct DiskCollector {
     pdh_has_first_sample: bool,
 }
 
-impl Default for DiskCollector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DiskCollector {
     /// Create a new disk collector.
     pub fn new() -> Self {

@@ -66,12 +66,6 @@ pub struct ProcCollector {
     core_count: usize,
 }
 
-impl Default for ProcCollector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ProcCollector {
     /// Create a new process collector.
     pub fn new() -> Self {

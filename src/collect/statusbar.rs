@@ -51,12 +51,6 @@ impl StatusbarCollector {
     }
 }
 
-impl Default for StatusbarCollector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Collector for StatusbarCollector {
     type Snapshot = crate::runner::StatusbarSnapshot;
 

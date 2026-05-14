@@ -72,16 +72,6 @@ pub struct ThermalCollector {
     inner: Backend,
 }
 
-impl Default for ThermalCollector {
-    /// Returns an inactive collector. Use [`ThermalCollector::detect`] to
-    /// probe for PawnIO and load a vendor-specific module.
-    fn default() -> Self {
-        Self {
-            inner: Backend::Inactive,
-        }
-    }
-}
-
 enum Backend {
     Inactive,
     Intel(IntelBackend),

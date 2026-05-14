@@ -171,12 +171,6 @@ impl GpuCollector {
     }
 }
 
-impl Default for GpuCollector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Collector for GpuCollector {
     type Snapshot = crate::runner::GpuSnapshot;
 
