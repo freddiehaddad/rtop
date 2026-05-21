@@ -70,19 +70,6 @@ pub const STATUSBAR_HI: ColorKey = ColorKey(22);
 /// in this colour to subtly chunk adjacent items; the brackets are
 /// the only glyphs in the bar that use this key.
 pub const STATUSBAR_SEP: ColorKey = ColorKey(23);
-/// Foreground color for the main-menu's free-floating banner and
-/// normal (non-selected) menu items. Picked per-theme so the menu
-/// remains readable against the dimmed widget underlay it renders
-/// over — for light themes that bg is dark grey-brown and the
-/// theme's widget-canvas `MAIN_FG` (designed for the bright canvas)
-/// would fail contrast; for dark themes this typically matches
-/// `MAIN_FG`.
-pub const MENU_FG: ColorKey = ColorKey(24);
-/// Accent color for the main-menu's banner glyphs and the currently
-/// selected menu item. Picked per-theme on the same dimmed-underlay
-/// reasoning as [`MENU_FG`]; for dark themes this typically matches
-/// `HI_FG`.
-pub const MENU_HI_FG: ColorKey = ColorKey(25);
 
 // Gradient keys for `Theme::gradient()` lookups.
 // Grouped by widget: CPU, memory, network, GPU, disk, other.
