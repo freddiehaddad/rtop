@@ -370,10 +370,12 @@ mod tests {
 
     #[test]
     fn modal_underlay_base_style_bg_matches_dim_transform() {
-        // The modal-over-dim base style's background must equal what
-        // `dim_truecolor` would produce for a `main_bg` cell — that
-        // invariant is what lets free-floating modals (main menu)
-        // paint cells that blend into the dimmed surround.
+        // Smoke test: `modal_underlay_base_style` produces a base
+        // whose bg equals what `dim_truecolor` does to a `main_bg`
+        // cell. Under the current fg-only dim transform that's an
+        // identity (bg untouched), but pinning the equivalence here
+        // means the two derivations stay in lockstep if the dim
+        // algorithm changes again.
         let theme = Theme::new();
         let bg = crate::draw::dim::dim_bg_escape(theme.rgb(crate::theme_keys::MAIN_BG));
         let base = theme.modal_underlay_base_style(true);
@@ -385,9 +387,9 @@ mod tests {
     fn modal_underlay_base_style_honors_theme_background_off() {
         // With `theme_background = false` the modal-over-dim base
         // style emits the terminal-default-bg escape just like
-        // `base_style(false)`: there is no theme bg to scale, and
-        // the dim transform leaves the terminal-default-bg escape
-        // unchanged, so the two converge.
+        // `base_style(false)` — the runtime "let the terminal bg
+        // show through" toggle takes precedence over the per-modal
+        // bg choice.
         let theme = Theme::new();
         assert!(theme.modal_underlay_base_style(false).contains("\x1b[49m"),);
         // And conversely, `modal_underlay_base_style(true)` must

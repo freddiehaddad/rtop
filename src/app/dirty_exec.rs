@@ -179,7 +179,10 @@ fn compose_modal_frame(
             let styled = style_terminal_output(&raw, config, theme);
             state
                 .render
-                .store_dimmed_underlay(crate::draw::dim::dim_truecolor(&styled));
+                .store_dimmed_underlay(crate::draw::dim::dim_truecolor(
+                    &styled,
+                    theme.rgb(crate::theme_keys::MAIN_BG),
+                ));
             let dimmed = state
                 .render
                 .cached_dimmed_underlay()
