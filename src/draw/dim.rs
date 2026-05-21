@@ -69,19 +69,6 @@ fn lerp_channel(fg: u8, bg: u8, fg_opacity_pct: u8) -> u8 {
     ((fg * pct + bg * (100 - pct)) / 100) as u8
 }
 
-/// Build a truecolor background SGR escape whose RGB triple equals
-/// what [`dim_truecolor`] leaves a `\x1b[48;2;R;G;B m` escape at
-/// after the dim pass — which is the input RGB unchanged, since the
-/// dim transform no longer touches background escapes.
-///
-/// Retained as a helper so overlays that want to paint character
-/// cells whose background matches the surrounding (un-dimmed) widget
-/// underlay can build that escape without rebuilding the `48;2;...m`
-/// string by hand.
-pub fn dim_bg_escape(rgb: [u8; 3]) -> String {
-    format!("\x1b[48;2;{};{};{}m", rgb[0], rgb[1], rgb[2])
-}
-
 /// Walk `input` and return a copy with every truecolor SGR foreground
 /// escape's RGB triple blended toward `main_bg` by
 /// [`DIM_FG_OPACITY_PERCENT`]. Truecolor background escapes and every
@@ -417,15 +404,5 @@ mod tests {
         // be rewritten.
         let input = "\x1b[38;5;200m";
         assert_eq!(dim_truecolor(input, BG), input);
-    }
-
-    #[test]
-    fn dim_bg_escape_returns_input_rgb_verbatim() {
-        // The dim transform no longer touches background escapes,
-        // so `dim_bg_escape(rgb)` returns the bg SGR for the input
-        // RGB unchanged.
-        let rgb = [200u8, 100, 50];
-        let expected = format!("\x1b[48;2;{};{};{}m", rgb[0], rgb[1], rgb[2]);
-        assert_eq!(dim_bg_escape(rgb), expected);
     }
 }

@@ -162,19 +162,17 @@ fn compose_modal_frame(
     mode: DimComposeMode,
 ) -> String {
     let raw_modal = crate::overlay::render(active, size, config, theme);
-    let styled_modal = theme::style_output_with(
-        &raw_modal,
-        &active.base_style(theme, config.ui.theme_background),
-    );
+    let styled_modal = style_terminal_output(&raw_modal, config, theme);
 
     match mode {
         DimComposeMode::BuildAndEmit => {
             // Build a fresh underlay: render every widget, theme-style
             // the result, then run the dim transform. Order matters —
-            // theme styling runs before dim so the base style
-            // (including theme bg) is dimmed too; otherwise every
-            // `\x1b[0m` reset in the underlay would re-apply the
-            // full-brightness base style and leave bright halos.
+            // theme styling runs before dim so every `\x1b[0m` reset
+            // expanded by `style_output` gets the same fg-fade treatment
+            // as every other fg in the underlay; otherwise resets would
+            // re-establish full-brightness fg cells in the middle of
+            // the dimmed surround.
             let raw = render_widget_layer_full(state, config, theme);
             let styled = style_terminal_output(&raw, config, theme);
             state

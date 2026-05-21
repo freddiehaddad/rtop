@@ -106,32 +106,6 @@ impl ActiveModal {
             ActiveModal::Main(_) | ActiveModal::Help(_) | ActiveModal::Options(_)
         )
     }
-
-    /// Base ANSI style the modal compositor should apply to this
-    /// modal's rendered output.
-    ///
-    /// `Help` and `Options` are box-framed dialogs: the `create_box`
-    /// fill paints the full-brightness theme background inside the
-    /// border, and the visible border delimits the dialog from the
-    /// dimmed surround. They use the widget-canvas base style so
-    /// the box fill carries bright `main_bg`.
-    ///
-    /// `Main` is a free-floating banner+menu with no framing box.
-    /// Its character cells use the modal-over-dim base style so the
-    /// background of each cell equals what the dim transform produces
-    /// for a `main_bg` cell — the menu glyphs sit on the dimmed
-    /// underlay without painting visible bg patches.
-    ///
-    /// `None` and `Filter` never reach the modal compose path
-    /// ([`ActiveModal::dims_underlay`] is `false` for both); their
-    /// arms are provided for exhaustive-match safety only.
-    pub fn base_style(&self, theme: &Theme, theme_background: bool) -> String {
-        match self {
-            ActiveModal::Help(_) | ActiveModal::Options(_) => theme.base_style(theme_background),
-            ActiveModal::Main(_) => theme.modal_underlay_base_style(theme_background),
-            ActiveModal::None | ActiveModal::Filter(_) => theme.base_style(theme_background),
-        }
-    }
 }
 
 /// Render the active overlay's modal layer to an unstyled ANSI
@@ -141,10 +115,8 @@ impl ActiveModal {
 ///
 /// Called by the central render path
 /// (`crate::app::dirty_exec::compose_modal_frame`) which then
-/// styles the result via [`crate::theme::style_output_with`] using
-/// the modal-specific base style returned by
-/// [`ActiveModal::base_style`], and composes it over the dimmed
-/// underlay snapshot.
+/// styles the result via `theme.style_output` and composes it over
+/// the dimmed underlay snapshot.
 pub fn render(active: &ActiveModal, term: TerminalSize, config: &Config, theme: &Theme) -> String {
     match active {
         ActiveModal::None | ActiveModal::Filter(_) => String::new(),
@@ -203,59 +175,5 @@ mod tests {
         assert!(
             ActiveModal::Options(options::OptionsState::new(ReturnTarget::Normal)).dims_underlay()
         );
-    }
-
-    #[test]
-    fn main_modal_uses_dim_matching_base_style() {
-        // The main menu has no framing box; its base style must
-        // produce a bg that equals what `dim_truecolor` produces
-        // for a `main_bg` cell, so character cells blend with the
-        // dimmed underlay.
-        let theme = Theme::new();
-        let active = ActiveModal::Main(main_menu::MainMenuState::new());
-        assert_eq!(
-            active.base_style(&theme, true),
-            theme.modal_underlay_base_style(true),
-        );
-    }
-
-    #[test]
-    fn box_framed_modals_use_widget_canvas_base_style() {
-        // Help and Options are framed dialogs: their `create_box`
-        // fill must carry the full-brightness theme background so
-        // the box reads as an intentional dialog against the dim.
-        let theme = Theme::new();
-        for active in [
-            ActiveModal::Help(help::HelpState::new(ReturnTarget::Normal)),
-            ActiveModal::Options(options::OptionsState::new(ReturnTarget::Normal)),
-        ] {
-            assert_eq!(
-                active.base_style(&theme, true),
-                theme.base_style(true),
-                "{active:?} must use widget-canvas base style",
-            );
-        }
-    }
-
-    #[test]
-    fn base_style_honors_theme_background_off_for_every_variant() {
-        // With `theme_background = false` every variant emits the
-        // terminal-default-bg escape (`\x1b[49m`) — modal-over-dim
-        // and widget-canvas converge because there is no theme bg
-        // to scale.
-        let theme = Theme::new();
-        for active in [
-            ActiveModal::None,
-            ActiveModal::Main(main_menu::MainMenuState::new()),
-            ActiveModal::Help(help::HelpState::new(ReturnTarget::Normal)),
-            ActiveModal::Options(options::OptionsState::new(ReturnTarget::Normal)),
-            ActiveModal::Filter(filter::FilterState),
-        ] {
-            assert!(
-                active.base_style(&theme, false).contains("\x1b[49m"),
-                "{active:?} must emit the terminal-default-bg escape \
-                 when theme_background is off",
-            );
-        }
     }
 }
