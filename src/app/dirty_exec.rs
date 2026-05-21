@@ -162,7 +162,10 @@ fn compose_modal_frame(
     mode: DimComposeMode,
 ) -> String {
     let raw_modal = crate::overlay::render(active, size, config, theme);
-    let styled_modal = style_terminal_output(&raw_modal, config, theme);
+    let styled_modal = theme::style_output_with(
+        &raw_modal,
+        &active.base_style(theme, config.ui.theme_background),
+    );
 
     match mode {
         DimComposeMode::BuildAndEmit => {

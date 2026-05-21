@@ -38,6 +38,23 @@ fn scale_channel(c: u8) -> u8 {
     (c as u16 * DIM_SCALE_PERCENT as u16 / 100) as u8
 }
 
+/// Build a truecolor background SGR escape whose RGB triple equals
+/// what [`dim_truecolor`] would produce when transforming a
+/// `\x1b[48;2;R;G;B m` escape with the given input RGB.
+///
+/// Used by overlays that want to paint character cells whose
+/// background blends seamlessly with the dimmed widget underlay —
+/// the two derivations share [`DIM_SCALE_PERCENT`] and [`scale_channel`]
+/// so they cannot drift from each other.
+pub fn dim_bg_escape(rgb: [u8; 3]) -> String {
+    format!(
+        "\x1b[48;2;{};{};{}m",
+        scale_channel(rgb[0]),
+        scale_channel(rgb[1]),
+        scale_channel(rgb[2]),
+    )
+}
+
 /// Walk `input` and return a copy with every truecolor SGR
 /// foreground/background escape's RGB triple scaled by
 /// [`DIM_SCALE_PERCENT`]. Non-SGR escapes and non-escape text pass
@@ -312,5 +329,30 @@ mod tests {
         // be rewritten.
         let input = "\x1b[38;5;200m";
         assert_eq!(dim_truecolor(input), input);
+    }
+
+    #[test]
+    fn dim_bg_escape_matches_dim_truecolor_for_main_bg() {
+        // The "blends with dim" contract: emitting `dim_bg_escape(rgb)`
+        // produces the same RGB triple the dim transform would
+        // produce when rewriting a freshly-painted `48;2;R;G;B`
+        // cell. This invariant is what lets overlays paint cells
+        // whose bg is visually indistinguishable from the dimmed
+        // surround.
+        let rgb = [200u8, 100, 50];
+        let raw_bg = format!("\x1b[48;2;{};{};{}m", rgb[0], rgb[1], rgb[2]);
+        assert_eq!(dim_bg_escape(rgb), dim_truecolor(&raw_bg));
+    }
+
+    #[test]
+    fn dim_bg_escape_uses_scaled_channels() {
+        let escape = dim_bg_escape([100, 200, 255]);
+        let expected = format!(
+            "\x1b[48;2;{};{};{}m",
+            scale_channel(100),
+            scale_channel(200),
+            scale_channel(255),
+        );
+        assert_eq!(escape, expected);
     }
 }

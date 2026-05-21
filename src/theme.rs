@@ -160,17 +160,43 @@ impl Theme {
         format!("{}{}", self.color(crate::theme_keys::MAIN_FG), bg)
     }
 
+    /// Base terminal style for a modal painted over the dimmed widget
+    /// underlay. The background equals what the dim transform produces
+    /// for a `main_bg` cell, so the modal's character cells blend with
+    /// the surrounding dimmed bg instead of showing as bright patches.
+    ///
+    /// Used by free-floating modals that have no framing box (e.g. the
+    /// main menu). Box-framed modals (help, options) use
+    /// [`Self::base_style`] instead so their `create_box` fill carries
+    /// the full-brightness theme background — the visible border
+    /// frames that fill as an intentional dialog.
+    pub fn modal_underlay_base_style(&self, theme_background: bool) -> String {
+        let bg = if theme_background {
+            crate::draw::dim::dim_bg_escape(self.rgb(crate::theme_keys::MAIN_BG))
+        } else {
+            "\x1b[49m".to_string()
+        };
+        format!("{}{}", self.color(crate::theme_keys::MAIN_FG), bg)
+    }
+
     /// Prefix output with the base style and make hard resets return to it.
     pub fn style_output(&self, output: &str, theme_background: bool) -> String {
-        let base = self.base_style(theme_background);
-        let reset = format!("\x1b[0m{base}");
-        format!("{base}{}", output.replace("\x1b[0m", &reset))
+        style_output_with(output, &self.base_style(theme_background))
     }
 
     /// Get a gradient array by typed key (101 elements, indices 0–100).
     pub fn gradient(&self, key: GradientKey) -> &[String] {
         &self.gradients[key.index()]
     }
+}
+
+/// Prefix `output` with `base_style` and rewrite every embedded
+/// `\x1b[0m` so it re-establishes that base. Callers choose the base
+/// style appropriate to their rendering context (widget canvas,
+/// modal-over-dim, …); this function is intentionally agnostic.
+pub fn style_output_with(output: &str, base_style: &str) -> String {
+    let reset = format!("\x1b[0m{base_style}");
+    format!("{base_style}{}", output.replace("\x1b[0m", &reset))
 }
 
 impl Default for Theme {
@@ -327,6 +353,44 @@ mod tests {
         let styled = theme.style_output("left\x1b[0mright", true);
         assert!(styled.starts_with(&base));
         assert!(styled.contains(&format!("\x1b[0m{base}right")));
+    }
+
+    #[test]
+    fn style_output_with_uses_caller_supplied_base() {
+        // The free function is agnostic to the source of `base_style`;
+        // callers that paint over a non-canvas surface (e.g. modals
+        // over a dimmed underlay) pass their own base.
+        let custom_base = "\x1b[38;2;1;2;3m\x1b[48;2;4;5;6m";
+        let styled = style_output_with("left\x1b[0mright", custom_base);
+        assert!(styled.starts_with(custom_base));
+        assert!(styled.contains(&format!("\x1b[0m{custom_base}right")));
+    }
+
+    #[test]
+    fn modal_underlay_base_style_bg_matches_dim_transform() {
+        // The modal-over-dim base style's background must equal what
+        // `dim_truecolor` would produce for a `main_bg` cell — that
+        // invariant is what lets free-floating modals (main menu)
+        // paint cells that blend into the dimmed surround.
+        let theme = Theme::new();
+        let bg = crate::draw::dim::dim_bg_escape(theme.rgb(crate::theme_keys::MAIN_BG));
+        let base = theme.modal_underlay_base_style(true);
+        assert!(base.contains(&bg));
+        assert!(base.contains(theme.color(crate::theme_keys::MAIN_FG)));
+    }
+
+    #[test]
+    fn modal_underlay_base_style_honors_theme_background_off() {
+        // With `theme_background = false` the modal-over-dim base
+        // style emits the terminal-default-bg escape just like
+        // `base_style(false)`: there is no theme bg to scale, and
+        // the dim transform leaves the terminal-default-bg escape
+        // unchanged, so the two converge.
+        let theme = Theme::new();
+        assert!(theme.modal_underlay_base_style(false).contains("\x1b[49m"),);
+        // And conversely, `modal_underlay_base_style(true)` must
+        // NOT emit it.
+        assert!(!theme.modal_underlay_base_style(true).contains("\x1b[49m"),);
     }
 
     // --- gradient_color helper ---
