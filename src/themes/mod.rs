@@ -112,6 +112,19 @@ pub struct PaletteColors {
     /// the brackets are the only glyphs in the bar that use
     /// this key.
     pub statusbar_sep: Rgb,
+    /// Foreground color for the main-menu's free-floating banner
+    /// and normal (non-selected) menu items. Picked per-theme so
+    /// the menu remains readable against the dimmed widget
+    /// underlay it renders over — for light themes that bg is
+    /// dark grey-brown and the theme's widget-canvas `main_fg`
+    /// (designed for the bright canvas) would fail contrast; for
+    /// dark themes this typically matches `main_fg`.
+    pub menu_fg: Rgb,
+    /// Accent color for the main-menu's banner glyphs and the
+    /// currently selected menu item. Picked per-theme on the same
+    /// dimmed-underlay reasoning as `menu_fg`; for dark themes
+    /// this typically matches `hi_fg`.
+    pub menu_hi_fg: Rgb,
 }
 
 /// Gradient definitions for a theme.
@@ -198,6 +211,8 @@ statusbar_bg = "#44475a"
 statusbar_fg = "#f8f8f2"
 statusbar_hi = "#6272a4"
 statusbar_sep = "#6272a4"
+menu_fg = "#f8f8f2"
+menu_hi_fg = "#bd93f9"
 
 [gradients.cpu_upper]
 start = "#bd93f9"

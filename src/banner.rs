@@ -87,7 +87,7 @@ pub(crate) fn paint_transparent_row(buf: &mut String, x: usize, y: usize, color:
 
 /// Render the banner positioned at (x, y) with a vertical gradient derived from the theme.
 pub fn generate(y: usize, x: usize, theme: &Theme) -> String {
-    let rgb = theme.rgb(tc::HI_FG);
+    let rgb = theme.rgb(tc::MENU_HI_FG);
     let gradient = gradient6(rgb);
     let mut out = String::new();
     for (i, line) in BANNER.iter().enumerate() {

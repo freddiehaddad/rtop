@@ -25,6 +25,8 @@ statusbar_fg = "#ffffff"
 statusbar_hi = "#addb67"
 statusbar_sep = "#6c7a89"
 
+menu_fg = "#d6deeb"
+menu_hi_fg = "#addb67"
 [gradients.cpu_upper]
 start = "#22da6e"
 mid = "#addb67"

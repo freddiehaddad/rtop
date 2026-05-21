@@ -128,8 +128,8 @@ const MENU_WIDTHS: [usize; 3] = [19, 12, 12];
 /// (normal).
 pub fn render(state: &MainMenuState, term: TerminalSize, theme: &Theme) -> String {
     let selected = state.selected().index();
-    let hi_rgb = theme.rgb(tc::HI_FG);
-    let fg_rgb = theme.rgb(tc::MAIN_FG);
+    let hi_rgb = theme.rgb(tc::MENU_HI_FG);
+    let fg_rgb = theme.rgb(tc::MENU_FG);
     let colors_selected = banner::gradient3(hi_rgb);
     let colors_normal = banner::gradient3(fg_rgb);
 

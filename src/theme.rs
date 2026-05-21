@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 24;
+pub const COLOR_COUNT: usize = 26;
 pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
@@ -92,6 +92,8 @@ impl Theme {
             c.statusbar_fg,  // 21
             c.statusbar_hi,  // 22
             c.statusbar_sep, // 23
+            c.menu_fg,       // 24
+            c.menu_hi_fg,    // 25
         ];
 
         let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| rgbs[i].to_fg_escape());
@@ -461,6 +463,20 @@ mod tests {
             // If parsing succeeded, `main_bg: Rgb` is structurally
             // present. Sanity-check by reading it.
             let _ = palette.colors.main_bg;
+        }
+    }
+
+    #[test]
+    fn every_bundled_theme_declares_menu_colors() {
+        // `menu_fg` / `menu_hi_fg` are required — every theme must
+        // declare them. This pins the contract so no future theme
+        // contribution can omit either field and have it silently
+        // default.
+        for bt in BUNDLED_THEMES {
+            let palette: ThemePalette = toml::from_str(bt.content)
+                .unwrap_or_else(|e| panic!("bundled theme '{}' failed to parse: {e}", bt.name));
+            let _ = palette.colors.menu_fg;
+            let _ = palette.colors.menu_hi_fg;
         }
     }
 
