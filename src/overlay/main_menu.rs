@@ -164,12 +164,7 @@ pub fn render(state: &MainMenuState, term: TerminalSize, theme: &Theme) -> Strin
         let menu_x = (term.width.saturating_sub(w)) / 2;
 
         for (line_idx, line) in menu.iter().enumerate() {
-            out.push_str(&format!(
-                "{}{}{}",
-                term::mv(menu_x + 1, cy),
-                colors[line_idx],
-                line,
-            ));
+            banner::paint_transparent_row(&mut out, menu_x + 1, cy, &colors[line_idx], line);
             cy += 1;
         }
     }
