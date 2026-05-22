@@ -17,6 +17,7 @@
 //! present (e.g. unplugged Ethernet, disabled Wi-Fi). See
 //! [`NetworkViewState`] for the full policy.
 
+use crate::app::TerminalSize;
 use crate::config;
 use crate::dirty::RenderDirty;
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
@@ -300,6 +301,67 @@ impl ModalFootprint {
     }
 }
 
+/// Render inputs the cached dimmed-underlay snapshot depends on.
+///
+/// Owned form: stored inside [`DimUnderlayCache`] alongside the
+/// snapshot. Any code path that mutates one of these inputs will
+/// produce a different key on the next [`DimUnderlayCache::reconcile`]
+/// call, the cross-type [`PartialEq`] compare against
+/// [`DimUnderlayKeyRef`] will mismatch, and the snapshot will be
+/// dropped. No caller has to remember to invalidate the cache; the
+/// type system enforces that the cache and its inputs cannot
+/// drift apart.
+///
+/// Adding a new render input (e.g. a future "render scale"
+/// setting) is two edits: a field on this struct and the
+/// matching field on [`DimUnderlayKeyRef`]. The compiler then
+/// makes every reconcile/store call site update accordingly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DimUnderlayKey {
+    pub(crate) theme_name: String,
+    pub(crate) theme_background: bool,
+    pub(crate) terminal_size: TerminalSize,
+}
+
+/// Borrowed view of [`DimUnderlayKey`].
+///
+/// Built on the per-frame reconcile path with no allocation, then
+/// converted to its owned counterpart via [`Self::to_owned`] only
+/// when a fresh snapshot is being stored (cache-miss frames only,
+/// which already pay for a full underlay rebuild). This follows the
+/// standard Rust borrowed/owned pair pattern (`Path`/`PathBuf`,
+/// `str`/`String`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct DimUnderlayKeyRef<'a> {
+    pub(crate) theme_name: &'a str,
+    pub(crate) theme_background: bool,
+    pub(crate) terminal_size: TerminalSize,
+}
+
+impl DimUnderlayKeyRef<'_> {
+    /// Convert the borrowed view to an owned [`DimUnderlayKey`].
+    /// Only called by [`DimUnderlayCache::store`] on cache-miss
+    /// frames.
+    pub(crate) fn to_owned(self) -> DimUnderlayKey {
+        DimUnderlayKey {
+            theme_name: self.theme_name.to_owned(),
+            theme_background: self.theme_background,
+            terminal_size: self.terminal_size,
+        }
+    }
+}
+
+impl PartialEq<DimUnderlayKeyRef<'_>> for DimUnderlayKey {
+    /// Field-by-field compare between the owned cache key and a
+    /// borrowed key built per frame. The `theme_name` compare uses
+    /// `String == &str`, which `std` implements without allocating.
+    fn eq(&self, other: &DimUnderlayKeyRef<'_>) -> bool {
+        self.theme_name == other.theme_name
+            && self.theme_background == other.theme_background
+            && self.terminal_size == other.terminal_size
+    }
+}
+
 /// What the modal compose path should do this frame.
 ///
 /// The dimmed-underlay cache lifecycle has four observable states
@@ -330,34 +392,43 @@ pub(crate) enum DimComposeMode {
     ModalOnly,
 }
 
-/// Cached dimmed snapshot of the widget layer plus the
-/// previous-frame modal footprint. Packaged together so the
-/// "snapshot" and "what's currently on screen behind the modal
-/// layer" data points cannot drift apart, and so the
-/// reconciliation rule lives in one method instead of being
-/// open-coded at the call site.
+/// Cached dimmed snapshot of the widget layer, the key it was
+/// captured against, and the previous-frame modal footprint.
+///
+/// The snapshot and its key are stored together as
+/// `Option<(DimUnderlayKey, String)>` so they cannot drift apart:
+/// "both present" or "both absent" is a structural property of the
+/// type, not a convention the cache's internals have to maintain.
+///
+/// The previous-frame footprint drives the `ModalOnly` vs
+/// `EmitFromCache` decision in [`Self::reconcile`]: equal footprints
+/// with a present snapshot keep painting only the modal layer
+/// (preserves text-selection); a footprint change re-emits the
+/// cached underlay to wipe the previous modal's pixels.
 #[derive(Debug, Default)]
 struct DimUnderlayCache {
-    /// Cached dimmed snapshot of the widget layer. Populated on
-    /// the first render after a centered modal opens, held until
-    /// the modal closes or the terminal resizes.
-    snapshot: Option<String>,
-    /// The previous frame's modal footprint. Drives the
-    /// `ModalOnly` vs `EmitFromCache` decision in [`Self::reconcile`]:
-    /// equal footprints with a present snapshot keep painting only
-    /// the modal layer (preserves text-selection); a footprint
-    /// change re-emits the cached underlay to wipe the previous
-    /// modal's pixels.
+    /// The cached snapshot and the key it was captured against.
+    /// `reconcile` drops this `Option` if the current frame's
+    /// borrowed key does not equal `key`; `store` repopulates it
+    /// with a fresh `(key, snapshot)` pair on the cache-miss path.
+    cached: Option<(DimUnderlayKey, String)>,
     last_footprint: ModalFootprint,
 }
 
 impl DimUnderlayCache {
     /// Reconcile the cache against the current modal footprint and
-    /// return what the compose path should do this frame. Owns the
-    /// snapshot-invalidation rules so callers cannot get them
-    /// wrong.
+    /// the current render-input key, and return what the compose
+    /// path should do this frame. Owns the snapshot-invalidation
+    /// rules so callers cannot get them wrong.
     ///
-    /// The seven cases (collapsed into the four return variants):
+    /// The key check runs *first*: if the cached snapshot's key
+    /// does not equal `key`, the snapshot is stale by construction
+    /// (its colors / size / theme_background no longer match the
+    /// current render inputs) and is dropped before the
+    /// footprint-based dispatch runs.
+    ///
+    /// The footprint dispatch then collapses to the four return
+    /// variants:
     ///
     /// | previous       | current        | snapshot | result          |
     /// |----------------|----------------|----------|-----------------|
@@ -368,34 +439,46 @@ impl DimUnderlayCache {
     /// | dim *A*        | dim *A*        | missing  | `BuildAndEmit`  |
     /// | dim *A*        | dim *B*        | present  | `EmitFromCache` |
     /// | dim *A*        | dim *B*        | missing  | `BuildAndEmit`  |
-    fn reconcile(&mut self, current: ModalFootprint) -> DimComposeMode {
+    fn reconcile(&mut self, current: ModalFootprint, key: DimUnderlayKeyRef<'_>) -> DimComposeMode {
+        // Key-based invalidation. Runs before the footprint
+        // dispatch so a stale snapshot is dropped uniformly,
+        // regardless of which (previous, current) transition is
+        // about to be matched below.
+        if self
+            .cached
+            .as_ref()
+            .is_some_and(|(cached_key, _)| cached_key != &key)
+        {
+            self.cached = None;
+        }
+
         let mode = match (self.last_footprint.dims_underlay(), current.dims_underlay()) {
             (false, false) => DimComposeMode::Skip,
             (false, true) => {
-                // Modal opened. Snapshot from a previous run is
-                // stale by definition; drop it so the compose
-                // path rebuilds.
-                self.snapshot = None;
+                // Modal opened. Widget data may have changed since
+                // any previous snapshot was captured; drop it so
+                // the compose path captures fresh data.
+                self.cached = None;
                 DimComposeMode::BuildAndEmit
             }
             (true, false) => {
                 // Modal closed. Caller falls through to the full
                 // widget render path; the snapshot is no longer
                 // useful.
-                self.snapshot = None;
+                self.cached = None;
                 DimComposeMode::Skip
             }
             (true, true) => {
                 if current == self.last_footprint {
-                    if self.snapshot.is_some() {
+                    if self.cached.is_some() {
                         DimComposeMode::ModalOnly
                     } else {
                         // Snapshot dropped between frames (e.g.
-                        // by a resize) but the modal is still
-                        // open. Rebuild.
+                        // by a key mismatch above) but the modal
+                        // is still open. Rebuild.
                         DimComposeMode::BuildAndEmit
                     }
-                } else if self.snapshot.is_some() {
+                } else if self.cached.is_some() {
                     // Modal kind swapped. Underlay is still
                     // valid (widgets didn't change while a modal
                     // was on top), but the previous modal's
@@ -413,17 +496,16 @@ impl DimUnderlayCache {
 
     /// Borrow the cached snapshot, if any.
     fn snapshot(&self) -> Option<&str> {
-        self.snapshot.as_deref()
+        self.cached.as_ref().map(|(_, s)| s.as_str())
     }
 
-    /// Replace the cached snapshot.
-    fn store(&mut self, s: String) {
-        self.snapshot = Some(s);
-    }
-
-    /// Drop the snapshot. Called by terminal-resize handling.
-    fn invalidate(&mut self) {
-        self.snapshot = None;
+    /// Replace the cached snapshot with a fresh `(key, snapshot)`
+    /// pair. The key argument's owned form is constructed via
+    /// `DimUnderlayKeyRef::to_owned` by the caller; this is the
+    /// only path that allocates a `String` for the key, and it
+    /// runs only on cache-miss frames.
+    fn store(&mut self, snapshot: String, key: DimUnderlayKey) {
+        self.cached = Some((key, snapshot));
     }
 }
 
@@ -450,11 +532,12 @@ impl RenderState {
 
     pub(crate) fn mark_resize(&mut self) {
         self.dirty.mark_layout();
-        // Resize while a modal is open invalidates the cached
-        // dimmed underlay (its layout no longer matches the
-        // terminal). The next overlay-active render will rebuild
-        // it at the new size.
-        self.dim_cache.invalidate();
+        // The cached dimmed-underlay snapshot does not need an
+        // explicit invalidate call here: resize bumps
+        // `TerminalSize`, which is a field on `DimUnderlayKey`, so
+        // the next `reconcile_dim_compose` call sees the cached
+        // key mismatch the current borrowed key and drops the
+        // snapshot by construction.
     }
 
     pub(crate) fn clear_dirty(&mut self) {
@@ -475,10 +558,15 @@ impl RenderState {
     }
 
     /// Reconcile the dimmed-underlay cache against the current
-    /// modal footprint and return the compose action for this
-    /// frame. See [`DimComposeMode`] for the four cases.
-    pub(crate) fn reconcile_dim_compose(&mut self, current: ModalFootprint) -> DimComposeMode {
-        self.dim_cache.reconcile(current)
+    /// modal footprint and render-input key, and return the
+    /// compose action for this frame. See [`DimComposeMode`] for
+    /// the four cases.
+    pub(crate) fn reconcile_dim_compose(
+        &mut self,
+        current: ModalFootprint,
+        key: DimUnderlayKeyRef<'_>,
+    ) -> DimComposeMode {
+        self.dim_cache.reconcile(current, key)
     }
 
     /// Borrow the cached dimmed underlay snapshot, if one is
@@ -487,11 +575,12 @@ impl RenderState {
         self.dim_cache.snapshot()
     }
 
-    /// Store a freshly-built dimmed underlay snapshot. Called by the
-    /// modal compose path immediately after rendering and dimming
-    /// the widget layer.
-    pub(crate) fn store_dimmed_underlay(&mut self, s: String) {
-        self.dim_cache.store(s);
+    /// Store a freshly-built dimmed underlay snapshot together
+    /// with the owned render-input key it was captured against.
+    /// Called by the modal compose path immediately after
+    /// rendering and dimming the widget layer.
+    pub(crate) fn store_dimmed_underlay(&mut self, snapshot: String, key: DimUnderlayKey) {
+        self.dim_cache.store(snapshot, key);
     }
 }
 
@@ -1394,6 +1483,174 @@ mod tests {
 
         assert!(state.render.dirty.needs_layout());
         assert!(state.render.dirty.is_any_widget_dirty());
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    // Dim-cache key invalidation (the typed-key invariant)
+    // ─────────────────────────────────────────────────────────────
+
+    fn fixture_size() -> TerminalSize {
+        TerminalSize {
+            width: 80,
+            height: 30,
+        }
+    }
+
+    fn fixture_key<'a>(theme_name: &'a str) -> DimUnderlayKeyRef<'a> {
+        DimUnderlayKeyRef {
+            theme_name,
+            theme_background: true,
+            terminal_size: fixture_size(),
+        }
+    }
+
+    #[test]
+    fn dim_underlay_key_ref_to_owned_round_trips() {
+        // `.to_owned()` must produce an owned key that compares
+        // equal to its source borrowed form via the cross-type
+        // `PartialEq` impl.
+        let r = fixture_key("dracula");
+        let owned = r.to_owned();
+        assert_eq!(owned, r);
+    }
+
+    #[test]
+    fn dim_underlay_key_cross_partial_eq_field_by_field() {
+        // Each field independently affects equality. Same fields
+        // → equal; any single field differing → not equal.
+        let baseline = fixture_key("dracula");
+        let owned = baseline.to_owned();
+        assert_eq!(owned, baseline);
+
+        // Theme name differs.
+        let diff_name = DimUnderlayKeyRef {
+            theme_name: "nord",
+            ..baseline
+        };
+        assert_ne!(owned, diff_name);
+
+        // theme_background differs.
+        let diff_bg = DimUnderlayKeyRef {
+            theme_background: false,
+            ..baseline
+        };
+        assert_ne!(owned, diff_bg);
+
+        // Terminal size differs.
+        let diff_size = DimUnderlayKeyRef {
+            terminal_size: TerminalSize {
+                width: 120,
+                height: 30,
+            },
+            ..baseline
+        };
+        assert_ne!(owned, diff_size);
+    }
+
+    #[test]
+    fn key_mismatch_invalidates_snapshot_on_reconcile() {
+        // Open Main with key A, store a snapshot. Then reconcile
+        // with key B (different theme_name). The snapshot must be
+        // dropped — by construction, because the cached key no
+        // longer equals the current borrowed key. This pins the
+        // contract that future render-input mutations cannot leave
+        // a stale snapshot behind.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        let key_a = fixture_key("dracula");
+
+        let mode = state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, key_a);
+        assert_eq!(mode, DimComposeMode::BuildAndEmit);
+        state
+            .render
+            .store_dimmed_underlay("snapshot-A".to_string(), key_a.to_owned());
+        assert!(state.render.cached_dimmed_underlay().is_some());
+
+        // Theme change: reconcile with a different key while the
+        // same modal is still open.
+        let key_b = fixture_key("nord");
+        let mode = state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, key_b);
+        assert_eq!(
+            mode,
+            DimComposeMode::BuildAndEmit,
+            "stale snapshot must be dropped → next compose must rebuild",
+        );
+        assert!(
+            state.render.cached_dimmed_underlay().is_none(),
+            "key mismatch must drop the cached snapshot",
+        );
+    }
+
+    #[test]
+    fn key_match_preserves_snapshot_on_reconcile() {
+        // Open Main with key A, store snapshot. Reconcile again
+        // with the same key A → snapshot must be preserved and
+        // the mode must be ModalOnly (no rebuild, no re-emit).
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        let key = fixture_key("dracula");
+
+        state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, key);
+        state
+            .render
+            .store_dimmed_underlay("snapshot".to_string(), key.to_owned());
+
+        let mode = state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, key);
+        assert_eq!(mode, DimComposeMode::ModalOnly);
+        assert!(state.render.cached_dimmed_underlay().is_some());
+    }
+
+    #[test]
+    fn mark_resize_no_longer_touches_dim_cache_directly() {
+        // The dim-cache invalidate-on-resize call was removed from
+        // `mark_resize` because resize naturally bumps
+        // `terminal_size`, which triggers key-mismatch invalidation
+        // on the next reconcile. This test pins the new contract:
+        // `mark_resize` ALONE does NOT drop the snapshot; the next
+        // reconcile with the new size does.
+        let config = config::Config::new();
+        let mut state = AppState::new(&config);
+        let key = fixture_key("dracula");
+
+        // Open a modal and populate the cache at the original size.
+        state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, key);
+        state
+            .render
+            .store_dimmed_underlay("snapshot".to_string(), key.to_owned());
+        assert!(state.render.cached_dimmed_underlay().is_some());
+
+        // `mark_resize` alone must not drop the snapshot — the
+        // cache invariant lives in the key, not in this function.
+        state.render.mark_resize();
+        assert!(
+            state.render.cached_dimmed_underlay().is_some(),
+            "mark_resize must not touch the dim cache directly; \
+             invalidation flows through the key on the next reconcile",
+        );
+
+        // Next reconcile with a new terminal_size → cache dropped.
+        let resized_key = DimUnderlayKeyRef {
+            terminal_size: TerminalSize {
+                width: 120,
+                height: 40,
+            },
+            ..key
+        };
+        let mode = state
+            .render
+            .reconcile_dim_compose(ModalFootprint::Main, resized_key);
+        assert_eq!(mode, DimComposeMode::BuildAndEmit);
+        assert!(state.render.cached_dimmed_underlay().is_none());
     }
 
     // ─────────────────────────────────────────────────────────────

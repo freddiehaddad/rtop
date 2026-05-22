@@ -13,8 +13,8 @@
 use crate::app::TerminalSize;
 use crate::app::lifecycle::style_terminal_output;
 use crate::app::state::{
-    AppState, DetailPanel, DimComposeMode, GpuViewState, LiveData, ModalFootprint,
-    NetworkViewState, ProcessViewState, RuntimeView, WidgetFilter,
+    AppState, DetailPanel, DimComposeMode, DimUnderlayKeyRef, GpuViewState, LiveData,
+    ModalFootprint, NetworkViewState, ProcessViewState, RuntimeView, WidgetFilter,
 };
 use crate::config;
 use crate::dirty::RenderDirty;
@@ -96,12 +96,18 @@ pub(crate) fn write_dirty_frame(
     // clone — variants are unit-like or carry small state.
     let active = state.overlay.active.clone();
     // Reconcile the dim cache against the current modal footprint
-    // (Main, Help, Options, NoModal). The cache encodes whether
-    // the underlay snapshot is still valid AND whether the
-    // previous modal's pixels need wiping; the returned mode
-    // tells the compose path exactly what to emit this frame.
+    // (Main, Help, Options, NoModal) and the current render-input
+    // key (theme name, theme_background, terminal size). The cache
+    // encodes whether the underlay snapshot is still valid AND
+    // whether the previous modal's pixels need wiping; the returned
+    // mode tells the compose path exactly what to emit this frame.
     let footprint = ModalFootprint::from_active(&active);
-    let mode = state.render.reconcile_dim_compose(footprint);
+    let key = DimUnderlayKeyRef {
+        theme_name: &config.ui.color_theme,
+        theme_background: config.ui.theme_background,
+        terminal_size: size,
+    };
+    let mode = state.render.reconcile_dim_compose(footprint, key);
     let output = match mode {
         DimComposeMode::Skip => {
             let raw = render_dirty_frame(state, config, theme);
@@ -110,7 +116,7 @@ pub(crate) fn write_dirty_frame(
         DimComposeMode::BuildAndEmit
         | DimComposeMode::EmitFromCache
         | DimComposeMode::ModalOnly => {
-            compose_modal_frame(state, config, theme, &active, size, mode)
+            compose_modal_frame(state, config, theme, &active, size, mode, key)
         }
     };
     if let Err(e) = terminal.write_synced(&output) {
@@ -160,6 +166,7 @@ fn compose_modal_frame(
     active: &crate::overlay::ActiveModal,
     size: TerminalSize,
     mode: DimComposeMode,
+    key: DimUnderlayKeyRef<'_>,
 ) -> String {
     let raw_modal = crate::overlay::render(active, size, config, theme);
     let styled_modal = style_terminal_output(&raw_modal, config, theme);
@@ -175,12 +182,10 @@ fn compose_modal_frame(
             // the dimmed surround.
             let raw = render_widget_layer_full(state, config, theme);
             let styled = style_terminal_output(&raw, config, theme);
-            state
-                .render
-                .store_dimmed_underlay(crate::draw::dim::dim_truecolor(
-                    &styled,
-                    theme.rgb(crate::theme_keys::MAIN_BG),
-                ));
+            state.render.store_dimmed_underlay(
+                crate::draw::dim::dim_truecolor(&styled, theme.rgb(crate::theme_keys::MAIN_BG)),
+                key.to_owned(),
+            );
             let dimmed = state
                 .render
                 .cached_dimmed_underlay()
@@ -690,6 +695,20 @@ mod tests {
         }
     }
 
+    /// Build a synthetic render-input key for tests, matching what
+    /// `write_dirty_frame` constructs at runtime from the live
+    /// config + terminal size. Tests use the default theme name so
+    /// any concrete theme value works; the value only matters when
+    /// a test deliberately mutates it to exercise key-mismatch
+    /// invalidation (see the `state.rs` unit tests).
+    fn fixture_key<'a>(config: &'a config::Config, size: TerminalSize) -> DimUnderlayKeyRef<'a> {
+        DimUnderlayKeyRef {
+            theme_name: &config.ui.color_theme,
+            theme_background: config.ui.theme_background,
+            terminal_size: size,
+        }
+    }
+
     /// Drive one full pass through the dim-cache pipeline:
     /// reconcile → compose. Returns the produced frame. Mirrors
     /// what `write_dirty_frame` does, minus the terminal write.
@@ -701,8 +720,9 @@ mod tests {
     ) -> String {
         let active = state.overlay.active.clone();
         let footprint = ModalFootprint::from_active(&active);
-        let mode = state.render.reconcile_dim_compose(footprint);
-        compose_modal_frame(state, config, theme, &active, size, mode)
+        let key = fixture_key(config, size);
+        let mode = state.render.reconcile_dim_compose(footprint, key);
+        compose_modal_frame(state, config, theme, &active, size, mode, key)
     }
 
     #[test]
@@ -861,18 +881,27 @@ mod tests {
         // value: after close, the next compose call for a fresh
         // modal must be BuildAndEmit (cache empty), not
         // EmitFromCache.
+        let config = config::Config::new();
+        let size = fixture_size();
         let mut state = make_state();
+        let key = fixture_key(&config, size);
 
         // Open Main → BuildAndEmit (populates the cache).
         assert_eq!(
-            state.render.reconcile_dim_compose(ModalFootprint::Main),
+            state
+                .render
+                .reconcile_dim_compose(ModalFootprint::Main, key),
             DimComposeMode::BuildAndEmit,
         );
-        state.render.store_dimmed_underlay("dummy".to_string());
+        state
+            .render
+            .store_dimmed_underlay("dummy".to_string(), key.to_owned());
 
         // Close → Skip, snapshot dropped.
         assert_eq!(
-            state.render.reconcile_dim_compose(ModalFootprint::NoModal),
+            state
+                .render
+                .reconcile_dim_compose(ModalFootprint::NoModal, key),
             DimComposeMode::Skip,
         );
         assert!(
@@ -882,7 +911,9 @@ mod tests {
 
         // Re-open Main → BuildAndEmit again (not EmitFromCache).
         assert_eq!(
-            state.render.reconcile_dim_compose(ModalFootprint::Main),
+            state
+                .render
+                .reconcile_dim_compose(ModalFootprint::Main, key),
             DimComposeMode::BuildAndEmit,
         );
     }
