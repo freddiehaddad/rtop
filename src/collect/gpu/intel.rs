@@ -915,21 +915,46 @@ pub(super) fn discover() -> Option<IgclBundle> {
         }
 
         // Cache first sub-handle of each telemetry type
-        let temp_sensors = unsafe { enum_handles(dev, session.igcl.enum_temp_sensors) };
-        let mem_modules = unsafe { enum_handles(dev, session.igcl.enum_mem_modules) };
-        let engine_groups = unsafe { enum_handles(dev, session.igcl.enum_engine_groups) };
-        let freq_domains = unsafe { enum_handles(dev, session.igcl.enum_freq_domains) };
+        let temp_sensors = unsafe {
+            enum_handles(
+                dev,
+                "ctlEnumTemperatureSensors",
+                session.igcl.enum_temp_sensors,
+            )
+        };
+        let mem_modules =
+            unsafe { enum_handles(dev, "ctlEnumMemoryModules", session.igcl.enum_mem_modules) };
+        let engine_groups =
+            unsafe { enum_handles(dev, "ctlEnumEngineGroups", session.igcl.enum_engine_groups) };
+        let freq_domains = unsafe {
+            enum_handles(
+                dev,
+                "ctlEnumFrequencyDomains",
+                session.igcl.enum_freq_domains,
+            )
+        };
 
         // Query max power limit
-        let power_domains = unsafe { enum_handles(dev, session.igcl.enum_power_domains) };
+        let power_domains =
+            unsafe { enum_handles(dev, "ctlEnumPowerDomains", session.igcl.enum_power_domains) };
         let mut max_power_mw: i64 = 0;
         if let Some(&pwr) = power_domains.first() {
             let mut power_props = CtlPowerProperties::new();
             // SAFETY: pwr is a valid power handle; power_props is a
             // valid IGCL-versioned struct.
             let ret = unsafe { (session.igcl.power_get_props)(pwr, &mut power_props) };
-            if ret == CTL_RESULT_SUCCESS && power_props.max_limit > 0 {
-                max_power_mw = power_props.max_limit as i64;
+            if ret == CTL_RESULT_SUCCESS {
+                if power_props.max_limit > 0 {
+                    max_power_mw = power_props.max_limit as i64;
+                }
+            } else {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    op = "ctlPowerGetProperties",
+                    code = %crate::log::Hex(ret),
+                    name = ctl_result_name(ret).unwrap_or("UNKNOWN"),
+                    "IGCL power properties query failed",
+                );
             }
         }
 
@@ -942,6 +967,14 @@ pub(super) fn discover() -> Option<IgclBundle> {
             let ret = unsafe { (session.igcl.mem_get_state)(mem_h, &mut mem_state) };
             if ret == CTL_RESULT_SUCCESS {
                 mem_total = mem_state.total;
+            } else {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    op = "ctlMemoryGetState",
+                    code = %crate::log::Hex(ret),
+                    name = ctl_result_name(ret).unwrap_or("UNKNOWN"),
+                    "IGCL memory state query (discovery) failed",
+                );
             }
         }
 
@@ -952,10 +985,42 @@ pub(super) fn discover() -> Option<IgclBundle> {
             // SAFETY: freq_h is a valid frequency handle; freq_state
             // is a valid IGCL-versioned struct.
             let ret = unsafe { (session.igcl.freq_get_state)(freq_h, &mut freq_state) };
-            if ret == CTL_RESULT_SUCCESS && freq_state.tdp > 0.0 {
-                max_clock = freq_state.tdp as u32;
+            if ret == CTL_RESULT_SUCCESS {
+                if freq_state.tdp > 0.0 {
+                    max_clock = freq_state.tdp as u32;
+                }
+            } else {
+                tracing::debug!(
+                    subsystem = %crate::log::Subsystem::GpuIgcl,
+                    op = "ctlFrequencyGetState",
+                    code = %crate::log::Hex(ret),
+                    name = ctl_result_name(ret).unwrap_or("UNKNOWN"),
+                    "IGCL frequency state query (discovery) failed",
+                );
             }
         }
+
+        // Per-device discovery summary. Logged at `info` — the
+        // appropriate level per the conventions for a vendor-detected
+        // lifecycle event. Reporters who set `log_level = "info"` in
+        // `rtop.toml` get a one-line snapshot per device that almost
+        // always identifies the root cause of missing telemetry
+        // (e.g. `temp_sensors = 0` means the driver exposes no per-
+        // sensor handle and the temp box will read zero through the
+        // existing path).
+        tracing::info!(
+            subsystem = %crate::log::Subsystem::GpuIgcl,
+            device = %name,
+            temp_sensors = temp_sensors.len(),
+            mem_modules = mem_modules.len(),
+            engine_groups = engine_groups.len(),
+            freq_domains = freq_domains.len(),
+            power_domains = power_domains.len(),
+            mem_total_bytes = mem_total,
+            max_power_mw,
+            max_clock_mhz = max_clock,
+            "device discovered",
+        );
 
         // IGCL does not expose a per-card UUID at this struct
         // level (`pci_device_id` is shared across every Arc A770
@@ -1009,8 +1074,14 @@ fn name_from_buf(buf: &[u8]) -> String {
 }
 
 /// Enumerate sub-handles using the IGCL two-call pattern (get count, then fill).
+///
+/// `op` names the IGCL call (e.g. `"ctlEnumTemperatureSensors"`) and is
+/// included in the `debug` log emitted on the failure path so field
+/// reports can identify which enumeration produced an empty handle set
+/// because of a hard error versus a legitimately empty count.
 unsafe fn enum_handles<H: Copy>(
     device: CtlDeviceHandle,
+    op: &'static str,
     enum_fn: unsafe extern "C" fn(CtlDeviceHandle, *mut u32, *mut H) -> u32,
 ) -> Vec<H> {
     let mut count: u32 = 0;
@@ -1018,7 +1089,17 @@ unsafe fn enum_handles<H: Copy>(
     // per the `unsafe fn` contract); a null target pointer with a valid
     // &mut u32 count is the documented IGCL "query count" call shape.
     let ret = unsafe { enum_fn(device, &mut count, std::ptr::null_mut()) };
-    if ret != CTL_RESULT_SUCCESS || count == 0 {
+    if ret != CTL_RESULT_SUCCESS {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuIgcl,
+            op,
+            code = %crate::log::Hex(ret),
+            name = ctl_result_name(ret).unwrap_or("UNKNOWN"),
+            "IGCL enumeration (count) failed",
+        );
+        return Vec::new();
+    }
+    if count == 0 {
         return Vec::new();
     }
     // SAFETY: MaybeUninit<H> where H is a pointer type — zeroed is valid for pointers.
@@ -1028,6 +1109,13 @@ unsafe fn enum_handles<H: Copy>(
     // pass writes within the allocated buffer.
     let ret = unsafe { enum_fn(device, &mut count, handles.as_mut_ptr()) };
     if ret != CTL_RESULT_SUCCESS {
+        tracing::debug!(
+            subsystem = %crate::log::Subsystem::GpuIgcl,
+            op,
+            code = %crate::log::Hex(ret),
+            name = ctl_result_name(ret).unwrap_or("UNKNOWN"),
+            "IGCL enumeration (fill) failed",
+        );
         return Vec::new();
     }
     handles.truncate(count as usize);
