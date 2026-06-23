@@ -2,7 +2,7 @@
 main_bg = "#0e0c0a"
 main_fg = "#d0c8b8"
 title = "#e8e0d0"
-hi_fg = "#c08c50"
+hi_fg = "#c48e3f"
 graph_text = "#484040"
 meter_bg = "#1a2824"
 selected_bg = "#3c2a1e"
@@ -10,102 +10,102 @@ selected_fg = "#d0c8b8"
 followed_bg = "#1e3830"
 followed_fg = "#d0c8b8"
 dead_proc_fg = "#82796f"
-cpu_widget = "#c15c42"
-mem_widget = "#c8a040"
-net_widget = "#6a88b0"
-proc_widget = "#5aaa88"
-gpu_widget = "#5a98a0"
-disk_widget = "#a16a89"
-help_box = "#5a98a0"
-options_box = "#c8a040"
+cpu_widget = "#cf5a3b"
+mem_widget = "#c7ab35"
+net_widget = "#5290d3"
+proc_widget = "#50b27a"
+gpu_widget = "#2ea3a9"
+disk_widget = "#c16ca6"
+help_box = "#2ea3a9"
+options_box = "#c7ab35"
 proc_tree_fg = "#484040"
 
 statusbar_bg = "#0e0c0a"
 statusbar_fg = "#d0c8b8"
-statusbar_hi = "#c08c50"
+statusbar_hi = "#c48e3f"
 statusbar_sep = "#8a8073"
 
 [gradients.cpu_upper]
-start = "#5aaa88"
-mid = "#c8a040"
-end = "#c15c42"
+start = "#50b27a"
+mid = "#c7ab35"
+end = "#cf5a3b"
 
 [gradients.cpu_lower]
-start = "#6a88b0"
-mid = "#a76d4b"
-end = "#c15c42"
+start = "#5290d3"
+mid = "#bb6a26"
+end = "#cf5a3b"
 
 [gradients.used]
-start = "#c8a040"
-mid = "#a76d4b"
-end = "#c15c42"
+start = "#c7ab35"
+mid = "#bb6a26"
+end = "#cf5a3b"
 
 [gradients.available]
 start = "#948576"
-mid = "#5aaa88"
-end = "#80c8a8"
+mid = "#50b27a"
+end = "#66c78e"
 
 [gradients.cached]
-start = "#6a88b0"
-mid = "#5a98a0"
-end = "#80b8b0"
+start = "#5290d3"
+mid = "#2ea3a9"
+end = "#48b8be"
 
 [gradients.free]
-start = "#6c7e75"
-mid = "#5aaa88"
-end = "#80c8a8"
+start = "#73897f"
+mid = "#50b27a"
+end = "#66c78e"
 
 [gradients.download]
-start = "#6a88b0"
-mid = "#5a98a0"
-end = "#8aa8c8"
+start = "#5290d3"
+mid = "#2ea3a9"
+end = "#66a4e9"
 
 [gradients.upload]
-start = "#a16a89"
-mid = "#a76d4b"
-end = "#b888a0"
+start = "#c16ca6"
+mid = "#bb6a26"
+end = "#d780bb"
 
 [gradients.gpu]
-start = "#5aaa88"
-mid = "#c8a040"
-end = "#c15c42"
+start = "#50b27a"
+mid = "#c7ab35"
+end = "#cf5a3b"
 
 [gradients.gpu_clock]
-start = "#6a88b0"
-mid = "#5a98a0"
-end = "#80b8b0"
+start = "#5290d3"
+mid = "#2ea3a9"
+end = "#48b8be"
 
 [gradients.gpu_power]
-start = "#c8a040"
-mid = "#a76d4b"
-end = "#c15c42"
+start = "#c7ab35"
+mid = "#bb6a26"
+end = "#cf5a3b"
 
 [gradients.gpu_vram]
-start = "#a16a89"
-mid = "#a76d4b"
-end = "#b888a0"
+start = "#c16ca6"
+mid = "#bb6a26"
+end = "#d780bb"
 
 [gradients.disk_read]
-start = "#6a88b0"
-mid = "#5a98a0"
-end = "#8aa8c8"
+start = "#5290d3"
+mid = "#2ea3a9"
+end = "#66a4e9"
 
 [gradients.disk_write]
-start = "#a16a89"
-mid = "#a76d4b"
-end = "#b888a0"
+start = "#c16ca6"
+mid = "#bb6a26"
+end = "#d780bb"
 
 [gradients.disk_busy]
-start = "#c8a040"
-mid = "#a76d4b"
-end = "#c15c42"
+start = "#c7ab35"
+mid = "#bb6a26"
+end = "#cf5a3b"
 
 [gradients.temp]
-start = "#6a88b0"
-mid = "#a76d4b"
-end = "#c15c42"
+start = "#5290d3"
+mid = "#bb6a26"
+end = "#cf5a3b"
 
 [gradients.process]
-start = "#5aaa88"
-mid = "#c8a040"
-end = "#c15c42"
+start = "#50b27a"
+mid = "#c7ab35"
+end = "#cf5a3b"
