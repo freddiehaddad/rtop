@@ -4,10 +4,6 @@ use std::ffi::c_void;
 
 use super::{clamp_percent, push_history};
 
-// ---------------------------------------------------------------------------
-// IGCL constants (mirror Intel `igcl_api.h`)
-// ---------------------------------------------------------------------------
-
 const CTL_RESULT_SUCCESS: u32 = 0;
 const CTL_IMPL_MAJOR_VERSION: u32 = 1;
 const CTL_IMPL_MINOR_VERSION: u32 = 1;
@@ -25,10 +21,6 @@ const CTL_FAN_COUNT: usize = 5;
 const CTL_POWER_TELEMETRY_VERSION: u8 = 1;
 const CTL_STRUCT_VERSION_0: u8 = 0;
 
-// ---------------------------------------------------------------------------
-// IGCL opaque handle types (all are pointers)
-// ---------------------------------------------------------------------------
-
 type CtlApiHandle = *mut c_void;
 type CtlDeviceHandle = *mut c_void;
 type CtlTempHandle = *mut c_void;
@@ -37,15 +29,9 @@ type CtlEngineHandle = *mut c_void;
 type CtlFreqHandle = *mut c_void;
 type CtlPwrHandle = *mut c_void;
 
-// ---------------------------------------------------------------------------
-// IGCL structures (repr(C) matching `igcl_api.h` on MSVC x64).
-//
-// Field order, types, and padding must match the C ABI exactly so that the
-// `Size = sizeof(Self)` IGCL versioning contract is satisfied. The
-// `#[cfg(test)] abi_tests` module at the bottom of this file pins every
-// struct size to the MSVC ABI value verified against the canonical header.
-// ---------------------------------------------------------------------------
-
+/// IGCL structs use the MSVC x64 C ABI; `abi_tests` pins sizes
+/// verified against `igcl_api.h`.
+///
 /// `ctl_application_id_t` — 16 bytes, alignment 4.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -357,10 +343,6 @@ impl CtlPowerTelemetry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// IGCL function pointer types
-// ---------------------------------------------------------------------------
-
 type CtlInitFn = unsafe extern "C" fn(*mut CtlInitArgs, *mut CtlApiHandle) -> u32;
 type CtlCloseFn = unsafe extern "C" fn(CtlApiHandle) -> u32;
 type CtlEnumDevicesFn = unsafe extern "C" fn(CtlApiHandle, *mut u32, *mut CtlDeviceHandle) -> u32;
@@ -452,10 +434,6 @@ impl IgclFunctions {
         OwnedLibrary::new(unsafe { LoadLibraryW(windows::core::PCWSTR(dll_name.as_ptr())) }.ok()?)
     }
 }
-
-// ---------------------------------------------------------------------------
-// IGCL error code -> symbolic name (for diagnostic log readability)
-// ---------------------------------------------------------------------------
 
 /// Map a `ctl_result_t` value to the symbolic name from `igcl_api.h`.
 ///
@@ -572,10 +550,6 @@ fn ctl_result_name(code: u32) -> Option<&'static str> {
     };
     Some(s)
 }
-
-// ---------------------------------------------------------------------------
-// Intel vendor session and per-device collector
-// ---------------------------------------------------------------------------
 
 /// `Send + Sync` newtype around `CtlApiHandle` (`*mut c_void`).
 ///
@@ -744,7 +718,6 @@ pub(super) fn collect(
         }
     }
 
-    // Memory
     if let Some(mem_h) = dev.mem_module {
         let mut state = CtlMemState::new();
         // SAFETY: mem_h cached from discovery; state is a valid
@@ -794,7 +767,6 @@ pub(super) fn collect(
         }
     }
 
-    // Frequency
     if let Some(freq_h) = dev.freq_domain {
         let mut state = CtlFreqState::new();
         // SAFETY: freq_h cached from discovery; state is a valid
@@ -914,7 +886,10 @@ pub(super) fn discover() -> Option<IgclBundle> {
             continue;
         }
 
-        // Cache first sub-handle of each telemetry type
+        // SAFETY: dev is a valid IGCL device handle from
+        // ctlEnumerateDevices above, and enum_temp_sensors is a
+        // resolved IGCL entry point — enum_handles' documented
+        // contract.
         let temp_sensors = unsafe {
             enum_handles(
                 dev,
@@ -922,10 +897,16 @@ pub(super) fn discover() -> Option<IgclBundle> {
                 session.igcl.enum_temp_sensors,
             )
         };
+        // SAFETY: dev is a valid IGCL device handle; enum_mem_modules
+        // is a resolved IGCL entry point.
         let mem_modules =
             unsafe { enum_handles(dev, "ctlEnumMemoryModules", session.igcl.enum_mem_modules) };
+        // SAFETY: dev is a valid IGCL device handle; enum_engine_groups
+        // is a resolved IGCL entry point.
         let engine_groups =
             unsafe { enum_handles(dev, "ctlEnumEngineGroups", session.igcl.enum_engine_groups) };
+        // SAFETY: dev is a valid IGCL device handle; enum_freq_domains
+        // is a resolved IGCL entry point.
         let freq_domains = unsafe {
             enum_handles(
                 dev,
@@ -934,7 +915,8 @@ pub(super) fn discover() -> Option<IgclBundle> {
             )
         };
 
-        // Query max power limit
+        // SAFETY: dev is a valid IGCL device handle; enum_power_domains
+        // is a resolved IGCL entry point.
         let power_domains =
             unsafe { enum_handles(dev, "ctlEnumPowerDomains", session.igcl.enum_power_domains) };
         let mut max_power_mw: i64 = 0;
@@ -958,7 +940,6 @@ pub(super) fn discover() -> Option<IgclBundle> {
             }
         }
 
-        // Query initial memory total
         let mut mem_total: u64 = 0;
         if let Some(&mem_h) = mem_modules.first() {
             let mut mem_state = CtlMemState::new();
@@ -978,7 +959,6 @@ pub(super) fn discover() -> Option<IgclBundle> {
             }
         }
 
-        // Query max clock from frequency domain
         let mut max_clock: u32 = 0;
         if let Some(&freq_h) = freq_domains.first() {
             let mut freq_state = CtlFreqState::new();

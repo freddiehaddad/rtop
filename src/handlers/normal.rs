@@ -14,10 +14,6 @@ use crate::{
     handlers::InputContext, input::Key, overlay::ReturnTarget, theme,
 };
 
-// ---------------------------------------------------------------------------
-// Quit / menu transitions
-// ---------------------------------------------------------------------------
-
 pub(super) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;
 }
@@ -51,10 +47,6 @@ pub(super) fn open_options_menu_action(ctx: &mut InputContext, _: &Key) {
         "menu transition",
     );
 }
-
-// ---------------------------------------------------------------------------
-// Presets, config reload, update rate
-// ---------------------------------------------------------------------------
 
 pub(super) fn preset_forward_action(ctx: &mut InputContext, _: &Key) {
     cycle_preset(ctx, true);
@@ -136,10 +128,6 @@ fn step_update_rate(ctx: &mut InputContext, delta: i64) {
     ctx.render.dirty.mark_layout();
 }
 
-// ---------------------------------------------------------------------------
-// Process navigation
-// ---------------------------------------------------------------------------
-
 pub(super) fn nav_up_action(ctx: &mut InputContext, _: &Key) {
     if ctx.process.selected > 0 {
         ctx.process.selected -= 1;
@@ -194,10 +182,6 @@ pub(super) fn nav_end_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.selected = count.saturating_sub(1);
     ctx.render.dirty.mark_proc_widget();
 }
-
-// ---------------------------------------------------------------------------
-// Process modes, sorting, and actions
-// ---------------------------------------------------------------------------
 
 pub(super) fn open_filter_action(ctx: &mut InputContext, _: &Key) {
     ctx.process.filter_text = ctx.view.proc_filter.clone();
@@ -401,10 +385,6 @@ pub(super) fn close_detail_action(ctx: &mut InputContext, _: &Key) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Widget visibility toggles
-// ---------------------------------------------------------------------------
-
 pub(super) fn toggle_widget_main_action(ctx: &mut InputContext, key: &Key) {
     let Key::Char(c) = key else {
         return;
@@ -449,10 +429,6 @@ pub(super) fn restore_widgets_action(ctx: &mut InputContext, _: &Key) {
     ctx.render.dirty.mark_layout();
 }
 
-// ---------------------------------------------------------------------------
-// Network
-// ---------------------------------------------------------------------------
-
 pub(super) fn net_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_net(ctx, -1);
 }
@@ -484,10 +460,6 @@ pub(super) fn net_sync_action(ctx: &mut InputContext, _: &Key) {
     ctx.view.net_sync = !ctx.view.net_sync;
     ctx.render.dirty.mark_widget(WidgetKind::Net);
 }
-
-// ---------------------------------------------------------------------------
-// GPU device cycle
-// ---------------------------------------------------------------------------
 
 pub(super) fn gpu_back_action(ctx: &mut InputContext, _: &Key) {
     cycle_gpu(ctx, -1);
@@ -555,10 +527,6 @@ fn cycle_gpu_iface(ctx: &mut InputContext, direction: isize) {
     ctx.view.gpu_iface = ctx.gpu.selected_iface.clone();
 }
 
-// ---------------------------------------------------------------------------
-// Process termination (Win32)
-// ---------------------------------------------------------------------------
-
 /// Attempt graceful termination by sending WM_CLOSE to the process's
 /// visible windows. If the process has no windows, does nothing — the
 /// user can escalate to force kill with `T`.
@@ -572,10 +540,21 @@ fn graceful_terminate(pid: u32) {
     }
 
     unsafe extern "system" fn enum_callback(hwnd: HWND, lparam: LPARAM) -> windows::core::BOOL {
+        // SAFETY: lparam is the `&mut CallbackData` pointer handed to
+        // EnumWindows below. EnumWindows runs synchronously on this
+        // thread and invokes the callback serially, so `data` outlives
+        // every invocation and no other live reference to it exists.
         let data = unsafe { &mut *(lparam.0 as *mut CallbackData) };
         let mut window_pid: u32 = 0;
+        // SAFETY: hwnd is supplied by EnumWindows and is a valid
+        // top-level window handle for the duration of the callback;
+        // window_pid is a live local for the kernel to write into.
         unsafe { GetWindowThreadProcessId(hwnd, Some(&mut window_pid)) };
+        // SAFETY: hwnd is valid for the duration of the callback.
         if window_pid == data.target_pid && unsafe { IsWindowVisible(hwnd) }.as_bool() {
+            // SAFETY: hwnd is valid for the duration of the callback.
+            // WM_CLOSE carries no pointer payload, so the zero WPARAM
+            // and LPARAM are the documented arguments for it.
             if let Err(e) = unsafe { PostMessageW(Some(hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)) } {
                 tracing::warn!(
                     subsystem = %crate::log::Subsystem::Process,
