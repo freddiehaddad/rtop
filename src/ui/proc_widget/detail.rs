@@ -380,7 +380,6 @@ mod tests {
             proc_mem_bytes: true,
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
-            proc_gradient: true,
             base_10: false,
         }
     }

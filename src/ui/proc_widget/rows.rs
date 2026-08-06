@@ -2,6 +2,7 @@ use super::layout::{ProcColumns, ProcWidgetLayout};
 use super::{ProcColors, ProcFrame};
 use crate::domain::process::{ProcDisplayEntry, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
+use crate::theme::gradient_color;
 use crate::tools;
 use std::collections::HashSet;
 
@@ -90,25 +91,18 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let mem = params.entry.mem_override.unwrap_or(params.proc.mem);
     let display_cpu = display_proc_cpu(cpu_p, params.settings);
     let mem_str = format_proc_memory(mem, params.settings);
-    // Dead rows that are not selected/followed render in
-    // dead_proc_fg; the dim signal then layers under the dagger
-    // prefix below. Selected / followed states win over the dead
-    // foreground (their bg highlight takes precedence in their
-    // dedicated row renderers); the prefix carries the "dead even
-    // when highlighted" signal.
-    let proc_color = if params.dead {
-        params.colors.dead_fg
-    } else {
-        process_row_color(
-            display_cpu,
-            params.absolute_index,
-            params.selected,
-            params.layout.max_rows,
-            params.settings,
-            params.colors.proc_grad,
-            params.colors.fg,
-        )
-    };
+    // Dead rows collapse every column to dead_proc_fg; the dim
+    // signal then layers under the dagger prefix below. Selected /
+    // followed states win over the dead foreground (their bg
+    // highlight takes precedence in their dedicated row renderers);
+    // the prefix carries the "dead even when highlighted" signal.
+    let row_colors = resolve_row_colors(
+        params.dead,
+        display_cpu,
+        mem,
+        params.settings,
+        params.colors,
+    );
 
     let (tree_prefix, bare_name) = if params.tree_mode && !params.entry.prefix.is_empty() {
         (params.entry.prefix.as_str(), params.proc.name.as_str())
@@ -184,7 +178,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 prefix_w,
                 name_avail: name_avail_after_prefix,
             },
-            proc_color,
+            &row_colors,
         );
     }
 }
@@ -250,15 +244,16 @@ fn draw_unselected_process_row(
     buf: &mut AnsiBuffer,
     params: &ProcessRowParams<'_>,
     row: &RowText<'_>,
-    proc_color: &str,
+    row_colors: &RowColors<'_>,
 ) {
     let columns = &params.layout.columns;
-    buf.mv(params.layout.x + 3, params.row_y).color(proc_color);
+    buf.mv(params.layout.x + 3, params.row_y)
+        .color(row_colors.text);
     buf.text(&row.pid).text(" ");
     if !row.tree_prefix.is_empty() {
         buf.color(params.colors.tree_fg)
             .text(row.tree_prefix)
-            .color(proc_color);
+            .color(row_colors.text);
     }
     draw_process_name_padding(buf, row, columns.name_w);
     buf.text(" ");
@@ -266,7 +261,8 @@ fn draw_unselected_process_row(
         buf.text(&format!("{:<cmd_w$}", row.cmd, cmd_w = columns.cmd_w));
         buf.text(" ");
     }
-    buf.text(&row.cpu).text(" ").text(&row.mem);
+    buf.color(row_colors.cpu).text(&row.cpu).text(" ");
+    buf.color(row_colors.mem).text(&row.mem);
 }
 
 fn draw_process_name_padding(buf: &mut AnsiBuffer, row: &RowText<'_>, name_w: usize) {
@@ -294,6 +290,17 @@ pub(super) fn display_proc_cpu(cpu_per_core: f64, settings: &ProcFrame) -> f64 {
     value.clamp(0.0, max_value)
 }
 
+/// Percentage of total physical memory held by a process, clamped to
+/// `0..=100`. Backs both the `%` display form and the mem column's
+/// gradient index, so the number and its color always agree even
+/// when `proc_mem_bytes` renders the value as bytes.
+pub(super) fn mem_percent(mem: u64, total_mem: u64) -> f64 {
+    if total_mem == 0 {
+        return 0.0;
+    }
+    (mem as f64 * 100.0 / total_mem as f64).clamp(0.0, 100.0)
+}
+
 pub(super) fn format_proc_memory(mem: u64, settings: &ProcFrame) -> String {
     if settings.proc_mem_bytes {
         return if mem > 0 {
@@ -303,41 +310,60 @@ pub(super) fn format_proc_memory(mem: u64, settings: &ProcFrame) -> String {
         };
     }
 
-    let pct = if settings.total_mem == 0 {
-        0.0
-    } else {
-        (mem as f64 * 100.0 / settings.total_mem as f64).clamp(0.0, 100.0)
-    };
+    let pct = mem_percent(mem, settings.total_mem);
     format!("{pct:.1}%")
 }
 
-fn process_row_color<'a>(
+/// Per-column foreground colors for one unselected process row.
+///
+/// `text` paints the pid, name and cmd columns; `cpu` and `mem` are
+/// each derived from their own metric, so a calm neutral row can
+/// still signal load through its two numeric columns.
+struct RowColors<'a> {
+    text: &'a str,
+    cpu: &'a str,
+    mem: &'a str,
+}
+
+/// Resolve the per-column colors for a row.
+///
+/// Dead rows collapse to a single muted color — an exited process's
+/// numbers are stale, so tinting them by load would be misleading.
+/// With `proc_colors` off every column falls back to `main_fg`.
+/// Otherwise each numeric column indexes the shared process gradient
+/// with the same value it displays, matching how the CPU widget
+/// colors its temperature readouts.
+fn resolve_row_colors<'a>(
+    dead: bool,
     display_cpu: f64,
-    row_index: usize,
-    selected: usize,
-    visible_rows: usize,
+    mem: u64,
     settings: &ProcFrame,
-    proc_grad: &'a [String],
-    fg: &'a str,
-) -> &'a str {
-    if !settings.proc_colors || proc_grad.is_empty() {
-        return fg;
+    colors: &ProcColors<'a>,
+) -> RowColors<'a> {
+    if dead {
+        return RowColors {
+            text: colors.dead_fg,
+            cpu: colors.dead_fg,
+            mem: colors.dead_fg,
+        };
     }
 
-    let cpu_idx = display_cpu.round().clamp(0.0, 100.0) as usize;
-    if !settings.proc_gradient {
-        return proc_grad[cpu_idx.min(100)].as_str();
+    if !settings.proc_colors || colors.proc_grad.is_empty() {
+        return RowColors {
+            text: colors.fg,
+            cpu: colors.fg,
+            mem: colors.fg,
+        };
     }
 
-    // Fade the gradient color based on distance from the selected row:
-    // closer rows get brighter colors, distant rows fade toward the low end.
-    let distance = row_index.abs_diff(selected);
-    let fade_loss = distance.saturating_mul(100) / visible_rows.max(1);
-    let idx = (cpu_idx + 100)
-        .saturating_sub(fade_loss.min(100))
-        .saturating_sub(100)
-        .min(100);
-    proc_grad[idx].as_str()
+    RowColors {
+        text: colors.fg,
+        cpu: gradient_color(colors.proc_grad, display_cpu.round() as i32),
+        mem: gradient_color(
+            colors.proc_grad,
+            mem_percent(mem, settings.total_mem).round() as i32,
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -351,7 +377,6 @@ mod tests {
             proc_mem_bytes: true,
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
-            proc_gradient: true,
             base_10: false,
         }
     }
@@ -394,22 +419,112 @@ mod tests {
     }
 
     #[test]
-    fn proc_gradient_setting_changes_row_color_mode() {
+    fn cpu_and_mem_columns_index_the_gradient_independently() {
         let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
+        let colors = ProcColors {
+            border_color: "border",
+            fg: "fg",
+            title_color: "title",
+            hi: "hi",
+            sel_bg_esc: String::new(),
+            sel_fg: "selfg",
+            followed_bg_esc: String::new(),
+            followed_fg: "followedfg",
+            tree_fg: "tree",
+            proc_grad: &gradient,
+            dead_fg: "dead",
+        };
         let settings = make_frame();
-        let no_gradient = ProcFrame {
-            proc_gradient: false,
+
+        // 25% of a 1 GiB total, so the mem column lands on index 25
+        // while the cpu column independently lands on index 50.
+        let row = resolve_row_colors(false, 50.0, 256 * 1024 * 1024, &settings, &colors);
+
+        assert_eq!(row.text, "fg", "pid/name/cmd stay neutral");
+        assert_eq!(row.cpu, "50");
+        assert_eq!(row.mem, "25");
+    }
+
+    #[test]
+    fn cpu_column_clamps_above_full_scale() {
+        let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
+        let colors = ProcColors {
+            border_color: "border",
+            fg: "fg",
+            title_color: "title",
+            hi: "hi",
+            sel_bg_esc: String::new(),
+            sel_fg: "selfg",
+            followed_bg_esc: String::new(),
+            followed_fg: "followedfg",
+            tree_fg: "tree",
+            proc_grad: &gradient,
+            dead_fg: "dead",
+        };
+        let settings = make_frame();
+
+        // Per-core mode reports well over 100%; the gradient index
+        // saturates at the top of the ramp rather than wrapping.
+        let row = resolve_row_colors(false, 380.0, 0, &settings, &colors);
+        assert_eq!(row.cpu, "100");
+    }
+
+    #[test]
+    fn proc_colors_off_makes_every_column_neutral() {
+        let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
+        let colors = ProcColors {
+            border_color: "border",
+            fg: "fg",
+            title_color: "title",
+            hi: "hi",
+            sel_bg_esc: String::new(),
+            sel_fg: "selfg",
+            followed_bg_esc: String::new(),
+            followed_fg: "followedfg",
+            tree_fg: "tree",
+            proc_grad: &gradient,
+            dead_fg: "dead",
+        };
+        let settings = ProcFrame {
+            proc_colors: false,
             ..make_frame()
         };
 
-        assert_eq!(
-            process_row_color(50.0, 5, 0, 10, &settings, &gradient, "fg"),
-            "0"
-        );
-        assert_eq!(
-            process_row_color(50.0, 5, 0, 10, &no_gradient, &gradient, "fg"),
-            "50"
-        );
+        let row = resolve_row_colors(false, 50.0, 256 * 1024 * 1024, &settings, &colors);
+        assert_eq!(row.text, "fg");
+        assert_eq!(row.cpu, "fg");
+        assert_eq!(row.mem, "fg");
+    }
+
+    #[test]
+    fn dead_rows_collapse_every_column_to_dead_fg() {
+        let gradient: Vec<String> = (0..=100).map(|i| i.to_string()).collect();
+        let colors = ProcColors {
+            border_color: "border",
+            fg: "fg",
+            title_color: "title",
+            hi: "hi",
+            sel_bg_esc: String::new(),
+            sel_fg: "selfg",
+            followed_bg_esc: String::new(),
+            followed_fg: "followedfg",
+            tree_fg: "tree",
+            proc_grad: &gradient,
+            dead_fg: "dead",
+        };
+        let settings = make_frame();
+
+        let row = resolve_row_colors(true, 50.0, 256 * 1024 * 1024, &settings, &colors);
+        assert_eq!(row.text, "dead");
+        assert_eq!(row.cpu, "dead", "a stale reading must not glow");
+        assert_eq!(row.mem, "dead");
+    }
+
+    #[test]
+    fn mem_percent_guards_zero_total() {
+        assert_eq!(mem_percent(1024, 0), 0.0);
+        assert_eq!(mem_percent(512, 1024), 50.0);
+        assert_eq!(mem_percent(4096, 1024), 100.0, "clamps above full");
     }
 
     // ────────────────────────────────────────────────────────────

@@ -262,7 +262,6 @@ config_schema! {
         ProcReversed => "proc_reversed" => view.proc_reversed,
         ProcTree => "proc_tree" => view.proc_tree,
         ProcColors => "proc_colors" => proc.proc_colors,
-        ProcGradient => "proc_gradient" => proc.proc_gradient,
         ProcPerCore => "proc_per_core" => view.proc_per_core,
         ProcMemBytes => "proc_mem_bytes" => proc.proc_mem_bytes,
         ProcAggregate => "proc_aggregate" => proc.proc_aggregate,

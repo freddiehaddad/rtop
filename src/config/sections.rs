@@ -277,7 +277,6 @@ impl Default for NetConfig {
 pub struct ProcConfig {
     pub proc_aggregate: bool,
     pub proc_colors: bool,
-    pub proc_gradient: bool,
     pub proc_mem_bytes: bool,
 }
 
@@ -286,7 +285,6 @@ impl Default for ProcConfig {
         Self {
             proc_aggregate: false,
             proc_colors: true,
-            proc_gradient: true,
             proc_mem_bytes: true,
         }
     }

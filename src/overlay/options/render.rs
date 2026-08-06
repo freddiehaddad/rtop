@@ -232,7 +232,6 @@ pub const PROC: &[ConfigKey] = &[
     ConfigKey::Bool(BoolKey::ProcTree),
     ConfigKey::Bool(BoolKey::ProcAggregate),
     ConfigKey::Bool(BoolKey::ProcColors),
-    ConfigKey::Bool(BoolKey::ProcGradient),
     ConfigKey::Bool(BoolKey::ProcPerCore),
     ConfigKey::Bool(BoolKey::ProcMemBytes),
     ConfigKey::String(StringKey::ProcFilter),

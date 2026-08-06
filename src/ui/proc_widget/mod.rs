@@ -27,7 +27,6 @@ pub struct ProcFrame {
     pub proc_mem_bytes: bool,
     pub total_mem: u64,
     pub proc_colors: bool,
-    pub proc_gradient: bool,
     pub base_10: bool,
 }
 
@@ -425,7 +424,6 @@ impl super::Widget for ProcWidget {
             proc_mem_bytes: params.config.proc.proc_mem_bytes,
             total_mem: params.total_mem,
             proc_colors: params.config.proc.proc_colors,
-            proc_gradient: params.config.proc.proc_gradient,
             base_10: params.config.ui.base_10_sizes,
         };
         output.push_str(&draw(
@@ -593,7 +591,6 @@ mod tests {
             proc_mem_bytes: true,
             total_mem: 1024 * 1024 * 1024,
             proc_colors: true,
-            proc_gradient: true,
             base_10: false,
         }
     }
@@ -848,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    fn proc_colors_setting_disables_cpu_row_coloring() {
+    fn proc_colors_setting_toggles_numeric_column_coloring() {
         let theme = Theme::default();
         let cpu_color = theme.gradient(tc::GRAD_PROCESS)[5].clone();
         let mut view = make_view();
@@ -859,10 +856,7 @@ mod tests {
             &make_entries(),
             &make_area(),
             &theme,
-            &ProcFrame {
-                proc_gradient: false,
-                ..make_frame()
-            },
+            &make_frame(),
             &view,
             &CollectStatus::Ok,
         );
@@ -881,6 +875,34 @@ mod tests {
 
         assert!(colored.contains(&cpu_color));
         assert!(!plain.contains(&cpu_color));
+    }
+
+    #[test]
+    fn cpu_and_mem_columns_carry_independent_colors() {
+        // alpha.exe sits at 12.5% CPU (per-core) but holds only
+        // 100 MiB of a 1 GiB total, so its two numeric columns must
+        // resolve to different points on the process gradient — the
+        // whole point of per-column coloring over a single row color.
+        let theme = Theme::default();
+        let gradient = theme.gradient(tc::GRAD_PROCESS);
+        let cpu_color = gradient[13].clone();
+        let mem_color = gradient[10].clone();
+        let mut view = make_view();
+        view.selected = usize::MAX;
+
+        let out = draw(
+            &make_procs(),
+            &make_entries(),
+            &make_area(),
+            &theme,
+            &make_frame(),
+            &view,
+            &CollectStatus::Ok,
+        );
+
+        assert_ne!(cpu_color, mem_color, "fixture must exercise two indices");
+        assert!(out.contains(&cpu_color), "cpu column color missing");
+        assert!(out.contains(&mem_color), "mem column color missing");
     }
 
     #[test]

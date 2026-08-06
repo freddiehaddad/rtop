@@ -474,7 +474,6 @@ pub(crate) fn apply_post_change_effects(key: ConfigKey, ctx: &mut InputContext) 
             | ConfigKey::Bool(BoolKey::ProcTree)
             | ConfigKey::Bool(BoolKey::ProcAggregate)
             | ConfigKey::Bool(BoolKey::ProcMemBytes)
-            | ConfigKey::Bool(BoolKey::ProcGradient)
             | ConfigKey::Bool(BoolKey::ProcColors)
             | ConfigKey::Bool(BoolKey::ProcPerCore)
     ) {
