@@ -24,13 +24,6 @@
 //!
 //! `RenderDirty: Copy` so [`crate::app::RenderParams`] can keep
 //! it by value without churning the renderer signatures.
-//!
-//! All fields are private. Mutators are intent-named so the
-//! invariants documented above (proc_list ⇒ proc_widget;
-//! layout ⇒ all widgets) cannot be violated by the caller.
-//!
-//! `RenderDirty: Copy` so [`crate::app::RenderParams`] can keep
-//! it by value without churning the renderer signatures.
 
 use crate::domain::widget_kind::WidgetKind;
 use crate::domain::widget_set::WidgetSet;
@@ -76,8 +69,6 @@ impl RenderDirty {
         d.mark_all_widgets();
         d
     }
-
-    // ---- mutators ----------------------------------------------------
 
     /// Drop every dirty bit.
     pub fn clear(&mut self) {

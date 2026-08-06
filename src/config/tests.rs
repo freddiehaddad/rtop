@@ -101,7 +101,6 @@ fn load_invalid_typed_value_aborts_whole_parse() {
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains("Failed to parse config"));
     assert!(warnings[0].contains("graph_symbol"));
-    // Defaults preserved.
     assert_eq!(config.ui.graph_symbol, GraphSymbol::Braille);
     assert_eq!(config.ui.color_theme, "default");
     let _ = fs::remove_file(&tmp);
@@ -202,37 +201,29 @@ hidden_widgets = ["mem", "gpu"]
     let warnings = config.load(&tmp);
     assert!(warnings.is_empty(), "warnings: {warnings:?}");
 
-    // UiConfig
     assert_eq!(config.ui.color_theme, "dracula");
     assert!(!config.ui.theme_background);
     assert!(config.ui.vim_keys);
 
-    // RefreshConfig
     assert_eq!(config.refresh.update_ms, 500);
     assert_eq!(config.refresh.cpu_update_ms, 250);
 
-    // CpuConfig
     assert!(!config.cpu.cpu_invert_lower);
     assert_eq!(config.cpu.custom_cpu_name, "My CPU");
 
-    // StatusbarConfig
     assert!(!config.statusbar.statusbar_show_uptime);
 
-    // MemConfig
     assert!(!config.mem.show_swap);
 
-    // DiskConfig
     assert!(config.view.io_mode);
     assert_eq!(config.disk.disk_filter, vec!["C:", "!D:"]);
 
-    // NetConfig
     assert_eq!(
         config.view.net_iface,
         "{12345678-1234-1234-1234-123456789012}"
     );
     assert_eq!(config.net.net_download, 5000);
 
-    // ProcConfig
     assert!(config.view.proc_tree);
     assert_eq!(config.view.proc_sorting, ProcSort::Memory);
     assert_eq!(config.view.proc_filter, "chrome");
@@ -241,10 +232,8 @@ hidden_widgets = ["mem", "gpu"]
     // device's stable id; no per-device labels exist).
     assert_eq!(config.view.gpu_iface, "NVIDIA:GPU-aaaa");
 
-    // LogConfig
     assert_eq!(config.log.log_level, LevelFilter::INFO);
 
-    // Top-level
     assert!(config.hidden_widgets.contains(WidgetKind::Mem));
     assert!(config.hidden_widgets.contains(WidgetKind::Gpu));
 
@@ -490,10 +479,6 @@ fn config_key_roundtrip_through_parser() {
     }
 }
 
-// -----------------------------------------------------------------
-// Inline editor parser/validator/set_widgets coverage
-// -----------------------------------------------------------------
-
 #[test]
 fn parse_disk_filter_accepts_empty() {
     assert_eq!(parse_disk_filter("").unwrap(), Vec::<String>::new());
@@ -546,15 +531,6 @@ fn gpu_update_ms_round_trips_through_field() {
     assert_eq!(IntKey::GpuUpdateMs.get(&config), 1234);
     assert_eq!(config.refresh.gpu_update_ms, 1234);
 }
-
-// ---------------------------------------------------------------------------
-// RefreshConfig::effective — the single resolver of the
-// "0 = inherit global" rule. Behavior is byte-identical to the
-// (now-removed) Config::effective_interval. The tests below lock
-// every branch and bound: zero / negative widget_ms, zero / sub-100
-// global, mid-range overrides, override floor (100), override ceiling
-// (86_400_000), and over-ceiling clamping.
-// ---------------------------------------------------------------------------
 
 fn refresh_with_global(global: i64) -> RefreshConfig {
     RefreshConfig {
@@ -650,10 +626,6 @@ fn parse_int_rejects_non_numeric_or_empty() {
     assert!(IntKey::UpdateMs.parse("").is_err());
 }
 
-// Note: the previous `parse_int_rejects_non_int_key` test is no
-// longer expressible — `parse` lives on `IntKey`, so passing a
-// non-int key is a compile error rather than a runtime check.
-
 #[test]
 fn validate_string_shape() {
     assert!(StringKey::CustomLayout.validate("vstack(cpu, mem)").is_ok());
@@ -708,10 +680,6 @@ fn enum_set_canonical_accepts_choices_rejects_unknown() {
     );
 }
 
-// Note: the previous `validate_string_rejects_non_string_keys`
-// test is no longer expressible — `validate` lives on
-// `StringKey`, so passing a Bool or Int key is a compile error.
-
 #[test]
 fn set_custom_layout_writes_to_custom_root_without_touching_cursor_from_builtin() {
     // From a builtin cursor, set_custom_layout mutates `custom.root`
@@ -724,11 +692,8 @@ fn set_custom_layout_writes_to_custom_root_without_touching_cursor_from_builtin(
     config.set_active_preset(cursor);
     let active_before = config.layout_spec().clone();
     config.set_custom_layout("vstack(cpu, mem)").unwrap();
-    // Cursor unchanged.
     assert_eq!(config.active_preset(), cursor);
-    // Active layout unchanged (still the builtin).
     assert_eq!(*config.layout_spec(), active_before);
-    // But custom.root captured the edit.
     assert_eq!(
         config.layout.custom_layout(),
         &Slot::VStack(vec![
@@ -764,9 +729,7 @@ fn set_string_custom_layout_via_inline_editor_path() {
     StringKey::CustomLayout
         .set(&mut config, "vstack(cpu, mem, disk)")
         .unwrap();
-    // Cursor unchanged.
     assert_eq!(config.active_preset(), cursor);
-    // custom.root captured the edit.
     assert_eq!(
         config.layout.custom_layout(),
         &Slot::VStack(vec![
@@ -782,7 +745,6 @@ fn set_string_custom_layout_invalid_returns_err() {
     let mut config = Config::new();
     assert!(StringKey::CustomLayout.set(&mut config, "nope").is_err());
     assert!(StringKey::CustomLayout.set(&mut config, "").is_err());
-    // Duplicate widget kinds rejected at parse time.
     assert!(
         StringKey::CustomLayout
             .set(&mut config, "vstack(cpu, cpu)")

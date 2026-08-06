@@ -137,7 +137,6 @@ pub fn draw(
     let vram_meter = Meter::new(meter_w, grad_vram, meter_bg);
     let mut row = 0;
 
-    // Row 1: GPU utilization
     let gpu_pct = gpu.gpu_percent.utilization.back().copied().unwrap_or(0) as i32;
     if row < inner_h {
         buf.mv(content_x, y + 2 + row)
@@ -149,7 +148,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Row 2: Clock speed
     let clock = gpu.gpu_clock_speed;
     let max_clock = gpu.gpu_max_clock_speed;
     let clock_pct = if max_clock > 0 {
@@ -167,7 +165,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Row 3: Temperature
     let temp = gpu.temp.back().copied().unwrap_or(0);
     let (conv_temp, temp_unit) = crate::tools::celsius_to(temp, frame.temp_scale);
     let temp_pct = temp.clamp(0, 100) as i32;
@@ -185,7 +182,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Row 4: Power
     let pwr_w = gpu.pwr_usage as f64 / 1000.0;
     let pwr_max_w = gpu.pwr_max_usage as f64 / 1000.0;
     let pwr_pct = if gpu.pwr_max_usage > 0 {
@@ -207,7 +203,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Row 5: VRAM
     let vram_pct = gpu.mem_utilization_percent.back().copied().unwrap_or(0) as i32;
     let vram_used = fmt_bytes(gpu.mem_used, frame.base_10);
     let vram_total = fmt_bytes(gpu.mem_total, frame.base_10);
@@ -226,10 +221,6 @@ pub fn draw(
 
     buf.finish()
 }
-
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
 
 /// GPU widget renderer. Singleton entry that handles the
 /// cycling-GPU widget (`WidgetKind::Gpu`). The runtime cursor in
@@ -433,7 +424,6 @@ mod tests {
             &CollectStatus::Ok,
         );
         let plain = strip_ansi(&output);
-        // floating_humanizer output
         assert!(
             plain.contains("/24"),
             "should show vram used/total: got {plain}"

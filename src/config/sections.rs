@@ -29,10 +29,6 @@ use crate::domain::config_enums::{CpuGraphSource, GraphSymbol, TempScale};
 use serde::{Deserialize, Serialize};
 use tracing_subscriber::filter::LevelFilter;
 
-// ---------------------------------------------------------------------------
-// Validation helpers
-// ---------------------------------------------------------------------------
-
 /// Reset `field` to `default` and emit a warning when its current
 /// value isn't in `choices`. Used by [`super::Config::validate`] to
 /// surface invalid loaded values without aborting the whole load.
@@ -52,10 +48,6 @@ pub(super) fn validate_choice(
         *field = default.to_string();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Per-subsystem sections
-// ---------------------------------------------------------------------------
 
 /// UI / general appearance settings (`general` options-menu tab).
 #[derive(Debug, Clone, Serialize, Deserialize)]

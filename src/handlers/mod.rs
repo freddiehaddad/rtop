@@ -57,14 +57,9 @@ impl InputContext<'_> {
             .map(|proc| (proc.pid, proc.name.as_str()))
     }
 
-    // ---------------------------------------------------------------
-    // Overlay transitions
-    //
     // Every overlay open/close goes through one of these helpers so
     // the dirty-flag and dim-cache contract is encoded in one place.
-    // ---------------------------------------------------------------
 
-    /// Open the main menu.
     pub(crate) fn open_main_menu(&mut self) {
         self.overlay.active = ActiveModal::Main(MainMenuState::new());
         self.render.dirty.mark_overlay();

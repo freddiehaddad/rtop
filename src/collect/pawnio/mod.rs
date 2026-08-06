@@ -19,10 +19,6 @@ use std::ffi::c_void;
 use thiserror::Error;
 use windows::Win32::Foundation::HANDLE;
 
-// ---------------------------------------------------------------------------
-// PawnIO IOCTL protocol constants (verified from pawnio_um.h)
-// ---------------------------------------------------------------------------
-
 /// IOCTL: load a signed Pawn bytecode module into the driver VM.
 const IOCTL_PIO_LOAD_BINARY: u32 = 0xA1B2_2084;
 
@@ -34,10 +30,6 @@ const FN_NAME_LEN: usize = 32;
 
 /// Cell size in bytes (PawnIO uses 64-bit cells).
 const CELL_SIZE: usize = 8;
-
-// ---------------------------------------------------------------------------
-// Embedded signed modules (LGPL-2.1-or-later — see COPYING.LGPL-2.1)
-// ---------------------------------------------------------------------------
 
 const INTEL_MSR_BIN: &[u8] = include_bytes!("IntelMSR.bin");
 const AMD_FAMILY17_BIN: &[u8] = include_bytes!("AMDFamily17.bin");
@@ -60,10 +52,6 @@ impl Module {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 /// Errors returned by the PawnIO client.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -80,10 +68,6 @@ pub enum Error {
     #[error("PawnIO short read: expected {expected} bytes, got {actual}")]
     ShortRead { expected: usize, actual: usize },
 }
-
-// ---------------------------------------------------------------------------
-// PawnIo client
-// ---------------------------------------------------------------------------
 
 /// An open PawnIO device handle with a loaded bytecode module.
 ///
@@ -156,10 +140,6 @@ impl PawnIo {
         Ok(output[0] as u32)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Device open / IOCTL helpers
-// ---------------------------------------------------------------------------
 
 fn open_device() -> Result<OwnedHandle, Error> {
     use windows::Win32::Foundation::GENERIC_READ;
@@ -242,10 +222,6 @@ fn device_io_control(
         .map(|_| bytes_returned as usize)
         .map_err(|e| Error::ExecuteFailed(e.code().0))
 }
-
-// ---------------------------------------------------------------------------
-// Thread affinity guard for per-core MSR reads
-// ---------------------------------------------------------------------------
 
 /// RAII guard that pins the calling thread to a specific processor and
 /// restores the previous affinity on drop.

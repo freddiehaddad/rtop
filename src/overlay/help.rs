@@ -25,10 +25,6 @@ use crate::theme::Theme;
 use crate::theme_keys as tc;
 use crate::tools;
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
 /// Persistent state for the help overlay: just the close target.
 #[derive(Debug, Clone)]
 pub struct HelpState {
@@ -42,10 +38,6 @@ impl HelpState {
         Self { return_to }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Render — layout constants
-// ---------------------------------------------------------------------------
 
 /// Cells of horizontal padding between the left/right border and
 /// the nearest content character.
@@ -191,10 +183,6 @@ pub fn render(term: TerminalSize, config: &Config, theme: &Theme) -> String {
     out.push_str(term::RESET);
     out
 }
-
-// ---------------------------------------------------------------------------
-// Per-action handlers (referenced by handlers/keybinds/table.rs)
-// ---------------------------------------------------------------------------
 
 pub(crate) fn close_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();

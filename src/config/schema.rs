@@ -60,8 +60,6 @@ macro_rules! config_schema {
             $( $svar:ident => $sname:literal => { $($sshape:tt)+ } ),* $(,)?
         }
     ) => {
-        // === BoolKey ====================================================
-
         /// Boolean-typed config keys.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
         pub enum BoolKey { $( $bvar ),* }
@@ -89,8 +87,6 @@ macro_rules! config_schema {
                 bool_display(self.get(config))
             }
         }
-
-        // === IntKey =====================================================
 
         /// Integer-typed config keys.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -129,8 +125,6 @@ macro_rules! config_schema {
             }
         }
 
-        // === EnumKey ====================================================
-
         /// Typed-enum config keys (closed set of canonical names
         /// enforced by the underlying enum's `FromStr`).
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -148,8 +142,6 @@ macro_rules! config_schema {
                 match self { $( Self::$evar => config.$esection.$efield.to_string(), )* }
             }
         }
-
-        // === StringKey ==================================================
 
         /// String-typed config keys (free-form, constrained, list,
         /// or DSL).
@@ -170,8 +162,6 @@ macro_rules! config_schema {
                 }
             }
         }
-
-        // === ConfigKey wrapper ==========================================
 
         /// One config field, identified by its kind plus the typed
         /// sub-enum variant for that kind.
@@ -230,25 +220,19 @@ macro_rules! config_schema {
             }
         }
 
-        // From impls let CAT-list authors lift a typed key to the
-        // wrapper at the call site without hand-writing the variant
-        // wrapper, e.g. `ConfigKey::from(BoolKey::ThemeBackground)`.
-        // Const lists cannot use `.into()` (it's not const), so the
-        // CAT lists still spell out `ConfigKey::Bool(BoolKey::X)`,
-        // but runtime-built collections can use `From`.
+        // `From` lets runtime callers lift typed keys to `ConfigKey`;
+        // const CAT lists still spell out the wrapper variant.
         impl From<BoolKey>   for ConfigKey { fn from(k: BoolKey)   -> Self { Self::Bool(k) } }
         impl From<IntKey>    for ConfigKey { fn from(k: IntKey)    -> Self { Self::Int(k) } }
         impl From<EnumKey>   for ConfigKey { fn from(k: EnumKey)   -> Self { Self::Enum(k) } }
         impl From<StringKey> for ConfigKey { fn from(k: StringKey) -> Self { Self::String(k) } }
     };
 
-    // === @int_get / @int_set: dispatch by access shape ===
     (@int_get $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f };
     (@int_get $cfg:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i] };
     (@int_set $cfg:ident $value:ident field $section:ident . $f:ident) => { $cfg.$section.$f = $value };
     (@int_set $cfg:ident $value:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i] = $value };
 
-    // === @string_display: dispatch by access shape ===
     (@string_display $cfg:ident field $section:ident . $f:ident) => { $cfg.$section.$f.clone() };
     (@string_display $cfg:ident joined_vec $section:ident . $f:ident) => { $cfg.$section.$f.join(" ") };
     (@string_display $cfg:ident array $section:ident . $f:ident [$i:literal]) => { $cfg.$section.$f[$i].clone() };
@@ -326,10 +310,6 @@ config_schema! {
     }
 }
 
-// ---------------------------------------------------------------------------
-// IntKey — hand-written impls (per-key bounds + step + parse)
-// ---------------------------------------------------------------------------
-
 impl IntKey {
     /// Per-key step size used by the options-menu arrow-step path.
     /// `*UpdateMs` keys step in 100 ms increments; throughput caps
@@ -404,10 +384,6 @@ impl IntKey {
     }
 }
 
-// ---------------------------------------------------------------------------
-// EnumKey — hand-written impls (choices + parse-and-set)
-// ---------------------------------------------------------------------------
-
 impl EnumKey {
     /// The closed set of canonical (lowercase) names the menu
     /// cycles for this enum key.
@@ -452,10 +428,6 @@ impl EnumKey {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// StringKey — hand-written impls (choices, validate, set)
-// ---------------------------------------------------------------------------
 
 impl StringKey {
     /// Optional closed set of canonical names. `Some` only for

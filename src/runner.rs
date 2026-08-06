@@ -20,10 +20,6 @@ use std::sync::{
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-// ---------------------------------------------------------------------------
-// Per-subsystem snapshot types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub(crate) struct CpuSnapshot {
     pub(crate) info: CpuInfo,
@@ -68,10 +64,6 @@ pub(crate) struct StatusbarSnapshot {
     pub(crate) info: crate::collect::statusbar::StatusbarInfo,
 }
 
-// ---------------------------------------------------------------------------
-// LatestSlot<T> — generic per-subsystem shared slot with coalescing
-// ---------------------------------------------------------------------------
-
 /// Thread-safe slot that always holds the latest value.
 ///
 /// Publishers overwrite; consumers read the latest. Multiple publishes
@@ -108,10 +100,6 @@ impl<T> LatestSlot<T> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Collector commands
-// ---------------------------------------------------------------------------
-
 /// Universal control commands accepted by every collector loop.
 pub(crate) enum CollectorCommand {
     /// Change the collection interval.
@@ -119,10 +107,6 @@ pub(crate) enum CollectorCommand {
     /// Graceful shutdown.
     Shutdown,
 }
-
-// ---------------------------------------------------------------------------
-// Collector thread loop
-// ---------------------------------------------------------------------------
 
 /// Run a collector in a loop: collect → publish → sleep → repeat.
 ///
@@ -156,10 +140,6 @@ fn run_collector_loop<C>(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Collector thread spawning helper
-// ---------------------------------------------------------------------------
-
 /// Spawn a collector thread with standard channel + slot wiring.
 ///
 /// Creates the command channel, clones the slot and event sender,
@@ -187,10 +167,6 @@ where
     });
     (tx, handle)
 }
-
-// ---------------------------------------------------------------------------
-// CollectorManager — owns all collector threads
-// ---------------------------------------------------------------------------
 
 /// Manages per-collector threads with independent timers.
 ///
@@ -291,7 +267,6 @@ impl CollectorManager {
         let proc_slot = LatestSlot::new();
         let statusbar_slot = LatestSlot::new();
 
-        // CPU thread
         let (cpu_tx, cpu_join) = spawn_collector(
             CpuCollector::new,
             cpu_ms,
@@ -300,7 +275,6 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Cpu),
         );
 
-        // Memory thread
         let (mem_tx, mem_join) = spawn_collector(
             MemCollector::new,
             mem_ms,
@@ -309,7 +283,6 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Mem),
         );
 
-        // Disk thread
         let (disk_tx, disk_join) = spawn_collector(
             DiskCollector::new,
             disk_ms,
@@ -318,7 +291,6 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Disk),
         );
 
-        // Network thread
         let (net_tx, net_join) = spawn_collector(
             NetCollector::new,
             net_ms,
@@ -340,7 +312,6 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Gpu),
         );
 
-        // Process thread
         let (proc_tx, proc_join) = spawn_collector(
             move || {
                 let mut proc_collector = ProcCollector::new();
@@ -372,9 +343,8 @@ impl CollectorManager {
             AppEvent::SubsystemReady(SubsystemKind::Statusbar),
         );
 
-        // Build the joins table in canonical-subsystem order so
-        // shutdown joins in a stable sequence. The SubsystemKind
-        // tag drives the diagnostic log target via `as_str()`.
+        // Build joins in canonical-subsystem order so shutdown
+        // joins in a stable sequence. The tag drives diagnostics.
         let joins: Vec<(SubsystemKind, JoinHandle<()>)> = vec![
             (SubsystemKind::Cpu, cpu_join),
             (SubsystemKind::Mem, mem_join),
@@ -470,10 +440,6 @@ impl Drop for CollectorManager {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -513,14 +479,6 @@ mod tests {
         assert_eq!(snap.info.core_count, 0);
         assert_eq!(snap.status, CollectStatus::Ok);
     }
-
-    // ---------------------------------------------------------------
-    // resolved_intervals — the iterator that drives apply_refresh.
-    // The rule itself (RefreshConfig::effective) is exhaustively
-    // tested in src/config/tests.rs; the tests below lock the
-    // shape: which subsystems are covered, in what order, and with
-    // what resolved value per kind.
-    // ---------------------------------------------------------------
 
     fn refresh_with(
         global: i64,

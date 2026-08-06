@@ -39,7 +39,6 @@ pub(super) fn draw_usage_row(
     let dt = tools::floating_humanizer(disk.total, true, 0, false, false, params.settings.base_10);
     let value = format!("{}/{}", du, dt);
 
-    // Label: "C: NTFS " — drive + fstype.
     let label = if disk.fstype.is_empty() {
         format!("{} ", disk.name)
     } else {

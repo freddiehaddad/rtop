@@ -8,10 +8,6 @@ use crate::theme_keys as tc;
 use super::OptionsState;
 use super::edit::OptionEditState;
 
-// ---------------------------------------------------------------------------
-// Option type classification
-// ---------------------------------------------------------------------------
-
 /// How an option can be edited.
 #[derive(Clone, Copy, PartialEq)]
 pub enum OptKind {
@@ -27,10 +23,6 @@ pub enum OptKind {
 // `ConfigKey::kind()` and the per-key options-menu help text lives
 // in `crate::overlay::options::options_text::desc`. The editable shape is
 // derived from `ConfigKey::kind()` plus `browsable_values(key)`.
-
-// ---------------------------------------------------------------------------
-// Browsable option value lists
-// ---------------------------------------------------------------------------
 
 /// Return the list of valid values for a browsable option key.
 ///
@@ -59,10 +51,6 @@ fn classify(key: ConfigKey) -> OptKind {
 pub fn opt_kind(key: ConfigKey) -> OptKind {
     classify(key)
 }
-
-// ---------------------------------------------------------------------------
-// Category definitions  (mirroring btop, minus Linux-only options)
-// ---------------------------------------------------------------------------
 
 /// One options-menu category tab. Bundles its display name, the
 /// single-letter hotkey that jumps to it from anywhere in the
@@ -274,10 +262,6 @@ pub const STATUSBAR: &[ConfigKey] = &[
     ConfigKey::String(StringKey::StatusbarClockFormat),
 ];
 
-// ---------------------------------------------------------------------------
-// Value helpers
-// ---------------------------------------------------------------------------
-
 /// Get the display value for an option.
 pub fn get_value(key: ConfigKey, config: &Config) -> String {
     key.get_display(config)
@@ -332,10 +316,6 @@ pub fn step_int(key: ConfigKey, config: &mut Config, delta: i64) {
     k.set(config, value);
     config.validate();
 }
-
-// ---------------------------------------------------------------------------
-// Drawing
-// ---------------------------------------------------------------------------
 
 /// Center-justify a string in `width` columns, padding with spaces.
 fn cjust(s: &str, width: usize) -> String {
@@ -466,7 +446,6 @@ pub fn draw(p: &DrawParams) -> String {
     let box_w: usize = 78;
     let x = term_width.saturating_sub(box_w) / 2;
 
-    // Compute available height for options (each takes 2 rows)
     let max_items = CATEGORIES
         .iter()
         .map(|c| c.options.len())
@@ -509,7 +488,6 @@ pub fn draw(p: &DrawParams) -> String {
 
     let mut out = String::with_capacity(4096);
 
-    // Main box: create at (x, y+6) with height
     let tab_title = format!("{}tab{}{}", hi, fg, symbols::RIGHT_ARROW);
     out.push_str(&box_drawing::create_box(&box_drawing::BoxConfig {
         x,
@@ -578,7 +556,6 @@ pub fn draw(p: &DrawParams) -> String {
         }
     }
 
-    // Page indicator
     if pages > 1 {
         out.push_str(&format!(
             "{}{}{} {} page {}/{} {} {}",
@@ -593,7 +570,6 @@ pub fn draw(p: &DrawParams) -> String {
         ));
     }
 
-    // Option rows
     let cy_start = y + 9 + 1; // first content row (1-based terminal row)
     for c in 0..item_height {
         let i = item_height * page + c;
@@ -607,7 +583,6 @@ pub fn draw(p: &DrawParams) -> String {
 
         let name_display = capitalize_option(key);
 
-        // Browsable index suffix
         let mut name_suffix = String::new();
         if is_selected && kind == OptKind::Browsable {
             let vals = browsable_values(key);
@@ -615,7 +590,6 @@ pub fn draw(p: &DrawParams) -> String {
             name_suffix = format!(" {}/{}", idx + 1, vals.len());
         }
 
-        // Row 1: option name (29 chars in left panel)
         let full_name = format!("{}{}", name_display, name_suffix);
         let name_str = cjust(&full_name, 29);
         out.push_str(&format!(
@@ -748,7 +722,6 @@ pub fn draw(p: &DrawParams) -> String {
                     }
                 }
 
-                // Description in right panel
                 out.push_str(&format!("{}{}{}", reset, title_c, term::BOLD));
                 for (di, desc_line) in super::options_text::desc(key).iter().enumerate() {
                     let desc_row = y + 8 + 1 + di; // start at the row after the divider
@@ -837,8 +810,6 @@ mod tests {
         }
     }
 
-    // ── Category schema invariants ──────────────────────────────
-
     #[test]
     fn every_category_has_unique_hotkey() {
         let mut seen: Vec<char> = Vec::new();
@@ -912,8 +883,6 @@ mod tests {
         );
     }
 
-    // ── highlight_hotkey ────────────────────────────────────────
-
     #[test]
     fn highlight_hotkey_emits_letter_in_hi_color() {
         // Pin the visual contract: the hotkey letter is wrapped
@@ -940,8 +909,6 @@ mod tests {
         let out = highlight_hotkey("xyz", 'q', "<base>", "<hi>");
         assert_eq!(out, "<base>xyz");
     }
-
-    // ── Tab-bar visual layout ───────────────────────────────────
 
     fn strip_ansi(s: &str) -> String {
         // Materialise the visible cells from an ANSI string so the

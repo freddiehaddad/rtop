@@ -18,7 +18,6 @@ struct DiskPerfCounters {
 
 /// Disk data collector using Windows APIs.
 pub struct DiskCollector {
-    /// Collected disk data.
     pub info: DiskData,
     pub status: super::CollectStatus,
     pdh_query: Option<PdhQuery>,
@@ -29,7 +28,6 @@ pub struct DiskCollector {
 }
 
 impl DiskCollector {
-    /// Create a new disk collector.
     pub fn new() -> Self {
         Self {
             info: DiskData::default(),
@@ -69,7 +67,7 @@ impl DiskCollector {
                 let drive_w: Vec<u16> = drive.encode_utf16().chain(std::iter::once(0)).collect();
                 let drive_type = GetDriveTypeW(PCWSTR(drive_w.as_ptr()));
 
-                // Only fixed and removable drives
+                // Drive types 2 and 3 are removable and fixed disks.
                 if drive_type != 3 && drive_type != 2 {
                     continue;
                 }

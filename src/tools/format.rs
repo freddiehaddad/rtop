@@ -211,8 +211,7 @@ pub fn system_uptime_secs() -> u64 {
 }
 
 #[cfg(test)]
-/// Format the current time using strftime-compatible format string.
-/// Supports special replacements: `/host`, `/user`, `/uptime`.
+/// Test-only formatter for `/host`, `/user`, and `/uptime` replacements.
 pub fn strf_time(format: &str, uptime_seconds: u64) -> String {
     let now = chrono_free_strftime(format);
 
@@ -225,7 +224,6 @@ pub fn strf_time(format: &str, uptime_seconds: u64) -> String {
 }
 
 #[cfg(test)]
-/// Simple strftime without chrono dependency — handles common format specifiers.
 fn chrono_free_strftime(format: &str) -> String {
     use std::time::SystemTime;
     let _ = SystemTime::now();

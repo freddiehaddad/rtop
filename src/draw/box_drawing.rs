@@ -3,43 +3,24 @@ use crate::term;
 
 /// Box-drawing characters.
 pub mod symbols {
-    /// Horizontal line `─`.
     pub const H_LINE: &str = "─";
-    /// Vertical line `│`.
     pub const V_LINE: &str = "│";
-    /// Top-left corner `┌`.
     pub const LEFT_UP: &str = "┌";
-    /// Top-right corner `┐`.
     pub const RIGHT_UP: &str = "┐";
-    /// Bottom-left corner `└`.
     pub const LEFT_DOWN: &str = "└";
-    /// Bottom-right corner `┘`.
     pub const RIGHT_DOWN: &str = "┘";
-    /// Rounded top-left corner `╭`.
     pub const ROUND_LEFT_UP: &str = "╭";
-    /// Rounded top-right corner `╮`.
     pub const ROUND_RIGHT_UP: &str = "╮";
-    /// Rounded bottom-left corner `╰`.
     pub const ROUND_LEFT_DOWN: &str = "╰";
-    /// Rounded bottom-right corner `╯`.
     pub const ROUND_RIGHT_DOWN: &str = "╯";
-    /// Right T-junction `┤`.
     pub const DIV_RIGHT: &str = "┤";
-    /// Left T-junction `├`.
     pub const DIV_LEFT: &str = "├";
-    /// Top T-junction `┬`.
     pub const DIV_UP: &str = "┬";
-    /// Bottom T-junction `┴`.
     pub const DIV_DOWN: &str = "┴";
-    /// Up arrow `↑`.
     pub const UP_ARROW: &str = "↑";
-    /// Down arrow `↓`.
     pub const DOWN_ARROW: &str = "↓";
-    /// Left arrow `←`.
     pub const LEFT_ARROW: &str = "←";
-    /// Right arrow `→`.
     pub const RIGHT_ARROW: &str = "→";
-    /// Enter/return symbol `↵`.
     pub const ENTER: &str = "↵";
     /// Unicode superscript digits 0–9.
     pub const SUPERSCRIPT: [&str; 10] = ["⁰", "¹", "²", "³", "⁴", "⁵", "⁶", "⁷", "⁸", "⁹"];
@@ -48,13 +29,9 @@ pub mod symbols {
 /// Box-drawing title inset characters (matching btop).
 /// These create a notch in the border line for the title text.
 pub mod title_syms {
-    /// Left inset for title on top border `┐`.
     pub const TITLE_LEFT: &str = "┐";
-    /// Right inset for title on top border `┌`.
     pub const TITLE_RIGHT: &str = "┌";
-    /// Left inset for title on bottom border `┘`.
     pub const TITLE_LEFT_DOWN: &str = "┘";
-    /// Right inset for title on bottom border `└`.
     pub const TITLE_RIGHT_DOWN: &str = "└";
 }
 
@@ -122,12 +99,10 @@ pub fn create_box(cfg: &BoxConfig) -> String {
     let mut buf = AnsiBuffer::new();
     buf.reset().color(color);
 
-    // Step 1: Draw horizontal lines on top and bottom
     buf.mv(x + 1, y + 1).text(&symbols::H_LINE.repeat(width));
     buf.mv(x + 1, y + height)
         .text(&symbols::H_LINE.repeat(width));
 
-    // Step 2: Draw vertical lines and fill on middle rows
     for row in 1..(height - 1) {
         buf.mv(x + 1, y + 1 + row).text(symbols::V_LINE);
         if fill {
@@ -138,13 +113,13 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         buf.text(symbols::V_LINE);
     }
 
-    // Step 3: Draw corners (overwriting the h_line at the corner positions)
+    // Overwrite the h_line at the corner positions.
     buf.mv(x + 1, y + 1).text(tl);
     buf.mv(x + width, y + 1).text(tr);
     buf.mv(x + 1, y + height).text(bl);
     buf.mv(x + width, y + height).text(br);
 
-    // Step 4: Draw title at (y, x+2) if defined — matching btop format:
+    // Match btop's title format:
     // title_left + bold + hi_fg_numbering + title_color + title + unbold + line_color + title_right
     if !title.is_empty() {
         let numbering = if num > 0 && (num as usize) < symbols::SUPERSCRIPT.len() {
@@ -168,7 +143,6 @@ pub fn create_box(cfg: &BoxConfig) -> String {
         buf.color(color).text(title_syms::TITLE_RIGHT);
     }
 
-    // Title2 on bottom border
     if !title2.is_empty() {
         buf.mv(x + 3, y + height)
             .text(title_syms::TITLE_LEFT_DOWN)
@@ -321,8 +295,7 @@ mod tests {
             fill: true,
             ..cfg(0, 0, 6, 4)
         });
-        // Fill should contain spaces between vertical lines
-        assert!(b.contains("    ")); // 4 spaces (width-2)
+        assert!(b.contains("    "));
     }
 
     #[test]

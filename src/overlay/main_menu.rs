@@ -15,10 +15,6 @@ use crate::term;
 use crate::theme::Theme;
 use crate::theme_keys as tc;
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
 /// Items in the main menu, in display order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MainMenuItem {
@@ -96,10 +92,6 @@ impl Default for MainMenuState {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Render
-// ---------------------------------------------------------------------------
-
 /// Menu item ASCII art: normal (thin lines) and selected (thick lines)
 const MENU_NORMAL: [&[&str]; 3] = [
     &[
@@ -135,18 +127,15 @@ pub fn render(state: &MainMenuState, term: TerminalSize, theme: &Theme) -> Strin
 
     let mut out = String::new();
 
-    // Position: banner centered at y = height/2 - 10
     let banner_y = term.height / 2;
     let banner_y = if banner_y > 10 { banner_y - 10 } else { 1 };
 
-    // Draw banner
     out.push_str(&banner::generate(
         banner_y,
         (term.width.saturating_sub(35)) / 2,
         theme,
     ));
 
-    // Menu items start below the banner (6 lines of banner + 1 gap)
     let mut cy = banner_y + 7;
 
     for i in 0..3 {
@@ -172,10 +161,6 @@ pub fn render(state: &MainMenuState, term: TerminalSize, theme: &Theme) -> Strin
     out.push_str(term::RESET);
     out
 }
-
-// ---------------------------------------------------------------------------
-// Per-action handlers (referenced by handlers/keybinds/table.rs)
-// ---------------------------------------------------------------------------
 
 pub(crate) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;

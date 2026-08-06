@@ -232,10 +232,6 @@ mod tests {
         assert_eq!(a, b);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // Serde
-    // ────────────────────────────────────────────────────────────
-
     #[test]
     fn serialise_emits_canonical_order_string_array() {
         let mut set = WidgetSet::new();

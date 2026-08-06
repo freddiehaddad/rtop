@@ -66,7 +66,6 @@ pub(super) fn draw_core_panel(
 
     let mut row = 0;
 
-    // Row: CPU utilization meter (always shown)
     if let Some(&pct) = cpu.cpu_percent.total.back() {
         let pct = pct.clamp(0, 100) as i32;
         buf.mv(content_x, panel.y + 1 + row)
@@ -78,7 +77,6 @@ pub(super) fn draw_core_panel(
         row += 1;
     }
 
-    // Row: Temperature meter (shown when LHM provides temps)
     if params.has_temp
         && let Some(pkg_data) = cpu.temp.first()
     {
@@ -99,7 +97,6 @@ pub(super) fn draw_core_panel(
         row += 1;
     }
 
-    // Row: Watts meter (shown when LHM provides power data)
     if params.has_watts
         && let Some(watts) = params.cpu_watts
     {
@@ -135,7 +132,6 @@ pub(super) fn draw_core_panel(
         row += 1;
     }
 
-    // Row: Load meter (always shown)
     {
         let load1 = cpu.load_avg[0];
         // load_avg is a 0.0–1.0 fraction of total CPU capacity
@@ -151,7 +147,6 @@ pub(super) fn draw_core_panel(
         row += 1;
     }
 
-    // Load averages row (centered, below meter)
     {
         let lavg_text = if panel_inner_w >= 30 {
             format!(
@@ -180,7 +175,6 @@ pub(super) fn draw_core_panel(
         let left_vis = tools::ulen(section) + 2; // +2 for inset chars
         let left_dashes = 1;
 
-        // Frequency inset on the right side of the divider
         let hz_text = if params.show_freq && !cpu.cpu_hz.is_empty() {
             cpu.cpu_hz.clone()
         } else {
@@ -220,7 +214,6 @@ pub(super) fn draw_core_panel(
         buf.mv(panel.x + 1, divider_y).text(&divider);
     }
 
-    // Per-core rows using grid layout
     let core_start_y = panel.y + 1 + params.stats_rows + 2; // stats + load detail + divider
 
     for (i, core_data) in cpu.core_percent.iter().enumerate() {

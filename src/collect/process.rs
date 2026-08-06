@@ -67,7 +67,6 @@ pub struct ProcCollector {
 }
 
 impl ProcCollector {
-    /// Create a new process collector.
     pub fn new() -> Self {
         Self {
             procs: Vec::new(),
@@ -146,7 +145,6 @@ impl ProcCollector {
                     let ppid = entry.th32ParentProcessID;
                     let threads = entry.cntThreads as usize;
 
-                    // Get process times and memory
                     let (cpu_p, cpu_time, mem, priority, user, cmdline) =
                         get_process_details(pid, &self.prev_times, elapsed, core_count);
 
@@ -223,7 +221,6 @@ fn get_process_details(
             .ok()
             .and_then(OwnedHandle::new)
         {
-            // CPU times
             let mut creation = FILETIME::default();
             let mut exit = FILETIME::default();
             let mut kernel = FILETIME::default();
@@ -247,7 +244,6 @@ fn get_process_details(
                 }
             }
 
-            // Memory
             use windows::Win32::System::ProcessStatus::*;
             let mut mem_counters = PROCESS_MEMORY_COUNTERS {
                 cb: std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32,
@@ -257,11 +253,9 @@ fn get_process_details(
                 mem = mem_counters.WorkingSetSize as u64;
             }
 
-            // Priority
             let pclass = GetPriorityClass(handle.get());
             priority = priority_from_u32(pclass);
 
-            // Username
             user = get_process_user(handle.get());
 
             // Command line — reuse the same handle (the API is documented
@@ -476,7 +470,6 @@ fn filetime_to_u64(ft: &windows::Win32::Foundation::FILETIME) -> u64 {
     ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64
 }
 
-/// Convert Windows priority class constant to PriorityClass enum.
 pub fn priority_from_u32(pclass: u32) -> PriorityClass {
     match pclass {
         0x00000040 => PriorityClass::Idle,
@@ -515,7 +508,6 @@ fn process_cpu_percent(
 }
 
 #[cfg(test)]
-/// Calculate CPU percentage from process time delta (for unit testing).
 pub fn cpu_percent_from_times(
     prev_total: u64,
     curr_total: u64,

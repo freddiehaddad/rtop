@@ -5,10 +5,6 @@ use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 
-// ---------------------------------------------------------------------------
-// ProcSort — typed sort key for the process list
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Error)]
 #[error("invalid ProcSort value '{0}'")]
 pub struct ParseProcSortError(pub String);
@@ -259,7 +255,6 @@ fn aggregate_tree_entries(
     let mut result: Vec<ProcDisplayEntry> = entries.to_vec();
     let len = result.len();
 
-    // Build PID→entry-index map for parent lookup.
     let mut pid_to_idx: HashMap<u32, usize> = HashMap::new();
     for (i, e) in result.iter().enumerate() {
         if let Some(p) = procs.get(e.proc_index) {
@@ -267,7 +262,6 @@ fn aggregate_tree_entries(
         }
     }
 
-    // Initialize aggregates from raw values.
     let mut agg_cpu: Vec<f64> = result
         .iter()
         .map(|e| procs.get(e.proc_index).map_or(0.0, |p| p.cpu_p))
@@ -277,7 +271,6 @@ fn aggregate_tree_entries(
         .map(|e| procs.get(e.proc_index).map_or(0, |p| p.mem))
         .collect();
 
-    // Walk bottom-up: accumulate each entry's values into its parent.
     for i in (0..len).rev() {
         let Some(p) = procs.get(result[i].proc_index) else {
             continue;
@@ -319,25 +312,20 @@ fn compare_procs(a: &ProcInfo, b: &ProcInfo, sort_by: ProcSort) -> std::cmp::Ord
     }
 }
 
-/// Test if a process matches a filter string.
-/// Return true if a process matches the filter (substring or `!regex`).
-///
-/// Deprecated: prefer `ParsedFilter::parse(filter).matches(proc)` to avoid
-/// re-compiling the regex on every call.
+/// Test-only compatibility helper; production code should use
+/// `ParsedFilter::parse(filter).matches(proc)` to avoid re-compiling regexes.
 #[cfg(test)]
 pub fn matches_filter(proc: &ProcInfo, filter: &str) -> bool {
     if filter.is_empty() {
         return true;
     }
     if let Some(pattern) = filter.strip_prefix('!') {
-        // Regex mode
         if let Ok(re) = regex::Regex::new(pattern) {
             re.is_match(&proc.name) || re.is_match(&proc.cmd)
         } else {
             false
         }
     } else {
-        // Substring match (case-insensitive)
         let lower_filter = filter.to_lowercase();
         proc.name.to_lowercase().contains(&lower_filter)
             || proc.cmd.to_lowercase().contains(&lower_filter)
@@ -374,8 +362,8 @@ mod tests {
         ];
         let indices = vec![0, 1, 2, 3];
         let tree = build_tree(&procs, &indices);
-        assert_eq!(tree.get(&1).unwrap().len(), 2); // pid 1 has 2 children
-        assert_eq!(tree.get(&2).unwrap().len(), 1); // pid 2 has 1 child
+        assert_eq!(tree.get(&1).unwrap().len(), 2);
+        assert_eq!(tree.get(&2).unwrap().len(), 1);
     }
 
     #[test]
@@ -423,7 +411,7 @@ mod tests {
             },
         ];
         let mut indices = vec![0, 1, 2];
-        sort_proc_indices(&mut indices, &procs, ProcSort::Memory, true); // Reverse = descending
+        sort_proc_indices(&mut indices, &procs, ProcSort::Memory, true);
         assert_eq!(procs[indices[0]].pid, 2);
         assert_eq!(procs[indices[2]].pid, 3);
     }
@@ -502,10 +490,8 @@ mod tests {
             },
         ];
         let entries = build_tree_display_entries(&procs, &[0, 1, 2]);
-        // Root has no prefix
         assert_eq!(entries[0].depth, 0);
         assert_eq!(entries[0].prefix, "");
-        // Children have depth 1
         assert_eq!(entries[1].depth, 1);
         assert_eq!(entries[2].depth, 1);
         assert_eq!(entries[1].prefix, "   ├─ ");

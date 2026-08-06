@@ -29,7 +29,6 @@ impl CpuPercent {
 /// CPU usage data for all cores and aggregate statistics.
 #[derive(Debug, Clone)]
 pub struct CpuInfo {
-    /// Aggregate CPU usage histories by category.
     pub cpu_percent: CpuPercent,
     /// Per-core usage history (index = core number).
     pub core_percent: Vec<VecDeque<i64>>,
@@ -39,7 +38,6 @@ pub struct CpuInfo {
     pub cpu_name: String,
     /// Current CPU frequency as display string (e.g. "5.80 GHz").
     pub cpu_hz: String,
-    /// Number of logical cores.
     pub core_count: usize,
     /// Temperature history: index 0 = package, 1+ = per-core.
     pub temp: Vec<VecDeque<i64>>,

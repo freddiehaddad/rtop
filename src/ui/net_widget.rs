@@ -159,11 +159,9 @@ pub fn draw(
     let top_arrow = if swap { "▲" } else { "▼" };
     let bot_arrow = if swap { "▼" } else { "▲" };
 
-    // Split inner area between top half and bottom half
     let top_rows = inner_h / 2;
     let bot_rows = inner_h - top_rows;
 
-    // Top graph (normal orientation)
     {
         if top_rows > 0 {
             let mut graph = Graph::new(graph_width, top_rows, graph_sym, false, top_max, 0);
@@ -174,7 +172,6 @@ pub fn draw(
         }
     }
 
-    // Top speed label overlaid at top-right
     {
         let speed = tools::floating_humanizer(top_stat.speed, true, 0, false, true, base_10);
         let pct = if top_stat.top > 0 {
@@ -189,7 +186,6 @@ pub fn draw(
         buf.mv(lx, y + 2).color(top_color).text(&label);
     }
 
-    // Bottom graph (inverted orientation)
     {
         if bot_rows > 0 {
             let bot_start_y = y + 2 + top_rows;
@@ -201,7 +197,6 @@ pub fn draw(
         }
     }
 
-    // Bottom speed label overlaid at bottom-right
     {
         let speed = tools::floating_humanizer(bot_stat.speed, true, 0, false, true, base_10);
         let pct = if bot_stat.top > 0 {
@@ -342,10 +337,6 @@ pub fn draw(
 
     buf.finish()
 }
-
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
 
 /// Network widget renderer. Unit struct — the widget has no
 /// per-instance state.
@@ -698,8 +689,6 @@ mod tests {
             "totals inset must be skipped when there is no room; got: {plain}"
         );
     }
-
-    // ── Cycler chip placement ───────────────────────────────────────
 
     /// Returns the row of the most recent cursor-position escape
     /// (`\x1b[<row>;<col>H`) in `output` that appears before the

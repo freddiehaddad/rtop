@@ -4,10 +4,6 @@ use std::ffi::{c_char, c_void};
 
 use super::{clamp_percent, power_percent, push_history};
 
-// ---------------------------------------------------------------------------
-// NvAPI constants
-// ---------------------------------------------------------------------------
-
 const NVAPI_OK: i32 = 0;
 const NVAPI_MAX_PHYSICAL_GPUS: usize = 64;
 const NVAPI_SHORT_STRING_MAX: usize = 64;
@@ -31,11 +27,6 @@ const NVAPI_THERMAL_TARGET_GPU: i32 = 1;
 /// Request all thermal sensors.
 const NVAPI_THERMAL_TARGET_ALL: u32 = 15;
 
-// ---------------------------------------------------------------------------
-// NVML types (minimal — only for default power limit / TDP and
-// per-device UUID lookup).
-// ---------------------------------------------------------------------------
-
 const NVML_SUCCESS: u32 = 0;
 /// `NVML_DEVICE_UUID_BUFFER_SIZE` from NVML headers — buffer size
 /// (including null terminator) sufficient to receive any GPU UUID
@@ -50,10 +41,6 @@ type NvmlDeviceGetHandleByIndexV2 = unsafe extern "C" fn(u32, *mut NvmlDevice) -
 type NvmlDeviceGetPowerManagementDefaultLimit = unsafe extern "C" fn(NvmlDevice, *mut u32) -> u32;
 type NvmlDeviceGetUuid = unsafe extern "C" fn(NvmlDevice, *mut c_char, u32) -> u32;
 
-// ---------------------------------------------------------------------------
-// NvAPI repr(C) structs
-// ---------------------------------------------------------------------------
-
 type NvPhysicalGpuHandle = *mut c_void;
 
 /// GPU utilization domain (one per metric type).
@@ -66,7 +53,6 @@ struct NvUtilDomain {
     percentage: u32,
 }
 
-/// Dynamic P-state utilization info.
 #[repr(C)]
 struct NvDynamicPstatesInfoEx {
     version: u32,
@@ -106,7 +92,6 @@ struct NvMemoryInfo {
     dedicated_video_memory_eviction_count: u32,
 }
 
-/// Single clock domain entry.
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct NvClockDomain {
@@ -169,10 +154,6 @@ struct NvPowerInfo {
     entries: [NvPowerInfoEntry; 4],
 }
 
-// ---------------------------------------------------------------------------
-// NvAPI struct version constants (computed at compile time)
-// ---------------------------------------------------------------------------
-
 /// NvAPI struct version: `sizeof(T) | (ver << 16)`.
 const fn nvapi_version<T>(ver: u32) -> u32 {
     std::mem::size_of::<T>() as u32 | (ver << 16)
@@ -184,10 +165,6 @@ const MEMORY_INFO_VER: u32 = nvapi_version::<NvMemoryInfo>(3);
 const CLOCK_FREQUENCIES_VER: u32 = nvapi_version::<NvClockFrequencies>(3);
 const POWER_TOPO_VER: u32 = nvapi_version::<NvPowerTopo>(1);
 const POWER_INFO_VER: u32 = nvapi_version::<NvPowerInfo>(1);
-
-// ---------------------------------------------------------------------------
-// NvAPI function pointer types
-// ---------------------------------------------------------------------------
 
 type NvApiInitialize = unsafe extern "C" fn() -> i32;
 type NvApiUnload = unsafe extern "C" fn() -> i32;
@@ -207,10 +184,6 @@ type NvApiClientPowerTopoGetStatus =
 type NvApiClientPowerPoliciesGetInfo =
     unsafe extern "C" fn(NvPhysicalGpuHandle, *mut NvPowerInfo) -> i32;
 
-// ---------------------------------------------------------------------------
-// NvAPI function IDs (resolved via nvapi_QueryInterface)
-// ---------------------------------------------------------------------------
-
 const ID_INITIALIZE: u32 = 0x0150_e828;
 const ID_UNLOAD: u32 = 0xd22b_dd7e;
 const ID_ENUM_PHYSICAL_GPUS: u32 = 0xe5ac_921f;
@@ -221,10 +194,6 @@ const ID_GPU_GET_MEMORY_INFO: u32 = 0x07f9_b368;
 const ID_GPU_GET_ALL_CLOCK_FREQUENCIES: u32 = 0xdcb6_16c3;
 const ID_GPU_CLIENT_POWER_TOPO_GET_STATUS: u32 = 0xedcf_624e;
 const ID_GPU_CLIENT_POWER_POLICIES_GET_INFO: u32 = 0x3420_6d86;
-
-// ---------------------------------------------------------------------------
-// NVML per-device metadata lookup helper
-// ---------------------------------------------------------------------------
 
 /// Per-device metadata fetched from NVML at discovery time. Bound
 /// once per device; immutable for the device's lifetime.
@@ -360,7 +329,6 @@ fn query_nvml_metadata(device_count: usize) -> Option<Vec<NvmlMeta>> {
     // SAFETY: shutdown matches nvmlShutdown. Library handle stays valid
     // via OwnedLibrary until this function returns.
     unsafe { shutdown() };
-    // OwnedLibrary drops here, freeing nvml.dll.
 
     Some(metas)
 }
@@ -369,10 +337,6 @@ fn query_nvml_metadata(device_count: usize) -> Option<Vec<NvmlMeta>> {
 fn pcm_to_mw(pcm: u64, tdp_mw: u64) -> u64 {
     pcm.saturating_mul(tdp_mw) / PCM_100_PERCENT
 }
-
-// ---------------------------------------------------------------------------
-// NvApiFunctions — dynamically loaded function table
-// ---------------------------------------------------------------------------
 
 struct NvApiFunctions {
     _library: OwnedLibrary,
@@ -455,10 +419,6 @@ impl NvApiFunctions {
     }
 }
 
-// ---------------------------------------------------------------------------
-// NvApiSession — shared per-vendor session
-// ---------------------------------------------------------------------------
-
 /// `Send + Sync` newtype around `NvPhysicalGpuHandle` (`*mut c_void`).
 ///
 /// NvAPI handles are opaque identifiers that NvAPI dereferences
@@ -524,10 +484,6 @@ impl Drop for NvApiSession {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Per-device state and collect entry point
-// ---------------------------------------------------------------------------
-
 /// Slim per-device NVIDIA state. One per detected GPU; held inside
 /// [`super::GpuCollector`]'s `Vec<DeviceEntry>`. Carries only the
 /// fields that genuinely vary per device — the function-pointer
@@ -556,7 +512,6 @@ pub(super) fn collect(
     let nvapi = &session.nvapi;
     let device = dev.handle.0;
 
-    // Utilization
     let mut pstates = NvDynamicPstatesInfoEx {
         version: PSTATES_INFO_VER,
         flags: 0,
@@ -607,7 +562,6 @@ pub(super) fn collect(
         status.downgrade(CollectStatus::Degraded("nvapi temperature"));
     }
 
-    // Memory (values in KB)
     let mut mem = NvMemoryInfo {
         version: MEMORY_INFO_VER,
         dedicated_video_memory_kb: 0,
@@ -669,7 +623,6 @@ pub(super) fn collect(
         }
     }
 
-    // Clock speed (current, in kHz → MHz)
     let mut clocks = NvClockFrequencies {
         version: CLOCK_FREQUENCIES_VER,
         clock_type: CLOCK_TYPE_CURRENT,
@@ -793,7 +746,6 @@ fn build_initial_info(
         ..crate::domain::gpu::GpuInfo::default()
     };
 
-    // GPU name.
     let mut name_buf = [0u8; NVAPI_SHORT_STRING_MAX];
     // SAFETY: device is a valid handle; name_buf is 64 bytes
     // matching NvAPI_ShortString.
@@ -825,7 +777,6 @@ fn build_initial_info(
         }
     }
 
-    // Max clock (boost frequency).
     let mut clocks = NvClockFrequencies {
         version: CLOCK_FREQUENCIES_VER,
         clock_type: CLOCK_TYPE_BOOST,

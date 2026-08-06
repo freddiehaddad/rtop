@@ -1,5 +1,3 @@
-/// Get the rtop config directory.
-///
 /// Priority: `XDG_CONFIG_HOME/rtop` > `%APPDATA%/rtop` (via `directories` crate)
 pub fn config_dir() -> std::path::PathBuf {
     config_dir_inner(std::env::var("XDG_CONFIG_HOME").ok().as_deref())
@@ -17,8 +15,6 @@ fn config_dir_inner(xdg: Option<&str>) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
 }
 
-/// Get the rtop log/state directory.
-///
 /// Priority: `XDG_STATE_HOME/rtop` > `%LOCALAPPDATA%/rtop` (via `directories` crate)
 pub fn data_dir() -> std::path::PathBuf {
     data_dir_inner(std::env::var("XDG_STATE_HOME").ok().as_deref())
@@ -36,14 +32,12 @@ fn data_dir_inner(xdg: Option<&str>) -> std::path::PathBuf {
         .unwrap_or_else(|| std::path::PathBuf::from("rtop"))
 }
 
-/// Get the system hostname.
 pub fn hostname() -> String {
     std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "unknown".to_string())
 }
 
-/// Get the current username.
 pub fn username() -> String {
     std::env::var("USERNAME")
         .or_else(|_| std::env::var("USER"))

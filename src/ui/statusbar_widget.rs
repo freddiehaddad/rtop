@@ -281,9 +281,9 @@ fn render_section(items: &[(String, usize)], bg: &str, fg: &str, sep: &str) -> (
 }
 
 fn format_menu_item(fg: &str, hi: &str) -> String {
-    // "menu" — first char `m` in HI (the toggle keybind), rest in
-    // FG. Mirrors the CPU widget's previous `keybind_inset`
-    // contract; the 'm' key opens the main menu (see
+    // "menu" — `m` is the HI keybind, `enu` stays FG. Mirrors
+    // the CPU widget's previous `keybind_inset` contract; the
+    // 'm' key opens the main menu (see
     // `handlers/normal.rs::open_main_menu_action`).
     format!("{hi}m{fg}enu")
 }
@@ -299,20 +299,12 @@ fn format_preset_item(preset_name: &str, filter_active: bool, fg: &str, hi: &str
 }
 
 fn format_update_item(update_ms: u64, fg: &str, hi: &str) -> String {
-    // `- Nms +` — `-` and `+` are the rate-down and rate-up
-    // keybinds (see `handlers/normal.rs::update_rate_down_action`
-    // / `update_rate_up_action`); both render in HI to advertise
-    // the keypress affordance. The label between them stays in
-    // FG. (The borderless statusbar uses literal ASCII `-` and
-    // `+` here rather than the U+2500 box-drawing glyph the
-    // earlier CPU-widget inset used to visually continue the
-    // box border.)
+    // `- Nms +` — `-` / `+` are rate-down/up keybinds (see
+    // `handlers/normal.rs`); both render in HI and the label stays
+    // FG. The borderless statusbar uses literal ASCII `-` / `+`,
+    // not the CPU-widget inset's U+2500 box-drawing glyph.
     format!("{hi}-{fg} {update_ms}ms {hi}+{fg}")
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Widget impl
-// ─────────────────────────────────────────────────────────────────
 
 pub struct StatusbarWidget;
 

@@ -1,6 +1,5 @@
 use crate::ui::{ProcView, WidgetArea};
 
-// Process list column widths.
 const COL_PID: usize = 7;
 const COL_CPU: usize = 6;
 const COL_MEM: usize = 6;

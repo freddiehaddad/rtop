@@ -30,16 +30,7 @@ pub struct ProcFrame {
     pub base_10: bool,
 }
 
-/// Draw the process list widget into an ANSI string matching btop's layout.
-///
-/// Layout:
-/// ╭─ proc ───────────────────────────────────╮
-/// │ PID    Program              Cpu%    Mem%  │
-/// │ 1234   chrome.exe           12.3   1.2G  │
-/// │ 5678   code.exe              8.1   0.9G  │
-/// │ ...                                      │
-/// ╰──────────────────────── 25/350 ──────────╯
-/// Draw the process list widget with sort indicator on the active column.
+/// Draw the process list widget with a sort indicator on the active column.
 pub fn draw(
     procs: &[ProcInfo],
     entries: &[ProcDisplayEntry],
@@ -346,10 +337,6 @@ fn draw_proc_borders(
         theme,
     ));
 }
-
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
 
 /// Process widget renderer. Unit struct — the widget has no
 /// per-instance state.

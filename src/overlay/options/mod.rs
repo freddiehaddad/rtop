@@ -29,10 +29,6 @@ use edit::{EditKind, OptionEditState};
 
 const OPTIONS_CATEGORY_COUNT: usize = render::CATEGORIES.len();
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-
 /// Persistent state for the options overlay.
 #[derive(Debug, Clone)]
 pub struct OptionsState {
@@ -155,10 +151,6 @@ impl OptionsState {
         self.edit.take()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Per-action handlers (referenced by handlers/keybinds/table.rs)
-// ---------------------------------------------------------------------------
 
 pub(crate) fn quit_action(ctx: &mut InputContext, _: &Key) {
     *ctx.quit = true;
@@ -310,10 +302,6 @@ pub(crate) fn step_left_action(ctx: &mut InputContext, _: &Key) {
 pub(crate) fn step_right_action(ctx: &mut InputContext, _: &Key) {
     step_selected_option(ctx, 1);
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Step (Bool toggle, Int delta, Browsable cycle, StringVal no-op)
 /// the selected option in `dir` direction.
@@ -571,8 +559,6 @@ mod tests {
         assert_eq!(s.edit().expect("still editing").buffer(), "x");
     }
 
-    // ── Hotkey-jump dispatch ────────────────────────────────────
-    //
     // `cat_select_hotkey_action` requires a full `InputContext`
     // (config, theme, manager, live data, …) which is awkward to
     // construct in a unit test. Instead, exercise the equivalent

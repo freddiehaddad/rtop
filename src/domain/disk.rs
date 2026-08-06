@@ -220,8 +220,6 @@ mod tests {
         assert!(data.disks.is_empty());
     }
 
-    // -- DiskFilter --
-
     fn disk(name: &str) -> DiskInfo {
         DiskInfo {
             name: name.to_string(),

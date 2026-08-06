@@ -165,10 +165,6 @@ pub fn draw(
     buf.finish()
 }
 
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
-
 /// Disk widget renderer. Unit struct — the widget has no per-
 /// instance state.
 pub struct DiskWidget;

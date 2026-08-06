@@ -244,8 +244,6 @@ mod tests {
     use super::*;
     use crate::theme_keys as tc;
 
-    // --- gradient generation ---
-
     #[test]
     fn gradient_start_only_fills_all_101() {
         let grad = generate_gradient([255, 0, 0], None, None);
@@ -281,12 +279,9 @@ mod tests {
         assert_eq!(g3.len(), 101);
     }
 
-    // --- Theme ---
-
     #[test]
     fn default_theme_constructs() {
         let theme = Theme::new();
-        // main_fg should be a valid ANSI escape
         let color = theme.color(tc::MAIN_FG);
         assert!(color.starts_with("\x1b[38;2;"));
     }
@@ -328,8 +323,6 @@ mod tests {
         assert!(styled.starts_with(&base));
         assert!(styled.contains(&format!("\x1b[0m{base}right")));
     }
-
-    // --- gradient_color helper ---
 
     #[test]
     fn gradient_color_returns_indexed_escape() {

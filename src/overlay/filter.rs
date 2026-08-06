@@ -15,10 +15,6 @@ use crate::input::Key;
 #[derive(Debug, Clone, Default)]
 pub struct FilterState;
 
-// ---------------------------------------------------------------------------
-// Per-action handlers (referenced by handlers/keybinds/table.rs)
-// ---------------------------------------------------------------------------
-
 pub(crate) fn cancel_action(ctx: &mut InputContext, _: &Key) {
     ctx.close_overlay();
     ctx.render.dirty.mark_proc_data_changed();

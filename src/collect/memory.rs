@@ -12,7 +12,6 @@ pub struct MemCollector {
 }
 
 impl MemCollector {
-    /// Create a new memory collector.
     pub fn new() -> Self {
         Self {
             info: MemInfo::default(),
@@ -55,7 +54,6 @@ impl MemCollector {
                 self.info.stats.swap_used = swap_used;
                 self.info.stats.swap_free = swap_avail;
 
-                // Percentages
                 if total > 0 {
                     push_pct(&mut self.info.percent.used, used, total);
                     push_pct(&mut self.info.percent.available, available, total);
@@ -75,7 +73,7 @@ impl MemCollector {
             }
         }
 
-        // Cache from GetPerformanceInfo
+        // GetPerformanceInfo reports system cache in pages.
         use windows::Win32::System::ProcessStatus::*;
 
         let mut perf = PERFORMANCE_INFORMATION {
@@ -134,13 +132,11 @@ fn cache_bytes(system_cache_pages: u64, page_size: u64) -> u64 {
 }
 
 #[cfg(test)]
-/// Calculate used memory from total and available (for unit testing).
 pub fn calculate_used(total: u64, available: u64) -> u64 {
     total.saturating_sub(available)
 }
 
 #[cfg(test)]
-/// Calculate swap from page file values (for unit testing).
 pub fn calculate_swap(
     total_page: u64,
     total_phys: u64,

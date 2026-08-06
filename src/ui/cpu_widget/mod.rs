@@ -99,16 +99,13 @@ pub fn draw(
         return buf.finish();
     }
 
-    // --- Determine data availability for stats rows ---
     let has_temp = settings.check_temp && !cpu.temp.is_empty();
     let show_coretemp_flag = has_temp && settings.show_coretemp;
     let has_watts = settings.show_cpu_watts && settings.cpu_watts.is_some();
     let stats_rows = stats_row_count(has_temp, has_watts);
-    // +2 for the load detail row + section_divider between stats and cores
+    // +2 for the load detail row and section divider.
     let panel_content_overhead = stats_rows + 2;
 
-    // --- Core panel sizing via CoreGridLayout ---
-    //
     // Half-and-half budget: the core panel gets up to `inner_usable
     // / 2` so the main graph keeps roughly the other half. Within
     // that budget `CoreGridLayout::new` picks the highest tier
@@ -152,12 +149,10 @@ pub fn draw(
         width.saturating_sub(2)
     };
 
-    // --- Net-style graphs (no horizontal divider) ---
     let has_lower = !settings.single_graph && inner_h >= 2;
     let upper_h = if has_lower { inner_h / 2 } else { inner_h };
     let lower_h = if has_lower { inner_h - upper_h } else { 0 };
 
-    // Draw the vertical divider for core panel
     if b_width > 0 {
         for row_i in 1..height.saturating_sub(1) {
             buf.mv(b_x + 1, y + 1 + row_i)
@@ -171,7 +166,6 @@ pub fn draw(
             .color(border_color)
             .text(symbols::DIV_DOWN);
 
-        // CPU name inset on the core panel top border (right-aligned)
         {
             let name_display = if settings.custom_cpu_name.is_empty() {
                 settings.cpu_name
@@ -257,7 +251,6 @@ pub fn draw(
         buf.mv(lx, label_y).color(lower_color).text(&label);
     }
 
-    // --- Core panel ---
     if b_width > 0 && b_height > 0 {
         let panel = CorePanelArea {
             x: b_x,
@@ -289,10 +282,6 @@ pub fn draw(
 mod core_panel;
 
 use core_panel::{CorePanelArea, CorePanelParams, draw_core_panel};
-
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
 
 /// CPU widget renderer. Unit struct — the widget has no per-
 /// instance state.
@@ -805,8 +794,6 @@ mod tests {
         assert_eq!(grid.col_offset(1), stride);
         assert_eq!(grid.col_offset(2), stride * 2);
     }
-
-    // ----- graph_max / auto-scale --------------------------------------
 
     #[test]
     fn graph_max_off_returns_fixed_100() {

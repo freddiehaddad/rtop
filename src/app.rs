@@ -135,7 +135,6 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             continue;
         }
 
-        // Process key events.
         for key in &keys {
             if handle_input_key(key, &mut state, config, terminal, theme, &manager, size)
                 == AppCommand::Quit
@@ -147,8 +146,6 @@ pub fn run(config: &mut config::Config, terminal: &mut term::Terminal, theme: &m
             }
         }
 
-        // Render dirty widgets / overlay.
-        //
         // The render gate now always runs when something is
         // dirty, regardless of overlay state. The new compose
         // path in `dirty_exec::write_dirty_frame` handles the

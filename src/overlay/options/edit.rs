@@ -13,9 +13,6 @@
 //! `char_indices` lookups, so a non-ASCII character in the buffer
 //! cannot land the cursor on a partial char or panic on slicing.
 //!
-//! Per-key actions and the renderer are added in later stages of
-//! the refactor.
-
 use crate::config::ConfigKey;
 
 /// Whether the buffer represents free-form text or an integer value.
@@ -170,10 +167,6 @@ impl OptionEditState {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Per-action handlers (referenced by handlers/keybinds/table.rs)
-// ---------------------------------------------------------------------------
 
 use crate::handlers::InputContext;
 use crate::input::Key;

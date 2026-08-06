@@ -1,44 +1,25 @@
-//! Statusbar subsystem collector.
+//! Collects statusbar data at a fixed [`STATUSBAR_UPDATE_MS`] cadence.
 //!
-//! Snapshots the values the borderless statusbar widget consumes
-//! at a fixed [`STATUSBAR_UPDATE_MS`] cadence:
-//!
-//! * `info.uptime_seconds` — system uptime in seconds, sourced
-//!   from [`crate::tools::system_uptime_secs`] (Win32
-//!   `GetTickCount64`).
-//!
-//! Driven by the standard [`crate::collect::Collector`] /
-//! [`crate::runner::CollectorManager`] pipeline like every other
-//! subsystem; the cadence is hardcoded here because the user
-//! requirement is "fixed at 1 second" and `RefreshConfig` is
-//! intentionally not extended for it.
+//! Currently snapshots system uptime from
+//! [`crate::tools::system_uptime_secs`] (Win32 `GetTickCount64`).
 
 use super::Collector;
 
-/// Hardcoded statusbar collection interval. The clock's seconds
-/// digit advances at wall-clock cadence; uptime stays in sync.
-/// If a future change wants user-configurable cadence, replace
-/// this constant with a `RefreshConfig::statusbar_update_ms` lookup
-/// at the spawn site in `runner.rs::CollectorManager::start`.
+/// Fixed statusbar collection interval. The clock's seconds digit
+/// advances at wall-clock cadence; uptime stays in sync.
 pub const STATUSBAR_UPDATE_MS: u64 = 1000;
 
-/// Statusbar snapshot data. Today only carries uptime; if future
-/// statusbar items need additional pre-computed values they belong
-/// here (cached at 1 Hz, pulled by the renderer at frame time).
+/// Statusbar snapshot data, cached at 1 Hz.
 #[derive(Debug, Clone, Default)]
 pub struct StatusbarInfo {
     /// System uptime in seconds since boot.
     pub uptime_seconds: u64,
 }
 
-/// Statusbar subsystem collector. Stateless apart from the most
-/// recent snapshot; implements [`Collector`] for participation in
-/// the standard collector loop.
+/// Statusbar collector. Stateless apart from the most recent snapshot.
 ///
 /// `GetTickCount64` is infallible — there is no degraded mode to
-/// surface — so the collector does not carry a `CollectStatus`
-/// field. The snapshot type ([`crate::runner::StatusbarSnapshot`])
-/// matches: no `status`, just the cached uptime.
+/// surface — so the collector and snapshot carry no `CollectStatus`.
 pub struct StatusbarCollector {
     pub info: StatusbarInfo,
 }
@@ -83,8 +64,7 @@ mod tests {
         let mut c = StatusbarCollector::new();
         c.collect();
         let first = c.info.uptime_seconds;
-        // Sleep a short interval then re-collect; uptime cannot
-        // decrease.
+        // Uptime cannot decrease across collection cycles.
         std::thread::sleep(std::time::Duration::from_millis(50));
         c.collect();
         assert!(c.info.uptime_seconds >= first);

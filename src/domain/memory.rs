@@ -26,9 +26,7 @@ pub struct MemPercent {
 /// System memory and swap usage information.
 #[derive(Debug, Clone, Default)]
 pub struct MemInfo {
-    /// Memory statistics in bytes.
     pub stats: MemStats,
-    /// Percentage histories for each memory category (0-100).
     pub percent: MemPercent,
 }
 

@@ -121,8 +121,6 @@ mod tests {
         assert!(g[0].contains("200;100;50"));
     }
 
-    // --- paint_transparent_row ---
-
     #[test]
     fn transparent_row_emits_non_space_runs_only() {
         let color = "\x1b[38;2;1;2;3m";

@@ -41,7 +41,6 @@ pub(crate) struct AppState {
 }
 
 impl AppState {
-    /// Construct fresh app state.
     pub(crate) fn new(config: &config::Config) -> Self {
         Self {
             view: RuntimeView::from_config(&config.view),
@@ -147,7 +146,6 @@ impl GpuViewState {
             return;
         }
 
-        // If we have no selection yet, try the preferred device from config
         if self.selected_iface.is_empty()
             && preferred != "auto"
             && !preferred.is_empty()
@@ -681,8 +679,6 @@ impl LiveData {
             1
         };
 
-        // ── Statusbar label widths ────────────────────────────────
-        //
         // Pre-compute every label's visible-cell width so the
         // statusbar widget's `min_width` is a pure sum and the
         // engine's `min_terminal_size` integrates the bar correctly
@@ -766,9 +762,6 @@ impl LiveData {
         }
     }
 }
-
-// `filtered_disk_count` was inlined into the only remaining caller
-// (`LiveData::layout_hints`) — see the `disk_count:` field above.
 
 /// Overlay/menu state for the application.
 ///
@@ -1206,7 +1199,6 @@ impl NetworkViewState {
             return;
         }
 
-        // If we have no selection yet, try the preferred interface from config
         if self.selected_iface.is_empty()
             && preferred != "auto"
             && !preferred.is_empty()
@@ -1266,11 +1258,6 @@ mod tests {
             "{12345678-1234-1234-1234-123456789012}"
         );
     }
-
-    // ────────────────────────────────────────────────────────────
-    // compose_hidden — the single source of truth for the engine's
-    // per-frame `hidden` widget set.
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn compose_hidden_excludes_statusbar_when_show_statusbar_is_true() {
@@ -1485,10 +1472,6 @@ mod tests {
         assert!(state.render.dirty.is_any_widget_dirty());
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Dim-cache key invalidation (the typed-key invariant)
-    // ─────────────────────────────────────────────────────────────
-
     fn fixture_size() -> TerminalSize {
         TerminalSize {
             width: 80,
@@ -1653,10 +1636,6 @@ mod tests {
         assert!(state.render.cached_dimmed_underlay().is_none());
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Pause feature
-    // ─────────────────────────────────────────────────────────────
-
     fn snap(pids: &[u32]) -> Arc<runner::ProcSnapshot> {
         Arc::new(runner::ProcSnapshot {
             procs: pids
@@ -1690,8 +1669,6 @@ mod tests {
     fn pause_activation_noop_when_no_live_data() {
         let config = config::Config::new();
         let mut state = AppState::new(&config);
-        // live.proc_data is None.
-
         let now_paused = state.process.toggle_pause(&state.live);
 
         assert!(!now_paused);
@@ -1792,10 +1769,6 @@ mod tests {
         let src = state.process.procs_source(&state.live).unwrap();
         assert_eq!(src.iter().map(|p| p.pid).collect::<Vec<_>>(), vec![10, 20]);
     }
-
-    // ─────────────────────────────────────────────────────────────
-    // Detail panel state — DetailPanel enum and helpers
-    // ─────────────────────────────────────────────────────────────
 
     fn proc_with(pid: u32, name: &str) -> crate::domain::process::ProcInfo {
         crate::domain::process::ProcInfo {
@@ -1899,11 +1872,8 @@ mod tests {
         assert_eq!(info.name, "beta");
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Detail panel — toggle and close-and-unfollow (handler logic
-    // exposed as state methods so the action handlers can stay
-    // thin and these can be tested without InputContext mocking).
-    // ─────────────────────────────────────────────────────────────
+    // Handler logic exposed as state methods so actions stay thin
+    // and tests do not need to mock `InputContext`.
 
     #[test]
     fn toggle_detail_opens_when_closed() {

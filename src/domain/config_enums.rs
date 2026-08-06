@@ -20,10 +20,6 @@ use std::fmt;
 use std::str::FromStr;
 use thiserror::Error;
 
-// ---------------------------------------------------------------------------
-// TempScale
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Error)]
 #[error("invalid TempScale value '{0}'")]
 pub struct ParseTempScaleError(pub String);
@@ -87,10 +83,6 @@ impl<'de> Deserialize<'de> for TempScale {
     }
 }
 
-// ---------------------------------------------------------------------------
-// GraphSymbol
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Error)]
 #[error("invalid GraphSymbol value '{0}'")]
 pub struct ParseGraphSymbolError(pub String);
@@ -153,10 +145,6 @@ impl<'de> Deserialize<'de> for GraphSymbol {
         raw.parse().map_err(serde::de::Error::custom)
     }
 }
-
-// ---------------------------------------------------------------------------
-// CpuGraphSource
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Error)]
 #[error("invalid CpuGraphSource value '{0}'")]
@@ -232,10 +220,6 @@ impl<'de> Deserialize<'de> for CpuGraphSource {
         raw.parse().map_err(serde::de::Error::custom)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

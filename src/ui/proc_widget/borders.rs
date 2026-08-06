@@ -154,8 +154,8 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
         // is unavailable on this row. Both the keybind highlight
         // (`t`) and the body text (`erminate`) shift to
         // `dead_proc_fg`; the chip's `┐`/`┌` connectors stay in
-        // the regular border color (they're structural, not
-        // semantic). See §6.7 of plan.md.
+        // the regular border color because they're structural, not
+        // semantic.
         let (term_hi, term_text) = if p.terminate_disabled {
             let dead = theme.color(tc::DEAD_PROC_FG);
             (dead, dead)
@@ -167,7 +167,6 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
         let bottom_hints = format!("{}{}{}", select_inset, info_inset, term_inset);
         buf.mv(p.x + 3, p.bottom_y).text(&bottom_hints);
 
-        // Filter label (hidden when armed to make room for confirmation prompt)
         let cursor = if p.filtering {
             format!("{} {}", term::UNDERLINE, term::UNDERLINE_OFF)
         } else {
@@ -197,7 +196,6 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
         buf.text(&follow_inset);
     }
 
-    // Right side: process count with border inset chars
     let count_str = format!("{}/{}", p.visible, p.total);
     let count_x = box_drawing::right_inset_x(p.x, p.width, box_drawing::inset_width(&count_str));
     buf.mv(count_x, p.bottom_y).text(&box_drawing::title_inset(
@@ -335,8 +333,6 @@ mod tests {
             "live terminate chip body should be in TITLE color"
         );
     }
-
-    // ── Top-border chip placement ───────────────────────────────────
 
     #[test]
     fn tree_and_reverse_chips_omitted_from_bottom_border() {

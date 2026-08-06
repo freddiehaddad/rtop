@@ -1,25 +1,13 @@
 use crossterm::{cursor, execute, terminal};
 use std::io::{self, Write};
 
-// ---------------------------------------------------------------------------
-// ANSI escape constants
-// ---------------------------------------------------------------------------
-
-/// Terminal sync start.
 pub const SYNC_START: &str = "\x1b[?2026h";
-/// Terminal sync end.
 pub const SYNC_END: &str = "\x1b[?2026l";
-/// Clear entire screen.
 pub const CLEAR_SCREEN: &str = "\x1b[2J";
-/// Reset all formatting.
 pub const RESET: &str = "\x1b[0m";
-/// Enable bold.
 pub const BOLD: &str = "\x1b[1m";
-/// Disable bold.
 pub const BOLD_OFF: &str = "\x1b[22m";
-/// Enable underline.
 pub const UNDERLINE: &str = "\x1b[4m";
-/// Disable underline.
 pub const UNDERLINE_OFF: &str = "\x1b[24m";
 
 /// Return an ANSI escape sequence that moves the cursor to column `x`, row `y`.
@@ -30,7 +18,6 @@ pub fn mv(x: usize, y: usize) -> String {
     format!("\x1b[{y};{x}H")
 }
 
-/// Terminal state wrapper.
 pub struct Terminal {
     pub width: u16,
     pub height: u16,
@@ -58,7 +45,6 @@ impl Terminal {
         })
     }
 
-    /// Set whether terminal sync sequences are used.
     pub fn set_sync(&mut self, enabled: bool) {
         self.sync_enabled = enabled;
     }
@@ -98,7 +84,6 @@ impl Terminal {
         false
     }
 
-    /// Get current terminal size.
     pub fn size(&self) -> (u16, u16) {
         (self.width, self.height)
     }

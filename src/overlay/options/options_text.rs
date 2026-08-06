@@ -1,10 +1,7 @@
-//! Per-key options-menu help text.
+//! Per-key help text for the options menu's right-hand panel.
 //!
-//! Each entry in the options menu shows a multi-line description in
-//! its right-hand panel when focused. This module is the single
-//! source of truth for that text — extracted from `config.rs` so
-//! that `config.rs` carries the schema (field types, names,
-//! validation) and `menu/` carries the UI text the menu renders.
+//! This module is the single source of truth for that text, keeping
+//! UI wording separate from the schema and validation in `config.rs`.
 //!
 //! Each entry is one rendered line; an empty string is a blank
 //! separator line. Line 0 is rendered bold + title-coloured; lines
@@ -580,9 +577,6 @@ mod tests {
     /// matching desc entry.
     #[test]
     fn every_config_key_has_a_non_empty_desc() {
-        // Iterate every known TOML name through ConfigKey::parse
-        // (only available under #[cfg(test)]). For each parsed
-        // key, desc() must return at least one line.
         for name in CANONICAL_NAMES {
             let key = ConfigKey::parse(name)
                 .unwrap_or_else(|| panic!("unknown ConfigKey name in test fixture: {name}"));

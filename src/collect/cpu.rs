@@ -37,7 +37,7 @@ pub struct CpuCollector {
     prev_kernel: Vec<u64>,
     prev_user: Vec<u64>,
     load_avg_samples: VecDeque<f64>,
-    // Persistent PDH query for CPU frequency (needs two collections for rate counters)
+    // Persistent because rate counters need two PDH collections.
     pdh_counters: Option<CpuPdhCounters>,
     pdh_has_first_sample: bool,
     thermal: ThermalCollector,
@@ -78,7 +78,6 @@ impl CpuCollector {
     fn collect_cpu_times(&mut self) {
         use windows::Win32::Foundation::FILETIME;
 
-        // GetSystemTimes for aggregate totals
         // SAFETY: FFI declaration for kernel32 GetSystemTimes; signature matches
         // the Windows API ABI with properly typed FILETIME output pointers.
         #[link(name = "kernel32")]
@@ -90,7 +89,6 @@ impl CpuCollector {
             ) -> i32;
         }
 
-        // NtQuerySystemInformation for per-core data
         // SAFETY: FFI declaration for ntdll NtQuerySystemInformation; signature
         // matches the NT API with correctly sized buffer and return-length pointer.
         #[link(name = "ntdll")]
@@ -103,7 +101,6 @@ impl CpuCollector {
             ) -> i32;
         }
 
-        // --- Aggregate CPU times ---
         let mut idle = FILETIME::default();
         let mut kernel = FILETIME::default();
         let mut user = FILETIME::default();
@@ -144,7 +141,6 @@ impl CpuCollector {
             }
         }
 
-        // --- Per-core CPU times via NtQuerySystemInformation ---
         let core_count = self.info.core_count;
         if core_count == 0 {
             tracing::warn!(
@@ -168,7 +164,6 @@ impl CpuCollector {
         let mut perf_info = vec![ProcessorPerfInfo::default(); core_count];
         let mut return_len = 0u32;
 
-        // SystemProcessorPerformanceInformation = 8
         // SAFETY: perf_info is a Vec of repr(C) structs sized to core_count.
         // buf_size matches the allocation. return_len receives the actual bytes
         // written and is used to bound iteration over the results.
@@ -182,14 +177,12 @@ impl CpuCollector {
         };
 
         if status == 0 {
-            // status == STATUS_SUCCESS
             let Some(actual_count) = processor_perf_record_count(return_len, core_count) else {
                 self.status
                     .downgrade(super::CollectStatus::Degraded("per-core cpu unavailable"));
                 return;
             };
 
-            // Ensure vectors are sized correctly
             while self.prev_idle.len() < actual_count + 1 {
                 self.prev_idle.push(0);
             }
@@ -208,7 +201,7 @@ impl CpuCollector {
                 let kernel_val = perf_counter_to_u64(pi.kernel_time);
                 let user_val = perf_counter_to_u64(pi.user_time);
 
-                // Index i+1 in prev arrays (index 0 is the aggregate)
+                // Index 0 stores aggregate CPU; per-core entries start at 1.
                 let pi_idx = i + 1;
 
                 let idle_delta = idle_val.saturating_sub(self.prev_idle[pi_idx]);
@@ -232,11 +225,11 @@ impl CpuCollector {
     }
 
     fn collect_frequency(&mut self) {
-        // Task Manager computes: base_freq * (% Processor Performance) / 100
-        // % Processor Performance is a rate counter that needs TWO PdhCollectQueryData
-        // calls with a time gap. We keep the query persistent across frames.
+        // Task Manager computes:
+        // base_freq * (% Processor Performance) / 100.
+        // `% Processor Performance` is a rate counter, so the query
+        // stays alive across frames.
 
-        // Initialize the persistent PDH query on first call
         if self.pdh_counters.is_none() {
             let freq_path: Vec<u16> = "\\Processor Information(_Total)\\Processor Frequency\0"
                 .encode_utf16()
@@ -265,12 +258,11 @@ impl CpuCollector {
             self.pdh_counters = Some(CpuPdhCounters { query, freq, perf });
             self.pdh_has_first_sample = false;
 
-            // On first frame, use registry fallback since we don't have data yet
+            // First frame has no rate-counter data yet.
             self.collect_frequency_fallback();
             return;
         }
 
-        // Collect new sample
         let collect_failed = self
             .pdh_counters
             .as_ref()
@@ -281,7 +273,7 @@ impl CpuCollector {
         }
 
         if !self.pdh_has_first_sample {
-            // Second call — now rate counters will have data
+            // Second collection makes rate counters readable.
             self.pdh_has_first_sample = true;
         }
 
@@ -311,7 +303,7 @@ impl CpuCollector {
     }
 
     fn collect_frequency_fallback(&mut self) {
-        // Fallback: read base frequency from registry
+        // Registry fallback reports base frequency.
         use windows::Win32::System::Registry::*;
         use windows::core::*;
 
@@ -361,7 +353,6 @@ impl CpuCollector {
                 self.load_avg_samples.pop_front();
             }
 
-            // Compute rolling averages
             let len = self.load_avg_samples.len();
             let samples = self.load_avg_samples.make_contiguous();
             let avg_fn = |window: usize| -> f64 {
@@ -502,7 +493,6 @@ fn push_history(deque: &mut VecDeque<i64>, value: i64) {
 }
 
 #[cfg(test)]
-/// Calculate CPU percentage from time deltas (for unit testing).
 pub fn calculate_cpu_percent(idle_delta: u64, kernel_delta: u64, user_delta: u64) -> i64 {
     let total = kernel_delta.saturating_add(user_delta);
     if total == 0 {
@@ -512,7 +502,6 @@ pub fn calculate_cpu_percent(idle_delta: u64, kernel_delta: u64, user_delta: u64
 }
 
 #[cfg(test)]
-/// Format frequency in GHz or MHz.
 pub fn format_frequency(mhz: u32) -> String {
     if mhz >= 1000 {
         format!("{:.2} GHz", mhz as f64 / 1000.0)

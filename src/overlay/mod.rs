@@ -1,15 +1,8 @@
-//! Per-modal overlay subsystems.
+//! Typed modal and overlay state, dispatch discriminators, and
+//! rendering entry points.
 //!
-//! The application's modal/overlay layer lives here. Each per-modal
-//! submodule (`main_menu`, `help`, `options/{mod,edit}`, `filter`)
-//! owns its own typed state struct and (in later stages) its
-//! per-key actions and its render function.
-//!
-//! [`ActiveModal`] is the single source of truth for "what overlay
-//! is open and what's its state." It replaces the scattered
-//! `OverlayState` fields (`menu_state`, `menu_return_to`,
-//! `main_menu_selected`, `options_cat`, `options_selected`,
-//! `options_page`, `option_edit`) with one typed root.
+//! Each per-modal submodule (`main_menu`, `help`, `options`,
+//! `filter`) owns its state, key actions, and render function.
 //!
 //! [`OverlayKind`] is a derived projection used by the keybind
 //! dispatch table to match bindings against the current overlay
@@ -32,7 +25,7 @@ use crate::app::TerminalSize;
 use crate::config::Config;
 use crate::theme::Theme;
 
-/// What overlay is currently active and its per-overlay state.
+/// Active overlay and its per-overlay state.
 ///
 /// Every overlay open/close transition goes through a typed mutator
 /// on `AppState` (`open_main`, `open_help`, `open_options`,

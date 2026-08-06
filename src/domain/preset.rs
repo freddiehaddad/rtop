@@ -383,8 +383,6 @@ mod tests {
         assert_eq!(BuiltinPreset::from_name("All"), None);
     }
 
-    // -- BuiltinPreset::layout_spec --
-
     fn collect_widgets(slot: &Slot) -> Vec<WidgetKind> {
         let mut out = Vec::new();
         let mut stack: Vec<&Slot> = vec![slot];
@@ -560,8 +558,6 @@ mod tests {
         );
     }
 
-    // -- ActivePreset --
-
     #[test]
     fn active_preset_default_is_all_builtin() {
         // First-launch cursor lands on the `all` builtin so the
@@ -627,8 +623,6 @@ mod tests {
         assert_eq!(cursor, order[0]);
     }
 
-    // -- PresetField --
-
     #[test]
     fn preset_field_serialises_as_canonical_name() {
         for &b in &BuiltinPreset::ALL {
@@ -688,14 +682,10 @@ mod tests {
         }
     }
 
-    // -- default_custom_layout --
-
     #[test]
     fn default_custom_layout_is_all_preset_tree() {
         assert_eq!(default_custom_layout(), BuiltinPreset::All.layout_spec());
     }
-
-    // -- statusbar integration --
 
     /// The statusbar is added to every builtin preset (and the
     /// custom layout default) at the bottom of the outer VStack.

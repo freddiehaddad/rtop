@@ -56,11 +56,6 @@ pub enum KeyKind {
     Enum,
 }
 
-// ---------------------------------------------------------------------------
-// CachedLayoutSpec — preset + custom layout + cache, with invalidation
-// invariants encoded in the type
-// ---------------------------------------------------------------------------
-
 /// The active preset cursor, the persisted custom layout, and the
 /// memoised resolved layout, packaged together so the cache cannot
 /// fall out of sync with its inputs.
@@ -158,10 +153,6 @@ impl CachedLayoutSpec {
         self.cache = std::cell::OnceCell::new();
     }
 }
-
-// ---------------------------------------------------------------------------
-// Config — composed wrapper over per-subsystem sections
-// ---------------------------------------------------------------------------
 
 /// All persisted configuration state for rtop.
 ///
@@ -266,7 +257,7 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Create a new Config with all default values.
+    /// Create a default config.
     pub fn new() -> Self {
         Self::default()
     }

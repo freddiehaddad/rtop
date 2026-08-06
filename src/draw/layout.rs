@@ -24,10 +24,6 @@ use crate::domain::layout_spec::{HStackChild, Slot};
 use crate::domain::widget_kind::{PerWidget, WidgetKind, WidgetSizing};
 use crate::domain::widget_set::WidgetSet;
 
-// ─────────────────────────────────────────────────────────────────
-// Public types — output, hints, configuration, constants
-// ─────────────────────────────────────────────────────────────────
-
 /// Dimensions and position of a UI widget.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WidgetDimensions {
@@ -63,7 +59,6 @@ pub struct LayoutHints {
     /// `preferred_height` doesn't have to peek at config flags.
     pub disk_rows_per_unit: u8,
 
-    // ── Statusbar inputs ────────────────────────────────────────
     // Mirroring the established convention (e.g. `disk_rows_per_unit`),
     // `LayoutHints` carries config-derived values the engine needs
     // for sizing decisions. The statusbar's `min_width` is a pure
@@ -129,7 +124,6 @@ impl Layout {
         WidgetKind::all().all(|k| self.dims_for(k).is_none())
     }
 
-    /// Assign dimensions to `kind` for this frame.
     fn set(&mut self, kind: WidgetKind, dim: WidgetDimensions) {
         *self.dims.get_mut(kind) = Some(dim);
     }
@@ -177,10 +171,6 @@ pub struct LayoutConfig {
     /// containers absorb the freed space.
     pub hidden: WidgetSet,
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Public entry points
-// ─────────────────────────────────────────────────────────────────
 
 /// Calculate widget sizes and positions based on terminal
 /// dimensions and config. Returns an empty layout on degenerate
@@ -231,10 +221,6 @@ pub fn min_terminal_size(cfg: &LayoutConfig) -> (usize, usize) {
     (min_w, min_h)
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Internal types
-// ─────────────────────────────────────────────────────────────────
-
 #[derive(Debug, Clone, Copy)]
 struct Rect {
     x: usize,
@@ -262,10 +248,6 @@ struct MinCtx<'a> {
     hints: &'a LayoutHints,
     hidden: &'a WidgetSet,
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Place — assign x/y/w/h to every widget reachable from the slot
-// ─────────────────────────────────────────────────────────────────
 
 fn place(slot: &Slot, area: Rect, ctx: &PlaceCtx, layout: &mut Layout) {
     match slot {
@@ -398,10 +380,6 @@ fn hstack_distribute_widths(
     widths
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Sizing — slot-level aggregation built on per-widget queries
-// ─────────────────────────────────────────────────────────────────
-
 /// Whether a slot has any visible descendant `Fill` widget.
 /// Hidden subtrees contribute nothing — a `Fill` widget that
 /// won't render this frame must not claim slack.
@@ -464,10 +442,6 @@ fn widget_preferred_height(kind: WidgetKind, ctx: &PlaceCtx) -> usize {
         _ => raw,
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// Min size — smallest terminal that fits the slot tree
-// ─────────────────────────────────────────────────────────────────
 
 /// Compute the `(min_width, min_height)` of a slot tree. Bottom-up
 /// recursion: leaves report their per-widget minimums; containers
@@ -549,10 +523,6 @@ fn widget_is_visible(kind: WidgetKind, hidden: &WidgetSet) -> bool {
     !hidden.contains(kind)
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -608,10 +578,6 @@ mod tests {
             HStackChild::new(right, nz(60)),
         ])
     }
-
-    // ────────────────────────────────────────────────────────────
-    // place — top-level shapes
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn calc_sizes_single_widget_fills_terminal() {
@@ -700,10 +666,6 @@ mod tests {
         assert_eq!(mem.width + proc.width, 120);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // VStack height distribution: Preferred vs Fill
-    // ────────────────────────────────────────────────────────────
-
     #[test]
     fn vstack_preferred_then_fill_proc_absorbs_remainder() {
         let root = Slot::VStack(vec![
@@ -758,14 +720,6 @@ mod tests {
             crate::ui::disk_widget::preferred_height(&cfg.hints)
         );
     }
-
-    // ────────────────────────────────────────────────────────────
-    // Hidden statusbar — when `compose_hidden` adds Statusbar to
-    // the engine's `hidden` set (master toggle off), the engine
-    // must not place the widget AND the freed row must flow to a
-    // Fill sibling. This is the load-bearing behavioural contract
-    // for the master `show_statusbar` config toggle.
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn vstack_with_hidden_statusbar_omits_dims_for_statusbar() {
@@ -846,10 +800,6 @@ mod tests {
         assert_eq!(cpu.height, cpu_pref);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // CPU height clamp (1/3 terminal height)
-    // ────────────────────────────────────────────────────────────
-
     #[test]
     fn cpu_clamped_to_one_third_of_terminal_height() {
         let root = Slot::VStack(vec![
@@ -863,10 +813,6 @@ mod tests {
         let cpu = layout.dims_for(WidgetKind::Cpu).expect("cpu placed");
         assert!(cpu.height <= 60 / 3);
     }
-
-    // ────────────────────────────────────────────────────────────
-    // Hidden widgets — engine treats them as zero-size
-    // ────────────────────────────────────────────────────────────
 
     /// Build a `WidgetSet` containing every widget kind in the slice.
     fn hide(kinds: &[WidgetKind]) -> WidgetSet {
@@ -968,10 +914,6 @@ mod tests {
         assert!(layout.is_empty());
     }
 
-    // ────────────────────────────────────────────────────────────
-    // hstack_distribute_widths
-    // ────────────────────────────────────────────────────────────
-
     #[test]
     fn hstack_distribute_widths_sum_equals_total() {
         let children = vec![
@@ -1007,10 +949,6 @@ mod tests {
             hstack_distribute_widths(&children, &hide(&[WidgetKind::Mem, WidgetKind::Proc]), 100);
         assert_eq!(widths, vec![0, 0]);
     }
-
-    // ────────────────────────────────────────────────────────────
-    // min_terminal_size
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn min_terminal_size_proc_only_uses_proc_minimums() {
@@ -1125,10 +1063,6 @@ mod tests {
         // proc's minimum.
         assert_eq!(h, MIN_PROC_HEIGHT);
     }
-
-    // ────────────────────────────────────────────────────────────
-    // slot_is_fill
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn slot_is_fill_treats_hidden_fill_as_not_fill() {

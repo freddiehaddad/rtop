@@ -341,14 +341,10 @@ mod tests {
         assert_eq!(state.view.net_iface, ID_A);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // maybe_mark_layout_dirty_from_hints_change — render_ui gate.
-    //
     // While a dimming overlay is open the pull path must stay
     // write-free: widget snapshots ingest into LiveData but no
     // dirty marks fire and no terminal writes happen. The
     // layout-hints comparison is part of that regime.
-    // ─────────────────────────────────────────────────────────────
 
     #[test]
     fn hints_change_marks_layout_dirty_when_render_ui_true() {

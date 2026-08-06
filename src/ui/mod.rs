@@ -114,10 +114,6 @@ pub struct ProcView<'a> {
     pub selected_pid: u32,
 }
 
-// ---------------------------------------------------------------------------
-// Widget trait
-// ---------------------------------------------------------------------------
-
 /// One widget renderer.
 ///
 /// Implemented by [`cpu_widget::CpuWidget`], [`mem_widget::MemWidget`],

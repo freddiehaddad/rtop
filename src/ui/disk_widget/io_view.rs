@@ -128,7 +128,6 @@ pub(super) fn draw_separate_rows(
         .saturating_sub(label_len + value_col_w)
         .max(MIN_IO_GRAPH_W);
 
-    // Read row.
     let speed_r = tools::floating_humanizer(
         disk.read_bytes_per_sec,
         true,
@@ -157,7 +156,6 @@ pub(super) fn draw_separate_rows(
         return 1;
     }
 
-    // Write row.
     let speed_w = tools::floating_humanizer(
         disk.write_bytes_per_sec,
         true,

@@ -527,10 +527,6 @@ mod tests {
         assert_eq!(mem_percent(4096, 1024), 100.0, "clamps above full");
     }
 
-    // ────────────────────────────────────────────────────────────
-    // Dead-row indicator (paused-list ✗ prefix + dead_proc_fg)
-    // ────────────────────────────────────────────────────────────
-
     use crate::collect::CollectStatus;
     use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
     use crate::theme::Theme;

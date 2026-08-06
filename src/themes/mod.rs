@@ -70,7 +70,6 @@ pub struct ThemePalette {
 /// Direct color values for a theme.
 #[derive(Debug, Clone, Deserialize)]
 pub struct PaletteColors {
-    /// Main background.
     pub main_bg: Rgb,
     pub main_fg: Rgb,
     pub title: Rgb,

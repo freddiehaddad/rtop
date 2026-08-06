@@ -111,7 +111,6 @@ pub struct Graph {
     max_value: i64,
     offset: i64,
     last: i64,
-    /// Graph content: Vec<String> of `height` rows.
     buf: Vec<String>,
 }
 
@@ -299,7 +298,6 @@ impl Graph {
             let len = data.len();
             let raw = buf.first().map(|s| s.as_str()).unwrap_or("");
 
-            // Parse the buffer into visual elements
             let elements = parse_graph_elements(raw);
 
             let pad_cols = self.width.saturating_sub(len);

@@ -44,27 +44,16 @@ impl CollectStatus {
     }
 }
 
-/// Trait for all data collectors.
+/// Common interface for data collectors.
 ///
-/// Each collector implements `collect()` to perform one collection cycle,
-/// updating its internal state, and `snapshot()` to produce the
-/// publishable per-cycle snapshot value that
-/// [`crate::runner::CollectorManager`] writes to its
-/// [`crate::runner::LatestSlot`]. Tying the snapshot type to the
-/// collector at the trait level lets the spawn site spell
-/// `LatestSlot<C::Snapshot>` exactly once and removes the per-spawn
-/// snapshot-construction closure that this trait used to require.
+/// `collect()` updates internal state. `snapshot()` produces the
+/// per-cycle value written by [`crate::runner::CollectorManager`] to
+/// [`crate::runner::LatestSlot`].
 ///
-/// `pub(crate)` because the trait is used only within this binary
-/// crate; it is never part of an externally-consumable surface.
-/// The associated `Snapshot` type therefore can reference
-/// `pub(crate)` snapshot structs in [`crate::runner`] without
-/// leaking a more-private type through a more-public trait.
+/// The trait is `pub(crate)` so `Snapshot` can reference
+/// `pub(crate)` structs in [`crate::runner`].
 pub(crate) trait Collector {
-    /// The published snapshot type for this collector. One per
-    /// collector, fixed at the trait level so the publish slot
-    /// (`LatestSlot<C::Snapshot>`) cannot drift from what the
-    /// collector actually produces.
+    /// Published snapshot type for this collector.
     ///
     /// The `Send + Sync + 'static` bound matches the storage
     /// requirement of [`crate::runner::LatestSlot`] (which wraps an

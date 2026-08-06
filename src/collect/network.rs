@@ -32,7 +32,6 @@ pub struct NetCollector {
 }
 
 impl NetCollector {
-    /// Create a new network collector.
     pub fn new() -> Self {
         Self {
             nets: Vec::new(),
@@ -79,7 +78,7 @@ impl NetCollector {
                 adapter_count += 1;
                 let adapter = &*current;
 
-                // Skip loopback
+                // IfType 24 is software loopback.
                 if adapter.IfType == 24 {
                     current = adapter.Next;
                     continue;
@@ -102,7 +101,6 @@ impl NetCollector {
                 let oper_status = adapter.OperStatus.0;
                 let connected = oper_status == 1; // IfOperStatusUp = 1
 
-                // Get IP addresses
                 let mut ipv4 = String::new();
                 let mut ipv6 = String::new();
                 let mut unicast = adapter.FirstUnicastAddress;
@@ -125,7 +123,6 @@ impl NetCollector {
                     unicast = addr.Next;
                 }
 
-                // Get interface stats
                 let if_index = adapter.Anonymous1.Anonymous.IfIndex;
                 let (rx_bytes, tx_bytes, link_speed) = get_if_stats(if_index);
 
@@ -142,7 +139,6 @@ impl NetCollector {
                 entry.ipv6 = ipv6;
                 entry.link_speed = link_speed;
 
-                // Calculate speeds
                 let dl_stat = entry.stat.download;
                 let ul_stat = entry.stat.upload;
 

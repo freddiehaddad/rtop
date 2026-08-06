@@ -135,10 +135,6 @@ impl Slot {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// DSL: Display (emitter)
-// ─────────────────────────────────────────────────────────────────
-
 impl Display for Slot {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -166,10 +162,6 @@ impl Display for Slot {
         }
     }
 }
-
-// ─────────────────────────────────────────────────────────────────
-// DSL: FromStr (parser)
-// ─────────────────────────────────────────────────────────────────
 
 /// Error returned by [`Slot::from_str`] / DSL deserialisation.
 ///
@@ -371,10 +363,6 @@ impl<'a> Parser<'a> {
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// Serde — single string going through Display / FromStr
-// ─────────────────────────────────────────────────────────────────
-
 impl Serialize for Slot {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.collect_str(self)
@@ -454,10 +442,6 @@ mod tests {
         assert_ne!(a, c);
     }
 
-    // ────────────────────────────────────────────────────────────
-    // validate
-    // ────────────────────────────────────────────────────────────
-
     #[test]
     fn validate_accepts_unique_widgets() {
         let s = Slot::VStack(vec![
@@ -495,10 +479,6 @@ mod tests {
             Err(SlotParseError::DuplicateWidget(WidgetKind::Gpu))
         );
     }
-
-    // ────────────────────────────────────────────────────────────
-    // Display
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn display_widget_emits_widget_name() {
@@ -544,10 +524,6 @@ mod tests {
             "vstack(cpu, hstack(40:vstack(mem, net), 60:proc))"
         );
     }
-
-    // ────────────────────────────────────────────────────────────
-    // FromStr — happy path
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn parse_bare_widget() {
@@ -601,10 +577,6 @@ mod tests {
         let parsed: Slot = input.parse().unwrap();
         assert_eq!(parsed.to_string(), input);
     }
-
-    // ────────────────────────────────────────────────────────────
-    // FromStr — error cases
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn parse_rejects_empty_string() {
@@ -694,10 +666,6 @@ mod tests {
             Err(SlotParseError::DuplicateWidget(WidgetKind::Cpu))
         ));
     }
-
-    // ────────────────────────────────────────────────────────────
-    // Round-trip
-    // ────────────────────────────────────────────────────────────
 
     #[test]
     fn round_trip_through_display_and_parse() {

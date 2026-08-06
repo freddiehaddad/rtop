@@ -109,7 +109,6 @@ pub fn draw(
     let free_meter = Meter::new(meter_w, free_grad, meter_bg);
     let mut row = 0;
 
-    // Helper: render " Label meter  Value " with right-aligned value
     let render_row = |buf: &mut AnsiBuffer,
                       label: &str,
                       meter_str: &str,
@@ -126,7 +125,6 @@ pub fn draw(
             .text(&tools::rjust(value, val_w, false));
     };
 
-    // Used
     let used = mem.stats.used;
     let used_pct = (used * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let used_color = gradient_color(used_grad, used_pct);
@@ -145,7 +143,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Available
     let avail = mem.stats.available;
     let avail_pct = (avail * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let avail_color = gradient_color(avail_grad, avail_pct);
@@ -164,7 +161,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Cached
     let cached = mem.stats.cached;
     if cached > 0 && row < inner_h {
         let cached_pct = (cached * 100).checked_div(total_bytes).unwrap_or(0) as i32;
@@ -183,7 +179,6 @@ pub fn draw(
         row += 1;
     }
 
-    // Free
     let free = mem.stats.free;
     let free_pct = (free * 100).checked_div(total_bytes).unwrap_or(0) as i32;
     let free_color = gradient_color(free_grad, free_pct);
@@ -229,10 +224,6 @@ pub fn draw(
 
     buf.finish()
 }
-
-// ---------------------------------------------------------------------------
-// Widget impl
-// ---------------------------------------------------------------------------
 
 /// Memory widget renderer. Unit struct — the widget has no per-
 /// instance state.

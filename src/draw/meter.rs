@@ -23,7 +23,6 @@ impl Meter {
             let empty = width - filled;
             let mut s = String::with_capacity(width * 20);
 
-            // Filled portion — each character gets its gradient color
             for i in 0..filled {
                 let color_idx = (i as f64 * 100.0 / width as f64).round() as usize;
                 if !gradient.is_empty() {
@@ -32,7 +31,6 @@ impl Meter {
                 s.push(METER_CHAR);
             }
 
-            // Empty portion — all use meter_bg color
             if empty > 0 {
                 s.push_str(meter_bg);
                 for _ in 0..empty {

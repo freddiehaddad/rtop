@@ -55,9 +55,6 @@ pub(crate) static PREHOOKS: &[Prehook] = &[
 
 #[rustfmt::skip]
 pub(crate) static BINDINGS: &[Binding] = &[
-    // -----------------------------------------------------------------
-    // Global (Normal mode + Main menu where shared)
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('q'))],
         states: NORMAL,
@@ -138,9 +135,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::restore_widgets_action,
     },
 
-    // -----------------------------------------------------------------
-    // Process navigation
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Up), KeySpec::VimOnly(Key::Char('k'))],
         states: NORMAL,
@@ -202,9 +196,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::nav_end_action,
     },
 
-    // -----------------------------------------------------------------
-    // Process modes, sorting, actions
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Left)],
         states: NORMAL,
@@ -284,9 +275,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::pause_action,
     },
 
-    // -----------------------------------------------------------------
-    // Disk
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('i'))],
         states: NORMAL,
@@ -294,9 +282,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::toggle_io_action,
     },
 
-    // -----------------------------------------------------------------
-    // Network
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('<'))],
         states: NORMAL,
@@ -322,9 +307,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::net_sync_action,
     },
 
-    // -----------------------------------------------------------------
-    // GPU
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('['))],
         states: NORMAL,
@@ -338,9 +320,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: normal::gpu_forward_action,
     },
 
-    // -----------------------------------------------------------------
-    // Main menu (overlay-internal; not surfaced in help)
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('q'))],
         states: MAIN,
@@ -392,9 +371,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: main_menu::open_help_action,
     },
 
-    // -----------------------------------------------------------------
-    // Help overlay (close-only)
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('q'))],
         states: HELP,
@@ -412,9 +388,6 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: help::close_action,
     },
 
-    // -----------------------------------------------------------------
-    // Options overlay
-    // -----------------------------------------------------------------
     Binding {
         keys: &[KeySpec::Always(Key::Char('q'))],
         states: OPTIONS,
@@ -506,10 +479,8 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: options::step_right_action,
     },
 
-    // -----------------------------------------------------------------
-    // Options inline editor (text-input state — text falls through to
-    // `fallback_typed_char`; only command keys are bound here)
-    // -----------------------------------------------------------------
+    // Text falls through to `fallback_typed_char`; only command
+    // keys are bound here.
     Binding {
         keys: &[KeySpec::Always(Key::Escape)],
         states: OPTIONS_EDIT,
@@ -559,10 +530,8 @@ pub(crate) static BINDINGS: &[Binding] = &[
         action: options_edit::move_end_action,
     },
 
-    // -----------------------------------------------------------------
-    // Process filter (text-input state — typed chars fall through to
-    // `fallback_typed_char`; only command keys are bound here)
-    // -----------------------------------------------------------------
+    // Text falls through to `fallback_typed_char`; only command
+    // keys are bound here.
     Binding {
         keys: &[KeySpec::Always(Key::Escape)],
         states: FILTER,
@@ -589,7 +558,5 @@ pub(crate) static BINDINGS: &[Binding] = &[
     },
 ];
 
-// -----------------------------------------------------------------
-// Keep the unused-import linter quiet for the convenience constants
-// -----------------------------------------------------------------
+// Keep convenience constants referenced so unused-import lint stays quiet.
 const _: &[OverlayKind] = NORMAL_OR_MAIN;

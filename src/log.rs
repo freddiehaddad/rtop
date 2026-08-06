@@ -121,10 +121,6 @@ pub mod serde_filter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Subsystem enum
-// ---------------------------------------------------------------------------
-
 /// Identifies which part of rtop emitted a log event.
 ///
 /// Every `tracing::*!` call attaches one of these as the `subsystem`
@@ -184,10 +180,6 @@ impl std_fmt::Display for Subsystem {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Hex<T> code formatter
-// ---------------------------------------------------------------------------
-
 /// `Display` wrapper that formats vendor / Win32 return codes as
 /// `0x` prefixed, uppercase, 8-wide hex.
 ///
@@ -201,10 +193,6 @@ impl<T: std_fmt::UpperHex> std_fmt::Display for Hex<T> {
         write!(f, "{:#010X}", self.0)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Local time formatter
-// ---------------------------------------------------------------------------
 
 /// `tracing_subscriber::fmt::time::FormatTime` implementation that
 /// emits local wall-clock time with millisecond precision.
@@ -227,10 +215,6 @@ impl tracing_subscriber::fmt::time::FormatTime for LocalTime {
         )
     }
 }
-
-// ---------------------------------------------------------------------------
-// Subscriber install + global state
-// ---------------------------------------------------------------------------
 
 static RELOAD_HANDLE: OnceLock<reload::Handle<LevelFilter, Registry>> = OnceLock::new();
 static LOG_DIR: OnceLock<PathBuf> = OnceLock::new();
@@ -355,10 +339,6 @@ pub fn set_level(filter: LevelFilter) -> Result<(), SetLevelError> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Startup diagnostic banner
-// ---------------------------------------------------------------------------
-
 /// Read the OS version via `RtlGetVersion` and format as `MAJOR.MINOR.BUILD`
 /// (e.g. `10.0.26100`). The build number maps unambiguously to a marketing
 /// label via Microsoft's release-health table.
@@ -412,10 +392,6 @@ pub fn startup_banner(level: LevelFilter, log_file: &Path, config_file: Option<&
         "rtop starting",
     );
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

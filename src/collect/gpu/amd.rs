@@ -8,10 +8,6 @@ use super::{clamp_percent, power_percent, push_history};
 const ADL_OK: i32 = 0;
 const ADL_MAX_PATH: usize = 256;
 
-// ---------------------------------------------------------------------------
-// PMLog sensor IDs (from ADL SDK adl_defines.h: ADL_PMLOG_SENSORS enum)
-// ---------------------------------------------------------------------------
-
 const ADL_PMLOG_MAX_SENSORS: usize = 256;
 
 /// GPU core clock in MHz.
@@ -24,10 +20,6 @@ const SENSOR_ACTIVITY_GFX: usize = 19;
 const SENSOR_ASIC_POWER: usize = 23;
 /// Total board power in watts (RDNA3+).
 const SENSOR_BOARD_POWER: usize = 73;
-
-// ---------------------------------------------------------------------------
-// ADL structure definitions (repr(C) matching ADL SDK headers)
-// ---------------------------------------------------------------------------
 
 #[repr(C)]
 struct AdapterInfo {
@@ -106,10 +98,6 @@ impl AdlMemoryInfoX4 {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ADL function pointer types
-// ---------------------------------------------------------------------------
-
 /// ADL memory allocation callback. ADL requires the caller to provide malloc.
 type AdlMallocCallback = unsafe extern "C" fn(i32) -> *mut c_void;
 
@@ -136,8 +124,6 @@ struct AdlFunctions {
     dedicated_vram_usage_get: Adl2AdapterDedicatedVRAMUsageGet,
 }
 
-/// ADL memory allocation callback.
-///
 /// Invoked by ADL2 entry points from C code, so a panic across this FFI
 /// boundary would be undefined behavior. Non-positive sizes and any
 /// `Layout` construction failure are surfaced to ADL as a null return
@@ -206,10 +192,6 @@ impl AdlFunctions {
         })
     }
 }
-
-// ---------------------------------------------------------------------------
-// AMD vendor session and per-device state
-// ---------------------------------------------------------------------------
 
 /// Extract a C string from a fixed-size byte buffer (ADL adapter
 /// name fields use this shape).
@@ -315,7 +297,6 @@ pub(super) fn collect(
     // pointer to a zeroed output struct.
     let ret = unsafe { (adl.query_pmlog_data_get)(ctx, idx, &mut pmlog) };
     if ret == ADL_OK {
-        // Utilization (direct %).
         if let Some(pct) = pmlog.get(SENSOR_ACTIVITY_GFX) {
             push_history(
                 &mut info.gpu_percent.utilization,
@@ -323,12 +304,10 @@ pub(super) fn collect(
             );
         }
 
-        // Clock speed (direct MHz).
         if let Some(mhz) = pmlog.get(SENSOR_CLK_GFXCLK) {
             info.gpu_clock_speed = mhz.max(0) as u32;
         }
 
-        // Temperature (direct °C).
         if let Some(temp) = pmlog.get(SENSOR_TEMPERATURE_EDGE) {
             push_history(&mut info.temp, temp as i64);
         }
@@ -517,7 +496,6 @@ fn build_initial_info(
         }
     }
 
-    // Total VRAM.
     let mut mem = AdlMemoryInfoX4::zeroed();
     // SAFETY: ctx and adapter.adapter_index are valid; mem is a
     // valid pointer.

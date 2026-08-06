@@ -101,10 +101,6 @@ pub(crate) fn render_if_dirty_waiting(
     }
 }
 
-// ─────────────────────────────────────────────────────────────────
-// All-hidden overlay
-// ─────────────────────────────────────────────────────────────────
-
 /// Build the "all widgets hidden" overlay text. Lists `Shift+R` as
 /// the bulk-reset key plus the per-widget toggle keys for the
 /// widgets present in `active_layout` (so users on `cpu+proc` never
@@ -239,10 +235,6 @@ mod tests {
         assert!(out.contains("Terminal too small (40x10)."));
         assert!(out.contains("Need 150x48."));
     }
-
-    // ────────────────────────────────────────────────────────────
-    // All-hidden overlay
-    // ────────────────────────────────────────────────────────────
 
     use crate::domain::layout_spec::Slot;
     use crate::domain::widget_kind::WidgetKind;

@@ -9,10 +9,6 @@ use crate::collect::pawnio::{AffinityGuard, Error as PawnError, Module, PawnIo};
 use std::arch::x86_64::__cpuid;
 use std::time::Instant;
 
-// ---------------------------------------------------------------------------
-// Intel MSRs
-// ---------------------------------------------------------------------------
-
 /// Per-core thermal status: bits[22:16] = distance from TjMax in °C.
 const MSR_IA32_THERM_STATUS: u32 = 0x019C;
 /// Package thermal status: same encoding as IA32_THERM_STATUS.
@@ -33,10 +29,6 @@ const TEMP_TARGET_TJMAX_MASK: u64 = 0xFF << 16;
 /// Mask for energy unit in MSR_RAPL_POWER_UNIT bits [12:8].
 const RAPL_ENERGY_UNIT_MASK: u64 = 0x1F << 8;
 
-// ---------------------------------------------------------------------------
-// AMD Family 17h+ MSRs and SMN registers
-// ---------------------------------------------------------------------------
-
 /// Power unit MSR (AMD): bits[12:8] = ESU.
 const MSR_AMD_PWR_UNIT: u32 = 0xC001_0299;
 /// Package energy status (AMD): 32-bit monotonic counter, wraps.
@@ -45,10 +37,6 @@ const MSR_AMD_PKG_ENERGY_STAT: u32 = 0xC001_029B;
 const SMN_THM_TCON_CUR_TMP: u32 = 0x0005_9800;
 /// Bit 19 of THM_TCON_CUR_TMP: 1 = -49°C offset applies.
 const THM_TEMP_RANGE_SEL: u32 = 1 << 19;
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /// One sample of CPU thermal and power data.
 #[derive(Default, Debug, Clone)]
@@ -139,10 +127,6 @@ impl ThermalCollector {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CPU vendor detection
-// ---------------------------------------------------------------------------
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CpuVendor {
     Intel,
@@ -164,10 +148,6 @@ fn cpu_vendor() -> CpuVendor {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Intel backend
-// ---------------------------------------------------------------------------
-
 struct IntelBackend {
     pawnio: PawnIo,
     /// Per-logical-core TjMax values (°C). Hybrid CPUs (P/E cores) have
@@ -187,13 +167,12 @@ impl IntelBackend {
     fn load(core_count: usize) -> Result<Self, PawnError> {
         let pawnio = PawnIo::load(Module::IntelMsr)?;
 
-        // Read TjMax per core (with thread affinity) — hybrid CPUs have
-        // different TjMax for P-cores and E-cores.
+        // Hybrid CPUs can have different TjMax for P-cores and E-cores.
         let tj_max = (0..core_count)
             .map(|core| read_intel_tj_max(&pawnio, core).unwrap_or(100))
             .collect();
 
-        // RAPL energy unit is package-wide — read once on the current core.
+        // RAPL energy unit is package-wide.
         let unit_raw = pawnio.read_msr(MSR_RAPL_POWER_UNIT)?;
         let energy_esu = ((unit_raw & RAPL_ENERGY_UNIT_MASK) >> 8) as u32;
         let energy_unit_j = 1.0 / ((1u64 << energy_esu) as f64);
@@ -270,10 +249,6 @@ fn decode_intel_temp(raw: u64, tj_max: u32) -> Option<i64> {
     Some(tj_max as i64 - distance)
 }
 
-// ---------------------------------------------------------------------------
-// AMD backend
-// ---------------------------------------------------------------------------
-
 struct AmdBackend {
     pawnio: PawnIo,
     /// Energy unit in joules per RAPL counter increment.
@@ -343,10 +318,6 @@ fn decode_amd_temp(raw: u32) -> i64 {
     temp_c.round() as i64
 }
 
-// ---------------------------------------------------------------------------
-// Shared RAPL energy differentiation
-// ---------------------------------------------------------------------------
-
 struct EnergyState {
     counter: u32,
     when: Instant,
@@ -368,17 +339,10 @@ fn compute_watts(
     Some(delta * energy_unit_j / dt)
 }
 
-// ---------------------------------------------------------------------------
-// Processor group / mask helpers (Windows supports >64 logical CPUs split
-// across multiple processor groups).
-// ---------------------------------------------------------------------------
-
-/// Return the processor group containing logical core `index`.
 fn core_group(index: usize) -> u16 {
     (index / 64) as u16
 }
 
-/// Return the affinity mask for logical core `index` within its group.
 fn core_mask(index: usize) -> usize {
     1usize << (index % 64)
 }
@@ -424,7 +388,6 @@ mod tests {
         let now = prev.when + std::time::Duration::from_secs(1);
         let unit = 1.0 / 16384.0;
         let watts = compute_watts(&prev, 4, now, unit).unwrap();
-        // 6 * (1/16384) / 1 = ~0.000366
         assert!((watts - 6.0 * unit).abs() < 1e-9);
     }
 

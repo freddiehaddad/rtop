@@ -530,11 +530,6 @@ mod tests {
         assert_eq!(start, 0);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // resolve_detail_view — pure function exercising the panel
-    // resolution rule used by RenderInputs::build.
-    // ─────────────────────────────────────────────────────────────
-
     fn proc_with(pid: u32, name: &str) -> ProcInfo {
         ProcInfo {
             pid,
@@ -665,15 +660,10 @@ mod tests {
         assert_eq!(view.proc.name, "resurrected");
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Dim-cache compose path — CLEAR_SCREEN gating contract +
-    // modal-kind-change regression coverage.
-    //
     // `compose_modal_frame` now takes an explicit `DimComposeMode`.
     // The mode is produced by `RenderState::reconcile_dim_compose`
     // from the current `ModalFootprint`; these tests drive both the
     // reconcile and the compose to lock in the end-to-end behaviour.
-    // ─────────────────────────────────────────────────────────────
 
     /// Build a fresh `AppState` ready for modal compose: empty layout
     /// cached, the requested modal active, and the dim-cache footprint
