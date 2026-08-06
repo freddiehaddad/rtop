@@ -737,7 +737,7 @@ mod tests {
         assert!(
             out.starts_with(term::CLEAR_SCREEN),
             "first modal frame (cache miss) must begin with CLEAR_SCREEN; got prefix: {:?}",
-            &out.chars().take(10).collect::<String>(),
+            out.chars().take(10).collect::<String>(),
         );
         assert!(
             state.render.cached_dimmed_underlay().is_some(),
@@ -799,7 +799,7 @@ mod tests {
         assert!(
             kind_change_frame.starts_with(term::CLEAR_SCREEN),
             "modal-kind-change frame must begin with CLEAR_SCREEN; got prefix: {:?}",
-            &kind_change_frame.chars().take(10).collect::<String>(),
+            kind_change_frame.chars().take(10).collect::<String>(),
         );
         assert!(
             kind_change_frame.contains(&cached_underlay),
