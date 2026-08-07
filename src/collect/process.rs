@@ -145,23 +145,26 @@ impl ProcCollector {
                     let ppid = entry.th32ParentProcessID;
                     let threads = entry.cntThreads as usize;
 
-                    let (cpu_p, cpu_time, mem, priority, user, cmdline) =
-                        get_process_details(pid, &self.prev_times, elapsed, core_count);
+                    let details = get_process_details(pid, &self.prev_times, elapsed, core_count);
 
                     new_procs.push(ProcInfo {
                         pid,
                         name: name.clone(),
-                        cmd: if cmdline.is_empty() { name } else { cmdline },
+                        cmd: if details.cmd.is_empty() {
+                            name
+                        } else {
+                            details.cmd
+                        },
                         threads,
-                        user,
-                        mem,
-                        cpu_p,
+                        user: details.user,
+                        mem: details.mem,
+                        cpu_p: details.cpu_p,
                         state: ProcState::Running,
-                        priority,
+                        priority: details.priority,
                         ppid,
-                        cpu_time,
-                        io_read: 0,
-                        io_write: 0,
+                        cpu_time: details.cpu_time,
+                        io_read: details.io_read,
+                        io_write: details.io_write,
                     });
 
                     if Process32NextW(snapshot.get(), &mut entry).is_err() {
@@ -196,26 +199,56 @@ impl Collector for ProcCollector {
     }
 }
 
+/// Per-process values read from a single `OpenProcess` handle.
+///
+/// Grouped into a struct rather than returned as a tuple: the set has
+/// grown past the point where positional returns are readable, and
+/// every field is filled from the same handle.
+struct ProcessDetails {
+    cpu_p: f64,
+    cpu_time: u64,
+    mem: u64,
+    priority: PriorityClass,
+    user: String,
+    cmd: String,
+    /// Cumulative bytes read over the process lifetime, spanning file,
+    /// network and device I/O.
+    io_read: u64,
+    /// Cumulative bytes written over the process lifetime, spanning
+    /// file, network and device I/O.
+    io_write: u64,
+}
+
+impl Default for ProcessDetails {
+    fn default() -> Self {
+        Self {
+            cpu_p: 0.0,
+            cpu_time: 0,
+            mem: 0,
+            priority: PriorityClass::Normal,
+            user: String::new(),
+            cmd: String::new(),
+            io_read: 0,
+            io_write: 0,
+        }
+    }
+}
+
 fn get_process_details(
     pid: u32,
     prev_times: &HashMap<u32, u64>,
     elapsed: f64,
     core_count: usize,
-) -> (f64, u64, u64, PriorityClass, String, String) {
+) -> ProcessDetails {
     use windows::Win32::Foundation::*;
     use windows::Win32::System::Threading::*;
 
-    let mut cpu_p = 0.0;
-    let mut cpu_time = 0u64;
-    let mut mem = 0u64;
-    let mut priority = PriorityClass::Normal;
-    let mut user = String::new();
-    let mut cmd = String::new();
+    let mut details = ProcessDetails::default();
 
     // SAFETY: OpenProcess is called with limited query rights. The returned
-    // handle is checked before use. FILETIME and PROCESS_MEMORY_COUNTERS are
-    // stack-allocated with correct sizes. All API return values are checked.
-    // The handle is closed by OwnedHandle on all paths.
+    // handle is checked before use. FILETIME, PROCESS_MEMORY_COUNTERS and
+    // IO_COUNTERS are stack-allocated with correct sizes. All API return
+    // values are checked. The handle is closed by OwnedHandle on all paths.
     unsafe {
         if let Some(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
             .ok()
@@ -237,10 +270,11 @@ fn get_process_details(
             {
                 let kt = filetime_to_u64(&kernel);
                 let ut = filetime_to_u64(&user_time);
-                cpu_time = kt.saturating_add(ut);
+                details.cpu_time = kt.saturating_add(ut);
 
                 if let Some(&prev_total) = prev_times.get(&pid) {
-                    cpu_p = process_cpu_percent(prev_total, cpu_time, elapsed, core_count);
+                    details.cpu_p =
+                        process_cpu_percent(prev_total, details.cpu_time, elapsed, core_count);
                 }
             }
 
@@ -250,21 +284,30 @@ fn get_process_details(
                 ..Default::default()
             };
             if GetProcessMemoryInfo(handle.get(), &mut mem_counters, mem_counters.cb).is_ok() {
-                mem = mem_counters.WorkingSetSize as u64;
+                details.mem = mem_counters.WorkingSetSize as u64;
+            }
+
+            // Cumulative I/O totals. Protected processes deny this even
+            // with PROCESS_QUERY_LIMITED_INFORMATION, so a failure leaves
+            // the counters at zero rather than dropping the process.
+            let mut io = IO_COUNTERS::default();
+            if GetProcessIoCounters(handle.get(), &mut io).is_ok() {
+                details.io_read = io.ReadTransferCount;
+                details.io_write = io.WriteTransferCount;
             }
 
             let pclass = GetPriorityClass(handle.get());
-            priority = priority_from_u32(pclass);
+            details.priority = priority_from_u32(pclass);
 
-            user = get_process_user(handle.get());
+            details.user = get_process_user(handle.get());
 
             // Command line — reuse the same handle (the API is documented
             // to work with PROCESS_QUERY_LIMITED_INFORMATION on Win 10+).
-            cmd = get_process_cmdline(handle.get());
+            details.cmd = get_process_cmdline(handle.get());
         }
     }
 
-    (cpu_p, cpu_time, mem, priority, user, cmd)
+    details
 }
 
 /// Read the full command line of a process via
@@ -637,5 +680,37 @@ mod tests {
         collector.collect();
         let current_pid = std::process::id();
         assert!(collector.procs.iter().any(|p| p.pid == current_pid));
+    }
+
+    #[test]
+    fn collect_reports_io_counters_for_the_current_process() {
+        // Do a known write first, so the assertion rests on I/O this
+        // test performed rather than on incidental image loading.
+        // Processes that deny PROCESS_QUERY_LIMITED_INFORMATION keep
+        // zeroed counters, so this deliberately checks our own PID.
+        let path = std::env::temp_dir().join(format!("rtop-io-probe-{}", std::process::id()));
+        std::fs::write(&path, vec![0u8; 64 * 1024]).expect("temp file write must succeed");
+        let observed = std::fs::read(&path).expect("temp file read must succeed");
+        assert_eq!(observed.len(), 64 * 1024);
+        let _ = std::fs::remove_file(&path);
+
+        let mut collector = ProcCollector::new();
+        collector.set_core_count(1);
+        collector.collect();
+
+        let me = collector
+            .procs
+            .iter()
+            .find(|p| p.pid == std::process::id())
+            .expect("the current process is always in its own snapshot");
+
+        assert!(
+            me.io_write > 0,
+            "io_write must reflect the 64 KiB this test wrote",
+        );
+        assert!(
+            me.io_read > 0,
+            "io_read must reflect the 64 KiB this test read back",
+        );
     }
 }
