@@ -1,5 +1,9 @@
 use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
-use std::{collections::HashMap, ffi::c_void, mem::size_of};
+use std::{
+    collections::{HashMap, HashSet},
+    ffi::c_void,
+    mem::size_of,
+};
 use thiserror::Error;
 
 use super::{
@@ -28,6 +32,31 @@ const STATUS_INFO_LENGTH_MISMATCH: i32 = 0xC000_0004u32 as i32;
 /// upper bound (`u16::MAX` bytes).
 const MAX_CMDLINE_BUFFER_BYTES: u32 = 64 * 1024;
 
+/// `SYSTEM_INFORMATION_CLASS::SystemProcessInformation`. Returns a
+/// chain of `SYSTEM_PROCESS_INFORMATION` records linked by
+/// `NextEntryOffset`, each immediately followed by its
+/// `NumberOfThreads` `SYSTEM_THREAD_INFORMATION` entries.
+const SYSTEM_PROCESS_INFORMATION_CLASS: u32 = 5;
+
+/// `KTHREAD_STATE::Waiting`. A suspended thread is always in this
+/// state; `WaitReason` distinguishes why.
+const THREAD_STATE_WAIT: u32 = 5;
+
+/// `KWAIT_REASON::Suspended`. Paired with `THREAD_STATE_WAIT` this is
+/// the signature of a thread parked by `SuspendThread` or by the
+/// Windows process lifetime manager.
+const WAIT_REASON_SUSPENDED: u32 = 5;
+
+/// Starting size for the system-wide process snapshot. Large enough
+/// for a typical desktop (roughly 400 processes and 5000 threads) to
+/// succeed on the first call.
+const SYSTEM_PROCESS_BUFFER_BYTES: usize = 512 * 1024;
+
+/// Ceiling on the snapshot buffer. The kernel reports the size it
+/// wants, but the process table can grow between the sizing call and
+/// the fetch, so the loop retries; this bounds that retry.
+const MAX_SYSTEM_PROCESS_BUFFER_BYTES: usize = 32 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 enum CmdlineReadError {
     #[error("NtQueryInformationProcess (ProcessCommandLineInformation) failed")]
@@ -47,6 +76,13 @@ unsafe extern "system" {
 unsafe extern "system" {
     fn NtQueryInformationProcess(
         process: HANDLE,
+        info_class: u32,
+        info: *mut c_void,
+        info_length: u32,
+        return_length: *mut u32,
+    ) -> i32;
+
+    fn NtQuerySystemInformation(
         info_class: u32,
         info: *mut c_void,
         info_length: u32,
@@ -96,6 +132,9 @@ impl ProcCollector {
 
         let core_count = self.core_count;
         let mut new_procs = Vec::new();
+        // One system-wide query, before walking the Toolhelp snapshot,
+        // so each process can be labelled without a second syscall.
+        let suspended = collect_suspended_pids();
 
         // SAFETY: CreateToolhelp32Snapshot returns a valid handle (checked via
         // Err). PROCESSENTRY32W has dwSize set correctly. Process32FirstW and
@@ -159,7 +198,11 @@ impl ProcCollector {
                         user: details.user,
                         mem: details.mem,
                         cpu_p: details.cpu_p,
-                        state: ProcState::Running,
+                        state: if suspended.contains(&pid) {
+                            ProcState::Suspended
+                        } else {
+                            ProcState::Running
+                        },
                         priority: details.priority,
                         ppid,
                         cpu_time: details.cpu_time,
@@ -197,6 +240,138 @@ impl Collector for ProcCollector {
             status: self.status.clone(),
         }
     }
+}
+
+/// Fetch the system-wide process/thread snapshot into an 8-byte
+/// aligned buffer, growing until the kernel stops reporting
+/// `STATUS_INFO_LENGTH_MISMATCH`. Returns the buffer and the number of
+/// bytes the kernel actually wrote.
+fn query_system_processes() -> Option<(Vec<u64>, usize)> {
+    let mut capacity = SYSTEM_PROCESS_BUFFER_BYTES;
+
+    loop {
+        // `Vec<u64>` rather than `Vec<u8>`: SYSTEM_PROCESS_INFORMATION
+        // contains pointers and `usize`, so the buffer must be
+        // 8-byte aligned before records can be read out of it.
+        let mut buf = vec![0u64; capacity.div_ceil(size_of::<u64>())];
+        let byte_len = buf.len() * size_of::<u64>();
+        let Ok(byte_len_u32) = u32::try_from(byte_len) else {
+            return None;
+        };
+        let mut return_len = 0u32;
+
+        // SAFETY: buf is an owned allocation of exactly `byte_len`
+        // bytes, aligned to 8 by its u64 element type. `byte_len_u32`
+        // describes that same allocation, and `return_len` is a live
+        // local the kernel writes the used or required size into.
+        let status = unsafe {
+            NtQuerySystemInformation(
+                SYSTEM_PROCESS_INFORMATION_CLASS,
+                buf.as_mut_ptr().cast::<c_void>(),
+                byte_len_u32,
+                &mut return_len,
+            )
+        };
+
+        if status == STATUS_INFO_LENGTH_MISMATCH {
+            // The kernel reports the size it wanted, but the process
+            // table can grow again before the next call, so take the
+            // larger of its answer and a doubling and retry.
+            let wanted = return_len as usize;
+            let next = wanted.max(capacity.saturating_mul(2));
+            if next > MAX_SYSTEM_PROCESS_BUFFER_BYTES {
+                tracing::warn!(
+                    subsystem = %crate::log::Subsystem::Process,
+                    wanted,
+                    "system process snapshot exceeds the buffer cap",
+                );
+                return None;
+            }
+            capacity = next;
+            continue;
+        }
+
+        if status != 0 {
+            tracing::warn!(
+                subsystem = %crate::log::Subsystem::Process,
+                code = %crate::log::Hex(status),
+                "NtQuerySystemInformation(SystemProcessInformation) failed",
+            );
+            return None;
+        }
+
+        let used = (return_len as usize).min(byte_len);
+        return Some((buf, used));
+    }
+}
+
+/// PIDs whose every thread sits in a suspended wait.
+///
+/// One system-wide call covers every process, which is far cheaper
+/// than opening each process and querying its threads individually. A
+/// process counts as suspended only when it has at least one thread
+/// and all of them are parked, matching how Process Explorer and
+/// Process Hacker report the state.
+fn collect_suspended_pids() -> HashSet<u32> {
+    use windows::Win32::System::WindowsProgramming::{
+        SYSTEM_PROCESS_INFORMATION, SYSTEM_THREAD_INFORMATION,
+    };
+
+    let mut suspended = HashSet::new();
+    let Some((buf, used)) = query_system_processes() else {
+        return suspended;
+    };
+
+    let base = buf.as_ptr().cast::<u8>();
+    let mut offset = 0usize;
+
+    loop {
+        // Every field read below lives inside the record, so the
+        // record itself must fit in the bytes the kernel wrote.
+        if offset.saturating_add(size_of::<SYSTEM_PROCESS_INFORMATION>()) > used {
+            break;
+        }
+
+        // SAFETY: the bounds check above proves the record lies inside
+        // the initialised region of `buf`, and the buffer's u64
+        // element type satisfies the struct's 8-byte alignment.
+        // Copying the record ends the borrow immediately, so the walk
+        // below does not hold a reference into the buffer.
+        let record = unsafe { *base.add(offset).cast::<SYSTEM_PROCESS_INFORMATION>() };
+
+        let threads_offset = offset + size_of::<SYSTEM_PROCESS_INFORMATION>();
+        let threads_len = (record.NumberOfThreads as usize)
+            .saturating_mul(size_of::<SYSTEM_THREAD_INFORMATION>());
+
+        if record.NumberOfThreads > 0 && threads_offset.saturating_add(threads_len) <= used {
+            let pid = record.UniqueProcessId.0 as u32;
+            // SAFETY: the thread array is contiguous with its record,
+            // and the bounds check above proves all `NumberOfThreads`
+            // entries lie inside the initialised region.
+            let threads = unsafe {
+                std::slice::from_raw_parts(
+                    base.add(threads_offset).cast::<SYSTEM_THREAD_INFORMATION>(),
+                    record.NumberOfThreads as usize,
+                )
+            };
+            let all_parked = threads.iter().all(|t| {
+                t.ThreadState == THREAD_STATE_WAIT && t.WaitReason == WAIT_REASON_SUSPENDED
+            });
+            if all_parked {
+                suspended.insert(pid);
+            }
+        }
+
+        // A zero `NextEntryOffset` marks the final record; any other
+        // value advances `offset`, so the walk always terminates.
+        let step = record.NextEntryOffset as usize;
+        if step == 0 {
+            break;
+        }
+        offset = offset.saturating_add(step);
+    }
+
+    suspended
 }
 
 /// Per-process values read from a single `OpenProcess` handle.
@@ -680,6 +855,88 @@ mod tests {
         collector.collect();
         let current_pid = std::process::id();
         assert!(collector.procs.iter().any(|p| p.pid == current_pid));
+    }
+
+    #[test]
+    fn detects_a_process_whose_threads_are_all_suspended() {
+        // CREATE_SUSPENDED starts the child with its only thread
+        // parked, which is exactly the state the collector looks for.
+        // Using a real child rather than a fixture exercises the whole
+        // path: the NtQuerySystemInformation call, the record walk and
+        // the all-threads-parked rule.
+        use std::os::windows::process::CommandExt;
+        const CREATE_SUSPENDED: u32 = 0x0000_0004;
+
+        let mut child = std::process::Command::new("cmd.exe")
+            .args(["/c", "exit"])
+            .creation_flags(CREATE_SUSPENDED)
+            .spawn()
+            .expect("spawning a suspended child must succeed");
+        let pid = child.id();
+
+        let suspended = collect_suspended_pids();
+        let found = suspended.contains(&pid);
+
+        // Terminate before asserting so a failure cannot leak the
+        // suspended child, which would never exit on its own.
+        let _ = child.kill();
+        let _ = child.wait();
+
+        assert!(
+            found,
+            "a CREATE_SUSPENDED child (pid {pid}) must be reported as suspended",
+        );
+    }
+
+    #[test]
+    fn running_processes_are_not_reported_as_suspended() {
+        // The current process is demonstrably running, so it must not
+        // appear in the set. Guards against a walk that mislabels
+        // every process, which the test above alone would not catch.
+        let suspended = collect_suspended_pids();
+        assert!(
+            !suspended.contains(&std::process::id()),
+            "the running test process must not be reported as suspended",
+        );
+    }
+
+    #[test]
+    fn system_process_snapshot_parses_into_plausible_records() {
+        // The System process (pid 4) always exists and always carries
+        // many threads, so finding it proves NextEntryOffset walking
+        // and the UniqueProcessId field are both being read correctly.
+        use windows::Win32::System::WindowsProgramming::SYSTEM_PROCESS_INFORMATION;
+
+        let (buf, used) = query_system_processes().expect("system snapshot must succeed");
+        let base = buf.as_ptr().cast::<u8>();
+        let mut offset = 0usize;
+        let mut records = 0usize;
+        let mut saw_system = false;
+
+        loop {
+            if offset + size_of::<SYSTEM_PROCESS_INFORMATION>() > used {
+                break;
+            }
+            // SAFETY: the bounds check above proves the record lies
+            // inside the initialised region of the aligned buffer.
+            let record = unsafe { *base.add(offset).cast::<SYSTEM_PROCESS_INFORMATION>() };
+            records += 1;
+            if record.UniqueProcessId.0 as u32 == 4 {
+                saw_system = true;
+                assert!(
+                    record.NumberOfThreads > 0,
+                    "the System process must report threads",
+                );
+            }
+            let step = record.NextEntryOffset as usize;
+            if step == 0 {
+                break;
+            }
+            offset += step;
+        }
+
+        assert!(records > 1, "the snapshot must contain many processes");
+        assert!(saw_system, "the snapshot must contain the System process");
     }
 
     #[test]

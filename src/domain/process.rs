@@ -94,6 +94,12 @@ impl ProcDisplayEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProcState {
     Running,
+    /// Every thread is parked in a suspended wait. Modern Windows
+    /// suspends UWP and Store apps when they lose focus, and a
+    /// debugger freeze looks the same, so this distinguishes "idle by
+    /// choice" from "stopped by the system" for a process sitting at
+    /// 0% CPU.
+    Suspended,
     Unknown,
 }
 
@@ -101,6 +107,7 @@ impl fmt::Display for ProcState {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Running => write!(f, "Running"),
+            Self::Suspended => write!(f, "Suspended"),
             Self::Unknown => write!(f, "Unknown"),
         }
     }
