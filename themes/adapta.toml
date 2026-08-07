@@ -1,6 +1,7 @@
 [colors]
 main_bg = "#263238"
 main_fg = "#cfd8dc"
+data_label_fg = "#949ea3"
 title = "#ffffff"
 hi_fg = "#909090"
 graph_text = "#404040"

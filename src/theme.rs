@@ -1,7 +1,7 @@
 use crate::theme_keys::{ColorKey, GradientKey};
 use crate::themes::{GradientDef, Rgb, ThemePalette};
 
-pub const COLOR_COUNT: usize = 24;
+pub const COLOR_COUNT: usize = 25;
 pub const GRADIENT_COUNT: usize = 17;
 
 struct BundledTheme {
@@ -92,6 +92,7 @@ impl Theme {
             c.statusbar_fg,  // 21
             c.statusbar_hi,  // 22
             c.statusbar_sep, // 23
+            c.data_label_fg, // 24
         ];
 
         let colors: [String; COLOR_COUNT] = std::array::from_fn(|i| rgbs[i].to_fg_escape());
@@ -390,6 +391,54 @@ mod tests {
             // If parsing succeeded, `main_bg: Rgb` is structurally
             // present. Sanity-check by reading it.
             let _ = palette.colors.main_bg;
+        }
+    }
+
+    #[test]
+    fn every_bundled_theme_gives_data_label_fg_its_own_shade() {
+        // `data_label_fg` only earns its place if it is visually
+        // distinct from the value colour beside it and from the
+        // background behind it. Guard both ends for every theme so a
+        // future contribution cannot copy `main_fg` verbatim and
+        // silently undo the label/value hierarchy.
+        for bt in BUNDLED_THEMES {
+            let palette: ThemePalette = toml::from_str(bt.content)
+                .unwrap_or_else(|e| panic!("bundled theme '{}' failed to parse: {e}", bt.name));
+            let c = &palette.colors;
+            assert_ne!(
+                c.data_label_fg, c.main_fg,
+                "theme '{}': data_label_fg must differ from main_fg",
+                bt.name,
+            );
+            assert_ne!(
+                c.data_label_fg, c.main_bg,
+                "theme '{}': data_label_fg must differ from main_bg",
+                bt.name,
+            );
+        }
+    }
+
+    #[test]
+    fn every_bundled_theme_keeps_labels_brighter_than_dead_rows() {
+        // Brightness order is value > label > dead row. Compare each
+        // against `main_bg` so the check holds for light themes, where
+        // "brighter" means closer to a dark foreground.
+        let distance = |a: Rgb, b: Rgb| {
+            let d = |x: u8, y: u8| (i32::from(x) - i32::from(y)).abs();
+            d(a.0, b.0) + d(a.1, b.1) + d(a.2, b.2)
+        };
+        for bt in BUNDLED_THEMES {
+            let palette: ThemePalette = toml::from_str(bt.content)
+                .unwrap_or_else(|e| panic!("bundled theme '{}' failed to parse: {e}", bt.name));
+            let c = &palette.colors;
+            let label = distance(c.data_label_fg, c.main_bg);
+            let value = distance(c.main_fg, c.main_bg);
+            assert!(
+                label < value,
+                "theme '{}': data_label_fg must sit closer to the background than main_fg \
+                 (label {label}, value {value})",
+                bt.name,
+            );
         }
     }
 

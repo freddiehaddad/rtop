@@ -111,6 +111,13 @@ pub struct PaletteColors {
     /// the brackets are the only glyphs in the bar that use
     /// this key.
     pub statusbar_sep: Rgb,
+    /// Foreground for data labels in label/value pairs, currently the
+    /// process detail panel. Each theme derives a palette-coherent
+    /// value between `main_fg` and `dead_proc_fg` in brightness
+    /// (roughly 65% of the way from `main_bg` toward `main_fg`), so a
+    /// label reads as secondary to its value without becoming as dim
+    /// as `graph_text`.
+    pub data_label_fg: Rgb,
 }
 
 /// Gradient definitions for a theme.
@@ -175,6 +182,7 @@ mod tests {
 [colors]
 main_bg = "#282a36"
 main_fg = "#f8f8f2"
+data_label_fg = "#a9a9a5"
 title = "#f8f8f2"
 hi_fg = "#6272a4"
 graph_text = "#f8f8f2"
