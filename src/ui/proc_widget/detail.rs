@@ -377,7 +377,7 @@ fn detail_cells<'a>(
     // cell reports that it is gone, so the rest of the panel reads
     // exactly as it did while the process was alive.
     let status = if dead {
-        "\u{2717} Exited".to_string()
+        "Exited".to_string()
     } else {
         proc.state.to_string()
     };
@@ -705,7 +705,7 @@ mod tests {
         let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, true));
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains("Status   \u{2717} Exited"),
+            plain.contains("Status   Exited"),
             "dead process detail panel must report Exited: {plain}"
         );
     }
@@ -722,7 +722,7 @@ mod tests {
         let exited = gradient_color(theme.gradient(tc::GRAD_PROCESS), STATE_GRADIENT_EXITED);
 
         assert!(
-            output.contains(&format!("{exited}\u{2717} Exited")),
+            output.contains(&format!("{exited}Exited")),
             "the Status value takes the exited gradient colour"
         );
         assert!(
@@ -759,7 +759,7 @@ mod tests {
         proc.state = ProcState::Running;
         let exited = draw_detail_panel(&make_panel(&proc, 120, 7, &frame, &theme, true));
         assert!(
-            exited.contains(&format!("{}\u{2717} Exited", grad[100])),
+            exited.contains(&format!("{}Exited", grad[100])),
             "Exited takes the hot end of the gradient"
         );
 
@@ -960,7 +960,7 @@ mod tests {
         assert!(plain.contains("Args     --orphan"));
         assert!(plain.contains("PID 999"));
         assert!(
-            plain.contains("\u{2717} Exited"),
+            plain.contains("Exited"),
             "dead flag must surface the exited status: {plain}"
         );
     }

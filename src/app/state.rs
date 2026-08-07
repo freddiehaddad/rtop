@@ -822,10 +822,9 @@ pub(crate) struct ProcessViewState {
     ///
     /// `pause.dead_pids` tracks PIDs from the frozen snapshot that
     /// no longer appear in the latest live snapshot. The proc widget
-    /// renders those rows with the dead-row theme color
-    /// (the hot end of the process gradient) and a `✗ ` prefix on the name column so the
-    /// user can tell which rows in the snapshot represent processes
-    /// that have since exited.
+    /// renders those rows at the hot end of the process gradient so
+    /// the user can tell which rows in the snapshot represent
+    /// processes that have since exited.
     ///
     /// Pause is *runtime only* — it does not survive restart.
     /// Persisting it would risk launching rtop with a frozen list

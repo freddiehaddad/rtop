@@ -35,15 +35,9 @@ struct ProcessRowParams<'a> {
     settings: &'a ProcFrame,
     colors: &'a ProcColors<'a>,
     /// `true` when this row's PID is in `dead_pids`. Drives the
-    /// dead-row foreground color and the `✗ ` name-column prefix.
+    /// dead-row foreground color.
     dead: bool,
 }
-
-/// Universal prefix for dead-row name columns (Ballot X + space).
-/// Two cells of name-column width per dead row; the displayed name
-/// is truncated by the same amount to fit.
-const DEAD_NAME_PREFIX: &str = "\u{2717} ";
-const DEAD_NAME_PREFIX_WIDTH: usize = 2;
 
 struct RowText<'a> {
     pid: String,
@@ -112,26 +106,15 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     };
     let prefix_w = tools::ulen(tree_prefix);
     let name_avail = columns.name_w.saturating_sub(prefix_w);
-    // Dead rows reserve the leftmost two cells of their name field
-    // for the `✗ ` prefix; the displayed name is truncated by the
-    // same amount so the column layout doesn't shift.
-    let (display_name, name_avail_after_prefix) = if params.dead {
-        let avail = name_avail.saturating_sub(DEAD_NAME_PREFIX_WIDTH);
-        let name = tools::uresize(bare_name, avail);
-        let prefixed = format!("{DEAD_NAME_PREFIX}{name}");
-        (prefixed, name_avail)
-    } else {
-        (tools::uresize(bare_name, name_avail), name_avail)
-    };
+    let display_name = tools::uresize(bare_name, name_avail);
     let pid_str = format!("{:<pid_w$}", params.proc.pid, pid_w = columns.pid_w);
     let cpu_str = format!("{:>cpu_w$.1}", display_cpu, cpu_w = columns.cpu_w);
     let mem_str_fmt = format!("{:>mem_w$}", mem_str, mem_w = columns.mem_w);
     let cmd_display = command_display(params.proc, columns);
-    // `display_name` may contain the multi-byte `✗` prefix (3 bytes,
-    // 1 visible cell) on dead rows, so right-pad by visible width
-    // — not byte length — to keep the cmd / cpu / mem columns
-    // aligned with their alive-row neighbours.
-    let name_padded = tools::ljust(&display_name, name_avail_after_prefix, true);
+    // Process names may contain multi-byte characters, so right-pad by
+    // visible width rather than byte length to keep the cmd / cpu /
+    // mem columns aligned across rows.
+    let name_padded = tools::ljust(&display_name, name_avail, true);
 
     let is_followed = params.followed_pid > 0 && params.proc.pid == params.followed_pid;
 
@@ -147,7 +130,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail: name_avail_after_prefix,
+                name_avail,
             },
         );
     } else if params.absolute_index == params.selected {
@@ -162,7 +145,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail: name_avail_after_prefix,
+                name_avail,
             },
         );
     } else {
@@ -177,7 +160,7 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
                 cpu: cpu_str,
                 mem: mem_str_fmt,
                 prefix_w,
-                name_avail: name_avail_after_prefix,
+                name_avail,
             },
             &row_colors,
         );
@@ -625,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    fn dead_row_emits_exited_gradient_color_and_ballot_x_prefix() {
+    fn dead_row_emits_exited_gradient_color() {
         let mut dead = HashSet::new();
         dead.insert(200);
         let out = render_with_dead(&dead, 0, 0);
@@ -641,50 +624,52 @@ mod tests {
             out.contains(&format!("{exited}200")),
             "dead row PID should be preceded by the exited gradient color"
         );
-        // The displayed name should carry the ✗ prefix.
+        // The displayed name carries no marker prefix; colour alone
+        // now signals the dead row.
         let plain = strip_ansi(&out);
         assert!(
-            plain.contains("\u{2717} dead.exe") || plain.contains("\u{2717} dead"),
-            "dead row name should be prefixed with `✗ `: {plain}"
+            !plain.contains('\u{2717}'),
+            "dead row name must not carry a ballot-X prefix: {plain}"
+        );
+        assert!(
+            plain.contains("dead.exe"),
+            "dead row should show its full untruncated name: {plain}"
         );
     }
 
     #[test]
-    fn live_row_does_not_carry_ballot_x_prefix() {
+    fn live_rows_carry_no_marker_prefix() {
         let dead = HashSet::new();
         let out = render_with_dead(&dead, 0, 0);
         let plain = strip_ansi(&out);
         assert!(
-            !plain.contains("\u{2717}"),
-            "live rows must not show the ballot-X prefix: {plain}"
+            !plain.contains('\u{2717}'),
+            "live rows must not show a marker prefix: {plain}"
         );
     }
 
     #[test]
-    fn dead_row_keeps_ballot_x_prefix_when_selected() {
-        // Dead + selected: bg goes to selected_bg (selection wins
-        // on the bg channel), but the ✗ prefix still appears so
-        // the user knows the row is dead even when highlighted.
+    fn selected_dead_row_keeps_the_selection_background() {
+        // Dead + selected: selection wins on the background channel,
+        // so the row reads as selected rather than as dead. The
+        // detail panel's Status cell is what reports the exit.
         let mut dead = HashSet::new();
         dead.insert(200);
         let out = render_with_dead(&dead, 1, 0); // PID 200 is at index 1
-        let plain = strip_ansi(&out);
+        let theme = Theme::default();
         assert!(
-            plain.contains("\u{2717} "),
-            "selected dead row should still carry the ballot-X prefix: {plain}"
+            out.contains(&theme.background(tc::SELECTED_BG)),
+            "a selected dead row should still paint the selection background"
         );
     }
 
     #[test]
     fn dead_row_name_field_visible_width_matches_alive_row() {
-        // Regression: `✗` is 3 UTF-8 bytes but renders as 1 cell.
-        // Padding the name field by byte length under-fills the
-        // dead row by 2 cells per `✗`, shifting the cmd / cpu /
-        // mem columns leftward. This test asserts that the visible
-        // text on each row has the same length: the trailing
-        // segments after pid_w (name + sep + cmd_w + sep + cpu_w +
-        // sep + mem_w) are columnar with fixed visible widths and
-        // must match across alive and dead rows.
+        // Column alignment must hold across dead and alive rows. The
+        // trailing segments after pid_w (name + sep + cmd_w + sep +
+        // cpu_w + sep + mem_w) are columnar with fixed visible
+        // widths, so the visible text on each row must match in
+        // length regardless of the row's state.
         let mut dead = HashSet::new();
         dead.insert(200);
         let out = render_with_dead(&dead, 0, 0);
