@@ -50,10 +50,11 @@ pub const HELP_BOX: ColorKey = ColorKey(15);
 pub const OPTIONS_BOX: ColorKey = ColorKey(16);
 pub const FOLLOWED_BG: ColorKey = ColorKey(17);
 pub const FOLLOWED_FG: ColorKey = ColorKey(18);
-/// Foreground color for dead-process rows in the paused list.
-/// Each theme picks a palette-coherent muted value; renders together
-/// with the `✗ ` name prefix to mark a row whose process has exited.
-pub const DEAD_PROC_FG: ColorKey = ColorKey(19);
+/// Foreground for inactive or unavailable UI affordances — currently
+/// the `terminate` chip when the action cannot apply to the selected
+/// row. Mirrors btop's `inactive_fg`, which serves the same role for
+/// its disabled keybind chips.
+pub const INACTIVE_FG: ColorKey = ColorKey(19);
 /// Background color for the borderless statusbar widget. Spans
 /// the full width of the bar; the gap between the left and right
 /// sections inherits this colour.
@@ -71,8 +72,8 @@ pub const STATUSBAR_HI: ColorKey = ColorKey(22);
 /// the only glyphs in the bar that use this key.
 pub const STATUSBAR_SEP: ColorKey = ColorKey(23);
 /// Foreground for data labels in label/value pairs, currently the
-/// process detail panel. Sits between `main_fg` and `dead_proc_fg`
-/// in brightness so a label reads as secondary to its value without
+/// process detail panel. Sits between `main_fg` and `main_bg` in
+/// brightness so a label reads as secondary to its value without
 /// becoming as dim as `graph_text`.
 pub const DATA_LABEL_FG: ColorKey = ColorKey(24);
 

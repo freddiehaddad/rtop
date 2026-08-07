@@ -87,7 +87,7 @@ impl Theme {
             c.options_box,   // 16
             c.followed_bg,   // 17
             c.followed_fg,   // 18
-            c.dead_proc_fg,  // 19
+            c.inactive_fg,   // 19
             c.statusbar_bg,  // 20
             c.statusbar_fg,  // 21
             c.statusbar_hi,  // 22

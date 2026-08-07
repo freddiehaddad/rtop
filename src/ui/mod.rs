@@ -105,7 +105,7 @@ pub struct ProcView<'a> {
     pub paused: bool,
     /// PIDs from the paused snapshot whose live counterpart has
     /// disappeared. Empty when not paused. The row renderer
-    /// applies `dead_proc_fg` + `✗ ` prefix to rows whose PID is
+    /// applies the exited gradient color + `✗ ` prefix to rows whose PID is
     /// in this set; the bottom-border `terminate` chip dims when
     /// the selected PID is in this set.
     pub dead_pids: &'a std::collections::HashSet<u32>,

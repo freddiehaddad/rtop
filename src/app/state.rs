@@ -823,7 +823,7 @@ pub(crate) struct ProcessViewState {
     /// `pause.dead_pids` tracks PIDs from the frozen snapshot that
     /// no longer appear in the latest live snapshot. The proc widget
     /// renders those rows with the dead-row theme color
-    /// (`dead_proc_fg`) and a `✗ ` prefix on the name column so the
+    /// (the hot end of the process gradient) and a `✗ ` prefix on the name column so the
     /// user can tell which rows in the snapshot represent processes
     /// that have since exited.
     ///

@@ -89,11 +89,11 @@ pub struct PaletteColors {
     pub options_box: Rgb,
     pub followed_bg: Rgb,
     pub followed_fg: Rgb,
-    /// Foreground color for dead-process rows in the paused list.
-    /// Each theme picks a palette-coherent muted value (typically a
-    /// 50% blend of `main_fg` toward `main_bg`, or the theme's
-    /// existing secondary-text color).
-    pub dead_proc_fg: Rgb,
+    /// Foreground for inactive or unavailable UI affordances, such as
+    /// the `terminate` chip when the action cannot apply to the
+    /// selected row. Each theme picks a palette-coherent muted value.
+    /// Mirrors btop's `inactive_fg`.
+    pub inactive_fg: Rgb,
     /// Background color for the borderless statusbar widget. Spans
     /// the full width of the bar; gap between left and right
     /// sections is painted in this color.
@@ -113,10 +113,10 @@ pub struct PaletteColors {
     pub statusbar_sep: Rgb,
     /// Foreground for data labels in label/value pairs, currently the
     /// process detail panel. Each theme derives a palette-coherent
-    /// value between `main_fg` and `dead_proc_fg` in brightness
-    /// (roughly 65% of the way from `main_bg` toward `main_fg`), so a
-    /// label reads as secondary to its value without becoming as dim
-    /// as `graph_text`.
+    /// value between `main_fg` and `main_bg` in brightness (roughly
+    /// 65% of the way from `main_bg` toward `main_fg`), so a label
+    /// reads as secondary to its value without becoming as dim as
+    /// `graph_text`.
     pub data_label_fg: Rgb,
 }
 
@@ -191,7 +191,7 @@ selected_bg = "#ff79c6"
 selected_fg = "#f8f8f2"
 followed_bg = "#bd93f9"
 followed_fg = "#f8f8f2"
-dead_proc_fg = "#6272a4"
+inactive_fg = "#6272a4"
 cpu_widget = "#bd93f9"
 mem_widget = "#50fa7b"
 net_widget = "#ff5555"

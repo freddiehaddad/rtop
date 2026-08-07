@@ -153,12 +153,12 @@ pub(super) fn draw_bottom_border(p: &BottomBorderParams, theme: &Theme) -> Strin
         // in the paused snapshot — affordance hint that the action
         // is unavailable on this row. Both the keybind highlight
         // (`t`) and the body text (`erminate`) shift to
-        // `dead_proc_fg`; the chip's `┐`/`┌` connectors stay in
+        // `inactive_fg`; the chip's `┐`/`┌` connectors stay in
         // the regular border color because they're structural, not
         // semantic.
         let (term_hi, term_text) = if p.terminate_disabled {
-            let dead = theme.color(tc::DEAD_PROC_FG);
-            (dead, dead)
+            let inactive = theme.color(tc::INACTIVE_FG);
+            (inactive, inactive)
         } else {
             (hi, title_color)
         };
@@ -311,15 +311,15 @@ mod tests {
     fn terminate_chip_dimmed_when_selected_pid_dead() {
         let theme = Theme::default();
         let out = draw_bottom_border(&bottom_params(true), &theme);
-        let dead_fg = theme.color(tc::DEAD_PROC_FG);
+        let inactive_fg = theme.color(tc::INACTIVE_FG);
         // The first character of the chip text (`t` in `terminate`)
         // is rendered in the chip's `hi` color. When disabled, both
-        // the hi and the body color are dead_proc_fg, so the chip
-        // text is preceded by dead_proc_fg + `t` + dead_proc_fg +
+        // the hi and the body color are inactive_fg, so the chip
+        // text is preceded by inactive_fg + `t` + inactive_fg +
         // `erminate`. We assert the body-color shift to be sure.
         assert!(
-            out.contains(&format!("{dead_fg}erminate")),
-            "disabled terminate chip body should be in dead_proc_fg"
+            out.contains(&format!("{inactive_fg}erminate")),
+            "disabled terminate chip body should be in inactive_fg"
         );
     }
 
