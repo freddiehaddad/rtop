@@ -1,6 +1,7 @@
 use super::ProcFrame;
 use super::rows::{display_proc_cpu, format_proc_memory, mem_percent};
-use crate::domain::process::{PriorityClass, ProcInfo};
+use super::{STATE_GRADIENT_EXITED, STATE_GRADIENT_RUNNING, STATE_GRADIENT_SUSPENDED};
+use crate::domain::process::{PriorityClass, ProcInfo, ProcState};
 use crate::draw::buffer::AnsiBuffer;
 use crate::draw::meter::Meter;
 use crate::theme::{Theme, gradient_color};
@@ -92,7 +93,7 @@ pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
         theme,
         dead,
     } = *params;
-    let colors = DetailColors::from_theme(theme);
+    let colors = DetailColors::new(theme);
     let inner_w = width.saturating_sub(4);
     let content_rows = rows.saturating_sub(1);
     let detail_x = x + 3;
@@ -102,8 +103,8 @@ pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
         return buf.finish();
     }
 
-    let text_color = if dead { colors.dead } else { colors.value };
-    let name_color = if dead { colors.dead } else { colors.emphasis };
+    let text_color = colors.value;
+    let name_color = colors.emphasis;
     draw_detail_header(
         &mut buf,
         proc,
@@ -189,23 +190,21 @@ pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
 
 struct DetailColors<'a> {
     /// Label foreground. `DATA_LABEL_FG` sits between `main_fg` and
-    /// `dead_proc_fg` in brightness, so a label reads as secondary to
+    /// `main_bg` in brightness, so a label reads as secondary to
     /// its value while staying comfortably legible.
     label: &'a str,
     value: &'a str,
     emphasis: &'a str,
-    dead: &'a str,
     grad: &'a [String],
     meter_bg: &'a str,
 }
 
 impl<'a> DetailColors<'a> {
-    fn from_theme(theme: &'a Theme) -> Self {
+    fn new(theme: &'a Theme) -> Self {
         Self {
             label: theme.color(tc::DATA_LABEL_FG),
             value: theme.color(tc::MAIN_FG),
             emphasis: theme.color(tc::HI_FG),
-            dead: theme.color(tc::DEAD_PROC_FG),
             grad: theme.gradient(tc::GRAD_PROCESS),
             meter_bg: theme.color(tc::METER_BG),
         }
@@ -326,6 +325,34 @@ fn draw_detail_header(
         .text(&pid_value);
 }
 
+/// Colour for the Status value, placing the state on the process
+/// gradient as a severity scale.
+///
+/// Falls back to the surrounding text colour when `proc_colors` is
+/// off, matching how the CPU and Memory cells behave, and for
+/// `Unknown`, which carries no severity to place on the ramp.
+fn status_color<'a>(
+    dead: bool,
+    state: ProcState,
+    settings: &ProcFrame,
+    colors: &DetailColors<'a>,
+    fallback: &'a str,
+) -> &'a str {
+    if !settings.proc_colors || colors.grad.is_empty() {
+        return fallback;
+    }
+    let position = if dead {
+        STATE_GRADIENT_EXITED
+    } else {
+        match state {
+            ProcState::Running => STATE_GRADIENT_RUNNING,
+            ProcState::Suspended => STATE_GRADIENT_SUSPENDED,
+            ProcState::Unknown => return fallback,
+        }
+    };
+    gradient_color(colors.grad, position)
+}
+
 fn detail_cells<'a>(
     proc: &ProcInfo,
     parent_name: Option<&str>,
@@ -336,26 +363,25 @@ fn detail_cells<'a>(
     let display_cpu = display_proc_cpu(proc.cpu_p, settings);
     let cpu_fill = display_cpu.round().clamp(0.0, 100.0) as i32;
     let mem_fill = mem_percent(proc.mem, settings.total_mem).round() as i32;
-    let text_color = if dead { colors.dead } else { colors.value };
+    let text_color = colors.value;
 
     let metric_color = |fill: i32| {
-        if dead {
-            colors.dead
-        } else if settings.proc_colors {
+        if settings.proc_colors {
             gradient_color(colors.grad, fill)
         } else {
             colors.value
         }
     };
 
+    // An exited process keeps its last-seen values; only the Status
+    // cell reports that it is gone, so the rest of the panel reads
+    // exactly as it did while the process was alive.
     let status = if dead {
         "\u{2717} Exited".to_string()
     } else {
         proc.state.to_string()
     };
-    let priority_color = if dead {
-        colors.dead
-    } else if proc.priority >= PriorityClass::High {
+    let priority_color = if proc.priority >= PriorityClass::High {
         colors.emphasis
     } else {
         colors.value
@@ -398,7 +424,7 @@ fn detail_cells<'a>(
         DetailCell {
             label: "Status",
             value: status,
-            color: text_color,
+            color: status_color(dead, proc.state, settings, colors, text_color),
             kind: CellKind::Text,
         },
         DetailCell {
@@ -679,25 +705,88 @@ mod tests {
         let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, true));
         let plain = strip_ansi(&output);
         assert!(
-            plain.contains("Status"),
-            "dead process detail panel must include a Status cell: {plain}"
-        );
-        assert!(
-            plain.contains("\u{2717} Exited"),
-            "dead process Status cell must read `✗ Exited`: {plain}"
+            plain.contains("Status   \u{2717} Exited"),
+            "dead process detail panel must report Exited: {plain}"
         );
     }
 
     #[test]
-    fn detail_panel_status_line_uses_dead_proc_fg() {
+    fn dead_panel_colors_only_the_status_value() {
+        // An exited process keeps its last-seen values, so only the
+        // Status cell shifts to the exited gradient colour; the rest
+        // of the panel reads exactly as it did while alive.
         let theme = Theme::default();
         let procs = make_procs();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, true));
-        let dead_fg = theme.color(tc::DEAD_PROC_FG);
+        let output = draw_detail_panel(&make_panel(&procs[0], 120, 7, &frame, &theme, true));
+        let exited = gradient_color(theme.gradient(tc::GRAD_PROCESS), STATE_GRADIENT_EXITED);
+
         assert!(
-            output.contains(&format!("{dead_fg}\u{2717} Exited")),
-            "dead Status value should be preceded by dead_proc_fg"
+            output.contains(&format!("{exited}\u{2717} Exited")),
+            "the Status value takes the exited gradient colour"
+        );
+        assert!(
+            output.contains(&format!("{}SYSTEM", theme.color(tc::MAIN_FG))),
+            "other values stay in MAIN_FG when the process has exited"
+        );
+        assert!(
+            output.contains(&format!("{}User", theme.color(tc::DATA_LABEL_FG))),
+            "labels stay in DATA_LABEL_FG when the process has exited"
+        );
+    }
+
+    #[test]
+    fn status_value_maps_each_state_onto_the_process_gradient() {
+        let theme = Theme::default();
+        let grad = theme.gradient(tc::GRAD_PROCESS);
+        let frame = make_frame();
+        let mut proc = make_procs()[0].clone();
+
+        proc.state = ProcState::Running;
+        let running = draw_detail_panel(&make_panel(&proc, 120, 7, &frame, &theme, false));
+        assert!(
+            running.contains(&format!("{}Running", grad[0])),
+            "Running takes the calm end of the gradient"
+        );
+
+        proc.state = ProcState::Suspended;
+        let suspended = draw_detail_panel(&make_panel(&proc, 120, 7, &frame, &theme, false));
+        assert!(
+            suspended.contains(&format!("{}Suspended", grad[50])),
+            "Suspended takes the gradient midpoint"
+        );
+
+        proc.state = ProcState::Running;
+        let exited = draw_detail_panel(&make_panel(&proc, 120, 7, &frame, &theme, true));
+        assert!(
+            exited.contains(&format!("{}\u{2717} Exited", grad[100])),
+            "Exited takes the hot end of the gradient"
+        );
+
+        // The three positions must be visually distinct in the default
+        // theme, or the mapping conveys nothing.
+        assert_ne!(grad[0], grad[50]);
+        assert_ne!(grad[50], grad[100]);
+    }
+
+    #[test]
+    fn status_value_ignores_the_gradient_when_proc_colors_is_off() {
+        let theme = Theme::default();
+        let grad = theme.gradient(tc::GRAD_PROCESS);
+        let frame = ProcFrame {
+            proc_colors: false,
+            ..make_frame()
+        };
+        let proc = make_procs()[0].clone();
+        let out = draw_detail_panel(&make_panel(&proc, 120, 7, &frame, &theme, false));
+
+        assert!(
+            !out.contains(&format!("{}Running", grad[0])),
+            "proc_colors off must leave Status uncoloured"
+        );
+        assert!(
+            out.contains(&format!("{}Running", theme.color(tc::MAIN_FG))),
+            "Status falls back to the surrounding text colour"
         );
     }
 

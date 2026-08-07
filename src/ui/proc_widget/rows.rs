@@ -18,7 +18,8 @@ pub(super) struct ProcessRowsParams<'a> {
     pub(super) colors: &'a ProcColors<'a>,
     /// PIDs from the paused snapshot that no longer exist in the
     /// live snapshot. Empty when not paused. Rows whose PID is in
-    /// this set render with `dead_proc_fg` and a `✗ ` name prefix.
+    /// this set render at the hot end of the process gradient with a
+    /// `✗ ` name prefix.
     pub(super) dead_pids: &'a HashSet<u32>,
 }
 
@@ -91,8 +92,8 @@ fn draw_process_row(buf: &mut AnsiBuffer, params: &ProcessRowParams<'_>) {
     let mem = params.entry.mem_override.unwrap_or(params.proc.mem);
     let display_cpu = display_proc_cpu(cpu_p, params.settings);
     let mem_str = format_proc_memory(mem, params.settings);
-    // Dead rows collapse every column to dead_proc_fg; the dim
-    // signal then layers under the dagger prefix below. Selected /
+    // Dead rows collapse every column to the exited gradient color;
+    // that signal then layers under the dagger prefix below. Selected /
     // followed states win over the dead foreground (their bg
     // highlight takes precedence in their dedicated row renderers);
     // the prefix carries the "dead even when highlighted" signal.
@@ -624,16 +625,21 @@ mod tests {
     }
 
     #[test]
-    fn dead_row_emits_dead_proc_fg_color_and_ballot_x_prefix() {
+    fn dead_row_emits_exited_gradient_color_and_ballot_x_prefix() {
         let mut dead = HashSet::new();
         dead.insert(200);
         let out = render_with_dead(&dead, 0, 0);
         let theme = Theme::default();
-        let dead_fg = theme.color(tc::DEAD_PROC_FG);
-        // The dead row's text must be preceded by dead_proc_fg.
+        let exited = crate::theme::gradient_color(
+            theme.gradient(tc::GRAD_PROCESS),
+            crate::ui::proc_widget::STATE_GRADIENT_EXITED,
+        );
+        // The dead row's text takes the hot end of the process
+        // gradient, the same position the detail panel uses for an
+        // exited process.
         assert!(
-            out.contains(&format!("{dead_fg}200")),
-            "dead row PID should be preceded by dead_proc_fg"
+            out.contains(&format!("{exited}200")),
+            "dead row PID should be preceded by the exited gradient color"
         );
         // The displayed name should carry the ✗ prefix.
         let plain = strip_ansi(&out);

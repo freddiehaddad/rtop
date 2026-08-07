@@ -20,6 +20,17 @@ use super::{DetailView, ProcView, WidgetArea};
 
 pub(crate) use layout::visible_row_count;
 
+/// Positions on the process gradient used to colour process state.
+///
+/// The gradient is read here as a severity scale rather than a
+/// magnitude: its calm start marks a healthy process, its midpoint a
+/// process the system has parked, and its hot end one that has gone.
+/// Shared by the detail panel's Status cell and by dead rows in the
+/// list so both express "exited" the same way.
+pub(super) const STATE_GRADIENT_RUNNING: i32 = 0;
+pub(super) const STATE_GRADIENT_SUSPENDED: i32 = 50;
+pub(super) const STATE_GRADIENT_EXITED: i32 = 100;
+
 /// Process widget per-frame view passed to [`draw`].
 pub struct ProcFrame {
     pub proc_per_core: bool,
@@ -40,7 +51,7 @@ pub fn draw(
     view: &ProcView,
     status: &CollectStatus,
 ) -> String {
-    let colors = ProcColors::from_theme(theme);
+    let colors = ProcColors::from_theme(theme, settings);
     let layout = ProcWidgetLayout::calculate(area, view);
     let mut buf = AnsiBuffer::new();
 
@@ -93,15 +104,19 @@ struct ProcColors<'a> {
     followed_fg: &'a str,
     tree_fg: &'a str,
     proc_grad: &'a [String],
-    /// Foreground for dead-row text in the paused list.
+    /// Foreground for dead-row text in the paused list: the hot end
+    /// of the process gradient, the same position the detail panel's
+    /// Status cell uses for an exited process.
     dead_fg: &'a str,
 }
 
 impl<'a> ProcColors<'a> {
-    fn from_theme(theme: &'a Theme) -> Self {
+    fn from_theme(theme: &'a Theme, settings: &ProcFrame) -> Self {
+        let proc_grad = theme.gradient(tc::GRAD_PROCESS);
+        let fg = theme.color(tc::MAIN_FG);
         Self {
             border_color: theme.color(tc::PROC_WIDGET),
-            fg: theme.color(tc::MAIN_FG),
+            fg,
             title_color: theme.color(tc::TITLE),
             hi: theme.color(tc::HI_FG),
             sel_bg_esc: theme.background(tc::SELECTED_BG),
@@ -109,8 +124,12 @@ impl<'a> ProcColors<'a> {
             followed_bg_esc: theme.background(tc::FOLLOWED_BG),
             followed_fg: theme.color(tc::FOLLOWED_FG),
             tree_fg: theme.color(tc::PROC_TREE_FG),
-            proc_grad: theme.gradient(tc::GRAD_PROCESS),
-            dead_fg: theme.color(tc::DEAD_PROC_FG),
+            proc_grad,
+            dead_fg: if settings.proc_colors && !proc_grad.is_empty() {
+                crate::theme::gradient_color(proc_grad, STATE_GRADIENT_EXITED)
+            } else {
+                fg
+            },
         }
     }
 }
