@@ -12,8 +12,11 @@ const PROG_NARROW: usize = 8;
 /// Number of 1-space gaps between columns (PID, Name, [Cmd], Cpu, Mem).
 const COL_SPACING: usize = 4;
 const COL_SPACING_NO_CMD: usize = 3;
-/// Max height for the process detail panel (fields like User, Status, etc.).
-const MAX_DETAIL_ROWS: usize = 8;
+/// Ceiling on the process detail panel height, so a narrow terminal
+/// that would otherwise want a tall single-column panel cannot starve
+/// the process list. The three-column panel wants 7 rows and the
+/// two-column panel 9; a single-column panel is truncated to fit.
+const MAX_DETAIL_ROWS: usize = 9;
 /// Height overhead when the detail panel is active: header + divider + detail
 /// divider + bottom border + spacing rows.
 const DETAIL_OVERHEAD: usize = 6;
@@ -97,7 +100,9 @@ impl ProcWidgetLayout {
     pub(super) fn calculate(area: &WidgetArea, view: &ProcView) -> Self {
         let inner_w = area.width.saturating_sub(4);
         let detail_rows = if view.detail.is_some() {
-            MAX_DETAIL_ROWS.min(area.height.saturating_sub(DETAIL_OVERHEAD))
+            super::detail::detail_panel_rows(inner_w)
+                .min(MAX_DETAIL_ROWS)
+                .min(area.height.saturating_sub(DETAIL_OVERHEAD))
         } else {
             0
         };

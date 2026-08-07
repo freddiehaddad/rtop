@@ -55,6 +55,7 @@ pub fn draw(
         &DetailSectionParams {
             layout: &layout,
             detail: view.detail,
+            procs,
             settings,
             theme,
         },
@@ -118,6 +119,9 @@ struct DetailSectionParams<'a> {
     layout: &'a ProcWidgetLayout,
     /// Resolved detail input. `None` when the panel is closed.
     detail: Option<DetailView<'a>>,
+    /// Snapshot the list renders, used to resolve the parent PID to a
+    /// process name.
+    procs: &'a [ProcInfo],
     settings: &'a ProcFrame,
     theme: &'a Theme,
 }
@@ -163,6 +167,11 @@ fn draw_detail_section(buf: &mut AnsiBuffer, params: &DetailSectionParams<'_>) {
     }
     buf.text(&draw_detail_panel(&DetailPanelParams {
         proc: detail.proc,
+        parent_name: params
+            .procs
+            .iter()
+            .find(|p| p.pid == detail.proc.ppid && p.pid != detail.proc.pid)
+            .map(|p| p.name.as_str()),
         x: params.layout.x,
         y: params.layout.y,
         width: params.layout.width,
@@ -758,7 +767,7 @@ mod tests {
         );
         let plain = strip_ansi(&output);
 
-        assert!(plain.contains("Cmd      alpha.exe --flag"));
+        assert!(plain.contains("Args     --flag"));
         assert!(plain.contains("User     SYSTEM"));
         assert!(plain.contains("Status   Running"));
         assert!(plain.contains("Parent   1"));
@@ -1046,9 +1055,14 @@ mod tests {
     }
 
     #[test]
-    fn detail_panel_field_labels_use_main_fg() {
-        // Body label rule: detail panel field labels (Cmd, User, Status,
-        // Threads, etc.) render in MAIN_FG. Pre-shift these were TITLE.
+    fn detail_panel_field_labels_use_data_label_fg() {
+        // Body label rule: detail panel labels (Args, User, Status,
+        // Threads, ...) render in DATA_LABEL_FG and their values in
+        // MAIN_FG. The panel is the only place rendering label/value
+        // text pairs, and painting both in MAIN_FG made each row read
+        // as one undifferentiated run of words. GRAPH_TEXT is not an
+        // option: it is a dim graph-axis colour, near-invisible in
+        // many themes.
         let theme = Theme::default();
         let procs = make_procs();
         let mut view = make_view();
@@ -1065,12 +1079,21 @@ mod tests {
             &view,
             &CollectStatus::Ok,
         );
-        let fg = theme.color(tc::MAIN_FG);
-        for label in &["Cmd", "User", "Status", "Threads"] {
+        let label_color = theme.color(tc::DATA_LABEL_FG);
+        for label in &["Args", "User", "Status", "Threads"] {
             assert!(
-                output.contains(&format!("{fg}{label}")),
-                "detail panel field label {label:?} should be preceded by MAIN_FG"
+                output.contains(&format!("{label_color}{label}")),
+                "detail panel field label {label:?} should be preceded by DATA_LABEL_FG"
             );
         }
+        let fg = theme.color(tc::MAIN_FG);
+        assert!(
+            output.contains(&format!("{fg}SYSTEM")),
+            "detail panel field values should be preceded by MAIN_FG"
+        );
+        assert_ne!(
+            label_color, fg,
+            "labels must be visually distinct from values"
+        );
     }
 }

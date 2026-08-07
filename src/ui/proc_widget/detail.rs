@@ -1,20 +1,75 @@
 use super::ProcFrame;
-use super::rows::{display_proc_cpu, format_proc_memory};
+use super::rows::{display_proc_cpu, format_proc_memory, mem_percent};
 use crate::domain::process::{PriorityClass, ProcInfo};
 use crate::draw::buffer::AnsiBuffer;
-use crate::theme::Theme;
+use crate::draw::meter::Meter;
+use crate::theme::{Theme, gradient_color};
 use crate::theme_keys as tc;
 use crate::tools;
 
+/// Label column width, sized to the longest label the panel uses
+/// ("IO Write", "Priority", "CPU Time") plus a separating space.
 const DETAIL_LABEL_W: usize = 9;
 const DETAIL_COL_GAP: usize = 2;
-const DETAIL_TWO_COL_MIN_WIDTH: usize = 48;
+/// Right-aligned value column for meter cells. Fits "2400.0%" from
+/// per-core CPU mode and "1023.9M" from `floating_humanizer`, plus a
+/// column of slack so the bar never touches the digits.
+const DETAIL_VAL_W: usize = 8;
+/// Floor for the meter bar, matching `.max(5)` in the other widgets.
+const DETAIL_MIN_METER_W: usize = 5;
+/// Inner width at or above which the field grid uses three columns.
+const DETAIL_THREE_COL_MIN_W: usize = 110;
+/// Inner width at or above which the field grid uses two columns.
+const DETAIL_TWO_COL_MIN_W: usize = 48;
+/// Cells in the field grid, laid out row-major across the columns.
+const DETAIL_CELL_COUNT: usize = 9;
 
-const NARROW_DETAIL_FIELD_ORDER: [usize; 9] = [0, 1, 4, 5, 2, 3, 8, 6, 7];
+/// Grid columns available at this inner width.
+fn detail_columns(inner_w: usize) -> usize {
+    if inner_w >= DETAIL_THREE_COL_MIN_W {
+        3
+    } else if inner_w >= DETAIL_TWO_COL_MIN_W {
+        2
+    } else {
+        1
+    }
+}
+
+/// Rows the panel wants at this width: the header, the Args row, the
+/// Path row where it fits, the field grid, and the row the layout
+/// reserves for the divider beneath. The caller clamps this to the
+/// space the widget can actually spare.
+pub(super) fn detail_panel_rows(inner_w: usize) -> usize {
+    let cols = detail_columns(inner_w);
+    // Header + Args + divider, plus Path once there is room for two
+    // columns; a single-column panel drops Path first because Args
+    // carries more signal.
+    let fixed = if cols >= 2 { 4 } else { 3 };
+    fixed + DETAIL_CELL_COUNT.div_ceil(cols)
+}
+
+/// Per-column widths. The remainder lands in the last column so the
+/// two meter columns stay exactly equal — an uneven bar is visible,
+/// an uneven trailing column is not.
+fn detail_col_widths(width: usize, cols: usize) -> ([usize; 3], usize) {
+    let cols = cols.clamp(1, 3);
+    let avail = width.saturating_sub(DETAIL_COL_GAP * (cols - 1));
+    let base = avail / cols;
+    let mut w = [0usize; 3];
+    for slot in w.iter_mut().take(cols) {
+        *slot = base;
+    }
+    w[cols - 1] += avail - base * cols;
+    (w, cols)
+}
 
 /// Parameters for [`draw_detail_panel`].
 pub(super) struct DetailPanelParams<'a> {
     pub proc: &'a ProcInfo,
+    /// Name of the process owning `proc.ppid`, resolved by the caller
+    /// against the same snapshot the list renders. `None` when the
+    /// parent has exited or is outside the snapshot.
+    pub parent_name: Option<&'a str>,
     pub x: usize,
     pub y: usize,
     pub width: usize,
@@ -28,6 +83,7 @@ pub(super) struct DetailPanelParams<'a> {
 pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
     let DetailPanelParams {
         proc,
+        parent_name,
         x,
         y,
         width,
@@ -36,10 +92,7 @@ pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
         theme,
         dead,
     } = *params;
-    let fg = theme.color(tc::MAIN_FG);
-    let hi = theme.color(tc::HI_FG);
-    let dead_fg = theme.color(tc::DEAD_PROC_FG);
-    let proc_grad = theme.gradient(tc::GRAD_PROCESS);
+    let colors = DetailColors::from_theme(theme);
     let inner_w = width.saturating_sub(4);
     let content_rows = rows.saturating_sub(1);
     let detail_x = x + 3;
@@ -49,88 +102,194 @@ pub(super) fn draw_detail_panel(params: &DetailPanelParams<'_>) -> String {
         return buf.finish();
     }
 
+    let text_color = if dead { colors.dead } else { colors.value };
+    let name_color = if dead { colors.dead } else { colors.emphasis };
     draw_detail_header(
         &mut buf,
         proc,
         detail_x,
         y + 2,
         inner_w,
-        DetailColors {
-            label: fg,
-            value: fg,
-            emphasis: hi,
-        },
+        &colors,
+        name_color,
     );
 
-    if content_rows > 1 {
-        let cmd = if proc.cmd.is_empty() {
-            proc.name.clone()
+    let cols = detail_columns(inner_w);
+    let mut row = 1;
+
+    let raw = if proc.cmd.is_empty() {
+        proc.name.as_str()
+    } else {
+        proc.cmd.as_str()
+    };
+    let (exe, args) = split_command(raw);
+    let value_w = inner_w.saturating_sub(DETAIL_LABEL_W);
+
+    if cols >= 2 && row < content_rows {
+        let dir = parent_dir(exe);
+        let value = if dir.is_empty() {
+            "-".to_string()
         } else {
-            proc.cmd.clone()
+            mid_elide(dir, value_w)
         };
-        let cmd_field = DetailField {
-            label: "Cmd",
-            value: cmd,
-            color: fg,
-        };
-        buf.mv(detail_x, y + 3);
-        draw_detail_field(&mut buf, &cmd_field, inner_w, fg);
+        buf.mv(detail_x, y + 2 + row);
+        draw_detail_cell(
+            &mut buf,
+            &DetailCell {
+                label: "Path",
+                value,
+                color: text_color,
+                kind: CellKind::Text,
+            },
+            inner_w,
+            &colors,
+        );
+        row += 1;
     }
 
-    // Status: ✗ Process exited — only for dead processes in the
-    // paused snapshot. Displaces one grid row to make room. Uses
-    // dead_proc_fg so the user's eye links the detail-panel status
-    // line and the dead row in the list (same color, same `✗`
-    // glyph).
-    let status_offset = if dead && content_rows > 2 {
-        let status_field = DetailField {
-            label: "Status",
-            value: "\u{2717} Process exited".to_string(),
-            color: dead_fg,
+    if row < content_rows {
+        let value = if args.is_empty() {
+            "-".to_string()
+        } else {
+            tail_elide(args, value_w)
         };
-        buf.mv(detail_x, y + 4);
-        draw_detail_field(&mut buf, &status_field, inner_w, dead_fg);
-        1
-    } else {
-        0
-    };
+        buf.mv(detail_x, y + 2 + row);
+        draw_detail_cell(
+            &mut buf,
+            &DetailCell {
+                label: "Args",
+                value,
+                color: text_color,
+                kind: CellKind::Text,
+            },
+            inner_w,
+            &colors,
+        );
+        row += 1;
+    }
 
-    let fields = detail_fields(proc, settings, fg, hi, proc_grad);
-    let grid_rows = content_rows.saturating_sub(2 + status_offset);
-    let grid_y = y + 4 + status_offset;
-    if inner_w >= DETAIL_TWO_COL_MIN_WIDTH {
-        for (row, pair) in fields.chunks(2).take(grid_rows).enumerate() {
-            let left = &pair[0];
-            let right = pair.get(1);
-            draw_detail_pair(&mut buf, left, right, detail_x, grid_y + row, inner_w, fg);
+    let cells = detail_cells(proc, parent_name, settings, &colors, dead);
+    let (widths, cols) = detail_col_widths(inner_w, cols);
+    for chunk in cells.chunks(cols) {
+        if row >= content_rows {
+            break;
         }
-    } else {
-        for (row, field_index) in NARROW_DETAIL_FIELD_ORDER
-            .iter()
-            .copied()
-            .take(grid_rows)
-            .enumerate()
-        {
-            if let Some(field) = fields.get(field_index) {
-                buf.mv(detail_x, grid_y + row);
-                draw_detail_field(&mut buf, field, inner_w, fg);
+        buf.mv(detail_x, y + 2 + row);
+        for (i, cell) in chunk.iter().enumerate() {
+            if i > 0 {
+                buf.text(&" ".repeat(DETAIL_COL_GAP));
             }
+            draw_detail_cell(&mut buf, cell, widths[i], &colors);
         }
+        row += 1;
     }
 
     buf.finish()
 }
 
 struct DetailColors<'a> {
+    /// Label foreground. `DATA_LABEL_FG` sits between `main_fg` and
+    /// `dead_proc_fg` in brightness, so a label reads as secondary to
+    /// its value while staying comfortably legible.
     label: &'a str,
     value: &'a str,
     emphasis: &'a str,
+    dead: &'a str,
+    grad: &'a [String],
+    meter_bg: &'a str,
 }
 
-struct DetailField<'a> {
+impl<'a> DetailColors<'a> {
+    fn from_theme(theme: &'a Theme) -> Self {
+        Self {
+            label: theme.color(tc::DATA_LABEL_FG),
+            value: theme.color(tc::MAIN_FG),
+            emphasis: theme.color(tc::HI_FG),
+            dead: theme.color(tc::DEAD_PROC_FG),
+            grad: theme.gradient(tc::GRAD_PROCESS),
+            meter_bg: theme.color(tc::METER_BG),
+        }
+    }
+}
+
+/// How a cell renders its value.
+enum CellKind {
+    /// Bar filled to this percentage, clamped to `0..=100` by `Meter`.
+    Meter(i32),
+    Text,
+}
+
+struct DetailCell<'a> {
     label: &'static str,
     value: String,
     color: &'a str,
+    kind: CellKind,
+}
+
+/// Split a Windows command line into the executable and the argument
+/// tail. A quoted `argv[0]` is authoritative; otherwise the first
+/// space ends the path, which is the best that can be done without
+/// probing the filesystem.
+fn split_command(cmd: &str) -> (&str, &str) {
+    if let Some(rest) = cmd.strip_prefix('"') {
+        return match rest.find('"') {
+            Some(end) => (&rest[..end], rest[end + 1..].trim_start()),
+            None => (rest, ""),
+        };
+    }
+    match cmd.find(' ') {
+        Some(i) => (&cmd[..i], cmd[i + 1..].trim_start()),
+        None => (cmd, ""),
+    }
+}
+
+/// Directory portion of a path, without the trailing separator.
+fn parent_dir(path: &str) -> &str {
+    match path.rfind(['\\', '/']) {
+        Some(i) => &path[..i],
+        None => "",
+    }
+}
+
+/// Truncate in the middle. An install path carries more signal at its
+/// root and its leaf than in the middle.
+fn mid_elide(text: &str, width: usize) -> String {
+    if tools::ulen(text) <= width {
+        return text.to_string();
+    }
+    if width <= 1 {
+        return tools::uresize(text, width);
+    }
+    let keep = width - 1;
+    let head_w = keep * 2 / 3;
+    let tail_w = keep - head_w;
+    let head: String = text.chars().take(head_w).collect();
+    let tail: String = {
+        let mut chars: Vec<char> = text.chars().rev().take(tail_w).collect();
+        chars.reverse();
+        chars.into_iter().collect()
+    };
+    format!("{head}\u{2026}{tail}")
+}
+
+/// Truncate at the end. Arguments read left to right, so the head is
+/// what matters.
+fn tail_elide(text: &str, width: usize) -> String {
+    if tools::ulen(text) <= width {
+        return text.to_string();
+    }
+    if width == 0 {
+        return String::new();
+    }
+    format!("{}\u{2026}", tools::uresize(text, width - 1))
+}
+
+/// Format total CPU time (kernel + user), held in 100-nanosecond
+/// intervals, as `H:MM:SS`. Hours are not wrapped, so a long-lived
+/// service reads `147:02:11`.
+fn format_cpu_time(intervals_100ns: u64) -> String {
+    let secs = intervals_100ns / 10_000_000;
+    format!("{}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60)
 }
 
 fn draw_detail_header(
@@ -139,7 +298,8 @@ fn draw_detail_header(
     x: usize,
     y: usize,
     width: usize,
-    colors: DetailColors<'_>,
+    colors: &DetailColors<'_>,
+    name_color: &str,
 ) {
     let pid_value = proc.pid.to_string();
     let pid_label = "PID ";
@@ -157,7 +317,7 @@ fn draw_detail_header(
     let name = tools::uresize(&proc.name, name_w);
     let gap = width.saturating_sub(tools::ulen(&name) + pid_w).max(1);
 
-    buf.color(colors.emphasis)
+    buf.color(name_color)
         .text(&name)
         .text(&" ".repeat(gap))
         .color(colors.label)
@@ -166,78 +326,104 @@ fn draw_detail_header(
         .text(&pid_value);
 }
 
-fn detail_fields<'a>(
+fn detail_cells<'a>(
     proc: &ProcInfo,
+    parent_name: Option<&str>,
     settings: &ProcFrame,
-    fg: &'a str,
-    hi: &'a str,
-    proc_grad: &'a [String],
-) -> Vec<DetailField<'a>> {
+    colors: &DetailColors<'a>,
+    dead: bool,
+) -> [DetailCell<'a>; DETAIL_CELL_COUNT] {
     let display_cpu = display_proc_cpu(proc.cpu_p, settings);
-    let cpu_pct = display_cpu.round().clamp(0.0, 100.0) as usize;
-    let cpu_color = if settings.proc_colors {
-        proc_grad.get(cpu_pct).map(String::as_str).unwrap_or(fg)
-    } else {
-        fg
-    };
-    let priority_color = if proc.priority >= PriorityClass::High {
-        hi
-    } else {
-        fg
+    let cpu_fill = display_cpu.round().clamp(0.0, 100.0) as i32;
+    let mem_fill = mem_percent(proc.mem, settings.total_mem).round() as i32;
+    let text_color = if dead { colors.dead } else { colors.value };
+
+    let metric_color = |fill: i32| {
+        if dead {
+            colors.dead
+        } else if settings.proc_colors {
+            gradient_color(colors.grad, fill)
+        } else {
+            colors.value
+        }
     };
 
-    vec![
-        DetailField {
-            label: "User",
-            value: detail_value_or_dash(&proc.user),
-            color: fg,
-        },
-        DetailField {
-            label: "Status",
-            value: proc.state.to_string(),
-            color: fg,
-        },
-        DetailField {
-            label: "Parent",
-            value: proc.ppid.to_string(),
-            color: fg,
-        },
-        DetailField {
-            label: "Threads",
-            value: proc.threads.to_string(),
-            color: fg,
-        },
-        DetailField {
+    let status = if dead {
+        "\u{2717} Exited".to_string()
+    } else {
+        proc.state.to_string()
+    };
+    let priority_color = if dead {
+        colors.dead
+    } else if proc.priority >= PriorityClass::High {
+        colors.emphasis
+    } else {
+        colors.value
+    };
+    let parent = match parent_name {
+        Some(name) => format!("{} ({})", name, proc.ppid),
+        None => proc.ppid.to_string(),
+    };
+    let io = format!(
+        "{} / {}",
+        tools::floating_humanizer(proc.io_read, true, 0, false, false, settings.base_10),
+        tools::floating_humanizer(proc.io_write, true, 0, false, false, settings.base_10),
+    );
+
+    [
+        DetailCell {
             label: "CPU",
             value: format!("{display_cpu:.1}%"),
-            color: cpu_color,
+            color: metric_color(cpu_fill),
+            kind: CellKind::Meter(cpu_fill),
         },
-        DetailField {
+        DetailCell {
             label: "Memory",
             value: format_proc_memory(proc.mem, settings),
-            color: fg,
+            color: metric_color(mem_fill),
+            kind: CellKind::Meter(mem_fill),
         },
-        DetailField {
-            label: "IO Read",
-            value: tools::floating_humanizer(proc.io_read, true, 0, false, false, settings.base_10),
-            color: fg,
+        DetailCell {
+            label: "CPU Time",
+            value: format_cpu_time(proc.cpu_time),
+            color: text_color,
+            kind: CellKind::Text,
         },
-        DetailField {
-            label: "IO Write",
-            value: tools::floating_humanizer(
-                proc.io_write,
-                true,
-                0,
-                false,
-                false,
-                settings.base_10,
-            ),
-            color: fg,
+        DetailCell {
+            label: "User",
+            value: detail_value_or_dash(&proc.user),
+            color: text_color,
+            kind: CellKind::Text,
         },
-        DetailField {
+        DetailCell {
+            label: "Status",
+            value: status,
+            color: text_color,
+            kind: CellKind::Text,
+        },
+        DetailCell {
             label: "Priority",
             value: proc.priority.to_string(),
             color: priority_color,
+            kind: CellKind::Text,
+        },
+        DetailCell {
+            label: "Parent",
+            value: parent,
+            color: text_color,
+            kind: CellKind::Text,
+        },
+        DetailCell {
+            label: "Threads",
+            value: proc.threads.to_string(),
+            color: text_color,
+            kind: CellKind::Text,
+        },
+        DetailCell {
+            label: "IO R/W",
+            value: io,
+            color: text_color,
+            kind: CellKind::Text,
         },
     ]
 }
@@ -250,46 +436,44 @@ fn detail_value_or_dash(value: &str) -> String {
     }
 }
 
-fn draw_detail_pair(
+/// Render one cell. Meter cells use the layout shared by the cpu, gpu,
+/// mem and disk widgets: label, then a bar absorbing all slack, then
+/// the value right-aligned in a fixed column so digits never shift.
+fn draw_detail_cell(
     buf: &mut AnsiBuffer,
-    left: &DetailField<'_>,
-    right: Option<&DetailField<'_>>,
-    x: usize,
-    y: usize,
+    cell: &DetailCell<'_>,
     width: usize,
-    label_color: &str,
-) {
-    buf.mv(x, y);
-    let Some(right) = right else {
-        draw_detail_field(buf, left, width, label_color);
-        return;
-    };
-
-    let left_w = width.saturating_sub(DETAIL_COL_GAP) / 2;
-    let right_w = width.saturating_sub(left_w + DETAIL_COL_GAP);
-    draw_detail_field(buf, left, left_w, label_color);
-    buf.text(&" ".repeat(DETAIL_COL_GAP));
-    draw_detail_field(buf, right, right_w, label_color);
-}
-
-fn draw_detail_field(
-    buf: &mut AnsiBuffer,
-    field: &DetailField<'_>,
-    width: usize,
-    label_color: &str,
+    colors: &DetailColors<'_>,
 ) {
     if width == 0 {
         return;
     }
-
     let label_w = DETAIL_LABEL_W.min(width);
-    buf.color(label_color)
-        .text(&detail_ljust(field.label, label_w));
+    buf.color(colors.label)
+        .text(&detail_ljust(cell.label, label_w));
 
-    let value_w = width.saturating_sub(label_w);
-    if value_w > 0 {
-        buf.color(field.color)
-            .text(&detail_ljust(&field.value, value_w));
+    let rest = width - label_w;
+    if rest == 0 {
+        return;
+    }
+
+    match cell.kind {
+        CellKind::Meter(pct) => {
+            let meter_w = rest
+                .saturating_sub(DETAIL_VAL_W)
+                .max(DETAIL_MIN_METER_W)
+                .min(rest);
+            let meter = Meter::new(meter_w, colors.grad, colors.meter_bg);
+            buf.text(meter.render(pct));
+            let val_w = rest - meter_w;
+            if val_w > 0 {
+                buf.color(cell.color)
+                    .text(&tools::rjust(&cell.value, val_w, true));
+            }
+        }
+        CellKind::Text => {
+            buf.color(cell.color).text(&detail_ljust(&cell.value, rest));
+        }
     }
 }
 
@@ -394,6 +578,7 @@ mod tests {
     ) -> DetailPanelParams<'a> {
         DetailPanelParams {
             proc,
+            parent_name: None,
             x: 1,
             y: 1,
             width,
@@ -421,19 +606,39 @@ mod tests {
     }
 
     #[test]
-    fn detail_panel_truncates_command_before_coloring() {
+    fn detail_panel_splits_path_and_args() {
         let mut procs = make_procs();
-        procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(80));
+        procs[0].cmd = "\"C:\\bin\\tools\\alpha.exe\" --flag tail-marker".into();
 
         let theme = Theme::default();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&procs[0], 36, 8, &frame, &theme, false));
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, false));
         let plain = strip_ansi(&output);
 
-        assert!(plain.contains("Cmd      alpha.exe"));
+        assert!(
+            plain.contains("Path     C:\\bin\\tools"),
+            "Path row shows the directory, not the executable: {plain}"
+        );
+        assert!(
+            plain.contains("Args     --flag tail-marker"),
+            "Args row shows the argument tail: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_elides_long_args_before_coloring() {
+        let mut procs = make_procs();
+        procs[0].cmd = format!("alpha.exe {} tail-marker", "x".repeat(200));
+
+        let theme = Theme::default();
+        let frame = make_frame();
+        let output = draw_detail_panel(&make_panel(&procs[0], 36, 9, &frame, &theme, false));
+        let plain = strip_ansi(&output);
+
+        assert!(plain.contains("Args     xxx"));
         assert!(
             !plain.contains("tail-marker"),
-            "long command text should be truncated to the detail width"
+            "long argument text should be elided to the detail width"
         );
     }
 
@@ -442,13 +647,15 @@ mod tests {
         let procs = make_procs();
         let theme = Theme::default();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&procs[2], 42, 8, &frame, &theme, false));
+        let output = draw_detail_panel(&make_panel(&procs[2], 60, 9, &frame, &theme, false));
         let plain = strip_ansi(&output);
 
-        assert!(plain.contains("User     Admin"));
-        assert!(plain.contains("Status   Running"));
-        assert!(plain.contains("CPU      25.0%"));
-        assert!(plain.contains("Memory   200M"));
+        assert!(plain.contains("User     Admin"), "{plain}");
+        assert!(plain.contains("Status   Running"), "{plain}");
+        // CPU and Memory are meter cells, so the value trails the bar
+        // rather than following the label directly.
+        assert!(plain.contains("25.0%"), "{plain}");
+        assert!(plain.contains("200M"), "{plain}");
     }
 
     #[test]
@@ -469,15 +676,15 @@ mod tests {
         let procs = make_procs();
         let theme = Theme::default();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, true));
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, true));
         let plain = strip_ansi(&output);
         assert!(
             plain.contains("Status"),
-            "dead process detail panel must include a Status line: {plain}"
+            "dead process detail panel must include a Status cell: {plain}"
         );
         assert!(
-            plain.contains("\u{2717} Process exited"),
-            "dead process status line must contain `✗ Process exited`: {plain}"
+            plain.contains("\u{2717} Exited"),
+            "dead process Status cell must read `✗ Exited`: {plain}"
         );
     }
 
@@ -486,12 +693,156 @@ mod tests {
         let theme = Theme::default();
         let procs = make_procs();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&procs[0], 80, 8, &frame, &theme, true));
+        let output = draw_detail_panel(&make_panel(&procs[0], 80, 9, &frame, &theme, true));
         let dead_fg = theme.color(tc::DEAD_PROC_FG);
         assert!(
-            output.contains(&format!("{dead_fg}Status")),
-            "Status label should be preceded by dead_proc_fg"
+            output.contains(&format!("{dead_fg}\u{2717} Exited")),
+            "dead Status value should be preceded by dead_proc_fg"
         );
+    }
+
+    #[test]
+    fn detail_panel_resolves_parent_name_when_supplied() {
+        let procs = make_procs();
+        let theme = Theme::default();
+        let frame = make_frame();
+        let mut params = make_panel(&procs[0], 120, 7, &frame, &theme, false);
+        params.parent_name = Some("explorer.exe");
+        let plain = strip_ansi(&draw_detail_panel(&params));
+
+        assert!(
+            plain.contains("Parent   explorer.exe (1)"),
+            "parent PID should resolve to a name: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_falls_back_to_bare_ppid_without_a_parent() {
+        let procs = make_procs();
+        let theme = Theme::default();
+        let frame = make_frame();
+        let plain = strip_ansi(&draw_detail_panel(&make_panel(
+            &procs[0], 120, 7, &frame, &theme, false,
+        )));
+
+        assert!(
+            plain.contains("Parent   1"),
+            "an unresolved parent shows the raw PID: {plain}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_merges_io_into_one_cell() {
+        let mut procs = make_procs();
+        procs[0].io_read = 1024 * 1024 * 128;
+        procs[0].io_write = 1024 * 1024 * 41;
+        let theme = Theme::default();
+        let frame = make_frame();
+        let plain = strip_ansi(&draw_detail_panel(&make_panel(
+            &procs[0], 120, 7, &frame, &theme, false,
+        )));
+
+        assert!(plain.contains("IO R/W   128M / 41M"), "{plain}");
+    }
+
+    #[test]
+    fn detail_panel_shows_cpu_time() {
+        let mut procs = make_procs();
+        // 100ns intervals: 1h 02m 03s.
+        procs[0].cpu_time = (3600 + 123) * 10_000_000;
+        let theme = Theme::default();
+        let frame = make_frame();
+        let plain = strip_ansi(&draw_detail_panel(&make_panel(
+            &procs[0], 120, 7, &frame, &theme, false,
+        )));
+
+        assert!(plain.contains("CPU Time 1:02:03"), "{plain}");
+    }
+
+    #[test]
+    fn format_cpu_time_does_not_wrap_hours() {
+        assert_eq!(format_cpu_time(0), "0:00:00");
+        assert_eq!(format_cpu_time(59 * 10_000_000), "0:00:59");
+        assert_eq!(format_cpu_time(3661 * 10_000_000), "1:01:01");
+        assert_eq!(format_cpu_time(147 * 3600 * 10_000_000), "147:00:00");
+    }
+
+    #[test]
+    fn split_command_handles_quoted_and_bare_paths() {
+        assert_eq!(
+            split_command("\"C:\\a b\\x.exe\" --f 1"),
+            ("C:\\a b\\x.exe", "--f 1")
+        );
+        assert_eq!(split_command("C:\\a\\x.exe --f"), ("C:\\a\\x.exe", "--f"));
+        assert_eq!(split_command("x.exe"), ("x.exe", ""));
+        assert_eq!(split_command(""), ("", ""));
+        // Unterminated quote: take the remainder as the path rather
+        // than mis-splitting the arguments.
+        assert_eq!(split_command("\"C:\\a\\x.exe"), ("C:\\a\\x.exe", ""));
+    }
+
+    #[test]
+    fn parent_dir_strips_the_leaf() {
+        assert_eq!(parent_dir("C:\\a\\b\\x.exe"), "C:\\a\\b");
+        assert_eq!(parent_dir("C:/a/x.exe"), "C:/a");
+        assert_eq!(parent_dir("x.exe"), "");
+    }
+
+    #[test]
+    fn mid_elide_keeps_both_ends() {
+        let path = "C:\\one\\two\\three\\four\\five\\six";
+        let out = mid_elide(path, 20);
+        assert_eq!(tools::ulen(&out), 20);
+        assert!(out.starts_with("C:\\one"), "{out}");
+        assert!(out.ends_with("six"), "{out}");
+        assert!(out.contains('\u{2026}'), "{out}");
+        // Short enough to fit is returned untouched.
+        assert_eq!(mid_elide("C:\\a", 20), "C:\\a");
+    }
+
+    #[test]
+    fn meter_cell_right_aligns_its_value_at_a_fixed_width() {
+        // The value column is fixed, so a one-digit and a three-digit
+        // percentage must end at the same column — nothing shifts as
+        // the number grows.
+        let theme = Theme::default();
+        let frame = make_frame();
+        let mut low = make_procs()[0].clone();
+        low.cpu_p = 5.0;
+        let mut high = make_procs()[0].clone();
+        high.cpu_p = 100.0;
+
+        let a = strip_ansi(&draw_detail_panel(&make_panel(
+            &low, 120, 7, &frame, &theme, false,
+        )));
+        let b = strip_ansi(&draw_detail_panel(&make_panel(
+            &high, 120, 7, &frame, &theme, false,
+        )));
+
+        let end_of = |s: &str, needle: &str| s.find(needle).map(|i| i + needle.len());
+        assert_eq!(
+            end_of(&a, "5.0%"),
+            end_of(&b, "100.0%"),
+            "meter values must share a right edge:\n{a}\n{b}"
+        );
+    }
+
+    #[test]
+    fn detail_panel_rows_shrink_as_columns_grow() {
+        // Three columns pack the nine cells into three grid rows; two
+        // columns need five; one column needs nine. Path is dropped in
+        // the single-column tier.
+        assert_eq!(detail_panel_rows(120), 7);
+        assert_eq!(detail_panel_rows(80), 9);
+        assert_eq!(detail_panel_rows(30), 12);
+    }
+
+    #[test]
+    fn detail_col_widths_keep_the_meter_columns_equal() {
+        let (w, n) = detail_col_widths(138, 3);
+        assert_eq!(n, 3);
+        assert_eq!(w[0], w[1], "the two meter columns must match exactly");
+        assert_eq!(w[0] + w[1] + w[2] + DETAIL_COL_GAP * 2, 138);
     }
 
     #[test]
@@ -513,15 +864,15 @@ mod tests {
         };
         let theme = Theme::default();
         let frame = make_frame();
-        let output = draw_detail_panel(&make_panel(&cached, 80, 8, &frame, &theme, true));
+        let output = draw_detail_panel(&make_panel(&cached, 80, 9, &frame, &theme, true));
         let plain = strip_ansi(&output);
 
         assert!(plain.contains("ghost.exe"));
-        assert!(plain.contains("Cmd      ghost.exe --orphan"));
+        assert!(plain.contains("Args     --orphan"));
         assert!(plain.contains("PID 999"));
         assert!(
-            plain.contains("\u{2717} Process exited"),
-            "dead flag must surface the exited status line: {plain}"
+            plain.contains("\u{2717} Exited"),
+            "dead flag must surface the exited status: {plain}"
         );
     }
 

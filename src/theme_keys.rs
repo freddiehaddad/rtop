@@ -70,6 +70,11 @@ pub const STATUSBAR_HI: ColorKey = ColorKey(22);
 /// in this colour to subtly chunk adjacent items; the brackets are
 /// the only glyphs in the bar that use this key.
 pub const STATUSBAR_SEP: ColorKey = ColorKey(23);
+/// Foreground for data labels in label/value pairs, currently the
+/// process detail panel. Sits between `main_fg` and `dead_proc_fg`
+/// in brightness so a label reads as secondary to its value without
+/// becoming as dim as `graph_text`.
+pub const DATA_LABEL_FG: ColorKey = ColorKey(24);
 
 // Gradient keys for `Theme::gradient()` lookups.
 // Grouped by widget: CPU, memory, network, GPU, disk, other.
