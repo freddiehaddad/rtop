@@ -15,7 +15,7 @@ struct PdhVal {
 #[link(name = "pdh")]
 unsafe extern "system" {
     fn PdhOpenQueryW(ds: *const u16, ud: usize, q: *mut isize) -> i32;
-    fn PdhAddCounterW(q: isize, p: *const u16, ud: usize, c: *mut isize) -> i32;
+    fn PdhAddEnglishCounterW(q: isize, p: *const u16, ud: usize, c: *mut isize) -> i32;
     fn PdhCollectQueryData(q: isize) -> i32;
     fn PdhGetFormattedCounterValue(c: isize, f: u32, ct: *mut u32, v: *mut PdhVal) -> i32;
     fn PdhCloseQuery(q: isize) -> i32;
@@ -123,7 +123,7 @@ impl PdhQuery {
         let mut raw = 0isize;
         // SAFETY: self.raw is an open PDH query and path is expected to be a
         // null-terminated UTF-16 counter path.
-        let status = unsafe { PdhAddCounterW(self.raw, path.as_ptr(), 0, &mut raw) };
+        let status = unsafe { PdhAddEnglishCounterW(self.raw, path.as_ptr(), 0, &mut raw) };
         if status == 0 && raw != 0 {
             Ok(PdhCounter { raw })
         } else {
