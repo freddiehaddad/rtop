@@ -154,7 +154,10 @@ struct IntelBackend {
     /// different TjMax values across cores.
     tj_max: Vec<u32>,
     /// Energy unit in joules per RAPL counter increment.
-    energy_unit_j: f64,
+    ///
+    /// None when the CPU has no RAPL support (pre-Sandy-Bridge Intel).
+    /// Power readings are then unavailable, but temperature still is.
+    energy_unit_j: Option<f64>,
     /// Energy state for power differentiation.
     energy_state: Option<EnergyState>,
     /// Highest package power observed in watts since the collector started.
@@ -172,10 +175,13 @@ impl IntelBackend {
             .map(|core| read_intel_tj_max(&pawnio, core).unwrap_or(100))
             .collect();
 
-        // RAPL energy unit is package-wide.
-        let unit_raw = pawnio.read_msr(MSR_RAPL_POWER_UNIT)?;
-        let energy_esu = ((unit_raw & RAPL_ENERGY_UNIT_MASK) >> 8) as u32;
-        let energy_unit_j = 1.0 / ((1u64 << energy_esu) as f64);
+        // RAPL energy unit is package-wide. RAPL does not exist on pre-Sandy-Bridge
+        // Intel parts, where the read raises #GP (STATUS_PRIVILEGE_NOT_HELD).
+        // Treat that as no power data instead of failing the whole thermal backend.
+        let energy_unit_j = pawnio.read_msr(MSR_RAPL_POWER_UNIT).ok().map(|unit_raw| {
+            let energy_esu = ((unit_raw & RAPL_ENERGY_UNIT_MASK) >> 8) as u32;
+            1.0 / ((1u64 << energy_esu) as f64)
+        });
 
         Ok(Self {
             pawnio,
@@ -199,7 +205,9 @@ impl IntelBackend {
             .pawnio
             .read_msr(MSR_IA32_PACKAGE_THERM_STATUS)
             .ok()
-            .and_then(|raw| decode_intel_temp(raw, *self.tj_max.first().unwrap_or(&100)));
+            .and_then(|raw| decode_intel_temp(raw, *self.tj_max.first().unwrap_or(&100)))
+            // Core 2 has no IA32_PACKAGE_THERM_STATUS; report the hottest core.
+            .or_else(|| core_temps.iter().copied().filter(|t| *t > 0).max());
 
         let watts = self
             .pawnio
@@ -208,10 +216,11 @@ impl IntelBackend {
             .and_then(|raw| {
                 let now = Instant::now();
                 let counter = (raw & 0xFFFF_FFFF) as u32;
-                let watts = self
-                    .energy_state
-                    .as_ref()
-                    .and_then(|prev| compute_watts(prev, counter, now, self.energy_unit_j));
+                let watts = self.energy_unit_j.and_then(|unit| {
+                    self.energy_state
+                        .as_ref()
+                        .and_then(|prev| compute_watts(prev, counter, now, unit))
+                });
                 self.energy_state = Some(EnergyState { counter, when: now });
                 watts
             });
@@ -246,6 +255,12 @@ fn decode_intel_temp(raw: u64, tj_max: u32) -> Option<i64> {
         return None;
     }
     let distance = ((raw & THERM_DISTANCE_MASK) >> 16) as i64;
+    // Core 2 / Wolfdale advertises a digital thermal sensor (CPUID.06H:EAX[0])
+    // but never programs IA32_TEMPERATURE_TARGET, so TjMax reads back as 0.
+    // On such parts this field is the absolute die temperature in degrees C.
+    if tj_max == 0 {
+        return Some(distance);
+    }
     Some(tj_max as i64 - distance)
 }
 
